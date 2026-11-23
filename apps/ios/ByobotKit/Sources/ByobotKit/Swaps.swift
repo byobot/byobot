@@ -34,9 +34,11 @@ public enum Swaps {
             let cp = Set(candidate.targets?.main ?? []), cs = Set(candidate.targets?.synergists ?? [])
             guard !p.isDisjoint(with: cp) else { continue }
             if !kinds.isEmpty, kinds.isDisjoint(with: candidate.tags ?? []) { continue }
-            let score = 3 * Double(p.intersection(cp).count) + Double(p.intersection(cs).count)
-                + Double(s.intersection(cp).count) + 0.5 * Double(s.intersection(cs).count)
-                - 1.5 * Double(cp.subtracting(p).count) - Double(p.subtracting(cp).count)
+            let shared: Double = 3 * Double(p.intersection(cp).count)
+            let support: Double = Double(p.intersection(cs).count) + Double(s.intersection(cp).count)
+                + 0.5 * Double(s.intersection(cs).count)
+            let penalty: Double = 1.5 * Double(cp.subtracting(p).count) + Double(p.subtracting(cp).count)
+            let score: Double = shared + support - penalty
             guard score > 0 else { continue }
             let missing = equipment.map { have in (candidate.equipment ?? []).filter { !have.contains($0) } } ?? []
             out.append(Alternative(activity: candidate, score: score, missingEquipment: missing))
