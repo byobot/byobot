@@ -71,7 +71,9 @@ jobs:
 
   ios:
     name: iPhone app (ByobotKit tests, simulator build)
-    runs-on: macos-15
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
       - name: Versions
