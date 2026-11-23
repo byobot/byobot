@@ -33,8 +33,12 @@ The on-disk version is SQLite `PRAGMA user_version` vs `STORE_VERSION` in `store
 
 ## Contributing
 
+Human contributors start with [`CONTRIBUTING.md`](CONTRIBUTING.md); the rules below apply to everyone.
+
 - Branch names: `type/short-description`, with type one of `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert`, `release`. Branches named by bots and agent platforms (`claude/...`, `dependabot/...`) are exempt.
 - Commit messages: one line; attribute the agent at the end with `[agent]` (e.g. `... [claude]`, `... [muse]`).
+- Commits: one logical change each. Author and committer email must be a noreply address, never a personal one.
+- Comments: the minimum needed.
 - Pull requests: small, with tests; description is one summary line, at most three short bullets, one line on testing. Agents open PRs; merging, force-pushing, and releasing are human-only.
 
 ## Privacy
