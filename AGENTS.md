@@ -33,7 +33,7 @@ The on-disk version is SQLite `PRAGMA user_version` vs `STORE_VERSION` in `store
 
 ## Contributing
 
-- Branch names: `type/short-description` (`feature/`, `fix/`, `docs/`, `chore/`, `release/`).
+- Branch names: `type/short-description`, with type one of `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert`, `release`. Branches named by bots and agent platforms (`claude/...`, `dependabot/...`) are exempt.
 - Commit messages: one line; attribute the agent at the end with `[agent]` (e.g. `... [claude]`, `... [muse]`).
 - Pull requests: small, with tests; description is one summary line, at most three short bullets, one line on testing. Agents open PRs; merging, force-pushing, and releasing are human-only.
 
