@@ -1,46 +1,27 @@
-# Agent conventions
+# AGENTS.md
 
-Conventions for any coding agent working in this repository. This file is the only agent instruction file.
-
-## Layout
-
-- `python/src/byobot/` — Python package: `commands.py` (registry), `cli.py` (CLI, JSON on stdout), `mcp.py` (JSON-RPC on stdio), `serve.py` (LAN HTTPS sync server, port 8765, cert pinning + QR pairing), `store.py` (SQLite store), `contract.py` (loads `schema/v0`, validates documents).
-- `apps/ios/` — iPhone app; logic lives in the ByobotKit Swift package. `project.yml` is the XcodeGen spec.
-- `schema/v0/` — the v0 JSON Schema contract; fixtures in `schema/fixtures/v0/`.
-- `library/` — shipped activity library: `activities/<id>.json` plus `vocabulary.json`, loaded by `library.py` (`BYOBOT_LIBRARY` overrides the path) and layered under ledger-defined activities. Names are lowercase with underscores.
-- `tools/gen_swift.py` — generates `Generated/Contract.swift` from `schema/v0`.
-
-## Setup and tests
+## Commands
 
 ```bash
-cd python && pip install -e ".[test]" && pytest
-cd apps/ios/ByobotKit && swift test
+cd python && pip install -e ".[test]"
+pytest                              # from python/
+pytest tests/test_store.py -k NAME  # one test
+python tools/gen_swift.py           # from the repo root, after any schema change; --check verifies
+cd apps/ios/ByobotKit && swift test # macOS only
 ```
 
-CI (`.github/workflows/ci.yml`) runs the Python tests, contract check, wheel smoke test, and iOS build on push to main and on PRs.
+CI runs all of these. A change is done when they pass.
 
-After a schema change regenerate Swift from the repo root: `python tools/gen_swift.py` (`--check` fails if the committed file differs).
+## Rules
 
-## Contract first
-
-`schema/v0` is the source of truth. A schema change ships with fixtures (add a case when a rule gets tighter or looser), regenerated Swift, and Python + Swift tests. Never hand-edit `Generated/Contract.swift`; change the schema and regenerate. `SCHEMA_VERSION` in `contract.py` is currently `0`, separate from the store version.
-
-## Store
-
-`events` is an append-only SQLite log (update/delete triggers abort); telemetry sources stay in `raw_records`. Everything else is derived and rebuilt from those logs (`Store.rebuild` / the `rebuild` command); `sync_peers` is not derived and survives rebuilds. A changed library also rebuilds the ledger on open.
-
-The on-disk version is SQLite `PRAGMA user_version` vs `STORE_VERSION` in `store.py` (currently `4`): a newer database raises `RuntimeError`; version `0` creates the ledger and telemetry tables; an older version rebuilds the derived ledger only, leaving `events`, `raw_records`, `telemetry_samples`, and `sync_peers` in place. Bump `STORE_VERSION` when a derived-ledger change must apply to existing databases.
-
-## Contributing
-
-Human contributors start with [`CONTRIBUTING.md`](CONTRIBUTING.md); the rules below apply to everyone.
-
-- Branch names: `type/short-description`, with type one of `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert`, `release`. Branches named by bots and agent platforms (`claude/...`, `dependabot/...`) are exempt.
-- Commit messages: a one-line subject.
-- Commits: one logical change each. Author and committer email must be a noreply address, never a personal one.
-- Comments: the minimum needed.
-- Pull requests: small, with tests; description is one summary line, at most three short bullets, one line on testing. Agents open PRs; merging, force-pushing, and releasing are human-only.
+- `schema/v0` is the source of truth. A schema change ships with fixtures in `schema/fixtures/v0`, regenerated Swift, and Python and Swift tests.
+- Never edit `apps/ios/ByobotKit/Sources/ByobotKit/Generated/Contract.swift` by hand.
+- The `events` table is append-only. Bump `STORE_VERSION` in `store.py` when a derived-table change must reach existing databases.
+- Library activity ids never change or go away. Names are lowercase with underscores; see `library/README.md`.
+- Ask first before changing `SCHEMA_VERSION`, `STORE_VERSION` or the sync protocol.
+- One logical change per commit. Minimal comments.
+- Merging, force-pushing and releases are for maintainers.
 
 ## Privacy
 
-Use only example data in fixtures and tests: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. Keep real personal names, device names, hostnames, IPs, places, and health data out of fixtures, tests, commit messages, commit metadata, branch names, and PRs.
+This repo is public and handles health data. Use only example data: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. No real names, emails, devices, hostnames, IPs, places or health data in code, tests, commits, commit metadata, branch names or PRs. Commit with a noreply email.
