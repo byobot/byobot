@@ -43,4 +43,4 @@ Human contributors start with [`CONTRIBUTING.md`](CONTRIBUTING.md); the rules be
 
 ## Privacy
 
-Use only example data in fixtures and tests: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. Keep real personal names, device names, hostnames, IPs, places, and health data out of fixtures, tests, commit messages, and PRs.
+Use only example data in fixtures and tests: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. Keep real personal names, device names, hostnames, IPs, places, and health data out of fixtures, tests, commit messages, commit metadata, branch names, and PRs.
