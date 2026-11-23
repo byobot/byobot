@@ -3,9 +3,8 @@
 Issues and pull requests are welcome, from forks too.
 
 1. Read [`AGENTS.md`](AGENTS.md): its commands, rules and privacy section apply to everyone.
-2. Branch as `type/short-description`, where type is `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert` or `release`.
-3. Make one logical change per commit, with a one-line lowercase subject.
-4. Open a pull request against `main` with one summary line, at most three short bullets and one line on how you tested. CI must pass, and maintainers merge.
+2. Make one logical change per commit, with a one-line lowercase subject.
+3. Open a pull request against `main` with one summary line, at most three short bullets and one line on how you tested. CI must pass, and maintainers merge.
 
 To add an exercise, see [`library/README.md`](library/README.md).
 
