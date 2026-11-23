@@ -4,6 +4,7 @@
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
 import ByobotKit
+import Combine
 import SwiftUI
 
 struct WorkoutView: View {
