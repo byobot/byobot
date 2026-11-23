@@ -151,12 +151,13 @@ public struct SummaryRow: Identifiable, Equatable, Sendable {
     public var id: String { exercise.id }
 }
 
-public struct SessionSummary: Equatable, Sendable {
+public struct SessionSummary: Equatable, Sendable, Identifiable {
     public var rows: [SummaryRow]
     public var extras: [PerformedEffort]
     public var done: Int
     public var total: Int
     public var duration: TimeInterval?
+    public var id: String { rows.map(\.id).joined(separator: ",") + "\(done)" }
 }
 
 extension Workout {

@@ -4,6 +4,7 @@
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
 import ByobotKit
+import Combine
 import SwiftUI
 
 struct WorkoutView: View {
@@ -223,10 +224,6 @@ struct LogForm: Identifiable {
 
 extension Exercise {
     var swapped: Bool { swap != nil }
-}
-
-extension SessionSummary: Identifiable {
-    public var id: String { rows.map(\.id).joined(separator: ",") + "\(done)" }
 }
 
 // MARK: Cards
