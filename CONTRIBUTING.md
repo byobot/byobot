@@ -4,7 +4,7 @@ Thanks for helping. Issues and pull requests are welcome, from forks or branches
 
 ## Setup and tests
 
-Layout, setup, tests and the contract-first rules are in [`AGENTS.md`](AGENTS.md). They apply to people and agents alike.
+Commands, tests and the rules for changing the code are in [`AGENTS.md`](AGENTS.md). They apply to people and agents alike.
 
 ## Workflow
 
