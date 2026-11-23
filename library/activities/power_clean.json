@@ -1,0 +1,24 @@
+{
+  "id": "power_clean",
+  "name": "Power Clean",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "hamstrings"
+    ],
+    "synergists": [
+      "glutes",
+      "front_delts",
+      "traps"
+    ]
+  }
+}

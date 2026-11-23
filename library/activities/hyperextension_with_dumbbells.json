@@ -1,0 +1,23 @@
+{
+  "id": "hyperextension_with_dumbbells",
+  "name": "Hyperextension (With Dumbbells)",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "erector_spinae"
+    ],
+    "synergists": [
+      "glutes",
+      "hamstrings"
+    ]
+  }
+}

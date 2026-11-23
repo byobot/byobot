@@ -1,0 +1,23 @@
+{
+  "id": "cable_one_arm_lat_pulldown",
+  "name": "Cable One Arm Lat Pulldown",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "compound",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "lats"
+    ],
+    "synergists": [
+      "traps",
+      "biceps"
+    ]
+  }
+}

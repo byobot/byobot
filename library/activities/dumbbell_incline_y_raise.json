@@ -1,0 +1,22 @@
+{
+  "id": "dumbbell_incline_y_raise",
+  "name": "Dumbbell Incline Y-Raise",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 2,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "rear_delts"
+    ],
+    "synergists": [
+      "side_delts"
+    ]
+  }
+}

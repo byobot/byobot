@@ -1,0 +1,23 @@
+{
+  "id": "barbell_single_leg_deadlift",
+  "name": "Barbell Single Leg Deadlift",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "glutes",
+      "hamstrings"
+    ],
+    "synergists": [
+      "erector_spinae"
+    ]
+  }
+}

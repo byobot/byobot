@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v0/event.schema.json",
+  "title": "byobot event, v0",
+  "description": "Every authored change to the ledger is one immutable event. The envelope says who wrote it, from which device and when; the payload is checked against the schema for its type. Undo is itself an event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "type",
+    "ts",
+    "device_id",
+    "actor",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid",
+      "description": "Globally unique event id (UUIDv7 preferred)."
+    },
+    "schema_version": {
+      "const": 0
+    },
+    "type": {
+      "enum": [
+        "activity.defined",
+        "location.defined",
+        "plan.defined",
+        "session.planned",
+        "session.performed",
+        "effort.performed",
+        "event.undone"
+      ]
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp",
+      "description": "When the event was authored."
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The byobot install that authored the event."
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "activity.defined"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/activity"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "location.defined"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/location"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "plan.defined"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/plan"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "session.planned"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/planned_session"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "session.performed"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/performed_session"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "effort.performed"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "training.schema.json#/$defs/performed_effort"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "event.undone"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/undo"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "actor": {
+      "description": "Who authored the event: the person, an agent (with its model, if known) or a connector.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "agent",
+            "connector"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "agent"
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "model"
+          ]
+        }
+      }
+    },
+    "undo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "common.schema.json#/$defs/uuid",
+          "description": "The event being undone. Undoing an undo restores the original."
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    }
+  }
+}

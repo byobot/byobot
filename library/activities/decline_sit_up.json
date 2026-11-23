@@ -1,0 +1,20 @@
+{
+  "id": "decline_sit_up",
+  "name": "Decline Sit-Up",
+  "equipment": [
+    "weighted_bodyweight"
+  ],
+  "movement_type": "compound",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "abs"
+    ],
+    "synergists": []
+  }
+}

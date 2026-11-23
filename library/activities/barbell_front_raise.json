@@ -1,0 +1,20 @@
+{
+  "id": "barbell_front_raise",
+  "name": "Barbell Front Raise",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "front_delts"
+    ],
+    "synergists": []
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "barbell_seated_overhead_press",
+  "name": "Barbell Seated Overhead Press",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "front_delts"
+    ],
+    "synergists": [
+      "side_delts",
+      "triceps"
+    ]
+  }
+}

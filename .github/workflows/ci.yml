@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.13"
+          - os: windows-latest
+            python: "3.13"
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Test
+        run: python -m pytest -q
+
+  contract:
+    name: Swift types match the contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check the generated Swift is up to date
+        run: python tools/gen_swift.py --check
+
+  package:
+    name: Build and smoke-test the wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build
+        run: |
+          python -m pip install build
+          python -m build python --outdir dist
+      - name: Install the wheel outside the repo and run it
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          cd /tmp
+          export BYOBOT_HOME=/tmp/byobot-home
+          /tmp/venv/bin/byobot init
+          /tmp/venv/bin/byobot validate --as activity.defined '{"id": "plank", "name": "Plank"}'
+          /tmp/venv/bin/byobot status
+          /tmp/venv/bin/byobot devices
+
+  ios:
+    name: iPhone app (ByobotKit tests, simulator build)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions
+        run: xcodebuild -version && swift --version
+      - name: ByobotKit tests (against the shared fixtures)
+        working-directory: apps/ios/ByobotKit
+        run: swift test
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build the app for the simulator, unsigned
+        working-directory: apps/ios
+        run: >
+          xcodebuild build
+          -project Byobot.xcodeproj
+          -scheme Byobot
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO

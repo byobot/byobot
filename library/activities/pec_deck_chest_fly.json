@@ -1,0 +1,20 @@
+{
+  "id": "pec_deck_chest_fly",
+  "name": "Pec Deck Chest Fly",
+  "equipment": [
+    "machine"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "pecs"
+    ],
+    "synergists": []
+  }
+}

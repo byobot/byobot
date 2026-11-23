@@ -1,0 +1,20 @@
+{
+  "id": "smith_machine_calf_raise_with_block",
+  "name": "Smith Machine Calf Raise (With Block)",
+  "equipment": [
+    "plates"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "calves"
+    ],
+    "synergists": []
+  }
+}

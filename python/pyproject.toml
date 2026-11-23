@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "byobot"
+version = "0.1.0.dev0"
+description = "Bring your own bot: one local database for your health data, and a CLI and MCP server so the agent of your choice can coach you."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "The byobot Authors" }]
+requires-python = ">=3.10"
+dependencies = ["jsonschema>=4.18", "cryptography>=41", "segno>=1.5"]
+keywords = ["health", "fitness", "mcp", "agents", "sqlite", "healthkit"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/byobot/byobot"
+Source = "https://github.com/byobot/byobot"
+Issues = "https://github.com/byobot/byobot/issues"
+
+[project.scripts]
+byobot = "byobot.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/byobot"]
+
+# The contract and the activity library live at the repo root so every implementation shares them.
+# The wheel carries copies (see hatch_build.py); a source checkout reads ../schema and ../library.
+[tool.hatch.build.targets.wheel.hooks.custom]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../schema" = "schema"
+"../library" = "library"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

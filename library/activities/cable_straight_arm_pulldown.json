@@ -1,0 +1,22 @@
+{
+  "id": "cable_straight_arm_pulldown",
+  "name": "Cable Straight Arm Pulldown",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "lats"
+    ],
+    "synergists": [
+      "triceps"
+    ]
+  }
+}

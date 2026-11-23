@@ -1,0 +1,20 @@
+{
+  "id": "reverse_incline_crunch",
+  "name": "Reverse Incline Crunch",
+  "equipment": [
+    "weighted_bodyweight"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "abs"
+    ],
+    "synergists": []
+  }
+}

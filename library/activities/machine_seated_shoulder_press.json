@@ -1,0 +1,20 @@
+{
+  "id": "machine_seated_shoulder_press",
+  "name": "Machine Seated Shoulder Press",
+  "equipment": [
+    "machine"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "front_delts"
+    ],
+    "synergists": []
+  }
+}

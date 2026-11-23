@@ -1,0 +1,20 @@
+{
+  "id": "dumbbell_glute_bridge",
+  "name": "Dumbbell Glute Bridge",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "glutes"
+    ],
+    "synergists": []
+  }
+}

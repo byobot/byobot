@@ -1,0 +1,20 @@
+{
+  "id": "ez_barbell_preacher_curl",
+  "name": "EZ Barbell Preacher Curl",
+  "equipment": [
+    "ez_barbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 2,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "biceps"
+    ],
+    "synergists": []
+  }
+}

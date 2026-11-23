@@ -1,0 +1,24 @@
+{
+  "id": "smith_machine_row",
+  "name": "Smith Machine Row",
+  "equipment": [
+    "plates"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "traps"
+    ],
+    "synergists": [
+      "biceps",
+      "lats",
+      "rear_delts"
+    ]
+  }
+}

@@ -1,0 +1,338 @@
+{
+  "description": "A small activity library for tests, in the format `byobot import-activities` reads: an object with an `activities` list (a bare list works too). Each activity is an activity.defined payload.",
+  "schema_version": 0,
+  "activities": [
+    {
+      "id": "barbell_back_squat",
+      "name": "Barbell back squat",
+      "tags": [
+        "strength",
+        "legs"
+      ],
+      "default_metrics": [
+        "reps",
+        "load",
+        "rpe"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "adductors",
+          "erector_spinae"
+        ]
+      },
+      "equipment": [
+        "barbell",
+        "rack"
+      ]
+    },
+    {
+      "id": "goblet_squat",
+      "name": "Goblet squat",
+      "tags": [
+        "strength",
+        "legs"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "adductors",
+          "abs"
+        ]
+      },
+      "equipment": [
+        "dumbbell"
+      ]
+    },
+    {
+      "id": "bulgarian_split_squat",
+      "name": "Bulgarian split squat",
+      "tags": [
+        "strength",
+        "legs",
+        "unilateral"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "adductors"
+        ]
+      },
+      "equipment": [
+        "dumbbell",
+        "bench"
+      ]
+    },
+    {
+      "id": "walking_lunge",
+      "name": "Walking lunge",
+      "tags": [
+        "strength",
+        "legs",
+        "unilateral"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "adductors",
+          "hamstrings"
+        ]
+      },
+      "equipment": [
+        "dumbbell"
+      ]
+    },
+    {
+      "id": "leg_press",
+      "name": "Leg press",
+      "tags": [
+        "strength",
+        "legs"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "adductors"
+        ]
+      },
+      "equipment": [
+        "machine"
+      ]
+    },
+    {
+      "id": "plank",
+      "name": "Plank",
+      "tags": [
+        "core"
+      ],
+      "default_metrics": [
+        "duration"
+      ],
+      "targets": {
+        "main": [
+          "abs"
+        ],
+        "synergists": [
+          "obliques",
+          "glutes"
+        ]
+      }
+    },
+    {
+      "id": "pull_up",
+      "name": "Pull-up",
+      "tags": [
+        "strength",
+        "pull"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "lats"
+        ],
+        "synergists": [
+          "biceps",
+          "traps",
+          "forearms"
+        ]
+      },
+      "equipment": [
+        "pull_up_bar"
+      ]
+    },
+    {
+      "id": "lat_pulldown",
+      "name": "Lat pulldown",
+      "tags": [
+        "strength",
+        "pull"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "lats"
+        ],
+        "synergists": [
+          "biceps",
+          "traps"
+        ]
+      },
+      "equipment": [
+        "cable"
+      ]
+    },
+    {
+      "id": "seated_cable_row",
+      "name": "Seated cable row",
+      "tags": [
+        "strength",
+        "pull"
+      ],
+      "default_metrics": [
+        "reps",
+        "load"
+      ],
+      "targets": {
+        "main": [
+          "traps",
+          "lats"
+        ],
+        "synergists": [
+          "biceps",
+          "rear_delts"
+        ]
+      },
+      "equipment": [
+        "cable"
+      ]
+    },
+    {
+      "id": "run",
+      "name": "Run",
+      "tags": [
+        "cardio"
+      ],
+      "default_metrics": [
+        "duration",
+        "distance",
+        "heart_rate",
+        "pace"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "hamstrings",
+          "calves"
+        ],
+        "synergists": [
+          "glutes"
+        ]
+      }
+    },
+    {
+      "id": "treadmill_run",
+      "name": "Treadmill run",
+      "tags": [
+        "cardio"
+      ],
+      "default_metrics": [
+        "duration",
+        "distance",
+        "heart_rate",
+        "pace"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "hamstrings",
+          "calves"
+        ],
+        "synergists": [
+          "glutes"
+        ]
+      },
+      "equipment": [
+        "treadmill"
+      ]
+    },
+    {
+      "id": "bike",
+      "name": "Bike",
+      "tags": [
+        "cardio"
+      ],
+      "default_metrics": [
+        "duration",
+        "distance",
+        "heart_rate",
+        "power"
+      ],
+      "targets": {
+        "main": [
+          "quads",
+          "glutes"
+        ],
+        "synergists": [
+          "hamstrings",
+          "calves"
+        ]
+      },
+      "equipment": [
+        "bike"
+      ]
+    },
+    {
+      "id": "pigeon_stretch",
+      "name": "Pigeon stretch",
+      "tags": [
+        "mobility",
+        "unilateral"
+      ],
+      "default_metrics": [
+        "duration"
+      ],
+      "targets": {
+        "main": [
+          "glutes"
+        ],
+        "synergists": [
+          "hip_flexors"
+        ]
+      }
+    },
+    {
+      "id": "couch_stretch",
+      "name": "Couch stretch",
+      "tags": [
+        "mobility",
+        "unilateral"
+      ],
+      "default_metrics": [
+        "duration"
+      ],
+      "targets": {
+        "main": [
+          "hip_flexors",
+          "quads"
+        ]
+      }
+    }
+  ]
+}

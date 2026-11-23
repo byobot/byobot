@@ -1,0 +1,22 @@
+{
+  "id": "face_pulls",
+  "name": "Face Pulls",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "rear_delts"
+    ],
+    "synergists": [
+      "traps"
+    ]
+  }
+}

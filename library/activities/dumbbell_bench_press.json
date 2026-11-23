@@ -1,0 +1,23 @@
+{
+  "id": "dumbbell_bench_press",
+  "name": "Dumbbell Bench Press",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "pecs"
+    ],
+    "synergists": [
+      "front_delts",
+      "triceps"
+    ]
+  }
+}

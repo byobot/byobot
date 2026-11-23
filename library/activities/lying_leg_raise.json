@@ -1,0 +1,20 @@
+{
+  "id": "lying_leg_raise",
+  "name": "Lying Leg Raise",
+  "equipment": [
+    "weighted_bodyweight"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 2,
+    "contract": 2
+  },
+  "targets": {
+    "main": [
+      "abs"
+    ],
+    "synergists": []
+  }
+}

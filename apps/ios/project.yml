@@ -1,0 +1,41 @@
+# The Xcode project for the byobot iPhone app, generated with XcodeGen (`xcodegen generate`),
+# so there is no .xcodeproj to merge. The app's logic lives in the ByobotKit package.
+name: Byobot
+options:
+  bundleIdPrefix: io.github.byobot
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  ByobotKit:
+    path: ByobotKit
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Byobot:
+    type: application
+    platform: iOS
+    sources:
+      - path: Byobot
+    dependencies:
+      - package: ByobotKit
+      - sdk: HealthKit.framework
+    settings:
+      base:
+        # Proposal: change to your own reverse-DNS id and set your team to run on a phone.
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.byobot.app
+        PRODUCT_NAME: Byobot
+        INFOPLIST_FILE: Support/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Support/Byobot.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+schemes:
+  Byobot:
+    build:
+      targets:
+        Byobot: all

@@ -1,0 +1,23 @@
+{
+  "id": "trap_bar_deadlift",
+  "name": "Trap-Bar Deadlift",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "glutes",
+      "hamstrings"
+    ],
+    "synergists": [
+      "erector_spinae"
+    ]
+  }
+}

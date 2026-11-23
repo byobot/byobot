@@ -1,0 +1,22 @@
+{
+  "id": "dumbbell_bent_over_rear_delt_fly",
+  "name": "Dumbbell Bent Over Rear Delt Fly",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "rear_delts"
+    ],
+    "synergists": [
+      "traps"
+    ]
+  }
+}

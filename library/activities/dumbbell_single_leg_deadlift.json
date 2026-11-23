@@ -1,0 +1,23 @@
+{
+  "id": "dumbbell_single_leg_deadlift",
+  "name": "Dumbbell Single Leg Deadlift",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "glutes",
+      "hamstrings"
+    ],
+    "synergists": [
+      "erector_spinae"
+    ]
+  }
+}

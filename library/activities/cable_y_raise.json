@@ -1,0 +1,23 @@
+{
+  "id": "cable_y_raise",
+  "name": "Cable Y-Raise",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "rear_delts",
+      "side_delts"
+    ],
+    "synergists": [
+      "traps"
+    ]
+  }
+}

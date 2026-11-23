@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v0/telemetry.schema.json",
+  "title": "byobot telemetry sample, v0",
+  "description": "One measurement from a device or service. Samples are keyed on (source, source_id), so importing the same data twice changes nothing. Types use HealthKit identifiers where HealthKit has one; `byobot.` types fill the gaps. Values use one canonical unit per type.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "source_id", "type", "start", "end", "value"],
+  "properties": {
+    "source": { "$ref": "common.schema.json#/$defs/slug", "description": "Where the sample came from, for example `whoop`, `hume`, `apple-health`." },
+    "source_id": { "type": "string", "minLength": 1, "maxLength": 256, "description": "The source's own id for this sample, stable across re-imports." },
+    "type": {
+      "enum": [
+        "HKQuantityTypeIdentifierBodyMass",
+        "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+        "byobot.HeartRateVariabilityRMSSD",
+        "HKQuantityTypeIdentifierRestingHeartRate",
+        "HKCategoryTypeIdentifierSleepAnalysis"
+      ]
+    },
+    "start": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "end": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "value": { "type": ["number", "string"] },
+    "unit": { "type": "string" },
+    "device": { "$ref": "#/$defs/device" },
+    "raw": { "description": "The source's original record, kept as-is so canonical rows can be rebuilt." }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierBodyMass" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 700 }, "unit": { "const": "kg" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierHeartRateVariabilitySDNN", "byobot.HeartRateVariabilityRMSSD"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 }, "unit": { "const": "ms" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierRestingHeartRate" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }, "unit": { "const": "count/min" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKCategoryTypeIdentifierSleepAnalysis" } }, "required": ["type"] },
+      "then": {
+        "not": { "required": ["unit"] },
+        "properties": { "value": { "enum": ["inBed", "asleepUnspecified", "awake", "asleepCore", "asleepDeep", "asleepREM"] } }
+      }
+    }
+  ],
+  "$defs": {
+    "device": {
+      "description": "The physical device that took the measurement, so baselines can be kept per device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "manufacturer": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    }
+  }
+}

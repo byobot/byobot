@@ -1,0 +1,44 @@
+{
+  "muscles": [
+    "abductors",
+    "abs",
+    "adductors",
+    "biceps",
+    "calves",
+    "erector_spinae",
+    "forearms",
+    "front_delts",
+    "glutes",
+    "hamstrings",
+    "hip_flexors",
+    "lats",
+    "obliques",
+    "pecs",
+    "quads",
+    "rear_delts",
+    "side_delts",
+    "traps",
+    "triceps"
+  ],
+  "equipment": [
+    "band",
+    "barbell",
+    "bench",
+    "bodyweight",
+    "cable",
+    "dumbbell",
+    "ez_barbell",
+    "kettlebell",
+    "machine",
+    "plates",
+    "pull_up_bar",
+    "rack",
+    "rings",
+    "smith_machine",
+    "weighted_bodyweight"
+  ],
+  "movement_types": [
+    "compound",
+    "isolation"
+  ]
+}

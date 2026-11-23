@@ -1,0 +1,738 @@
+{
+  "description": "Shared cases for the byobot v0 sync protocol (sync.schema.json): messages between `byobot serve` and the app, and pairing links. Every implementation validates or decodes each message case against `def` in schema/v0/sync.schema.json, and parses each link to exactly `expect`.",
+  "schema_version": 0,
+  "cases": [
+    {
+      "name": "sync/hello",
+      "def": "hello",
+      "valid": true,
+      "data": {
+        "byobot": "0.1.0.dev0",
+        "protocol": 0,
+        "schema_version": 0,
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "name": "example-laptop"
+        },
+        "pairing_open": true
+      }
+    },
+    {
+      "name": "sync/pair-request",
+      "def": "pair_request",
+      "valid": true,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone"
+      }
+    },
+    {
+      "name": "sync/pair-request-short-code",
+      "def": "pair_request",
+      "valid": false,
+      "description": "Codes are six digits.",
+      "data": {
+        "code": "4281",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone"
+      }
+    },
+    {
+      "name": "sync/pair-request-extra-field",
+      "def": "pair_request",
+      "valid": false,
+      "description": "Requests are strict.",
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone",
+        "token": "x"
+      }
+    },
+    {
+      "name": "sync/pair-response",
+      "def": "pair_response",
+      "valid": true,
+      "data": {
+        "token": "q6Yb0r7G2mJ4nY0sS8cW1vT3xZ5aB7dE9fH1jK3lM5n",
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "name": "example-laptop"
+        },
+        "device": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+          "name": "Example iPhone",
+          "paired_at": "2026-11-21T03:40:00.000Z",
+          "last_seen_at": "2026-11-21T03:40:00.000Z",
+          "revoked_at": null
+        }
+      }
+    },
+    {
+      "name": "sync/plan-window",
+      "def": "plan_window",
+      "valid": true,
+      "description": "Two weeks of planned sessions, with one effort already logged.",
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "name": "Barbell back squat",
+            "tags": [
+              "strength",
+              "legs"
+            ],
+            "default_metrics": [
+              "reps",
+              "load",
+              "rpe"
+            ]
+          },
+          {
+            "id": "couch_stretch",
+            "name": "Couch stretch"
+          },
+          {
+            "id": "bouldering",
+            "name": "Bouldering",
+            "tags": [
+              "climbing"
+            ],
+            "default_metrics": [
+              "x.grade",
+              "duration"
+            ]
+          }
+        ],
+        "plans": [
+          {
+            "id": "plan-2026-w48",
+            "name": "Strength block, week 1",
+            "goal": "Add 10 kg to the squat by February",
+            "starts_on": "2026-11-23",
+            "ends_on": "2027-02-15"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "sess-lower-a",
+            "plan_id": "plan-2026-w48",
+            "scheduled_on": "2026-11-23",
+            "name": "Lower A",
+            "blocks": [
+              {
+                "id": "b-warmup",
+                "name": "Warm-up",
+                "efforts": [
+                  {
+                    "id": "e-warm",
+                    "activity_id": "barbell_back_squat",
+                    "metrics": {
+                      "reps": {
+                        "value": 5
+                      },
+                      "load": {
+                        "value": 60,
+                        "unit": "kg"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "b-main",
+                "rounds": 3,
+                "metrics": {
+                  "rest": {
+                    "value": 3,
+                    "unit": "min"
+                  }
+                },
+                "efforts": [
+                  {
+                    "id": "e-squat",
+                    "activity_id": "barbell_back_squat",
+                    "metrics": {
+                      "reps": {
+                        "min": 3,
+                        "max": 5
+                      },
+                      "load": {
+                        "value": 100,
+                        "unit": "kg"
+                      },
+                      "rpe": {
+                        "value": 8
+                      },
+                      "tempo": {
+                        "value": "3010"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "b-amrap",
+                "efforts": [
+                  {
+                    "id": "e-amrap",
+                    "activity_id": "barbell_back_squat",
+                    "metrics": {
+                      "reps": {
+                        "min": 8
+                      },
+                      "load": {
+                        "value": 70,
+                        "unit": "%1rm"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sess-track",
+            "scheduled_on": "2026-11-25",
+            "name": "6 x 400 m",
+            "metrics": {
+              "duration": {
+                "max": 50,
+                "unit": "min"
+              }
+            },
+            "blocks": [
+              {
+                "id": "b-easy",
+                "efforts": [
+                  {
+                    "id": "e-easy",
+                    "activity_id": "run",
+                    "metrics": {
+                      "duration": {
+                        "value": 15,
+                        "unit": "min"
+                      },
+                      "heart_rate": {
+                        "max": 145,
+                        "unit": "bpm"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "b-reps",
+                "rounds": 6,
+                "efforts": [
+                  {
+                    "id": "e-400",
+                    "activity_id": "run",
+                    "metrics": {
+                      "distance": {
+                        "value": 400,
+                        "unit": "m"
+                      },
+                      "pace": {
+                        "min": 215,
+                        "max": 225,
+                        "unit": "s/km"
+                      }
+                    }
+                  },
+                  {
+                    "id": "e-jog",
+                    "activity_id": "jog",
+                    "metrics": {
+                      "duration": {
+                        "value": 90,
+                        "unit": "s"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sess-mobility",
+            "scheduled_on": "2026-11-24",
+            "name": "Hips",
+            "blocks": [
+              {
+                "id": "b-couch",
+                "rounds": 2,
+                "efforts": [
+                  {
+                    "id": "e-couch-l",
+                    "activity_id": "couch_stretch",
+                    "side": "left",
+                    "metrics": {
+                      "duration": {
+                        "value": 60,
+                        "unit": "s"
+                      }
+                    }
+                  },
+                  {
+                    "id": "e-couch-r",
+                    "activity_id": "couch_stretch",
+                    "side": "right",
+                    "metrics": {
+                      "duration": {
+                        "value": 60,
+                        "unit": "s"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sess-upper",
+            "scheduled_on": "2026-11-26",
+            "name": "Upper superset",
+            "blocks": [
+              {
+                "id": "b-ss",
+                "rounds": 4,
+                "metrics": {
+                  "rest": {
+                    "value": 90,
+                    "unit": "s"
+                  }
+                },
+                "efforts": [
+                  {
+                    "id": "e-pullup",
+                    "activity_id": "pull_up",
+                    "metrics": {
+                      "reps": {
+                        "min": 6,
+                        "max": 8
+                      },
+                      "load": {
+                        "value": 10,
+                        "unit": "kg"
+                      }
+                    }
+                  },
+                  {
+                    "id": "e-dip",
+                    "activity_id": "dip",
+                    "metrics": {
+                      "reps": {
+                        "min": 8,
+                        "max": 12
+                      },
+                      "rir": {
+                        "value": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sess-emom",
+            "scheduled_on": "2026-11-27",
+            "name": "EMOM 10",
+            "blocks": [
+              {
+                "id": "b-emom",
+                "rounds": 10,
+                "metrics": {
+                  "duration": {
+                    "value": 60,
+                    "unit": "s"
+                  }
+                },
+                "efforts": [
+                  {
+                    "id": "e-swing",
+                    "activity_id": "kettlebell_swing",
+                    "metrics": {
+                      "reps": {
+                        "value": 15
+                      },
+                      "load": {
+                        "value": 24,
+                        "unit": "kg"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "efforts": [
+          {
+            "id": "eff-1",
+            "session_id": "done-lower-a",
+            "activity_id": "barbell_back_squat",
+            "performed_at": "2026-11-23T07:42:10-05:00",
+            "planned_effort_id": "e-squat",
+            "round": 2,
+            "metrics": {
+              "reps": {
+                "value": 5
+              },
+              "load": {
+                "value": 100,
+                "unit": "kg"
+              },
+              "rpe": {
+                "value": 8.5
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/plan-window-empty",
+      "def": "plan_window",
+      "valid": true,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [],
+        "plans": [],
+        "sessions": [],
+        "efforts": []
+      }
+    },
+    {
+      "name": "sync/plan-window-bad-session",
+      "def": "plan_window",
+      "valid": false,
+      "description": "Sessions are contract documents: a block needs efforts.",
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "name": "Barbell back squat",
+            "tags": [
+              "strength",
+              "legs"
+            ],
+            "default_metrics": [
+              "reps",
+              "load",
+              "rpe"
+            ]
+          },
+          {
+            "id": "couch_stretch",
+            "name": "Couch stretch"
+          },
+          {
+            "id": "bouldering",
+            "name": "Bouldering",
+            "tags": [
+              "climbing"
+            ],
+            "default_metrics": [
+              "x.grade",
+              "duration"
+            ]
+          }
+        ],
+        "plans": [
+          {
+            "id": "plan-2026-w48",
+            "name": "Strength block, week 1",
+            "goal": "Add 10 kg to the squat by February",
+            "starts_on": "2026-11-23",
+            "ends_on": "2027-02-15"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "s",
+            "scheduled_on": "2026-11-23",
+            "name": "x",
+            "blocks": [
+              {
+                "id": "b",
+                "efforts": []
+              }
+            ]
+          }
+        ],
+        "efforts": [
+          {
+            "id": "eff-1",
+            "session_id": "done-lower-a",
+            "activity_id": "barbell_back_squat",
+            "performed_at": "2026-11-23T07:42:10-05:00",
+            "planned_effort_id": "e-squat",
+            "round": 2,
+            "metrics": {
+              "reps": {
+                "value": 5
+              },
+              "load": {
+                "value": 100,
+                "unit": "kg"
+              },
+              "rpe": {
+                "value": 8.5
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/events-request",
+      "def": "events_request",
+      "valid": true,
+      "data": {
+        "events": [
+          {
+            "id": "0193a0b1-0000-7000-8000-000000000002",
+            "schema_version": 0,
+            "type": "session.performed",
+            "ts": "2026-11-20T18:00:00Z",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "payload": {
+              "id": "done-lower-a",
+              "planned_session_id": "sess-lower-a",
+              "started_at": "2026-11-23T07:30:00-05:00",
+              "metrics": {
+                "rpe": {
+                  "value": 8
+                }
+              }
+            }
+          },
+          {
+            "id": "0193a0b1-0000-7000-8000-000000000001",
+            "schema_version": 0,
+            "type": "effort.performed",
+            "ts": "2026-11-20T18:00:00Z",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "payload": {
+              "id": "0193a0b1-0000-7000-8000-0000000000e1",
+              "session_id": "done-lower-a",
+              "activity_id": "barbell_back_squat",
+              "performed_at": "2026-11-23T07:42:10-05:00",
+              "planned_effort_id": "e-squat",
+              "round": 2,
+              "metrics": {
+                "reps": {
+                  "value": 5
+                },
+                "load": {
+                  "value": 100,
+                  "unit": "kg"
+                },
+                "rpe": {
+                  "value": 8.5
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/events-request-invalid-event",
+      "def": "events_request",
+      "valid": false,
+      "description": "Each event is checked against event.schema.json.",
+      "data": {
+        "events": [
+          {
+            "id": "0193a0b1-0000-7000-8000-000000000001",
+            "schema_version": 0,
+            "type": "set.performed",
+            "ts": "2026-11-20T18:00:00Z",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "payload": {
+              "id": "0193a0b1-0000-7000-8000-0000000000e1",
+              "session_id": "done-lower-a",
+              "activity_id": "barbell_back_squat",
+              "performed_at": "2026-11-23T07:42:10-05:00",
+              "planned_effort_id": "e-squat",
+              "round": 2,
+              "metrics": {
+                "reps": {
+                  "value": 5
+                },
+                "load": {
+                  "value": 100,
+                  "unit": "kg"
+                },
+                "rpe": {
+                  "value": 8.5
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/events-response",
+      "def": "events_response",
+      "valid": true,
+      "data": {
+        "results": [
+          {
+            "index": 0,
+            "id": "0193a0b1-0000-7000-8000-000000000002",
+            "status": "accepted"
+          },
+          {
+            "index": 1,
+            "id": "0193a0b1-0000-7000-8000-000000000001",
+            "status": "duplicate"
+          },
+          {
+            "index": 2,
+            "id": "0193a0b1-0000-7000-8000-000000000003",
+            "status": "rejected",
+            "errors": [
+              {
+                "path": "$.device_id",
+                "message": "events must be authored by the paired device that pushes them"
+              }
+            ]
+          }
+        ],
+        "accepted": 1,
+        "duplicate": 1,
+        "rejected": 1
+      }
+    },
+    {
+      "name": "sync/telemetry-request",
+      "def": "telemetry_request",
+      "valid": true,
+      "data": {
+        "samples": [
+          {
+            "source": "apple-health",
+            "source_id": "6f1d0c8e-3a1b-4c2d-9e8f-7a6b5c4d3e2f",
+            "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-20T12:12:00Z",
+            "end": "2026-11-20T12:12:00Z",
+            "value": 82.4,
+            "unit": "kg",
+            "device": {
+              "id": "com.example.hume",
+              "name": "Hume Health",
+              "manufacturer": "Hume"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/telemetry-request-wrong-unit",
+      "def": "telemetry_request",
+      "valid": false,
+      "description": "Body mass is always kg.",
+      "data": {
+        "samples": [
+          {
+            "source": "apple-health",
+            "source_id": "6f1d0c8e",
+            "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-20T12:12:00Z",
+            "end": "2026-11-20T12:12:00Z",
+            "value": 181.7,
+            "unit": "lb"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/telemetry-response",
+      "def": "telemetry_response",
+      "valid": true,
+      "data": {
+        "inserted": 1,
+        "updated": 0,
+        "unchanged": 3,
+        "rejected": []
+      }
+    },
+    {
+      "name": "sync/error",
+      "def": "error",
+      "valid": true,
+      "data": {
+        "error": "unauthorized",
+        "message": "pair this device with `byobot serve` first"
+      }
+    }
+  ],
+  "links": [
+    {
+      "name": "link/two-hosts",
+      "valid": true,
+      "link": "byobot://pair?v=0&host=example-laptop.local&host=192.0.2.23&port=8765&code=042817&fp=a4MDGEnKSYddbOMtbD1ji6JSVQTXMWHWmFMjDKjrx_k",
+      "expect": {
+        "hosts": [
+          "example-laptop.local",
+          "192.0.2.23"
+        ],
+        "port": 8765,
+        "code": "042817",
+        "fp": "6b83031849ca49875d6ce32d6c3d638ba2525504d73161d69853230ca8ebc7f9"
+      }
+    },
+    {
+      "name": "link/ipv4-only",
+      "valid": true,
+      "link": "byobot://pair?v=0&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "expect": {
+        "hosts": [
+          "192.0.2.5"
+        ],
+        "port": 9000,
+        "code": "000001",
+        "fp": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      }
+    },
+    {
+      "name": "link/wrong-scheme",
+      "valid": false,
+      "link": "https://pair?v=0&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    },
+    {
+      "name": "link/missing-fp",
+      "valid": false,
+      "link": "byobot://pair?v=0&host=192.0.2.5&port=9000&code=000001"
+    },
+    {
+      "name": "link/newer-protocol",
+      "description": "An app refuses a protocol it does not speak.",
+      "valid": false,
+      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+  ]
+}

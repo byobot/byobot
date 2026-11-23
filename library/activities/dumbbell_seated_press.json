@@ -1,0 +1,23 @@
+{
+  "id": "dumbbell_seated_press",
+  "name": "Dumbbell Seated Press",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "front_delts"
+    ],
+    "synergists": [
+      "side_delts",
+      "triceps"
+    ]
+  }
+}

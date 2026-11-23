@@ -1,0 +1,23 @@
+{
+  "id": "machine_lat_pulldown",
+  "name": "Machine Lat Pulldown",
+  "equipment": [
+    "machine"
+  ],
+  "movement_type": "compound",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "lats"
+    ],
+    "synergists": [
+      "traps",
+      "biceps"
+    ]
+  }
+}

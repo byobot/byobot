@@ -1,0 +1,21 @@
+{
+  "id": "barbell_sumo_squat",
+  "name": "Barbell Sumo Squat",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "glutes",
+      "quads"
+    ],
+    "synergists": []
+  }
+}

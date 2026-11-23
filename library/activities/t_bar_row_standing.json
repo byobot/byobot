@@ -1,0 +1,24 @@
+{
+  "id": "t_bar_row_standing",
+  "name": "T-Bar Row (Standing)",
+  "equipment": [
+    "plates"
+  ],
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "traps"
+    ],
+    "synergists": [
+      "biceps",
+      "lats",
+      "rear_delts"
+    ]
+  }
+}

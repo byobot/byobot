@@ -1,0 +1,22 @@
+{
+  "id": "barbell_upright_row",
+  "name": "Barbell Upright Row",
+  "equipment": [
+    "barbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "side_delts"
+    ],
+    "synergists": [
+      "traps"
+    ]
+  }
+}

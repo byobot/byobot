@@ -1,0 +1,24 @@
+{
+  "id": "machine_seated_row_chest_supported",
+  "name": "Machine Seated Row (Chest Supported)",
+  "equipment": [
+    "machine"
+  ],
+  "movement_type": "compound",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "traps"
+    ],
+    "synergists": [
+      "biceps",
+      "lats",
+      "rear_delts"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "cable_middle_fly",
+  "name": "Cable Middle Fly",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "pecs"
+    ],
+    "synergists": []
+  }
+}

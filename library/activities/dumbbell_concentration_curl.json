@@ -1,0 +1,20 @@
+{
+  "id": "dumbbell_concentration_curl",
+  "name": "Dumbbell Concentration Curl",
+  "equipment": [
+    "dumbbell"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "biceps"
+    ],
+    "synergists": []
+  }
+}

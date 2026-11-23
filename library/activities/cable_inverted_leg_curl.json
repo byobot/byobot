@@ -1,0 +1,22 @@
+{
+  "id": "cable_inverted_leg_curl",
+  "name": "Cable Inverted Leg Curl",
+  "equipment": [
+    "cable"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 2,
+  "resistance_curve": {
+    "stretch": 2,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "hamstrings"
+    ],
+    "synergists": [
+      "glutes"
+    ]
+  }
+}

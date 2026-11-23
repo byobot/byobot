@@ -1,0 +1,22 @@
+{
+  "id": "hack_squat",
+  "name": "Hack Squat",
+  "equipment": [
+    "plates"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "quads"
+    ],
+    "synergists": [
+      "glutes"
+    ]
+  }
+}

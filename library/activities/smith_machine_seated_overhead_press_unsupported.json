@@ -1,0 +1,23 @@
+{
+  "id": "smith_machine_seated_overhead_press_unsupported",
+  "name": "Smith Machine Seated Overhead Press (Unsupported)",
+  "equipment": [
+    "plates"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 3,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "front_delts"
+    ],
+    "synergists": [
+      "side_delts",
+      "triceps"
+    ]
+  }
+}
