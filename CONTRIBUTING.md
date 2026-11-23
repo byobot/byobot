@@ -9,7 +9,7 @@ Layout, setup, tests and the contract-first rules are in [`AGENTS.md`](AGENTS.md
 ## Workflow
 
 1. Fork the repository (or branch, if you have access) and create a branch named `type/short-description`, e.g. `fix/sync-tie-break`. Types: `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert`, `release`.
-2. Make one logical change per commit, with a one-line lowercase message. Commits made by an agent end with its name in brackets, e.g. `fix tie-break on equal timestamps [claude]`.
+2. Make one logical change per commit, with a one-line lowercase subject. If an agent wrote the change, add its trailer after a blank line, e.g. `Co-authored-by: Claude <noreply@anthropic.com>`.
 3. Open a pull request against `main`: one summary line, at most three short bullets, one line on how you tested. CI must pass. Maintainers merge.
 
 New exercises for the shipped library go through the same flow; see [`library/README.md`](library/README.md).
