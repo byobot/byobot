@@ -134,6 +134,7 @@ class Client:
 
     def call(self, method, path, body=None, token=None):
         ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE  # trust comes from the pinned fingerprint below
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=10)
@@ -433,6 +434,7 @@ def test_plan_window_has_locations_and_where_each_set_happened(store):
 def _raw_exchange(port, fp, request: bytes, timeout: float = 3) -> bytes:
     """One HTTPS request written as bytes, so a test can stop before the body and see if the server waits."""
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     sock = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -492,6 +494,7 @@ def test_unauthenticated_post_is_rejected_before_the_body_is_read(server):
 
 def _tls_client(port, fp):
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     sock = socket.create_connection(("127.0.0.1", port), timeout=5)
