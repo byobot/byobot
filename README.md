@@ -110,7 +110,7 @@ docs/assets  the mascot
 
 ## Development
 
-Conventions for contributors and coding agents are in [`AGENTS.md`](AGENTS.md).
+Conventions for contributors and coding agents are in [`AGENTS.md`](AGENTS.md); start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
 cd python
