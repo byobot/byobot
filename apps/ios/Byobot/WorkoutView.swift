@@ -225,10 +225,6 @@ extension Exercise {
     var swapped: Bool { swap != nil }
 }
 
-extension SessionSummary: Identifiable {
-    public var id: String { rows.map(\.id).joined(separator: ",") + "\(done)" }
-}
-
 // MARK: Cards
 
 /// The set to do now: big targets, nudges, and one tap to log it as planned.
