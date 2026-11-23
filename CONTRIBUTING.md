@@ -1,37 +1,26 @@
-# Contributing to byobot
+# Contributing
 
-Thanks for helping. Issues and pull requests are welcome, from forks or branches.
+Issues and pull requests are welcome, from forks too.
 
-## Setup and tests
+1. Read [`AGENTS.md`](AGENTS.md): its commands, rules and privacy section apply to everyone.
+2. Branch as `type/short-description`, where type is `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert` or `release`.
+3. Make one logical change per commit, with a one-line lowercase subject.
+4. Open a pull request against `main` with one summary line, at most three short bullets and one line on how you tested. CI must pass, and maintainers merge.
 
-Commands, tests and the rules for changing the code are in [`AGENTS.md`](AGENTS.md). They apply to people and agents alike.
+To add an exercise, see [`library/README.md`](library/README.md).
 
-## Workflow
+## Commit with a noreply email
 
-1. Fork the repository (or branch, if you have access) and create a branch named `type/short-description`, e.g. `fix/sync-tie-break`. Types: `feature`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`, `build`, `style`, `revert`, `release`.
-2. Make one logical change per commit, with a one-line lowercase subject.
-3. Open a pull request against `main`: one summary line, at most three short bullets, one line on how you tested. CI must pass. Maintainers merge.
-
-New exercises for the shipped library go through the same flow; see [`library/README.md`](library/README.md).
-
-## Commit identity
-
-The repository is public, so commit metadata is too. Use your GitHub noreply address, never a personal email:
+The repo is public, and so is commit metadata:
 
 ```bash
 git config user.email "ID+USERNAME@users.noreply.github.com"
 ```
 
-Find yours under GitHub Settings > Emails, and turn on "Keep my email addresses private" and "Block command line pushes that expose my email".
+Your address is under GitHub Settings > Emails, where you can also turn on "Block command line pushes that expose my email".
 
-## Privacy
+## Also
 
-byobot handles health data. Use only example data in fixtures, tests, screenshots and issues: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. Keep real names, device names, hostnames, IPs, places and health data out of code, commits, branch names, issues and pull requests.
-
-## Security and conduct
-
-Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md), not in public issues. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## License
-
-Contributions are licensed under Apache-2.0, as section 5 of the [license](LICENSE) describes.
+- Report vulnerabilities privately: [`SECURITY.md`](SECURITY.md).
+- Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Contributions are licensed under [Apache-2.0](LICENSE).
