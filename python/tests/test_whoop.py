@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import sys
 import threading
 import time
@@ -34,6 +35,8 @@ class Fake:
         answer = self.answers[(req.get_method(), url.path)].pop(0)
         if isinstance(answer, int):
             raise urllib.error.HTTPError(req.full_url, answer, "error", {}, None)
+        if isinstance(answer, tuple):
+            raise urllib.error.HTTPError(req.full_url, answer[0], "error", {}, io.BytesIO(answer[1].encode()))
         return io.BytesIO(json.dumps(answer).encode() if answer is not None else b"")
 
 
@@ -61,6 +64,20 @@ def test_connect_signs_in_and_keeps_the_tokens():
     assert form["grant_type"] == ["authorization_code"] and form["code"] == ["example-code"]
     assert form["client_secret"] == ["example-secret"] and form["redirect_uri"] == [whoop.REDIRECT]
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-1"
+    assert fake.requests[0][4]["User-agent"].startswith("byobot/")
+
+
+@pytest.mark.parametrize("body, why", [
+    ('{"error": "invalid_client", "error_description": "Client authentication failed"}',
+     "invalid_client Client authentication failed"),
+    ("<html><title>Attention Required! | Cloudflare</title>error code: 1010</html>",
+     "turned away by WHOOP's firewall (Cloudflare 1010)"),
+])
+def test_a_refused_sign_in_says_why(body, why):
+    fake = Fake({("POST", "/oauth/oauth2/token"): [(403, body)]})
+    with pytest.raises(whoop.UpstreamError, match=re.escape(f"(403: {why})")):
+        whoop.connect("example-client", "example-secret", opener=fake, open_browser=lambda url: None,
+                      wait=lambda state: "example-code")
 
 
 def test_the_redirect_is_caught_on_this_machine(monkeypatch):
@@ -93,6 +110,7 @@ def test_an_expired_token_is_refreshed_and_the_new_one_kept():
     form = fake.requests[0][3]
     assert form["grant_type"] == ["refresh_token"] and form["refresh_token"] == ["refresh-1"]
     assert fake.requests[1][4]["Authorization"] == "Bearer access-2"
+    assert fake.requests[1][4]["User-agent"].startswith("byobot/")
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-2"
 
 
