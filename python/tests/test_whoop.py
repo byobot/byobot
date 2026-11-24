@@ -254,10 +254,17 @@ def test_workouts_become_sessions(monkeypatch, store):
     metrics = store.metrics_of("performed_session", session["id"])
     assert metrics["duration"]["value"] == 2700 and metrics["heart_rate"]["value"] == 148
     assert metrics["x.calories"] == {"value": 500.0, "unit": "kcal"} and metrics["x.strain"]["value"] == 9.1
+    assert metrics["x.whoop_sport"] == {"value": "running"}
     event = store.rows("SELECT actor_kind, actor_id FROM events")[0]
     assert (event["actor_kind"], event["actor_id"]) == ("connector", "whoop")
     again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
     assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1}
+
+
+@pytest.mark.parametrize("code, name", [("weightlifting_msk", "strength training"),
+                                        ("mountain-biking", "mountain biking"), ("some_new_sport", "some new sport")])
+def test_sports_get_readable_names(code, name):
+    assert whoop.sport(code) == name
 
 
 def test_your_undo_stands_until_whoop_changes_the_workout(monkeypatch, store):
