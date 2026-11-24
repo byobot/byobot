@@ -249,3 +249,12 @@ def test_list_activities_by_muscle_and_equipment(capsys):
 
     assert ids("--muscle", "biceps") == ["cable_curl", "cable_row"]
     assert ids("--muscle", "lats", "--equipment", "cable") == ["cable_row"]
+
+
+def test_list_activities_brief(capsys):
+    cli(capsys, "log", "activity.defined", json.dumps({"id": "cable_row", "name": "Cable Row", "equipment": ["cable"],
+                                                         "targets": {"main": ["lats"]}, "notes": "Neutral grip."}))
+    cli(capsys, "log", "activity.defined", json.dumps({"id": "plank", "name": "Plank"}))
+    brief = cli(capsys, "list", "activities", "--detail", "brief")[1]["items"]
+    assert brief == [{"id": "cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "equipment": ["cable"],
+                      "source": "ledger"}, {"id": "plank", "name": "Plank", "source": "ledger"}]

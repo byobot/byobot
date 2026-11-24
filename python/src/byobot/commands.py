@@ -236,6 +236,7 @@ def _ingest(ctx: Context, samples: Any) -> dict:
     return ctx.store().ingest(batch)
 
 
+BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions", "efforts", "telemetry")
 
 
@@ -250,12 +251,14 @@ LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions
           "(shipped with byobot) or `ledger` (defined by you or your agent)."),
     Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
     Param("equipment", "string", "Only activities that use this equipment (activities)."),
+    Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
+          choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records at or after this date or timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50),
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
-          muscle: str | None = None, equipment: str | None = None,
+          muscle: str | None = None, equipment: str | None = None, detail: str = "full",
           since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
     store = ctx.store()
     where: list[str] = []
@@ -303,6 +306,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     for row in rows:
         if kind == "activities":
             del row["payload"]
+            if detail == "brief":
+                for col in [c for c in row if c not in BRIEF_ACTIVITY or row[c] is None]:
+                    del row[col]
         for col in ("tags", "default_metrics", "targets", "equipment", "resistance_curve", "payload"):
             if isinstance(row.get(col), str):
                 row[col] = json.loads(row[col])
