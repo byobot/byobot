@@ -29,7 +29,7 @@ def tool(server, name, **arguments):
 
 
 def test_tools_come_from_the_registry():
-    assert {t["name"] for t in tools()} == {c.name for c in REGISTRY.values() if c.mcp}
+    assert {t["name"] for t in tools()} == {c.tool for c in REGISTRY.values() if c.mcp}
     by_name = {t["name"]: t for t in tools()}
     assert by_name["query"]["annotations"]["readOnlyHint"] is True
     assert by_name["log"]["annotations"]["readOnlyHint"] is False

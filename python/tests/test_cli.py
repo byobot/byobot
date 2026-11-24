@@ -19,7 +19,7 @@ def cli(capsys, *argv):
 def test_cli_commands_come_from_the_registry():
     parser = build_parser()
     sub = next(a for a in parser._actions if a.dest == "command")
-    assert set(sub.choices) == {c.name for c in REGISTRY.values() if c.cli} | {"mcp", "serve"}
+    assert set(sub.choices) == {c.name.split(" ")[0] for c in REGISTRY.values() if c.cli} | {"mcp", "serve"}
 
 
 def test_init_is_idempotent(capsys, byobot_home):

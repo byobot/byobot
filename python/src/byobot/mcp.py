@@ -65,7 +65,7 @@ def tools() -> list[dict]:
             continue
         description = " ".join(x for x in (cmd.summary, cmd.description) if x)
         out.append({
-            "name": cmd.name,
+            "name": cmd.tool,
             "title": cmd.summary.split(":")[0].rstrip("."),
             "description": description,
             "inputSchema": _input_schema(cmd),
@@ -131,7 +131,7 @@ class Server:
 
     def _call(self, mid: Any, params: dict) -> dict:
         name = params.get("name")
-        cmd = REGISTRY.get(name) if isinstance(name, str) else None
+        cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
         if cmd is None or not cmd.mcp:
             return _error(mid, INVALID_PARAMS, f"unknown tool: {name}")
         args = dict(params.get("arguments") or {})

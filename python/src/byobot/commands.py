@@ -39,6 +39,11 @@ class Command:
     mcp: bool = True
     description: str = ""
 
+    @property
+    def tool(self) -> str:
+        """The MCP tool name: `import activities` becomes `import-activities`."""
+        return self.name.replace(" ", "-")
+
 
 @dataclass
 class Context:
