@@ -32,6 +32,8 @@ claude mcp add byobot -- byobot mcp
 
 Other MCP clients: `{"mcpServers": {"byobot": {"command": "byobot", "args": ["mcp"]}}}`
 
+To have it plan your week, run its `weekly_plan` prompt (`/mcp__byobot__weekly_plan` in Claude Code).
+
 ## Pair the iPhone app
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
