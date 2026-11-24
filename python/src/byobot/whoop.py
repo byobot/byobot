@@ -1,7 +1,9 @@
 """Talk to WHOOP's API directly, with your own WHOOP developer app. No server sits in between.
 
 `byobot connect whoop` signs you in once. The client secret and the tokens stay in
-your Keychain (see credentials.py), and the import refreshes them itself.
+your Keychain (see credentials.py), and the import refreshes them itself. Every page
+WHOOP sends is checked against the pinned API (whoop.schema.json) before anything is
+written.
 """
 
 from __future__ import annotations
@@ -14,9 +16,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from typing import Any, Callable
+from datetime import datetime, timezone
+from functools import cache
+from pathlib import Path
+from typing import Any, Callable, Iterator
 
-from byobot import credentials
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
+
+from byobot import contract, credentials
 from byobot.util import ByobotError
 
 API = "https://api.prod.whoop.com/developer"
@@ -26,6 +34,8 @@ PORT = 8766
 REDIRECT = f"http://localhost:{PORT}/whoop/callback"
 SCOPES = "offline read:recovery read:cycles read:sleep read:workout"
 NAME = "whoop"
+SNAPSHOT = Path(__file__).with_name("whoop.schema.json")
+PAGE = 25
 
 
 class UpstreamError(ByobotError):
@@ -123,9 +133,30 @@ def disconnect(opener: Callable = urllib.request.urlopen) -> dict:
     return {"disconnected": True, "revoked_at_whoop": revoked}
 
 
+def version() -> str:
+    return _snapshot()["x-whoop-api-version"]
+
+
+@cache
+def _snapshot() -> dict:
+    return json.loads(SNAPSHOT.read_text())
+
+
+def check(body: Any, name: str) -> None:
+    """Refuse a page that doesn't match the pinned WHOOP API."""
+    schema = {**_snapshot(), "$ref": f"#/components/schemas/{name}"}
+    error = best_match(Draft202012Validator(schema).iter_errors(body))
+    if error:
+        while error.context:
+            error = best_match(error.context)
+        where = "/".join(str(p) for p in error.absolute_path) or "(root)"
+        raise UpstreamError(f"WHOOP sent a {name} byobot doesn't recognize (at {where}: {error.message}). "
+                            f"byobot reads WHOOP API {version()}.")
+
+
 class Client:
-    def __init__(self, opener: Callable = urllib.request.urlopen):
-        self.opener = opener
+    def __init__(self, opener: Callable | None = None):
+        self.opener = opener or urllib.request.urlopen
         self.stored = credentials.load(NAME)
         if self.stored is None:
             raise NotConnected("byobot isn't connected to WHOOP yet; run `byobot connect whoop` in a terminal")
@@ -163,3 +194,97 @@ class Client:
             except json.JSONDecodeError:
                 raise UpstreamError(f"WHOOP sent something other than JSON for {path}") from None
 
+    def pages(self, path: str, name: str, start: str) -> Iterator[dict]:
+        """Every record since `start`, page by page, each page checked before any record is used."""
+        params = {"limit": PAGE, "start": start}
+        while True:
+            body = self.request("GET", path, params)
+            check(body, name)
+            yield from body.get("records") or []
+            if not body.get("next_token"):
+                return
+            params["nextToken"] = body["next_token"]
+
+
+def utc(ts: str) -> str:
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _sample(type_: str, key: Any, start: str, end: str, value: Any, unit: str | None, raw: dict) -> dict:
+    sample = {"source": NAME, "source_id": f"{type_}:{key}", "type": type_, "start": start, "end": end,
+              "value": value, "raw": raw}
+    return {**sample, "unit": unit} if unit else sample
+
+
+STAGES = {
+    "total_light_sleep_time_milli": "byobot.SleepLightDuration",
+    "total_slow_wave_sleep_time_milli": "byobot.SleepDeepDuration",
+    "total_rem_sleep_time_milli": "byobot.SleepREMDuration",
+    "total_awake_time_milli": "byobot.SleepAwakeDuration",
+}
+RECOVERY = (
+    ("recovery_score", "byobot.RecoveryScore", "%"),
+    ("resting_heart_rate", "HKQuantityTypeIdentifierRestingHeartRate", "count/min"),
+    ("hrv_rmssd_milli", "byobot.HeartRateVariabilityRMSSD", "ms"),
+    ("spo2_percentage", "HKQuantityTypeIdentifierOxygenSaturation", "%"),
+    ("skin_temp_celsius", "byobot.SkinTemperature", "degC"),
+)
+
+
+def from_sleep(record: dict) -> list[dict]:
+    start, end = utc(record["start"]), utc(record["end"])
+    samples = [_sample("HKCategoryTypeIdentifierSleepAnalysis", record["id"], start, end, "inBed", None, record)]
+    score = record.get("score") if record["score_state"] == "SCORED" else None
+    if not score:
+        return samples
+    for key, type_ in STAGES.items():
+        if score["stage_summary"].get(key) is not None:
+            samples.append(_sample(type_, record["id"], start, end, score["stage_summary"][key] / 1000, "s", record))
+    for key, type_, unit in (("sleep_performance_percentage", "byobot.SleepPerformance", "%"),
+                             ("respiratory_rate", "HKQuantityTypeIdentifierRespiratoryRate", "count/min")):
+        if score.get(key) is not None:
+            samples.append(_sample(type_, record["id"], end, end, score[key], unit, record))
+    return samples
+
+
+def from_recovery(record: dict, woke: str | None) -> list[dict]:
+    score = record.get("score") if record["score_state"] == "SCORED" else None
+    if not score:
+        return []
+    at = woke or utc(record["created_at"])
+    return [_sample(type_, record["cycle_id"], at, at, score[key], unit, record)
+            for key, type_, unit in RECOVERY if score.get(key) is not None]
+
+
+def from_cycle(record: dict, woke: str | None) -> list[dict]:
+    score = record.get("score") if record["score_state"] == "SCORED" else None
+    if not score or score.get("strain") is None:
+        return []
+    at = woke or utc(record["start"])
+    return [_sample("byobot.Strain", record["id"], at, at, score["strain"], None, record)]
+
+
+def collect(client: Client, start: str) -> dict:
+    """Fetch recovery, sleep and strain since `start` and map them to telemetry samples.
+
+    Recovery and strain are dated when you woke, like in the WHOOP app.
+    """
+    sleeps = list(client.pages("/v2/activity/sleep", "PaginatedSleepResponse", start))
+    recoveries = list(client.pages("/v2/recovery", "RecoveryCollection", start))
+    cycles = list(client.pages("/v2/cycle", "PaginatedCycleResponse", start))
+    woke = {s["id"]: utc(s["end"]) for s in sleeps}
+    woke_in_cycle = {s["cycle_id"]: utc(s["end"]) for s in sleeps if not s["nap"]}
+    found = [s for r in sleeps for s in from_sleep(r)]
+    found += [s for r in recoveries for s in from_recovery(r, woke.get(r["sleep_id"]))]
+    found += [s for r in cycles for s in from_cycle(r, woke_in_cycle.get(r["id"]))]
+    samples, skipped = [], []
+    for sample in found:
+        errors = contract.validate("telemetry", sample)
+        if errors:
+            skipped.append(f"{sample['type']} at {sample['start']}: {errors[0]['message']}")
+        else:
+            samples.append(sample)
+    return {"samples": samples, "skipped": skipped}

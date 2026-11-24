@@ -1,0 +1,552 @@
+{
+  "x-whoop-api-version": "2.0.0",
+  "responses": [
+    "RecoveryCollection",
+    "PaginatedSleepResponse",
+    "PaginatedCycleResponse",
+    "WorkoutCollection"
+  ],
+  "components": {
+    "schemas": {
+      "Cycle": {
+        "required": [
+          "created_at",
+          "id",
+          "score_state",
+          "start",
+          "timezone_offset",
+          "updated_at",
+          "user_id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "user_id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone_offset": {
+            "type": "string"
+          },
+          "score_state": {
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CycleScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CycleScore": {
+        "required": [
+          "average_heart_rate",
+          "kilojoule",
+          "max_heart_rate",
+          "strain"
+        ],
+        "type": "object",
+        "properties": {
+          "strain": {
+            "type": "number"
+          },
+          "kilojoule": {
+            "type": "number"
+          },
+          "average_heart_rate": {
+            "type": "integer"
+          },
+          "max_heart_rate": {
+            "type": "integer"
+          }
+        }
+      },
+      "PaginatedCycleResponse": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Cycle"
+            }
+          },
+          "next_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaginatedSleepResponse": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Sleep"
+            }
+          },
+          "next_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Recovery": {
+        "required": [
+          "created_at",
+          "cycle_id",
+          "score_state",
+          "sleep_id",
+          "updated_at",
+          "user_id"
+        ],
+        "type": "object",
+        "properties": {
+          "cycle_id": {
+            "type": "integer"
+          },
+          "sleep_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "score_state": {
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "RecoveryCollection": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Recovery"
+            }
+          },
+          "next_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RecoveryScore": {
+        "required": [
+          "hrv_rmssd_milli",
+          "recovery_score",
+          "resting_heart_rate",
+          "user_calibrating"
+        ],
+        "type": "object",
+        "properties": {
+          "user_calibrating": {
+            "type": "boolean"
+          },
+          "recovery_score": {
+            "type": "number"
+          },
+          "resting_heart_rate": {
+            "type": "number"
+          },
+          "hrv_rmssd_milli": {
+            "type": "number"
+          },
+          "spo2_percentage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "skin_temp_celsius": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "Sleep": {
+        "required": [
+          "created_at",
+          "cycle_id",
+          "end",
+          "id",
+          "nap",
+          "score_state",
+          "start",
+          "timezone_offset",
+          "updated_at",
+          "user_id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cycle_id": {
+            "type": "integer"
+          },
+          "v1_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "timezone_offset": {
+            "type": "string"
+          },
+          "nap": {
+            "type": "boolean"
+          },
+          "score_state": {
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SleepScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SleepNeeded": {
+        "required": [
+          "baseline_milli",
+          "need_from_recent_nap_milli",
+          "need_from_recent_strain_milli",
+          "need_from_sleep_debt_milli"
+        ],
+        "type": "object",
+        "properties": {
+          "baseline_milli": {
+            "type": "integer"
+          },
+          "need_from_sleep_debt_milli": {
+            "type": "integer"
+          },
+          "need_from_recent_strain_milli": {
+            "type": "integer"
+          },
+          "need_from_recent_nap_milli": {
+            "type": "integer"
+          }
+        }
+      },
+      "SleepScore": {
+        "required": [
+          "sleep_needed",
+          "stage_summary"
+        ],
+        "type": "object",
+        "properties": {
+          "stage_summary": {
+            "$ref": "#/components/schemas/SleepStageSummary"
+          },
+          "sleep_needed": {
+            "$ref": "#/components/schemas/SleepNeeded"
+          },
+          "respiratory_rate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sleep_performance_percentage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sleep_consistency_percentage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sleep_efficiency_percentage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "SleepStageSummary": {
+        "required": [
+          "disturbance_count",
+          "sleep_cycle_count",
+          "total_awake_time_milli",
+          "total_in_bed_time_milli",
+          "total_light_sleep_time_milli",
+          "total_no_data_time_milli",
+          "total_rem_sleep_time_milli",
+          "total_slow_wave_sleep_time_milli"
+        ],
+        "type": "object",
+        "properties": {
+          "total_in_bed_time_milli": {
+            "type": "integer"
+          },
+          "total_awake_time_milli": {
+            "type": "integer"
+          },
+          "total_no_data_time_milli": {
+            "type": "integer"
+          },
+          "total_light_sleep_time_milli": {
+            "type": "integer"
+          },
+          "total_slow_wave_sleep_time_milli": {
+            "type": "integer"
+          },
+          "total_rem_sleep_time_milli": {
+            "type": "integer"
+          },
+          "sleep_cycle_count": {
+            "type": "integer"
+          },
+          "disturbance_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkoutCollection": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/WorkoutV2"
+            }
+          },
+          "next_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkoutScore": {
+        "required": [
+          "average_heart_rate",
+          "kilojoule",
+          "max_heart_rate",
+          "percent_recorded",
+          "strain",
+          "zone_durations"
+        ],
+        "type": "object",
+        "properties": {
+          "strain": {
+            "type": "number"
+          },
+          "average_heart_rate": {
+            "type": "integer"
+          },
+          "max_heart_rate": {
+            "type": "integer"
+          },
+          "kilojoule": {
+            "type": "number"
+          },
+          "percent_recorded": {
+            "type": "number"
+          },
+          "distance_meter": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "altitude_gain_meter": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "altitude_change_meter": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "zone_durations": {
+            "$ref": "#/components/schemas/ZoneDurations"
+          }
+        }
+      },
+      "WorkoutV2": {
+        "required": [
+          "created_at",
+          "end",
+          "id",
+          "score_state",
+          "sport_name",
+          "start",
+          "timezone_offset",
+          "updated_at",
+          "user_id"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "v1_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "timezone_offset": {
+            "type": "string"
+          },
+          "sport_name": {
+            "type": "string"
+          },
+          "score_state": {
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkoutScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sport_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "ZoneDurations": {
+        "required": [
+          "zone_five_milli",
+          "zone_four_milli",
+          "zone_one_milli",
+          "zone_three_milli",
+          "zone_two_milli",
+          "zone_zero_milli"
+        ],
+        "type": "object",
+        "properties": {
+          "zone_zero_milli": {
+            "type": "integer"
+          },
+          "zone_one_milli": {
+            "type": "integer"
+          },
+          "zone_two_milli": {
+            "type": "integer"
+          },
+          "zone_three_milli": {
+            "type": "integer"
+          },
+          "zone_four_milli": {
+            "type": "integer"
+          },
+          "zone_five_milli": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

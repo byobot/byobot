@@ -118,3 +118,101 @@ def test_connect_needs_a_terminal(monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
     with pytest.raises(ValidationFailed, match="terminal"):
         run("connect whoop", Context(actor={"kind": "human", "id": "cli"}), {})
+
+
+SLEEP_ID = "00000000-0000-4000-8000-000000000001"
+STAMP = {"user_id": 1, "created_at": "2026-11-20T11:30:00.000Z", "updated_at": "2026-11-20T11:30:00.000Z",
+         "timezone_offset": "+00:00"}
+
+
+def sleep(**overrides):
+    return {**STAMP, "id": SLEEP_ID, "cycle_id": 10, "start": "2026-11-20T03:00:00.000Z",
+            "end": "2026-11-20T11:00:00.000Z", "nap": False, "score_state": "SCORED", "score": {
+                "stage_summary": {"total_in_bed_time_milli": 28800000, "total_awake_time_milli": 1800000,
+                                  "total_no_data_time_milli": 0, "total_light_sleep_time_milli": 12600000,
+                                  "total_slow_wave_sleep_time_milli": 5400000, "total_rem_sleep_time_milli": 9000000,
+                                  "sleep_cycle_count": 4, "disturbance_count": 8},
+                "sleep_needed": {"baseline_milli": 27000000, "need_from_sleep_debt_milli": 0,
+                                 "need_from_recent_strain_milli": 0, "need_from_recent_nap_milli": 0},
+                "respiratory_rate": 15.2, "sleep_performance_percentage": 91.0}, **overrides}
+
+
+def recovery(**overrides):
+    return {**STAMP, "cycle_id": 10, "sleep_id": SLEEP_ID, "score_state": "SCORED", "score": {
+        "user_calibrating": False, "recovery_score": 68.0, "resting_heart_rate": 52.0, "hrv_rmssd_milli": 61.24,
+        "spo2_percentage": 96.5, "skin_temp_celsius": 33.4}, **overrides}
+
+
+def cycle(**overrides):
+    return {**STAMP, "id": 10, "start": "2026-11-20T03:00:00.000Z", "end": None, "score_state": "SCORED",
+            "score": {"strain": 12.7, "kilojoule": 9000.0, "average_heart_rate": 70, "max_heart_rate": 160},
+            **overrides}
+
+
+def whoop_api(sleeps=(), recoveries=(), cycles=()):
+    page = lambda records: [{"records": list(records)}]
+    return Fake({("GET", "/developer/v2/activity/sleep"): page(sleeps),
+                 ("GET", "/developer/v2/recovery"): page(recoveries),
+                 ("GET", "/developer/v2/cycle"): page(cycles)})
+
+
+def import_whoop(monkeypatch, fake, **args):
+    connected()
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    ctx = Context(actor={"kind": "human", "id": "cli"})
+    try:
+        return run("import whoop", ctx, args), ctx
+    finally:
+        ctx.close()
+
+
+def test_import_maps_recovery_sleep_and_strain_to_the_morning(monkeypatch, store):
+    from byobot.review import review
+
+    out, _ = import_whoop(monkeypatch, whoop_api([sleep()], [recovery()], [cycle()]))
+    assert out["telemetry"] == {"inserted": 13, "updated": 0, "unchanged": 0} and out["skipped"] == []
+    assert out["whoop_api"] == "2.0.0"
+    rows = {r["type"]: r for r in store.rows("SELECT type, start_at, end_at, value FROM telemetry_samples")}
+    assert rows["byobot.RecoveryScore"]["start_at"] == rows["byobot.Strain"]["start_at"] == "2026-11-20T11:00:00.000Z"
+    assert rows["byobot.SleepDeepDuration"]["value"] == 5400
+    assert rows["HKQuantityTypeIdentifierOxygenSaturation"]["value"] == 96.5
+    assert review(store, 1, "2026-11-22")["recovery"] == [
+        {"date": "2026-11-20", "asleep_h": 7.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68, "resting_hr_bpm": 52,
+         "sleep_pct": 91, "strain": 12.7}]
+
+
+def test_import_again_changes_nothing_and_starts_a_week_before_the_last(monkeypatch):
+    import_whoop(monkeypatch, whoop_api([sleep()], [recovery()], [cycle()]))
+    fake = whoop_api([sleep()], [recovery()], [cycle()])
+    out, _ = import_whoop(monkeypatch, fake)
+    assert out["telemetry"] == {"inserted": 0, "updated": 0, "unchanged": 13}
+    assert out["since"] == "2026-11-13T11:00:00.000Z"
+    assert all(r[2]["start"] == [out["since"]] for r in fake.requests)
+
+
+def test_import_follows_next_token(monkeypatch):
+    fake = whoop_api()
+    fake.answers[("GET", "/developer/v2/activity/sleep")] = [
+        {"records": [sleep()], "next_token": "page-2"},
+        {"records": [sleep(id="00000000-0000-4000-8000-000000000002", nap=True, score_state="PENDING_SCORE",
+                           score=None)]}]
+    out, _ = import_whoop(monkeypatch, fake, days=30)
+    sleep_requests = [r[2] for r in fake.requests if r[1].endswith("/sleep")]
+    assert sleep_requests[0]["limit"] == ["25"] and sleep_requests[1]["nextToken"] == ["page-2"]
+    assert out["telemetry"]["inserted"] == 8
+
+
+def test_unscored_and_out_of_range_records_are_skipped(monkeypatch):
+    bad = cycle(id=11, score={"strain": 30.0, "kilojoule": 1.0, "average_heart_rate": 1, "max_heart_rate": 1})
+    out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[recovery(score_state="UNSCORABLE", score=None)],
+                                                 cycles=[bad]))
+    assert out["telemetry"]["inserted"] == 0
+    assert out["skipped"] == ["byobot.Strain at 2026-11-20T03:00:00.000Z: 30.0 is greater than the maximum of 21"]
+
+
+def test_a_page_whoop_changed_is_refused_before_anything_is_written(monkeypatch, store):
+    renamed = sleep()
+    renamed["score"]["stage_summary"]["total_slow_wave_sleep_time_milli"] = "5400000"
+    with pytest.raises(whoop.UpstreamError, match="stage_summary/total_slow_wave_sleep_time_milli"):
+        import_whoop(monkeypatch, whoop_api([renamed]))
+    assert store.rows("SELECT count(*) AS n FROM telemetry_samples")[0]["n"] == 0
