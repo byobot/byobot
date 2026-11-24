@@ -54,6 +54,8 @@ def test_log_list_and_query(capsys):
 
 
 def test_planned_session_fills_ids_and_lists_nested(capsys):
+    for id, name in (("pull_up", "Pull-Up"), ("dip", "Dip")):
+        cli(capsys, "log", "activity.defined", json.dumps({"id": id, "name": name}))
     session = {"scheduled_on": "2026-11-23", "name": "Upper", "blocks": [
         {"rounds": 3, "metrics": {"rest": {"value": 90, "unit": "s"}}, "efforts": [
             {"activity_id": "pull_up", "metrics": {"reps": {"min": 6, "max": 8}}},
@@ -234,3 +236,20 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     assert [(i["id"], i["source"]) for i in items] == [("dip", "library"), ("plank", "ledger")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
     assert [i["id"] for i in cli(capsys, "list", "activities", "--source", "library")[1]["items"]] == ["dip"]
+
+
+def test_planned_session_must_name_existing_records(capsys):
+    cli(capsys, "log", "activity.defined", json.dumps({"id": "barbell_back_squat", "name": "Barbell Back Squat"}))
+    session = {"scheduled_on": "2026-11-23", "name": "Legs", "location_id": "example-gym", "plan_id": "p1",
+               "blocks": [{"efforts": [{"activity_id": "barbell_back_squat"}, {"activity_id": "back_squat"}]}]}
+    code, out, err = cli(capsys, "log", "session.planned", json.dumps(session))
+    assert code != 0
+    details = json.loads(err)["details"]
+    assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["barbell_back_squat"]},
+                       {"kind": "location", "id": "example-gym"}, {"kind": "plan", "id": "p1"}]
+    assert cli(capsys, "query", "SELECT count(*) AS n FROM planned_sessions")[1]["rows"] == [{"n": 0}]
+
+    cli(capsys, "log", "location.defined", json.dumps({"id": "example-gym", "name": "Example gym"}))
+    cli(capsys, "log", "plan.defined", json.dumps({"id": "p1", "name": "Block", "starts_on": "2026-11-23"}))
+    session["blocks"][0]["efforts"].pop()
+    assert cli(capsys, "log", "session.planned", json.dumps(session))[0] == 0
