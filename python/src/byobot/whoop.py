@@ -267,8 +267,26 @@ def from_cycle(record: dict, woke: str | None) -> list[dict]:
     return [_sample("byobot.Strain", record["id"], at, at, score["strain"], None, record)]
 
 
+def from_workout(record: dict) -> dict:
+    """A performed session with the workout's totals."""
+    start, end = utc(record["start"]), utc(record["end"])
+    seconds = (datetime.fromisoformat(end[:-1]) - datetime.fromisoformat(start[:-1])).total_seconds()
+    metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
+    score = (record.get("score") or {}) if record["score_state"] == "SCORED" else {}
+    for key, metric, unit, scale in (("average_heart_rate", "heart_rate", "bpm", 1),
+                                     ("max_heart_rate", "x.max_heart_rate", "bpm", 1),
+                                     ("distance_meter", "distance", "m", 1),
+                                     ("kilojoule", "x.calories", "kcal", 1 / 4.184),
+                                     ("strain", "x.strain", None, 1)):
+        if score.get(key) is not None:
+            value = round(score[key] * scale, 1) if scale != 1 else score[key]
+            metrics[metric] = {"value": value, "unit": unit} if unit else {"value": value}
+    return {"id": f"whoop:workout:{record['id']}", "name": record["sport_name"].replace("_", " "),
+            "started_at": start, "ended_at": end, "metrics": metrics}
+
+
 def collect(client: Client, start: str) -> dict:
-    """Fetch recovery, sleep and strain since `start` and map them to telemetry samples.
+    """Fetch recovery, sleep, strain and workouts since `start` and map them to byobot records.
 
     Recovery and strain are dated when you woke, like in the WHOOP app.
     """
@@ -287,4 +305,5 @@ def collect(client: Client, start: str) -> dict:
             skipped.append(f"{sample['type']} at {sample['start']}: {errors[0]['message']}")
         else:
             samples.append(sample)
-    return {"samples": samples, "skipped": skipped}
+    sessions = [from_workout(r) for r in client.pages("/v2/activity/workout", "WorkoutCollection", start)]
+    return {"samples": samples, "sessions": sessions, "skipped": skipped}
