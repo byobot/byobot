@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import re
 import secrets
 import time
 import urllib.error
@@ -48,6 +49,25 @@ class NotConnected(ByobotError):
     code = "not_connected"
 
 
+def _why(e: urllib.error.HTTPError) -> str:
+    """WHOOP's own reason for an error, short and on one line."""
+    try:
+        text = (e.read() or b"")[:4000].decode("utf-8", "replace")
+    except Exception:
+        return ""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        text = " ".join(str(body[k]) for k in ("error", "error_description", "message") if body.get(k))
+    elif re.search(r"cloudflare|<html", text, re.I):
+        code = re.search(r"error code:?\s*(\d{4})", text, re.I)
+        return "turned away by WHOOP's firewall" + (f" (Cloudflare {code.group(1)})" if code else "")
+    text = " ".join(text.split())
+    return text[:200]
+
+
 def _post(url: str, form: dict, opener: Callable) -> dict:
     req = urllib.request.Request(url, data=urllib.parse.urlencode(form).encode(), method="POST",
                                  headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
@@ -55,7 +75,9 @@ def _post(url: str, form: dict, opener: Callable) -> dict:
         with opener(req) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise UpstreamError(f"WHOOP refused the sign-in ({e.code}). Run `byobot connect whoop` again.") from None
+        why = _why(e)
+        raise UpstreamError(f"WHOOP refused the sign-in ({e.code}{': ' + why if why else ''}). "
+                            "Run `byobot connect whoop` again.") from None
     except (urllib.error.URLError, OSError) as e:
         raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
 
@@ -188,7 +210,8 @@ class Client:
                     continue
                 if e.code == 429:
                     raise UpstreamError("WHOOP says too many requests; try again in a minute") from None
-                raise UpstreamError(f"WHOOP answered {e.code} for {path}") from None
+                why = _why(e)
+                raise UpstreamError(f"WHOOP answered {e.code} for {path}{': ' + why if why else ''}") from None
             except (urllib.error.URLError, OSError) as e:
                 raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
             except json.JSONDecodeError:
