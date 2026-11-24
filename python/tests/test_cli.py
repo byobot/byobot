@@ -239,13 +239,14 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
 
 
 def test_planned_session_must_name_existing_records(capsys):
-    cli(capsys, "log", "activity.defined", json.dumps({"id": "barbell_back_squat", "name": "Barbell Back Squat"}))
+    for id, name in (("barbell_back_squat", "Barbell Back Squat"), ("hack_squat", "Hack Squat")):
+        cli(capsys, "log", "activity.defined", json.dumps({"id": id, "name": name}))
     session = {"scheduled_on": "2026-11-23", "name": "Legs", "location_id": "example-gym", "plan_id": "p1",
                "blocks": [{"efforts": [{"activity_id": "barbell_back_squat"}, {"activity_id": "back_squat"}]}]}
     code, out, err = cli(capsys, "log", "session.planned", json.dumps(session))
     assert code != 0
     details = json.loads(err)["details"]
-    assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["barbell_back_squat"]},
+    assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["barbell_back_squat", "hack_squat"]},
                        {"kind": "location", "id": "example-gym"}, {"kind": "plan", "id": "p1"}]
     assert cli(capsys, "query", "SELECT count(*) AS n FROM planned_sessions")[1]["rows"] == [{"n": 0}]
 

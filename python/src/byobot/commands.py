@@ -163,7 +163,8 @@ def _check_references(store: Store, session: dict) -> None:
         known = {r["id"]: r["name"] for r in store.rows(f"SELECT id, name FROM {table}")}
         for missing in (i for i in ids if i not in known):
             error = {"kind": kind, "id": missing}
-            close = difflib.get_close_matches(missing, known, n=3, cutoff=0.5)
+            contains = sorted((k for k in known if missing in k), key=len)
+            close = list(dict.fromkeys([*contains, *difflib.get_close_matches(missing, known, n=3, cutoff=0.5)]))[:3]
             if close:
                 error["did_you_mean"] = close
             errors.append(error)
