@@ -29,7 +29,7 @@ RECOVERY = {
     "byobot.HeartRateVariabilityRMSSD": "hrv_rmssd_ms",
     "HKQuantityTypeIdentifierHeartRateVariabilitySDNN": "hrv_sdnn_ms",
     "HKQuantityTypeIdentifierRestingHeartRate": "resting_hr_bpm",
-    "byobot.SleepPerformance": "sleep_pct",
+    "byobot.SleepPerformance": "sleep_performance_pct",
     "byobot.Strain": "strain",
 }
 ASLEEP = ("byobot.SleepLightDuration", "byobot.SleepDeepDuration", "byobot.SleepREMDuration")
