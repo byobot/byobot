@@ -177,25 +177,8 @@ def from_score(record: dict) -> list[dict] | str:
     return samples
 
 
-def from_workout(record: dict) -> dict:
-    """A performed session with the workout's totals."""
-    start, end = utc(record["start_time"]), utc(record["end_time"])
-    provider = record["source"]["provider"]
-    metrics: dict = {}
-    duration = record.get("duration_seconds")
-    if duration is None:
-        duration = (datetime.fromisoformat(end[:-1]) - datetime.fromisoformat(start[:-1])).total_seconds()
-    metrics["duration"] = {"value": duration, "unit": "s"}
-    for key, metric, unit in (("avg_heart_rate_bpm", "heart_rate", "bpm"), ("max_heart_rate_bpm", "x.max_heart_rate", "bpm"),
-                              ("distance_meters", "distance", "m"), ("calories_kcal", "x.calories", "kcal")):
-        if record.get(key) is not None:
-            metrics[metric] = {"value": record[key], "unit": unit}
-    return {"id": f"{provider}:workout:{start}", "name": record["type"].replace("_", " "),
-            "started_at": start, "ended_at": end, "metrics": metrics}
-
-
 def collect(client: Client, start: str, end: str, provider: str | None = None) -> dict:
-    """Fetch recovery, sleep, scores and workouts between two dates and map them to byobot records."""
+    """Fetch recovery, sleep and score records between two dates and map them to telemetry samples."""
     window = {"provider": provider}
     samples: list[dict] = []
     skipped: list[str] = []
@@ -215,6 +198,4 @@ def collect(client: Client, start: str, end: str, provider: str | None = None) -
     for record in client.pages("health-scores", "HealthScoreResponse",
                                {**window, "start_date": start, "end_date": end}):
         add(from_score(record))
-    sessions = [from_workout(r) for r in client.pages("events/workouts", "Workout",
-                                                      {**window, "start_date": start, "end_date": end})]
-    return {"samples": samples, "sessions": sessions, "skipped": skipped}
+    return {"samples": samples, "skipped": skipped}
