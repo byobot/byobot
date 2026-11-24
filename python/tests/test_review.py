@@ -65,5 +65,12 @@ def test_review_shows_recovery_and_imported_workouts(store):
     out = review(store, 1, "2026-11-22")
     assert out["recovery"] == [{"date": "2026-11-20", "asleep_h": 3.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68,
                                 "strain": 12.7}]
-    assert out["sessions"][0]["metrics"] == {"duration": "2700 s"}
+    assert out["sessions"][0]["metrics"] == {"duration": "45 min"}
     assert out["sessions"][0]["imported_by"] == "whoop"
+
+
+def test_review_shows_durations_readably():
+    from byobot.review import readable_seconds
+
+    assert [readable_seconds(s) for s in (45, 90, 120, 2295.5, 3600, 4320)] == [
+        "45 s", "1 min 30 s", "2 min", "38 min", "1 h", "1 h 12 min"]

@@ -13,13 +13,27 @@ def local_date(ts: str) -> str:
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().date().isoformat()
 
 
+def readable_seconds(seconds: float) -> str:
+    """45 s, 1 min 30 s, 38 min, 1 h 12 min. Seconds only show under ten minutes."""
+    if seconds < 60:
+        return f"{round(seconds)} s"
+    if seconds < 600:
+        m, s = divmod(round(seconds), 60)
+        return f"{m} min {s} s" if s else f"{m} min"
+    h, m = divmod(round(seconds / 60), 60)
+    return f"{h} h {m} min" if h and m else f"{h} h" if h else f"{m} min"
+
+
 def _compact(metrics: dict) -> dict:
     out = {}
     for name, m in metrics.items():
         value = m.get("value", m.get("value_text"))
         if value is None and ("min" in m or "max" in m):
             value = f"{m.get('min', '')}-{m.get('max', '')}"
-        out[name] = f"{value} {m['unit']}" if m.get("unit") else value
+        if m.get("unit") == "s" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[name] = readable_seconds(value)
+        else:
+            out[name] = f"{value} {m['unit']}" if m.get("unit") else value
     return out
 
 
