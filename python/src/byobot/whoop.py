@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -290,6 +290,22 @@ def from_cycle(record: dict, woke: str | None) -> list[dict]:
     return [_sample("byobot.Strain", record["id"], at, at, score["strain"], None, record)]
 
 
+# WHOOP sport codes whose words alone don't read well. Others become their words: mountain-biking -> mountain biking.
+SPORTS = {
+    "weightlifting_msk": "strength training",
+    "strength-trainer": "strength training",
+    "hiit": "HIIT",
+    "hiking-rucking": "hiking",
+    "track-field": "track and field",
+    "f45-training": "F45 training",
+    "barrys": "Barry's",
+}
+
+
+def sport(code: str) -> str:
+    return SPORTS.get(code) or re.sub(r"[_-]+", " ", code)
+
+
 def from_workout(record: dict) -> dict:
     """A performed session with the workout's totals."""
     start, end = utc(record["start"]), utc(record["end"])
@@ -304,7 +320,8 @@ def from_workout(record: dict) -> dict:
         if score.get(key) is not None:
             value = round(score[key] * scale, 1) if scale != 1 else score[key]
             metrics[metric] = {"value": value, "unit": unit} if unit else {"value": value}
-    return {"id": f"whoop:workout:{record['id']}", "name": record["sport_name"].replace("_", " "),
+    metrics["x.whoop_sport"] = {"value": record["sport_name"]}
+    return {"id": f"whoop:workout:{record['id']}", "name": sport(record["sport_name"]),
             "started_at": start, "ended_at": end, "metrics": metrics}
 
 
@@ -330,3 +347,108 @@ def collect(client: Client, start: str) -> dict:
             samples.append(sample)
     sessions = [from_workout(r) for r in client.pages("/v2/activity/workout", "WorkoutCollection", start)]
     return {"samples": samples, "sessions": sessions, "skipped": skipped}
+
+
+ACTOR = {"kind": "connector", "id": NAME}
+
+
+def _versions(store, session_id: str) -> list[dict]:
+    """The session.performed events that still stand for one session, in the order they apply."""
+    rows = store.rows("SELECT id, actor_kind, actor_id, payload FROM events WHERE type = 'session.performed'"
+                      " AND json_extract(payload, '$.id') = ? AND id NOT IN (SELECT event_id FROM undone_events)"
+                      " ORDER BY ts, device_id, id", [session_id])
+    return [{**r, "payload": json.loads(r["payload"])} for r in rows]
+
+
+def _mine(version: dict) -> bool:
+    return (version["actor_kind"], version["actor_id"]) == (ACTOR["kind"], ACTOR["id"])
+
+
+def _at(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _logged(store, lo: str, hi: str) -> dict[str, dict]:
+    """Sessions you logged yourself (not imported) that started in [lo, hi), with their time windows."""
+    out = {}
+    for s in store.rows("SELECT id, started_at, ended_at, (SELECT max(performed_at) FROM performed_efforts"
+                        " WHERE session_id = s.id) AS last_set FROM performed_sessions s"
+                        " WHERE started_at >= ? AND started_at < ? AND id NOT LIKE 'whoop:%'", [lo, hi]):
+        versions = _versions(store, s["id"])
+        yours = [v for v in versions if v["actor_kind"] != "connector"]
+        # Sessions logged with their efforts inline are left alone, so merging never rewrites your sets.
+        if yours and not yours[-1]["payload"].get("efforts"):
+            end = s["ended_at"] or s["last_set"] or s["started_at"]
+            out[s["id"]] = {"start": _at(s["started_at"]), "end": _at(end), "versions": versions}
+    return out
+
+
+def save_sessions(store, sessions: list[dict]) -> dict:
+    """Write WHOOP workouts as performed sessions.
+
+    A workout that overlaps in time with a session you logged adds its metrics to that session instead of
+    becoming a second one; your own values win. Your edits and undos stand until WHOOP changes the workout.
+    """
+    fetched = {s["id"]: s for s in sessions}
+    # A session you logged and then undid takes WHOOP's metrics with it.
+    for r in store.rows("SELECT id FROM performed_sessions WHERE actor_kind = ? AND actor_id = ?"
+                        " AND id NOT LIKE 'whoop:%'", [ACTOR["kind"], ACTOR["id"]]):
+        versions = _versions(store, r["id"])
+        if all(_mine(v) for v in versions):
+            for v in versions:
+                store.append("event.undone", {"event_id": v["id"], "reason": "the session was undone"}, ACTOR)
+    # Workouts already imported as sessions of their own, so earlier duplicates merge too.
+    workouts = {r["id"]: _versions(store, r["id"])[-1]["payload"] for r in store.rows(
+        "SELECT id FROM performed_sessions WHERE actor_kind = ? AND actor_id = ? AND id LIKE 'whoop:workout:%'",
+        [ACTOR["kind"], ACTOR["id"]])}
+    workouts.update(fetched)
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "merged": 0}
+    if not workouts:
+        return counts
+    lo = (min(_at(w["started_at"]) for w in workouts.values()) - timedelta(days=1)).isoformat()
+    hi = max(w["ended_at"] for w in workouts.values())
+    logged = _logged(store, utc(lo), hi)
+
+    # One workout per logged session, the most overlapping first.
+    pairs = sorted(((min(_at(w["ended_at"]), s["end"]) - max(_at(w["started_at"]), s["start"]), wid, sid)
+                    for wid, w in workouts.items() for sid, s in logged.items()), reverse=True)
+    match: dict[str, str] = {}
+    for overlap, wid, sid in pairs:
+        if overlap > timedelta(0) and wid not in match and sid not in match.values():
+            match[wid] = sid
+
+    for wid, workout in workouts.items():
+        if wid in match:
+            sid = match[wid]
+            versions = logged[sid]["versions"]
+            yours = [v for v in versions if not _mine(v)][-1]["payload"]
+            last = max((i for i, v in enumerate(versions) if _mine(v)), default=0)
+            given = versions[last]["payload"].get("metrics", {}) if _mine(versions[last]) else {}
+            had = next((v["payload"].get("metrics", {}) for v in reversed(versions[:last]) if not _mine(v)), {})
+            # A value WHOOP gave last time, carried along in a later save of yours, is still WHOOP's.
+            own = {k: m for k, m in yours.get("metrics", {}).items() if not (given.get(k) == m and had.get(k) != m)}
+            merged = {**yours, "metrics": {**workout["metrics"], **own}}
+            if versions[-1]["payload"] == merged:
+                counts["unchanged"] += 1
+            else:
+                store.append("session.performed", merged, ACTOR)
+                counts["merged"] += 1
+            for v in _versions(store, wid):
+                if _mine(v):
+                    store.append("event.undone", {"event_id": v["id"], "reason": f"merged into session {sid}"},
+                                 ACTOR)
+        elif wid in fetched:
+            last = store.rows("SELECT id, payload FROM events WHERE type = 'session.performed' AND actor_kind = ?"
+                              " AND actor_id = ? AND json_extract(payload, '$.id') = ? ORDER BY seq DESC LIMIT 1",
+                              [ACTOR["kind"], ACTOR["id"], wid])
+            # An import's own undo (a merge since undone) doesn't count as yours.
+            retired = last and store.rows(
+                "SELECT 1 FROM undone_events u JOIN events e ON e.id = u.undo_event_id"
+                " WHERE u.event_id = ? AND e.actor_kind = ? AND e.actor_id = ?",
+                [last[0]["id"], ACTOR["kind"], ACTOR["id"]])
+            if last and json.loads(last[0]["payload"]) == workout and not retired:
+                counts["unchanged"] += 1
+                continue
+            store.append("session.performed", workout, ACTOR)
+            counts["updated" if last and not retired else "added"] += 1
+    return counts
