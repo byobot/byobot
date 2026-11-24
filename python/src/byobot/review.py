@@ -1,4 +1,4 @@
-"""A compact digest of recent training, so an agent can coach without writing SQL."""
+"""A compact digest of recent training and recovery, so an agent can coach without writing SQL."""
 
 from __future__ import annotations
 
@@ -21,6 +21,34 @@ def _compact(metrics: dict) -> dict:
             value = f"{m.get('min', '')}-{m.get('max', '')}"
         out[name] = f"{value} {m['unit']}" if m.get("unit") else value
     return out
+
+
+# Telemetry type -> review key. Durations add up per day; everything else keeps the day's latest value.
+RECOVERY = {
+    "byobot.RecoveryScore": "recovery_pct",
+    "byobot.HeartRateVariabilityRMSSD": "hrv_rmssd_ms",
+    "HKQuantityTypeIdentifierHeartRateVariabilitySDNN": "hrv_sdnn_ms",
+    "HKQuantityTypeIdentifierRestingHeartRate": "resting_hr_bpm",
+    "byobot.SleepPerformance": "sleep_pct",
+    "byobot.Strain": "strain",
+}
+ASLEEP = ("byobot.SleepLightDuration", "byobot.SleepDeepDuration", "byobot.SleepREMDuration")
+
+
+def _recovery(store: Store, lo: str, hi: str, first: str, last: str) -> list[dict]:
+    types = [*RECOVERY, *ASLEEP]
+    rows = store.rows(f"SELECT type, start_at, end_at, value FROM telemetry_samples WHERE type IN"
+                      f" ({', '.join('?' for _ in types)}) AND start_at >= ? AND start_at < ? ORDER BY start_at",
+                      [*types, lo, hi])
+    days: dict[str, dict] = defaultdict(dict)
+    for r in rows:
+        if r["type"] in ASLEEP:
+            day = days[local_date(r["end_at"])]
+            day["asleep_h"] = day.get("asleep_h", 0) + r["value"] / 3600
+        else:
+            days[local_date(r["start_at"])][RECOVERY[r["type"]]] = r["value"]
+    return [{"date": d, **{k: round(v, 1) for k, v in sorted(days[d].items())}}
+            for d in sorted(days) if first <= d <= last]
 
 
 def review(store: Store, weeks: int, until: str | None = None) -> dict:
@@ -59,13 +87,18 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
         exercises.append({"activity_id": activity_id, "location_id": location_id, "days_done": len(days),
                           "recent": [{"date": d, "sets": days[d]} for d in recent]})
 
-    sessions = [
-        {"date": local_date(s["started_at"]), "name": s["name"], "location_id": s["location_id"],
-         "planned_session_id": s["planned_session_id"],
-         "sets": store.rows("SELECT count(*) AS n FROM performed_efforts WHERE session_id = ?", [s["id"]])[0]["n"]}
-        for s in store.rows("SELECT * FROM performed_sessions WHERE started_at >= ? AND started_at < ?"
-                            " ORDER BY started_at", [lo, hi])
-    ]
+    sessions = []
+    for s in store.rows("SELECT * FROM performed_sessions WHERE started_at >= ? AND started_at < ?"
+                        " ORDER BY started_at", [lo, hi]):
+        entry = {"date": local_date(s["started_at"]), "name": s["name"], "location_id": s["location_id"],
+                 "planned_session_id": s["planned_session_id"],
+                 "sets": store.rows("SELECT count(*) AS n FROM performed_efforts WHERE session_id = ?", [s["id"]])[0]["n"]}
+        totals = _compact(store.metrics_of("performed_session", s["id"]))
+        if totals:
+            entry["metrics"] = totals
+        if s["actor_kind"] == "connector":
+            entry["imported_by"] = s["actor_id"]
+        sessions.append(entry)
     sessions = [s for s in sessions if first <= s["date"] <= last]
 
     done = {r["planned_session_id"] for r in store.rows(
@@ -87,5 +120,6 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
         },
         "exercises": exercises,
         "weekly_sets_per_muscle": {w: dict(sorted(m.items())) for w, m in sorted(weekly.items())},
+        "recovery": _recovery(store, lo, hi, first, last),
         "upcoming": [p for p in planned if p["scheduled_on"] >= last],
     }

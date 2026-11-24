@@ -498,11 +498,12 @@ def _unpair(ctx: Context, device_id: str) -> dict:
 @command(
     "review",
     "Summarize recent training: sessions done, planned sessions done and missed, the last two days of sets for each "
-    "exercise at each location, weekly sets per muscle, and what is already planned from today on.",
+    "exercise at each location, weekly sets per muscle, daily recovery and sleep, and what is already planned from "
+    "today on.",
     Param("weeks", "integer", "How many weeks back to look.", default=4),
     Param("until", "string", "The last day to include, as a date. Defaults to today."),
     description="Sets count once for each muscle an activity works, split into main and synergist. Loads compare "
-                "only within one location_id.",
+                "only within one location_id. Recovery and sleep come from wearables, as their own scores.",
 )
 def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
     from byobot.review import review

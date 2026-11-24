@@ -41,3 +41,29 @@ def test_review_summarizes_recent_training(capsys):
 
 def test_review_rejects_a_bad_date(capsys):
     assert cli(capsys, "review", "--until", "tomorrow")[0] != 0
+
+
+def test_review_shows_recovery_and_imported_workouts(store):
+    from byobot.review import review
+
+    def sample(type_, start, end, value, unit=None):
+        s = {"source": "whoop", "source_id": f"{type_}:{start}", "type": type_, "start": start, "end": end,
+             "value": value}
+        return {**s, "unit": unit} if unit else s
+
+    store.ingest([
+        sample("byobot.SleepDeepDuration", "2026-11-20T03:00:00Z", "2026-11-20T11:00:00Z", 5400, "s"),
+        sample("byobot.SleepREMDuration", "2026-11-20T03:00:00Z", "2026-11-20T11:00:00Z", 7200, "s"),
+        sample("byobot.RecoveryScore", "2026-11-20T12:00:00Z", "2026-11-20T12:00:00Z", 68, "%"),
+        sample("byobot.HeartRateVariabilityRMSSD", "2026-11-20T12:00:00Z", "2026-11-20T12:00:00Z", 61.24, "ms"),
+        sample("byobot.Strain", "2026-11-20T13:00:00Z", "2026-11-20T13:00:00Z", 12.7),
+    ])
+    store.append("session.performed", {"id": "whoop:workout:2026-11-20T17:00:00Z", "name": "running",
+                                       "started_at": "2026-11-20T17:00:00Z",
+                                       "metrics": {"duration": {"value": 2700, "unit": "s"}}},
+                 {"kind": "connector", "id": "open-wearables"})
+    out = review(store, 1, "2026-11-22")
+    assert out["recovery"] == [{"date": "2026-11-20", "asleep_h": 3.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68,
+                                "strain": 12.7}]
+    assert out["sessions"][0]["metrics"] == {"duration": "2700 s"}
+    assert out["sessions"][0]["imported_by"] == "open-wearables"
