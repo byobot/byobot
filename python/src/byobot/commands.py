@@ -248,6 +248,33 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
 
 
 @command(
+    "import whoop",
+    "Import recovery, sleep and strain from WHOOP. The first import goes back 90 days; later ones pick up "
+    "where the last left off. Re-importing changes nothing.",
+    Param("days", "integer", "Import this many days back instead."),
+    read_only=False,
+    description="Needs `byobot connect whoop` once, in a terminal.",
+)
+def _import_whoop(ctx: Context, days: int | None = None) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    if days is not None and days < 1:
+        raise ValidationFailed("days must be at least 1")
+    client = whoop.Client()
+    store = ctx.store()
+    last = store.rows("SELECT max(start_at) AS at FROM telemetry_samples WHERE source = ?", [whoop.NAME])[0]["at"]
+    if days is None and last:
+        # A week back, so scores WHOOP finished or changed since the last import are picked up.
+        since = datetime.fromisoformat(last.replace("Z", "+00:00")) - timedelta(days=7)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(days=days or 90)
+    found = whoop.collect(client, whoop.utc(since.isoformat()))
+    counts = store.ingest(found["samples"]) if found["samples"] else {"inserted": 0, "updated": 0, "unchanged": 0}
+    return {"since": whoop.utc(since.isoformat()), "telemetry": counts, "skipped": found["skipped"],
+            "whoop_api": whoop.version()}
+
+
+@command(
     "connect whoop",
     "Connect byobot to your WHOOP account, with your own WHOOP developer app. Run it once, in a terminal.",
     Param("client_id", "string", "Your WHOOP app's client id. Asked for if left out."),
