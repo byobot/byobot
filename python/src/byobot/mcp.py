@@ -1,8 +1,8 @@
 """``byobot mcp``: the command registry served as an MCP server over stdio.
 
 A small, dependency-free implementation of the parts of the Model Context
-Protocol a tools-only server needs: ``initialize``, ``ping``, ``tools/list``
-and ``tools/call``, as newline-delimited JSON-RPC 2.0 on stdin/stdout.
+Protocol this server needs: ``initialize``, ``ping``, ``tools/list``,
+``tools/call``, ``prompts/list`` and ``prompts/get``, as newline-delimited JSON-RPC 2.0 on stdin/stdout.
 Logs go to stderr. Writes are attributed to the connected agent: its
 ``clientInfo.name`` becomes the actor id, and a tool call may name its model.
 """
@@ -14,7 +14,7 @@ import os
 import sys
 from typing import IO, Any
 
-from byobot import __version__
+from byobot import __version__, prompts
 from byobot.commands import REGISTRY, Command, Context, run
 from byobot.util import ByobotError, db_path
 
@@ -108,6 +108,10 @@ class Server:
                 return _result(mid, {"tools": tools()})
             if method == "tools/call":
                 return self._call(mid, params)
+            if method == "prompts/list":
+                return _result(mid, {"prompts": [{"name": n, **p} for n, p in prompts.PROMPTS.items()]})
+            if method == "prompts/get":
+                return self._prompt(mid, params)
             return _error(mid, METHOD_NOT_FOUND, f"method not found: {method}")
         except Exception as exc:  # never let one request kill the server
             print(f"byobot mcp: {method} failed: {exc!r}", file=sys.stderr)
@@ -120,7 +124,7 @@ class Server:
             self.client = params["clientInfo"]
         return {
             "protocolVersion": self.protocol,
-            "capabilities": {"tools": {"listChanged": False}},
+            "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
             "serverInfo": {"name": "byobot", "title": "byobot", "version": __version__},
             "instructions": INSTRUCTIONS,
         }
@@ -142,6 +146,14 @@ class Server:
             out["structuredContent"] = result
         out["isError"] = cmd.name == "validate" and not result["valid"]
         return _result(mid, out)
+
+    def _prompt(self, mid: Any, params: dict) -> dict:
+        name = params.get("name")
+        if name not in prompts.PROMPTS:
+            return _error(mid, INVALID_PARAMS, f"unknown prompt: {name}")
+        text = prompts.render(name, params.get("arguments") or {})
+        return _result(mid, {"description": prompts.PROMPTS[name]["description"],
+                             "messages": [{"role": "user", "content": {"type": "text", "text": text}}]})
 
     def close(self) -> None:
         if self.ctx is not None:

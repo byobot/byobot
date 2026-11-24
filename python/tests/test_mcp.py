@@ -42,7 +42,7 @@ def test_initialize_negotiates_version():
     server = Server()
     reply = call(server, 1, "initialize", {"protocolVersion": "1999-01-01", "clientInfo": {"name": "x"}})
     assert reply["result"]["protocolVersion"] == LATEST
-    assert reply["result"]["capabilities"] == {"tools": {"listChanged": False}}
+    assert reply["result"]["capabilities"] == {"tools": {"listChanged": False}, "prompts": {"listChanged": False}}
     assert reply["result"]["serverInfo"]["name"] == "byobot"
 
 
@@ -136,3 +136,14 @@ def test_byobot_mcp_subprocess(byobot_home):
     assert replies[2]["result"]["structuredContent"] == {"inserted": 1, "updated": 0, "unchanged": 0}
     assert replies[3]["result"]["structuredContent"]["items"][0]["value"] == 82.4
     assert (byobot_home / "byobot.db").exists()
+
+
+def test_weekly_plan_prompt():
+    server = initialized()
+    listed = call(server, 2, "prompts/list")["result"]["prompts"]
+    assert [p["name"] for p in listed] == ["weekly_plan"]
+    got = call(server, 3, "prompts/get", {"name": "weekly_plan", "arguments": {"goal": "strength"}})["result"]
+    text = got["messages"][0]["content"]["text"]
+    assert "My goal: strength" in text and "`review`" in text and "{" in text
+    assert call(server, 4, "prompts/get", {"name": "nope"})["error"]["code"] == -32602
+    server.close()
