@@ -16,6 +16,7 @@ def test_list_activities_by_muscle_and_equipment(capsys):
 
     assert ids("--muscle", "biceps") == ["cable_curl", "cable_row"]
     assert ids("--muscle", "lats", "--equipment", "cable") == ["cable_row"]
+    assert ids("--source", "ledger", "--muscle", "lats", "--equipment", "dumbbell") == ["dumbbell_row"]
 
 
 def test_list_activities_brief(capsys):

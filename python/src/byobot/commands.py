@@ -280,8 +280,10 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     elif kind == "activities":
         time_col, sql, order = "authored_at", "SELECT * FROM activities", "name"
         add("source = ?", source)
-        add("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?1"
-            " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?1)", muscle)
+        if muscle is not None:
+            where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
+                         " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
+            params.extend([muscle, muscle])
         add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
     elif kind == "locations":
         time_col, sql, order = "authored_at", "SELECT * FROM locations", "name"
