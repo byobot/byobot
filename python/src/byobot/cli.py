@@ -66,6 +66,10 @@ def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
         parser.add_argument(f"--{p.name.replace('_', '-')}", dest=p.name, **kwargs)
 
 
+def _members(group: str) -> list[str]:
+    return [c.name.split(" ", 1)[1] for c in REGISTRY.values() if c.cli and c.name.startswith(group + " ")]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="byobot",
@@ -75,10 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--home", help="Use this byobot home instead of $BYOBOT_HOME or ~/.byobot.")
     parser.add_argument("--actor", help=f"Who is acting, as KIND:ID[:MODEL]. Default: $BYOBOT_ACTOR or {DEFAULT_ACTOR}.")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
+    groups: dict[str, Any] = {}
     for cmd in REGISTRY.values():
         if not cmd.cli:
             continue
-        p = sub.add_parser(cmd.name, help=cmd.summary, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
+        where, name = sub, cmd.name
+        if " " in cmd.name:
+            group, name = cmd.name.split(" ", 1)
+            if group not in groups:
+                gp = sub.add_parser(group, help=f"{group.capitalize()}: {', '.join(_members(group))}.")
+                groups[group] = gp.add_subparsers(dest="subcommand", metavar="<source>")
+            where = groups[group]
+        p = where.add_parser(name, help=cmd.summary, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
         for param in cmd.params:
             _add_param(p, param)
     sub.add_parser("mcp", help="Serve these commands to an agent over MCP (stdio).",
@@ -121,7 +133,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             from byobot import serve as lan
 
             return lan.run(args.host, args.port, args.pair)
-        cmd = REGISTRY[args.command]
+        name = f"{args.command} {args.subcommand}" if getattr(args, "subcommand", None) else args.command
+        if name not in REGISTRY:
+            parser.parse_args([args.command, "--help"])
+        cmd = REGISTRY[name]
         values = {}
         for p in cmd.params:
             value = getattr(args, p.name, None)
