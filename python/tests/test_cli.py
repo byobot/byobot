@@ -258,3 +258,8 @@ def test_list_activities_brief(capsys):
     brief = cli(capsys, "list", "activities", "--detail", "brief")[1]["items"]
     assert brief == [{"id": "cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "equipment": ["cable"],
                       "source": "ledger"}, {"id": "plank", "name": "Plank", "source": "ledger"}]
+
+
+def test_schema_vocabulary(capsys, tmp_path, monkeypatch):
+    (tmp_path / "library" / "vocabulary.json").write_text(json.dumps({"muscles": ["lats"], "equipment": ["cable"]}))
+    assert cli(capsys, "schema", "vocabulary")[1] == {"name": "vocabulary", "muscles": ["lats"], "equipment": ["cable"]}

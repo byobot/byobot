@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, contract
+from byobot import __version__, contract, library
 from byobot.store import Store, full_ddl, query
 from byobot.util import ValidationFailed, db_path, home, now, uuid7
 
@@ -256,6 +256,7 @@ LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions
     Param("since", "string", "Only records at or after this date or timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50),
+    description="Muscle and equipment names are in `byobot schema vocabulary`.",
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
           muscle: str | None = None, equipment: str | None = None, detail: str = "full",
@@ -349,12 +350,12 @@ def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
     return query(ctx.path, sql, limit=max(0, limit))
 
 
-SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql")
+SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql", "vocabulary")
 
 
 @command(
     "schema",
-    "Show the byobot contract (JSON Schema) or the store's SQL tables.",
+    "Show the byobot contract (JSON Schema), the store's SQL tables, or the muscle and equipment names (vocabulary).",
     Param("name", "string", "Which schema. Leave out to list them.", choices=SCHEMA_CHOICES, positional=True),
 )
 def _schema(ctx: Context, name: str | None = None) -> Any:
@@ -362,6 +363,8 @@ def _schema(ctx: Context, name: str | None = None) -> Any:
         return {"schema_version": contract.SCHEMA_VERSION, "schemas": list(SCHEMA_CHOICES)}
     if name == "sql":
         return {"name": "sql", "ddl": full_ddl()}
+    if name == "vocabulary":
+        return {"name": "vocabulary", **library.vocabulary()}
     return contract.schema(name)
 
 
