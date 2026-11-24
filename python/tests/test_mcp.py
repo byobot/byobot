@@ -71,6 +71,7 @@ def test_tool_errors_are_results_not_protocol_errors():
 
 def test_agent_can_log_open_metrics_and_read_views():
     server = initialized(client="claude-code")
+    tool(server, "log", type="activity.defined", payload={"id": "squat", "name": "Squat"})
     plan = {"id": "s1", "scheduled_on": "2026-11-23", "name": "Lift", "blocks": [
         {"id": "b1", "rounds": 3, "efforts": [{"id": "e1", "activity_id": "squat",
                                                 "metrics": {"reps": {"min": 3, "max": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}

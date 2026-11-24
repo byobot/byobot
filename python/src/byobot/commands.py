@@ -5,12 +5,13 @@ same arguments and the same results.
 
 from __future__ import annotations
 
+import difflib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, contract
+from byobot import __version__, contract, library
 from byobot.store import Store, full_ddl, query
 from byobot.util import ValidationFailed, db_path, home, now, uuid7
 
@@ -141,8 +142,36 @@ def _with_ids(items: Any) -> Any:
 def _log(ctx: Context, type: str, payload: Any) -> dict:
     if not isinstance(payload, dict):
         raise ValidationFailed("payload must be a JSON object")
+    if type == "session.planned":
+        _check_references(ctx.store(), payload)
     event = ctx.store().append(type, _fill_defaults(type, payload), ctx.actor)
     return {"event": event}
+
+
+def _check_references(store: Store, session: dict) -> None:
+    """A planned session must name activities, a location and a plan that exist, or the app can't show it."""
+    errors = []
+    for table, kind, ids in (
+        ("activities", "activity", {e.get("activity_id") for b in session.get("blocks") or [] if isinstance(b, dict)
+                                    for e in b.get("efforts") or [] if isinstance(e, dict)}),
+        ("locations", "location", {session.get("location_id")}),
+        ("plans", "plan", {session.get("plan_id")}),
+    ):
+        ids = sorted(i for i in ids if isinstance(i, str))
+        if not ids:
+            continue
+        known = {r["id"]: r["name"] for r in store.rows(f"SELECT id, name FROM {table}")}
+        for missing in (i for i in ids if i not in known):
+            error = {"kind": kind, "id": missing}
+            contains = sorted((k for k in known if missing in k), key=len)
+            close = list(dict.fromkeys([*contains, *difflib.get_close_matches(missing, known, n=3, cutoff=0.5)]))[:3]
+            if close:
+                error["did_you_mean"] = close
+            errors.append(error)
+    if errors:
+        raise ValidationFailed("the planned session names records that don't exist; define them first "
+                               "(activity.defined, location.defined, plan.defined) or use existing ids",
+                               details=errors)
 
 
 CORRECTABLE = ("activity_id", "performed_at", "planned_effort_id", "round", "side", "location_id", "session_id", "notes",
@@ -236,6 +265,7 @@ def _ingest(ctx: Context, samples: Any) -> dict:
     return ctx.store().ingest(batch)
 
 
+BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions", "efforts", "telemetry")
 
 
@@ -248,11 +278,17 @@ LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions
     Param("activity", "string", "Only this activity id (efforts)."),
     Param("source", "string", "Only this source: a telemetry source such as whoop, or for activities `library` "
           "(shipped with byobot) or `ledger` (defined by you or your agent)."),
+    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
+    Param("equipment", "string", "Only activities that use this equipment (activities)."),
+    Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
+          choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records at or after this date or timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50),
+    description="Muscle and equipment names are in `byobot schema vocabulary`.",
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
+          muscle: str | None = None, equipment: str | None = None, detail: str = "full",
           since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
     store = ctx.store()
     where: list[str] = []
@@ -273,6 +309,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     elif kind == "activities":
         time_col, sql, order = "authored_at", "SELECT * FROM activities", "name"
         add("source = ?", source)
+        if muscle is not None:
+            where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
+                         " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
+            params.extend([muscle, muscle])
+        add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
     elif kind == "locations":
         time_col, sql, order = "authored_at", "SELECT * FROM locations", "name"
     elif kind == "plans":
@@ -297,6 +338,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     for row in rows:
         if kind == "activities":
             del row["payload"]
+            if detail == "brief":
+                for col in [c for c in row if c not in BRIEF_ACTIVITY or row[c] is None]:
+                    del row[col]
         for col in ("tags", "default_metrics", "targets", "equipment", "resistance_curve", "payload"):
             if isinstance(row.get(col), str):
                 row[col] = json.loads(row[col])
@@ -337,12 +381,12 @@ def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
     return query(ctx.path, sql, limit=max(0, limit))
 
 
-SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql")
+SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql", "vocabulary")
 
 
 @command(
     "schema",
-    "Show the byobot contract (JSON Schema) or the store's SQL tables.",
+    "Show the byobot contract (JSON Schema), the store's SQL tables, or the muscle and equipment names (vocabulary).",
     Param("name", "string", "Which schema. Leave out to list them.", choices=SCHEMA_CHOICES, positional=True),
 )
 def _schema(ctx: Context, name: str | None = None) -> Any:
@@ -350,6 +394,8 @@ def _schema(ctx: Context, name: str | None = None) -> Any:
         return {"schema_version": contract.SCHEMA_VERSION, "schemas": list(SCHEMA_CHOICES)}
     if name == "sql":
         return {"name": "sql", "ddl": full_ddl()}
+    if name == "vocabulary":
+        return {"name": "vocabulary", **library.vocabulary()}
     return contract.schema(name)
 
 
@@ -398,3 +444,23 @@ def _devices(ctx: Context) -> dict:
 )
 def _unpair(ctx: Context, device_id: str) -> dict:
     return {"device": ctx.store().unpair_peer(device_id)}
+
+
+@command(
+    "review",
+    "Summarize recent training: sessions done, planned sessions done and missed, the last two days of sets for each "
+    "exercise at each location, weekly sets per muscle, and what is already planned from today on.",
+    Param("weeks", "integer", "How many weeks back to look.", default=4),
+    Param("until", "string", "The last day to include, as a date. Defaults to today."),
+    description="Sets count once for each muscle an activity works, split into main and synergist. Loads compare "
+                "only within one location_id.",
+)
+def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
+    from byobot.review import review
+
+    if weeks < 1:
+        raise ValidationFailed("weeks must be at least 1")
+    try:
+        return review(ctx.store(), weeks, until)
+    except ValueError as exc:
+        raise ValidationFailed(f"until must be a date such as 2026-11-23: {exc}") from None
