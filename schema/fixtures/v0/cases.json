@@ -2615,6 +2615,155 @@
       }
     },
     {
+      "name": "telemetry/spo2",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Blood oxygen is a percentage, 0 to 100.",
+      "data": {
+        "source": "whoop",
+        "source_id": "spo2:2026-11-20T03:00:00Z",
+        "type": "HKQuantityTypeIdentifierOxygenSaturation",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 96.5,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/respiratory-rate",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Breaths per minute.",
+      "data": {
+        "source": "whoop",
+        "source_id": "respiratory-rate:2026-11-20T03:00:00Z",
+        "type": "HKQuantityTypeIdentifierRespiratoryRate",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 15.2,
+        "unit": "count/min"
+      }
+    },
+    {
+      "name": "telemetry/skin-temperature",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Skin temperature in degrees Celsius.",
+      "data": {
+        "source": "whoop",
+        "source_id": "skin-temperature:2026-11-20T03:00:00Z",
+        "type": "byobot.SkinTemperature",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 33.4,
+        "unit": "degC"
+      }
+    },
+    {
+      "name": "telemetry/sleep-light-duration",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A sleep's total light sleep.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-light-duration:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepLightDuration",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 14400,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/sleep-deep-duration",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A sleep's total deep sleep, for sources with no stage timeline.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-deep-duration:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepDeepDuration",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 5400,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/sleep-rem-duration",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A sleep's total REM sleep.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-rem-duration:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepREMDuration",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 6300,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/sleep-awake-duration",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Time awake during a sleep.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-awake-duration:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepAwakeDuration",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 1800,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/sleep-performance",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A source's own sleep score.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-performance:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepPerformance",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 88,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/recovery-score",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A source's own recovery score.",
+      "data": {
+        "source": "whoop",
+        "source_id": "recovery-score:2026-11-20T03:00:00Z",
+        "type": "byobot.RecoveryScore",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 68,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/strain",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Strain is unitless, 0 to 21.",
+      "data": {
+        "source": "whoop",
+        "source_id": "strain:2026-11-20T03:00:00Z",
+        "type": "byobot.Strain",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 12.7
+      }
+    },
+    {
       "name": "telemetry/body-mass-in-lb",
       "schema": "telemetry",
       "valid": false,
@@ -2730,6 +2879,80 @@
         "start": "2026-11-20T04:10:00Z",
         "end": "2026-11-20T05:40:00Z",
         "value": "napping"
+      }
+    },
+    {
+      "name": "telemetry/spo2-as-fraction-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Blood oxygen is in %, not a fraction unit.",
+      "data": {
+        "source": "whoop",
+        "source_id": "spo2-as-fraction-unit:2026-11-20T03:00:00Z",
+        "type": "HKQuantityTypeIdentifierOxygenSaturation",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 0.965,
+        "unit": "fraction"
+      }
+    },
+    {
+      "name": "telemetry/recovery-score-over-100",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Scores in % stay within 0 to 100.",
+      "data": {
+        "source": "whoop",
+        "source_id": "recovery-score-over-100:2026-11-20T03:00:00Z",
+        "type": "byobot.RecoveryScore",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 101,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/sleep-duration-in-minutes",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Stage durations are in seconds.",
+      "data": {
+        "source": "whoop",
+        "source_id": "sleep-duration-in-minutes:2026-11-20T03:00:00Z",
+        "type": "byobot.SleepREMDuration",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 90,
+        "unit": "min"
+      }
+    },
+    {
+      "name": "telemetry/strain-with-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Strain has no unit.",
+      "data": {
+        "source": "whoop",
+        "source_id": "strain-with-unit:2026-11-20T03:00:00Z",
+        "type": "byobot.Strain",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 12.7,
+        "unit": "strain"
+      }
+    },
+    {
+      "name": "telemetry/strain-over-21",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Strain tops out at 21.",
+      "data": {
+        "source": "whoop",
+        "source_id": "strain-over-21:2026-11-20T03:00:00Z",
+        "type": "byobot.Strain",
+        "start": "2026-11-20T03:00:00Z",
+        "end": "2026-11-20T11:00:00Z",
+        "value": 22
       }
     },
     {
