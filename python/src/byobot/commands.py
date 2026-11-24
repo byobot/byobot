@@ -248,11 +248,14 @@ LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions
     Param("activity", "string", "Only this activity id (efforts)."),
     Param("source", "string", "Only this source: a telemetry source such as whoop, or for activities `library` "
           "(shipped with byobot) or `ledger` (defined by you or your agent)."),
+    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
+    Param("equipment", "string", "Only activities that use this equipment (activities)."),
     Param("since", "string", "Only records at or after this date or timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50),
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
+          muscle: str | None = None, equipment: str | None = None,
           since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
     store = ctx.store()
     where: list[str] = []
@@ -273,6 +276,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     elif kind == "activities":
         time_col, sql, order = "authored_at", "SELECT * FROM activities", "name"
         add("source = ?", source)
+        add("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?1"
+            " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?1)", muscle)
+        add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
     elif kind == "locations":
         time_col, sql, order = "authored_at", "SELECT * FROM locations", "name"
     elif kind == "plans":

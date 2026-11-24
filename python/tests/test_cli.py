@@ -234,3 +234,18 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     assert [(i["id"], i["source"]) for i in items] == [("dip", "library"), ("plank", "ledger")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
     assert [i["id"] for i in cli(capsys, "list", "activities", "--source", "library")[1]["items"]] == ["dip"]
+
+
+def test_list_activities_by_muscle_and_equipment(capsys):
+    for a in ({"id": "cable_row", "name": "Cable Row", "equipment": ["cable"],
+               "targets": {"main": ["lats"], "synergists": ["biceps"]}},
+              {"id": "cable_curl", "name": "Cable Curl", "equipment": ["cable"], "targets": {"main": ["biceps"]}},
+              {"id": "dumbbell_row", "name": "Dumbbell Row", "equipment": ["dumbbell"], "targets": {"main": ["lats"]}},
+              {"id": "plank", "name": "Plank"}):
+        cli(capsys, "log", "activity.defined", json.dumps(a))
+
+    def ids(*argv):
+        return [i["id"] for i in cli(capsys, "list", "activities", *argv)[1]["items"]]
+
+    assert ids("--muscle", "biceps") == ["cable_curl", "cable_row"]
+    assert ids("--muscle", "lats", "--equipment", "cable") == ["cable_row"]
