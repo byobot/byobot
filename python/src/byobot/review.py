@@ -97,7 +97,10 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
         if totals:
             entry["metrics"] = totals
         if s["actor_kind"] == "connector":
-            entry["imported_by"] = s["actor_id"]
+            logged = store.rows("SELECT 1 FROM events WHERE type = 'session.performed' AND actor_kind != 'connector'"
+                                " AND json_extract(payload, '$.id') = ? AND id NOT IN"
+                                " (SELECT event_id FROM undone_events) LIMIT 1", [s["id"]])
+            entry["metrics_from" if logged else "imported_by"] = s["actor_id"]
         sessions.append(entry)
     sessions = [s for s in sessions if first <= s["date"] <= last]
 

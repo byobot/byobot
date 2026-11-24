@@ -248,7 +248,7 @@ def test_a_page_whoop_changed_is_refused_before_anything_is_written(monkeypatch,
 
 def test_workouts_become_sessions(monkeypatch, store):
     out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0}
+    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0, "merged": 0}
     session = store.rows("SELECT * FROM performed_sessions")[0]
     assert session["id"] == "whoop:workout:00000000-0000-4000-8000-000000000003" and session["name"] == "running"
     metrics = store.metrics_of("performed_session", session["id"])
@@ -258,7 +258,7 @@ def test_workouts_become_sessions(monkeypatch, store):
     event = store.rows("SELECT actor_kind, actor_id FROM events")[0]
     assert (event["actor_kind"], event["actor_id"]) == ("connector", "whoop")
     again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
-    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1}
+    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1, "merged": 0}
 
 
 @pytest.mark.parametrize("code, name", [("weightlifting_msk", "strength training"),
@@ -274,5 +274,63 @@ def test_your_undo_stands_until_whoop_changes_the_workout(monkeypatch, store):
     import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
     assert store.rows("SELECT count(*) AS n FROM performed_sessions")[0]["n"] == 0
     out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout(sport_name="cycling")]), days=30)
-    assert out["sessions"] == {"added": 0, "updated": 1, "unchanged": 0}
+    assert out["sessions"] == {"added": 0, "updated": 1, "unchanged": 0, "merged": 0}
     assert store.rows("SELECT name FROM performed_sessions")[0]["name"] == "cycling"
+
+
+YOU = {"kind": "human", "id": "cli"}
+
+
+def log_session(store, **overrides):
+    """A session logged in byobot that overlaps workout() by 40 minutes, with one set."""
+    store.append("session.performed", {"id": "s1", "name": "Pull", "started_at": "2026-11-20T17:05:00Z",
+                                       "ended_at": "2026-11-20T17:50:00Z", **overrides}, YOU)
+    store.append("effort.performed", {"id": "e1", "session_id": "s1", "activity_id": "barbell_row",
+                                      "performed_at": "2026-11-20T17:10:00Z",
+                                      "metrics": {"reps": {"value": 8}}}, YOU)
+
+
+def test_a_workout_over_a_session_you_logged_adds_its_metrics_to_yours(monkeypatch, store):
+    from byobot.review import review
+
+    log_session(store, metrics={"duration": {"value": 3000, "unit": "s"}})
+    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    assert out["sessions"] == {"added": 0, "updated": 0, "unchanged": 0, "merged": 1}
+    session = store.rows("SELECT * FROM performed_sessions")
+    assert [s["id"] for s in session] == ["s1"] and session[0]["name"] == "Pull"
+    metrics = store.metrics_of("performed_session", "s1")
+    assert metrics["duration"]["value"] == 3000 and metrics["heart_rate"]["value"] == 148
+    assert store.rows("SELECT id FROM performed_efforts WHERE session_id = 's1'") == [{"id": "e1"}]
+    reviewed = review(store, 1, "2026-11-22")["sessions"]
+    assert reviewed[0]["sets"] == 1 and reviewed[0]["metrics_from"] == "whoop" and "imported_by" not in reviewed[0]
+
+    again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
+    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1, "merged": 0}
+    changed = workout()
+    changed["score"] = {**changed["score"], "average_heart_rate": 150}
+    import_whoop(monkeypatch, whoop_api(workouts=[changed]), days=30)
+    metrics = store.metrics_of("performed_session", "s1")
+    assert metrics["heart_rate"]["value"] == 150 and metrics["duration"]["value"] == 3000
+
+
+def test_a_workout_imported_before_you_logged_merges_on_the_next_import(monkeypatch, store):
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    log_session(store)
+    # Not fetched again: the stored duplicate merges anyway.
+    out, _ = import_whoop(monkeypatch, whoop_api(), days=30)
+    assert out["sessions"]["merged"] == 1
+    assert [s["id"] for s in store.rows("SELECT id FROM performed_sessions")] == ["s1"]
+    undo = store.rows("SELECT payload FROM events WHERE type = 'event.undone'")
+    assert json.loads(undo[0]["payload"])["reason"] == "merged into session s1"
+
+    yours = store.rows("SELECT id FROM events WHERE type = 'session.performed' AND actor_kind = 'human'")[0]["id"]
+    store.append("event.undone", {"event_id": yours}, YOU)
+    back, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
+    assert back["sessions"]["added"] == 1
+    assert store.rows("SELECT id FROM performed_sessions")[0]["id"].startswith("whoop:workout:")
+
+
+def test_a_workout_that_doesnt_overlap_stays_its_own_session(monkeypatch, store):
+    log_session(store, started_at="2026-11-20T18:00:00Z", ended_at="2026-11-20T19:00:00Z")
+    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0, "merged": 0}
