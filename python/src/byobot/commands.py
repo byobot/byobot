@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, contract
+from byobot import __version__, contract, library
 from byobot.store import Store, full_ddl, query
 from byobot.util import ValidationFailed, db_path, home, now, uuid7
 
@@ -265,6 +265,7 @@ def _ingest(ctx: Context, samples: Any) -> dict:
     return ctx.store().ingest(batch)
 
 
+BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions", "efforts", "telemetry")
 
 
@@ -277,11 +278,17 @@ LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions
     Param("activity", "string", "Only this activity id (efforts)."),
     Param("source", "string", "Only this source: a telemetry source such as whoop, or for activities `library` "
           "(shipped with byobot) or `ledger` (defined by you or your agent)."),
+    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
+    Param("equipment", "string", "Only activities that use this equipment (activities)."),
+    Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
+          choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records at or after this date or timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50),
+    description="Muscle and equipment names are in `byobot schema vocabulary`.",
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
+          muscle: str | None = None, equipment: str | None = None, detail: str = "full",
           since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
     store = ctx.store()
     where: list[str] = []
@@ -302,6 +309,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     elif kind == "activities":
         time_col, sql, order = "authored_at", "SELECT * FROM activities", "name"
         add("source = ?", source)
+        if muscle is not None:
+            where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
+                         " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
+            params.extend([muscle, muscle])
+        add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
     elif kind == "locations":
         time_col, sql, order = "authored_at", "SELECT * FROM locations", "name"
     elif kind == "plans":
@@ -326,6 +338,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     for row in rows:
         if kind == "activities":
             del row["payload"]
+            if detail == "brief":
+                for col in [c for c in row if c not in BRIEF_ACTIVITY or row[c] is None]:
+                    del row[col]
         for col in ("tags", "default_metrics", "targets", "equipment", "resistance_curve", "payload"):
             if isinstance(row.get(col), str):
                 row[col] = json.loads(row[col])
@@ -366,12 +381,12 @@ def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
     return query(ctx.path, sql, limit=max(0, limit))
 
 
-SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql")
+SCHEMA_CHOICES = (*contract.SCHEMA_NAMES, "sql", "vocabulary")
 
 
 @command(
     "schema",
-    "Show the byobot contract (JSON Schema) or the store's SQL tables.",
+    "Show the byobot contract (JSON Schema), the store's SQL tables, or the muscle and equipment names (vocabulary).",
     Param("name", "string", "Which schema. Leave out to list them.", choices=SCHEMA_CHOICES, positional=True),
 )
 def _schema(ctx: Context, name: str | None = None) -> Any:
@@ -379,6 +394,8 @@ def _schema(ctx: Context, name: str | None = None) -> Any:
         return {"schema_version": contract.SCHEMA_VERSION, "schemas": list(SCHEMA_CHOICES)}
     if name == "sql":
         return {"name": "sql", "ddl": full_ddl()}
+    if name == "vocabulary":
+        return {"name": "vocabulary", **library.vocabulary()}
     return contract.schema(name)
 
 
