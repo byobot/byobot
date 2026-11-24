@@ -61,6 +61,7 @@ def test_connect_signs_in_and_keeps_the_tokens():
     assert form["grant_type"] == ["authorization_code"] and form["code"] == ["example-code"]
     assert form["client_secret"] == ["example-secret"] and form["redirect_uri"] == [whoop.REDIRECT]
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-1"
+    assert fake.requests[0][4]["User-agent"].startswith("byobot/")
 
 
 def test_the_redirect_is_caught_on_this_machine(monkeypatch):
@@ -93,6 +94,7 @@ def test_an_expired_token_is_refreshed_and_the_new_one_kept():
     form = fake.requests[0][3]
     assert form["grant_type"] == ["refresh_token"] and form["refresh_token"] == ["refresh-1"]
     assert fake.requests[1][4]["Authorization"] == "Bearer access-2"
+    assert fake.requests[1][4]["User-agent"].startswith("byobot/")
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-2"
 
 

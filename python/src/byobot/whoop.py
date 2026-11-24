@@ -24,7 +24,7 @@ from typing import Any, Callable, Iterator
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
-from byobot import contract, credentials
+from byobot import __version__, contract, credentials
 from byobot.util import ByobotError
 
 API = "https://api.prod.whoop.com/developer"
@@ -34,6 +34,8 @@ PORT = 8766
 REDIRECT = f"http://localhost:{PORT}/whoop/callback"
 SCOPES = "offline read:recovery read:cycles read:sleep read:workout"
 NAME = "whoop"
+# Firewalls in front of APIs often turn away urllib's default User-Agent.
+HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)", "Accept": "application/json"}
 SNAPSHOT = Path(__file__).with_name("whoop.schema.json")
 PAGE = 25
 
@@ -48,8 +50,7 @@ class NotConnected(ByobotError):
 
 def _post(url: str, form: dict, opener: Callable) -> dict:
     req = urllib.request.Request(url, data=urllib.parse.urlencode(form).encode(), method="POST",
-                                 headers={"Content-Type": "application/x-www-form-urlencoded",
-                                          "Accept": "application/json"})
+                                 headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
     try:
         with opener(req) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -176,8 +177,7 @@ class Client:
         for attempt in (1, 2):
             query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
             req = urllib.request.Request(f"{API}{path}" + (f"?{query}" if query else ""), method=method,
-                                         headers={"Authorization": f"Bearer {self.stored['access_token']}",
-                                                  "Accept": "application/json"})
+                                         headers={**HEADERS, "Authorization": f"Bearer {self.stored['access_token']}"})
             try:
                 with self.opener(req) as resp:
                     body = resp.read()
