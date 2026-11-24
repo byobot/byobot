@@ -206,7 +206,7 @@ def test_import_maps_recovery_sleep_and_strain_to_the_morning(monkeypatch, store
     assert rows["HKQuantityTypeIdentifierOxygenSaturation"]["value"] == 96.5
     assert review(store, 1, "2026-11-22")["recovery"] == [
         {"date": "2026-11-20", "asleep_h": 7.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68, "resting_hr_bpm": 52,
-         "sleep_pct": 91, "strain": 12.7}]
+         "sleep_performance_pct": 91, "strain": 12.7}]
 
 
 def test_import_again_changes_nothing_and_starts_a_week_before_the_last(monkeypatch):
