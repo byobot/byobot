@@ -149,11 +149,21 @@ def cycle(**overrides):
             **overrides}
 
 
-def whoop_api(sleeps=(), recoveries=(), cycles=()):
+def workout(**overrides):
+    return {**STAMP, "id": "00000000-0000-4000-8000-000000000003", "start": "2026-11-20T17:00:00.000Z",
+            "end": "2026-11-20T17:45:00.000Z", "sport_name": "running", "sport_id": 0, "score_state": "SCORED",
+            "score": {"strain": 9.1, "average_heart_rate": 148, "max_heart_rate": 171, "kilojoule": 2092.0,
+                      "percent_recorded": 100.0, "distance_meter": 7000.0, "altitude_gain_meter": None,
+                      "altitude_change_meter": None, "zone_durations": {f"zone_{z}_milli": 0 for z in (
+                          "zero", "one", "two", "three", "four", "five")}}, **overrides}
+
+
+def whoop_api(sleeps=(), recoveries=(), cycles=(), workouts=()):
     page = lambda records: [{"records": list(records)}]
     return Fake({("GET", "/developer/v2/activity/sleep"): page(sleeps),
                  ("GET", "/developer/v2/recovery"): page(recoveries),
-                 ("GET", "/developer/v2/cycle"): page(cycles)})
+                 ("GET", "/developer/v2/cycle"): page(cycles),
+                 ("GET", "/developer/v2/activity/workout"): page(workouts)})
 
 
 def import_whoop(monkeypatch, fake, **args):
@@ -216,3 +226,28 @@ def test_a_page_whoop_changed_is_refused_before_anything_is_written(monkeypatch,
     with pytest.raises(whoop.UpstreamError, match="stage_summary/total_slow_wave_sleep_time_milli"):
         import_whoop(monkeypatch, whoop_api([renamed]))
     assert store.rows("SELECT count(*) AS n FROM telemetry_samples")[0]["n"] == 0
+
+
+def test_workouts_become_sessions(monkeypatch, store):
+    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0}
+    session = store.rows("SELECT * FROM performed_sessions")[0]
+    assert session["id"] == "whoop:workout:00000000-0000-4000-8000-000000000003" and session["name"] == "running"
+    metrics = store.metrics_of("performed_session", session["id"])
+    assert metrics["duration"]["value"] == 2700 and metrics["heart_rate"]["value"] == 148
+    assert metrics["x.calories"] == {"value": 500.0, "unit": "kcal"} and metrics["x.strain"]["value"] == 9.1
+    event = store.rows("SELECT actor_kind, actor_id FROM events")[0]
+    assert (event["actor_kind"], event["actor_id"]) == ("connector", "whoop")
+    again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
+    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1}
+
+
+def test_your_undo_stands_until_whoop_changes_the_workout(monkeypatch, store):
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    event = store.rows("SELECT id FROM events")[0]["id"]
+    store.append("event.undone", {"event_id": event}, {"kind": "human", "id": "cli"})
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
+    assert store.rows("SELECT count(*) AS n FROM performed_sessions")[0]["n"] == 0
+    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout(sport_name="cycling")]), days=30)
+    assert out["sessions"] == {"added": 0, "updated": 1, "unchanged": 0}
+    assert store.rows("SELECT name FROM performed_sessions")[0]["name"] == "cycling"
