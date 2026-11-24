@@ -5,6 +5,7 @@ same arguments and the same results.
 
 from __future__ import annotations
 
+import difflib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,8 +142,36 @@ def _with_ids(items: Any) -> Any:
 def _log(ctx: Context, type: str, payload: Any) -> dict:
     if not isinstance(payload, dict):
         raise ValidationFailed("payload must be a JSON object")
+    if type == "session.planned":
+        _check_references(ctx.store(), payload)
     event = ctx.store().append(type, _fill_defaults(type, payload), ctx.actor)
     return {"event": event}
+
+
+def _check_references(store: Store, session: dict) -> None:
+    """A planned session must name activities, a location and a plan that exist, or the app can't show it."""
+    errors = []
+    for table, kind, ids in (
+        ("activities", "activity", {e.get("activity_id") for b in session.get("blocks") or [] if isinstance(b, dict)
+                                    for e in b.get("efforts") or [] if isinstance(e, dict)}),
+        ("locations", "location", {session.get("location_id")}),
+        ("plans", "plan", {session.get("plan_id")}),
+    ):
+        ids = sorted(i for i in ids if isinstance(i, str))
+        if not ids:
+            continue
+        known = {r["id"]: r["name"] for r in store.rows(f"SELECT id, name FROM {table}")}
+        for missing in (i for i in ids if i not in known):
+            error = {"kind": kind, "id": missing}
+            contains = sorted((k for k in known if missing in k), key=len)
+            close = list(dict.fromkeys([*contains, *difflib.get_close_matches(missing, known, n=3, cutoff=0.5)]))[:3]
+            if close:
+                error["did_you_mean"] = close
+            errors.append(error)
+    if errors:
+        raise ValidationFailed("the planned session names records that don't exist; define them first "
+                               "(activity.defined, location.defined, plan.defined) or use existing ids",
+                               details=errors)
 
 
 CORRECTABLE = ("activity_id", "performed_at", "planned_effort_id", "round", "side", "location_id", "session_id", "notes",
