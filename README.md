@@ -38,15 +38,6 @@ To have it plan your week, run its `weekly_plan` prompt (`/mcp__byobot__weekly_p
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
 
-## Import from a wearable
-
-byobot reads WHOOP and other wearables through a self-hosted [Open Wearables](https://github.com/the-momentum/open-wearables) (0.11.0). Connect your wearable there, then:
-
-```bash
-export OPEN_WEARABLES_API_KEY=...   # an Open Wearables API key
-byobot import-open-wearables --user YOUR_OPEN_WEARABLES_USER_ID --days 90
-```
-
 ## More
 
 - [`schema/`](schema): the data contract

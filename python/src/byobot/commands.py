@@ -265,40 +265,6 @@ def _ingest(ctx: Context, samples: Any) -> dict:
     return ctx.store().ingest(batch)
 
 
-@command(
-    "import-open-wearables",
-    "Import recovery, sleep and strain from Open Wearables, which connects WHOOP and other wearables. "
-    "Re-importing changes nothing.",
-    Param("user", "string", "Your Open Wearables user id. Defaults to $OPEN_WEARABLES_USER_ID."),
-    Param("url", "string", "Where Open Wearables runs. Defaults to $OPEN_WEARABLES_URL, else http://localhost:8000."),
-    Param("days", "integer", "How many days back to import.", default=30),
-    Param("provider", "string", "Only this provider, such as whoop."),
-    read_only=False,
-    description="The API key is read from $OPEN_WEARABLES_API_KEY.",
-)
-def _import_open_wearables(ctx: Context, user: str | None = None, url: str | None = None, days: int = 30,
-                           provider: str | None = None) -> dict:
-    import os
-    from datetime import date, timedelta
-
-    from byobot import open_wearables
-
-    user = user or os.environ.get("OPEN_WEARABLES_USER_ID")
-    url = url or os.environ.get("OPEN_WEARABLES_URL") or "http://localhost:8000"
-    key = os.environ.get("OPEN_WEARABLES_API_KEY")
-    if not user:
-        raise ValidationFailed("pass --user or set OPEN_WEARABLES_USER_ID")
-    if not key:
-        raise ValidationFailed("set OPEN_WEARABLES_API_KEY to an Open Wearables API key")
-    if days < 1:
-        raise ValidationFailed("days must be at least 1")
-    end = date.today() + timedelta(days=1)
-    client = open_wearables.Client(url, user, key)
-    found = open_wearables.collect(client, (end - timedelta(days=days + 1)).isoformat(), end.isoformat(), provider)
-    counts = ctx.store().ingest(found["samples"]) if found["samples"] else {"inserted": 0, "updated": 0, "unchanged": 0}
-    return {"telemetry": counts, "skipped": found["skipped"], "open_wearables_api": open_wearables.version()}
-
-
 BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 LIST_KINDS = ("events", "activities", "locations", "plans", "planned", "sessions", "efforts", "telemetry")
 
