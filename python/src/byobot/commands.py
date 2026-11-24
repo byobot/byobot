@@ -398,3 +398,23 @@ def _devices(ctx: Context) -> dict:
 )
 def _unpair(ctx: Context, device_id: str) -> dict:
     return {"device": ctx.store().unpair_peer(device_id)}
+
+
+@command(
+    "review",
+    "Summarize recent training: sessions done, planned sessions done and missed, the last two days of sets for each "
+    "exercise at each location, weekly sets per muscle, and what is already planned from today on.",
+    Param("weeks", "integer", "How many weeks back to look.", default=4),
+    Param("until", "string", "The last day to include, as a date. Defaults to today."),
+    description="Sets count once for each muscle an activity works, split into main and synergist. Loads compare "
+                "only within one location_id.",
+)
+def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
+    from byobot.review import review
+
+    if weeks < 1:
+        raise ValidationFailed("weeks must be at least 1")
+    try:
+        return review(ctx.store(), weeks, until)
+    except ValueError as exc:
+        raise ValidationFailed(f"until must be a date such as 2026-11-23: {exc}") from None
