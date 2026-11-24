@@ -290,6 +290,22 @@ def from_cycle(record: dict, woke: str | None) -> list[dict]:
     return [_sample("byobot.Strain", record["id"], at, at, score["strain"], None, record)]
 
 
+# WHOOP sport codes whose words alone don't read well. Others become their words: mountain-biking -> mountain biking.
+SPORTS = {
+    "weightlifting_msk": "strength training",
+    "strength-trainer": "strength training",
+    "hiit": "HIIT",
+    "hiking-rucking": "hiking",
+    "track-field": "track and field",
+    "f45-training": "F45 training",
+    "barrys": "Barry's",
+}
+
+
+def sport(code: str) -> str:
+    return SPORTS.get(code) or re.sub(r"[_-]+", " ", code)
+
+
 def from_workout(record: dict) -> dict:
     """A performed session with the workout's totals."""
     start, end = utc(record["start"]), utc(record["end"])
@@ -304,7 +320,8 @@ def from_workout(record: dict) -> dict:
         if score.get(key) is not None:
             value = round(score[key] * scale, 1) if scale != 1 else score[key]
             metrics[metric] = {"value": value, "unit": unit} if unit else {"value": value}
-    return {"id": f"whoop:workout:{record['id']}", "name": record["sport_name"].replace("_", " "),
+    metrics["x.whoop_sport"] = {"value": record["sport_name"]}
+    return {"id": f"whoop:workout:{record['id']}", "name": sport(record["sport_name"]),
             "started_at": start, "ended_at": end, "metrics": metrics}
 
 
