@@ -211,7 +211,7 @@ def _correct(ctx: Context, effort_id: str, changes: Any) -> dict:
 
 
 @command(
-    "import-activities",
+    "import activities",
     "Import your own activities, with the muscles they work and the equipment they need, so the app can "
     "suggest swaps. Activities you already defined are kept unless you say replace.",
     Param("activities", "json", "A list of activities, or an object with an `activities` list. Use @path for a file.",

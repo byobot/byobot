@@ -208,14 +208,14 @@ def test_import_activities_keeps_yours_unless_told(capsys):
     library = FIXTURES.parent / "library.json"
     cli(capsys, "init")
     cli(capsys, "log", "activity.defined", '{"id": "pull_up", "name": "Strict pull-up"}')
-    code, out, _ = cli(capsys, "import-activities", f"@{library}")
+    code, out, _ = cli(capsys, "import", "activities", f"@{library}")
     assert code == 0, out
     assert "pull_up" in out["kept"] and len(out["added"]) == 13 and out["replaced"] == []
     code, out, _ = cli(capsys, "query", "SELECT name, targets FROM activities WHERE id IN ('pull_up', 'lat_pulldown') ORDER BY id")
     assert [r["name"] for r in out["rows"]] == ["Lat pulldown", "Strict pull-up"]
-    code, out, _ = cli(capsys, "import-activities", f"@{library}", "--existing", "replace")
+    code, out, _ = cli(capsys, "import", "activities", f"@{library}", "--existing", "replace")
     assert out["replaced"] == ["pull_up"] and out["added"] == [] and len(out["kept"]) == 13
-    code, out, _ = cli(capsys, "import-activities", '[{"id": "x", "name": "X", "targets": {"primary": ["lats"]}}]')
+    code, out, _ = cli(capsys, "import", "activities", '[{"id": "x", "name": "X", "targets": {"primary": ["lats"]}}]')
     assert code != 0
 
 
@@ -254,3 +254,9 @@ def test_planned_session_must_name_existing_records(capsys):
     cli(capsys, "log", "plan.defined", json.dumps({"id": "p1", "name": "Block", "starts_on": "2026-11-23"}))
     session["blocks"][0]["efforts"].pop()
     assert cli(capsys, "log", "session.planned", json.dumps(session))[0] == 0
+
+
+def test_a_group_alone_shows_its_help(capsys):
+    with pytest.raises(SystemExit) as exit:
+        main(["import"])
+    assert exit.value.code == 0 and "activities" in capsys.readouterr().out

@@ -1,5 +1,5 @@
 {
-  "description": "A small activity library for tests, in the format `byobot import-activities` reads: an object with an `activities` list (a bare list works too). Each activity is an activity.defined payload.",
+  "description": "A small activity library for tests, in the format `byobot import activities` reads: an object with an `activities` list (a bare list works too). Each activity is an activity.defined payload.",
   "schema_version": 0,
   "activities": [
     {
