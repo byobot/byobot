@@ -6,12 +6,15 @@ same arguments and the same results.
 from __future__ import annotations
 
 import difflib
+import getpass
 import json
+import sys
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, contract, library
+from byobot import __version__, contract, library, whoop
 from byobot.store import Store, full_ddl, query
 from byobot.util import ValidationFailed, db_path, home, now, uuid7
 
@@ -242,6 +245,38 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
             added.append(item["id"])
         store.append("activity.defined", item, ctx.actor)
     return {"added": added, "replaced": replaced, "kept": kept}
+
+
+@command(
+    "connect whoop",
+    "Connect byobot to your WHOOP account, with your own WHOOP developer app. Run it once, in a terminal.",
+    Param("client_id", "string", "Your WHOOP app's client id. Asked for if left out."),
+    read_only=False,
+    mcp=False,
+    description=f"Add {whoop.REDIRECT} as a redirect URL in your WHOOP app first. The client secret is asked "
+                "for without showing it, and kept with the tokens in your Keychain.",
+)
+def _connect_whoop(ctx: Context, client_id: str | None = None) -> dict:
+    if not sys.stdin.isatty():
+        raise ValidationFailed("run `byobot connect whoop` in a terminal, so it can ask for your client secret")
+    if not client_id:
+        sys.stderr.write("WHOOP client id: ")
+        client_id = input().strip()
+    client_secret = getpass.getpass("WHOOP client secret (not shown): ").strip()
+    if not client_id or not client_secret:
+        raise ValidationFailed("a client id and a client secret are needed")
+    return whoop.connect(client_id, client_secret, open_browser=_open_sign_in)
+
+
+def _open_sign_in(url: str) -> None:
+    sys.stderr.write(f"Opening WHOOP's sign-in in your browser. If it doesn't open, visit:\n{url}\n")
+    webbrowser.open(url)
+
+
+@command("disconnect whoop", "Disconnect byobot from WHOOP and forget the tokens. Your imported data stays.",
+         read_only=False, mcp=False)
+def _disconnect_whoop(ctx: Context) -> dict:
+    return whoop.disconnect()
 
 
 @command(
