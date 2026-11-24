@@ -47,6 +47,17 @@ SCORES = [
      "data_source_id": None, "provider": "whoop", "event_record_id": None, "source": None},
 ]
 
+WORKOUTS = [{
+    "id": "00000000-0000-4000-8000-000000000006", "type": "running", "name": None,
+    "start_time": "2026-11-20T22:00:00Z", "end_time": "2026-11-20T22:45:00Z", "zone_offset": "-05:00",
+    "duration_seconds": 2700, "source": SOURCE, "entry_source": None, "intensity": None, "calories_kcal": 450.0,
+    "distance_meters": None, "avg_heart_rate_bpm": 148, "max_heart_rate_bpm": 171, "avg_pace_sec_per_km": None,
+    "elevation_gain_meters": None, "heart_rate_min": None, "steps_count": None, "average_speed": None,
+    "max_speed": None, "average_cadence": None, "average_watts": None, "max_watts": None, "average_met": None,
+    "moving_time_seconds": None, "elev_high": None, "elev_low": None, "hr_zones": None, "power_zones": None,
+    "segments": None,
+}]
+
 
 def page(data, pagination=PAGE_END):
     return {"data": data, "pagination": pagination, "metadata": {}}
@@ -66,8 +77,9 @@ class Fake:
         return io.BytesIO(json.dumps(self.pages[path].pop(0)).encode())
 
 
-def responses(series=SERIES, sleep=SLEEP, scores=SCORES):
-    return {"timeseries": [page(series)], "events/sleep": [page(sleep)], "health-scores": [page(scores)]}
+def responses(series=SERIES, sleep=SLEEP, scores=SCORES, workouts=WORKOUTS):
+    return {"timeseries": [page(series)], "events/sleep": [page(sleep)], "health-scores": [page(scores)],
+            "events/workouts": [page(workouts)]}
 
 
 @pytest.fixture
@@ -99,7 +111,7 @@ def test_snapshot_pins_a_version_and_covers_every_response():
 
 
 @pytest.mark.parametrize("name,data", [("TimeSeriesSample", SERIES), ("SleepSession", SLEEP),
-                                       ("HealthScoreResponse", SCORES)])
+                                       ("HealthScoreResponse", SCORES), ("Workout", WORKOUTS)])
 def test_example_responses_match_the_pinned_api(name, data):
     open_wearables.check(page(data), name)
 
@@ -170,7 +182,7 @@ def test_out_of_range_values_are_skipped_and_reported(monkeypatch, env, store):
 def test_pages_are_followed(monkeypatch, env, store):
     more = {**PAGE_END, "has_more": True, "next_cursor": "c2"}
     fake = Fake({"timeseries": [page(SERIES[:2], more), page(SERIES[2:])],
-                 "events/sleep": [page([])], "health-scores": [page([])]})
+                 "events/sleep": [page([])], "health-scores": [page([])], "events/workouts": [page([])]})
     out = importer(monkeypatch, fake)
     assert out["telemetry"]["inserted"] == 4
     series = [r for r in fake.requests if r[0].endswith("/timeseries")]
@@ -191,3 +203,30 @@ def test_the_key_is_required(monkeypatch, store):
     monkeypatch.setenv("OPEN_WEARABLES_USER_ID", "example-user")
     with pytest.raises(ValidationFailed, match="OPEN_WEARABLES_API_KEY"):
         run("import-open-wearables", Context(actor={"kind": "human", "id": "cli"}), {})
+
+
+def test_workouts_become_sessions(monkeypatch, env, store):
+    out = importer(monkeypatch, Fake(responses()))
+    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0}
+    session = store.rows("SELECT * FROM performed_sessions")[0]
+    assert session["id"] == "whoop:workout:2026-11-20T22:00:00Z" and session["name"] == "running"
+    assert session["ended_at"] == "2026-11-20T22:45:00Z"
+    metrics = store.metrics_of("performed_session", session["id"])
+    assert metrics["duration"]["value"] == 2700 and metrics["heart_rate"]["value"] == 148
+    assert metrics["x.max_heart_rate"]["value"] == 171 and "distance" not in metrics
+    event = store.rows("SELECT actor_kind, actor_id FROM events")[0]
+    assert (event["actor_kind"], event["actor_id"]) == ("connector", "open-wearables")
+    again = importer(monkeypatch, Fake(responses()))
+    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1}
+
+
+def test_your_edits_and_undos_stand_until_the_wearable_changes(monkeypatch, env, store):
+    importer(monkeypatch, Fake(responses()))
+    event = store.rows("SELECT id FROM events")[0]["id"]
+    store.append("event.undone", {"event_id": event}, {"kind": "human", "id": "cli"})
+    importer(monkeypatch, Fake(responses()))
+    assert store.rows("SELECT count(*) AS n FROM performed_sessions")[0]["n"] == 0
+    changed = [{**WORKOUTS[0], "avg_heart_rate_bpm": 150}]
+    out = importer(monkeypatch, Fake(responses(workouts=changed)))
+    assert out["sessions"]["updated"] == 1
+    assert store.rows("SELECT count(*) AS n FROM performed_sessions")[0]["n"] == 1

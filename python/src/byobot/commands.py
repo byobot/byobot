@@ -267,14 +267,15 @@ def _ingest(ctx: Context, samples: Any) -> dict:
 
 @command(
     "import-open-wearables",
-    "Import recovery, sleep and strain from Open Wearables, which connects WHOOP and other wearables. "
+    "Import recovery, sleep, strain and workouts from Open Wearables, which connects WHOOP and other wearables. "
     "Re-importing changes nothing.",
     Param("user", "string", "Your Open Wearables user id. Defaults to $OPEN_WEARABLES_USER_ID."),
     Param("url", "string", "Where Open Wearables runs. Defaults to $OPEN_WEARABLES_URL, else http://localhost:8000."),
     Param("days", "integer", "How many days back to import.", default=30),
     Param("provider", "string", "Only this provider, such as whoop."),
     read_only=False,
-    description="The API key is read from $OPEN_WEARABLES_API_KEY.",
+    description="The API key is read from $OPEN_WEARABLES_API_KEY. Workouts become performed sessions; your edits "
+                "and undos stand until the wearable changes the workout.",
 )
 def _import_open_wearables(ctx: Context, user: str | None = None, url: str | None = None, days: int = 30,
                            provider: str | None = None) -> dict:
@@ -295,8 +296,22 @@ def _import_open_wearables(ctx: Context, user: str | None = None, url: str | Non
     end = date.today() + timedelta(days=1)
     client = open_wearables.Client(url, user, key)
     found = open_wearables.collect(client, (end - timedelta(days=days + 1)).isoformat(), end.isoformat(), provider)
-    counts = ctx.store().ingest(found["samples"]) if found["samples"] else {"inserted": 0, "updated": 0, "unchanged": 0}
-    return {"telemetry": counts, "skipped": found["skipped"], "open_wearables_api": open_wearables.version()}
+    store = ctx.store()
+    counts = store.ingest(found["samples"]) if found["samples"] else {"inserted": 0, "updated": 0, "unchanged": 0}
+    actor = {"kind": "connector", "id": "open-wearables"}
+    sessions = {"added": 0, "updated": 0, "unchanged": 0}
+    for session in found["sessions"]:
+        # Compare with what was last imported, so your own edits and undos stand until the wearable changes.
+        last = store.rows("SELECT payload FROM events WHERE type = 'session.performed' AND actor_kind = 'connector'"
+                          " AND actor_id = ? AND json_extract(payload, '$.id') = ? ORDER BY seq DESC LIMIT 1",
+                          [actor["id"], session["id"]])
+        if last and json.loads(last[0]["payload"]) == session:
+            sessions["unchanged"] += 1
+            continue
+        store.append("session.performed", session, actor)
+        sessions["updated" if last else "added"] += 1
+    return {"telemetry": counts, "sessions": sessions, "skipped": found["skipped"],
+            "open_wearables_api": open_wearables.version()}
 
 
 BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
