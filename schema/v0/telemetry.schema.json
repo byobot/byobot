@@ -15,8 +15,19 @@
         "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
         "byobot.HeartRateVariabilityRMSSD",
         "HKQuantityTypeIdentifierRestingHeartRate",
-        "HKCategoryTypeIdentifierSleepAnalysis"
-      ]
+        "HKCategoryTypeIdentifierSleepAnalysis",
+        "HKQuantityTypeIdentifierOxygenSaturation",
+        "HKQuantityTypeIdentifierRespiratoryRate",
+        "byobot.SkinTemperature",
+        "byobot.SleepLightDuration",
+        "byobot.SleepDeepDuration",
+        "byobot.SleepREMDuration",
+        "byobot.SleepAwakeDuration",
+        "byobot.SleepPerformance",
+        "byobot.RecoveryScore",
+        "byobot.Strain"
+      ],
+      "description": "Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it."
     },
     "start": { "$ref": "common.schema.json#/$defs/timestamp" },
     "end": { "$ref": "common.schema.json#/$defs/timestamp" },
@@ -52,6 +63,41 @@
       "then": {
         "not": { "required": ["unit"] },
         "properties": { "value": { "enum": ["inBed", "asleepUnspecified", "awake", "asleepCore", "asleepDeep", "asleepREM"] } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierOxygenSaturation", "byobot.SleepPerformance", "byobot.RecoveryScore"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 100 }, "unit": { "const": "%" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierRespiratoryRate" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 }, "unit": { "const": "count/min" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "byobot.SkinTemperature" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 50 }, "unit": { "const": "degC" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["byobot.SleepLightDuration", "byobot.SleepDeepDuration", "byobot.SleepREMDuration", "byobot.SleepAwakeDuration"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 86400 }, "unit": { "const": "s" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "byobot.Strain" } }, "required": ["type"] },
+      "then": {
+        "not": { "required": ["unit"] },
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 21 } }
       }
     }
   ],

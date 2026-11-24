@@ -44,12 +44,23 @@ public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
     case both
 }
 
+/// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it.
 public enum TelemetryType: String, Codable, CaseIterable, Hashable, Sendable {
     case bodyMass = "HKQuantityTypeIdentifierBodyMass"
     case heartRateVariabilitySDNN = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN"
     case heartRateVariabilityRMSSD = "byobot.HeartRateVariabilityRMSSD"
     case restingHeartRate = "HKQuantityTypeIdentifierRestingHeartRate"
     case sleepAnalysis = "HKCategoryTypeIdentifierSleepAnalysis"
+    case oxygenSaturation = "HKQuantityTypeIdentifierOxygenSaturation"
+    case respiratoryRate = "HKQuantityTypeIdentifierRespiratoryRate"
+    case skinTemperature = "byobot.SkinTemperature"
+    case sleepLightDuration = "byobot.SleepLightDuration"
+    case sleepDeepDuration = "byobot.SleepDeepDuration"
+    case sleepREMDuration = "byobot.SleepREMDuration"
+    case sleepAwakeDuration = "byobot.SleepAwakeDuration"
+    case sleepPerformance = "byobot.SleepPerformance"
+    case recoveryScore = "byobot.RecoveryScore"
+    case strain = "byobot.Strain"
 }
 
 public struct Activity: Codable, Equatable, Hashable, Sendable, Identifiable {
@@ -529,6 +540,7 @@ public struct TelemetrySample: Codable, Equatable, Hashable, Sendable {
     public var source: String
     /// The source's own id for this sample, stable across re-imports.
     public var sourceId: String
+    /// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it.
     public var type: TelemetryType
     public var start: String
     public var end: String
