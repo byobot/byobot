@@ -61,9 +61,9 @@ def test_review_shows_recovery_and_imported_workouts(store):
     store.append("session.performed", {"id": "whoop:workout:2026-11-20T17:00:00Z", "name": "running",
                                        "started_at": "2026-11-20T17:00:00Z",
                                        "metrics": {"duration": {"value": 2700, "unit": "s"}}},
-                 {"kind": "connector", "id": "open-wearables"})
+                 {"kind": "connector", "id": "whoop"})
     out = review(store, 1, "2026-11-22")
     assert out["recovery"] == [{"date": "2026-11-20", "asleep_h": 3.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68,
                                 "strain": 12.7}]
     assert out["sessions"][0]["metrics"] == {"duration": "2700 s"}
-    assert out["sessions"][0]["imported_by"] == "open-wearables"
+    assert out["sessions"][0]["imported_by"] == "whoop"
