@@ -253,8 +253,9 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
     "pick up where the last left off. Re-importing changes nothing.",
     Param("days", "integer", "Import this many days back instead."),
     read_only=False,
-    description="Needs `byobot connect whoop` once, in a terminal. Workouts become performed sessions; your "
-                "edits and undos stand until WHOOP changes the workout.",
+    description="Needs `byobot connect whoop` once, in a terminal. Workouts become performed sessions; one that "
+                "overlaps a session you logged adds its metrics to yours instead. Your edits and undos stand "
+                "until WHOOP changes the workout.",
 )
 def _import_whoop(ctx: Context, days: int | None = None) -> dict:
     from datetime import datetime, timedelta, timezone
@@ -271,18 +272,7 @@ def _import_whoop(ctx: Context, days: int | None = None) -> dict:
         since = datetime.now(timezone.utc) - timedelta(days=days or 90)
     found = whoop.collect(client, whoop.utc(since.isoformat()))
     counts = store.ingest(found["samples"]) if found["samples"] else {"inserted": 0, "updated": 0, "unchanged": 0}
-    actor = {"kind": "connector", "id": whoop.NAME}
-    sessions = {"added": 0, "updated": 0, "unchanged": 0}
-    for session in found["sessions"]:
-        # Compare with what was last imported, so your own edits and undos stand until WHOOP changes it.
-        last = store.rows("SELECT payload FROM events WHERE type = 'session.performed' AND actor_kind = 'connector'"
-                          " AND actor_id = ? AND json_extract(payload, '$.id') = ? ORDER BY seq DESC LIMIT 1",
-                          [actor["id"], session["id"]])
-        if last and json.loads(last[0]["payload"]) == session:
-            sessions["unchanged"] += 1
-            continue
-        store.append("session.performed", session, actor)
-        sessions["updated" if last else "added"] += 1
+    sessions = whoop.save_sessions(store, found["sessions"])
     return {"since": whoop.utc(since.isoformat()), "telemetry": counts, "sessions": sessions,
             "skipped": found["skipped"], "whoop_api": whoop.version()}
 
