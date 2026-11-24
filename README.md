@@ -38,6 +38,15 @@ To have it plan your week, run its `weekly_plan` prompt (`/mcp__byobot__weekly_p
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
 
+## Import from WHOOP
+
+byobot talks to WHOOP's API directly, through your own app. Create one at [developer.whoop.com](https://developer.whoop.com) with the scopes `read:recovery`, `read:cycles`, `read:sleep` and `read:workout`, and the redirect URL `http://localhost:8766/whoop/callback`. Then:
+
+```bash
+byobot connect whoop    # once; asks for the app's client id and secret
+byobot import whoop     # first run goes back 90 days, then picks up where it left off
+```
+
 ## More
 
 - [`schema/`](schema): the data contract
