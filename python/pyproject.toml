@@ -11,7 +11,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "The byobot Authors" }]
 requires-python = ">=3.10"
-dependencies = ["jsonschema>=4.18", "cryptography>=41", "segno>=1.5"]
+dependencies = ["jsonschema>=4.18", "cryptography>=41", "segno>=1.5", "tzdata; sys_platform == 'win32'"]
 keywords = ["health", "fitness", "mcp", "agents", "sqlite", "healthkit"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
