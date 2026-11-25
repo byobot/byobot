@@ -565,7 +565,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke:
     if url is None and not saved.is_file():
         raise ValidationFailed("pass --url with the https address your tunnel gives this profile (saved after that)")
     base = check_url(url if url is not None else saved.read_text())
-    remote_dir().mkdir(parents=True, exist_ok=True)
+    remote_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
     saved.write_text(base + "\n")
 
     def log(line: str) -> None:
