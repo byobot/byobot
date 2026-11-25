@@ -135,8 +135,18 @@ class Store:
                 self._set("library", library.fingerprint())
         if reshaped:
             self.rebuild()
+        self._repair_clock()
         if self._get("contract") != self.contract.fingerprint():
             self.use(self.contract)
+
+    def _repair_clock(self) -> None:
+        """A store that took a clock reading past the ceiling before such events were refused writes after the
+        latest one that isn't."""
+        if not hlc.out_of_range(hlc.parse(self._get("hlc"))):
+            return
+        held = [hlc.parse(r[0]) for r in self.conn.execute("SELECT hlc FROM events")]
+        with self._tx():
+            self._set("hlc", hlc.format(max((h for h in held if not hlc.out_of_range(h)), default=(0, 0))))
 
     def _tx(self):
         conn = self.conn
@@ -245,6 +255,8 @@ class Store:
             self.contract.check(event)
         except Rejected as exc:
             return "rejected", exc.reason
+        if hlc.out_of_range(hlc.parse(event["hlc"])):
+            return "rejected", "clock reading past 2200"
         if event["record"]["kind"] == "source_record" and event["op"] != "erase" and "redacted_by" not in event and \
                 event["id"] != self._source_event_id(event):
             return "rejected", "broken rule: derived-id"

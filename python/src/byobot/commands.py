@@ -119,7 +119,8 @@ def _init(ctx: Context) -> dict:
 def _status(ctx: Context) -> dict:
     store = ctx.store()
     return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": str(ctx.path),
-            "device_id": store.device_id, "counts": store.counts()}
+            "device_id": store.device_id, "counts": store.counts(),
+            **({"clock_warnings": warnings} if (warnings := store.clock_warnings()) else {})}
 
 
 @command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False)
