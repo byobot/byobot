@@ -8,7 +8,7 @@ import pytest
 
 from byobot.core import commands
 from byobot.core.contract import Contract
-from byobot.core.store import Store
+from byobot.core.store import Store, query
 from byobot.util import Conflict, NotFound, ValidationFailed
 
 ME = {"kind": "human", "id": "me"}
@@ -394,3 +394,13 @@ def test_erase_cleanup_waits_out_a_reader(tmp_path):
         reader.close()
         commands.log(s, ME, [{"kind": "location", "id": "pool", "payload": {"name": "pool"}}])
         assert not s.compact_pending() and b"erase-me-7f3a" not in held()
+
+
+def test_query_stops_at_its_deadline(tmp_path):
+    with Store(tmp_path / "s.db"):
+        pass
+    endless = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT count(*) FROM n"
+    started = time.monotonic()
+    with pytest.raises(ValidationFailed, match="stopped after"):
+        query(tmp_path / "s.db", endless, seconds=0.5)
+    assert time.monotonic() - started < 5
