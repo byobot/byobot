@@ -675,10 +675,10 @@ def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
 
 
 def _source_current(versions: dict[str, dict]) -> tuple:
-    """A source record's current revision: the latest by the source's own account, then event id. A deletion
+    """A source record's current revision: the latest by the source's own account, else the last written. A deletion
     hides the record while the revision it names is current. Source records never conflict."""
     puts = [e for e in versions.values() if e["op"] == "put"]
-    current = max(puts, key=lambda e: (mappers.revised(e["payload"]), e["id"])) if puts else None
+    current = max(puts, key=mappers.revision_order) if puts else None
     hidden = current is not None and any(e["op"] == "retract" and e["prev"] == [current["id"]]
                                          for e in versions.values())
     shown = [current] if current else []

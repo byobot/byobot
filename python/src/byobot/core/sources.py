@@ -85,4 +85,4 @@ def _restamped(store: Store, rid: str, raw: dict) -> bool:
 def history(store: Store, rid: str) -> list[dict]:
     """Every revision of a source record, oldest first by the source's own account."""
     puts = [e for e in store.history("source_record", rid) if e["op"] == "put" and "redacted_by" not in e]
-    return sorted(puts, key=lambda e: (mappers.revised(e["payload"]), e["id"]))
+    return sorted(puts, key=mappers.revision_order)

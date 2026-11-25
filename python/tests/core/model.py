@@ -272,7 +272,7 @@ class ModelReplica:
         if record in self.gone:
             return []
         found = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op == "revision"]
-        return sorted(found, key=lambda w: (w.content["revised_at"], canonical(w.content["payload"])))
+        return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.hlc, canonical(w.content["payload"])))
 
     def source_current(self, record: str) -> dict | None:
         if any(self.writes[i].op == "deletion" for i in self.by_record.get(record, ())):
@@ -472,3 +472,12 @@ def newer(w: Write, variant: str) -> Write:
     if variant == "newer_version":
         return replace(w, id=f"{w.id}~v2", version=2)
     return replace(w, id=f"{w.id}~extra", content={**w.content, "x_new_field": 1})
+
+
+def _instant(at: str | None) -> tuple:
+    """A revision time as a point in time; one without a time sorts first, then by when it was written."""
+    try:
+        parsed = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return (False, 0.0)
+    return (True, parsed.timestamp()) if parsed.tzinfo else (False, 0.0)

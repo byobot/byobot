@@ -174,6 +174,16 @@ def revised(payload: dict) -> str:
         return ""
 
 
+def revision_order(event: dict) -> tuple:
+    """Revisions in the order their source made them: by revision time as an instant, else as they arrived."""
+    try:
+        at = datetime.fromisoformat(revised(event["payload"]).replace("Z", "+00:00"))
+        instant = at.timestamp() if at.tzinfo else None
+    except ValueError:
+        instant = None
+    return (instant is not None, instant or 0.0, event["hlc"], event["id"])
+
+
 def read(payload: dict, related: Related) -> dict:
     """{observations: [...], session: {...} | None, related: [(source_type, source_id)]}: empty for a source or
     type this build has no mapper for, whose raw is still kept."""
