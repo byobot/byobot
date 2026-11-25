@@ -7,22 +7,28 @@ import socket
 import ssl
 import threading
 import time
+from datetime import datetime
+from pathlib import Path
 
 import pytest
-from conftest import CASES, FIXTURES, case
 
-from byobot import contract, serve
-from byobot.store import Store
+from byobot import serve
+from byobot.core import commands, hlc
+from byobot.core.contract import sync_errors
+from byobot.core.store import Store
+from byobot.util import uuid7
 
-SYNC = json.loads((FIXTURES.parent / "sync.json").read_text(encoding="utf-8"))
+SYNC = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "sync.json").read_text())
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
+ME = {"kind": "human", "id": "me"}
+AGENT = {"kind": "agent", "id": "example-coach"}
 
 
 # -- the shared protocol fixtures ---------------------------------------------
 
 @pytest.mark.parametrize("item", SYNC["cases"], ids=[c["name"] for c in SYNC["cases"]])
 def test_sync_fixture(item):
-    errors = contract.validate_sync(item["def"], item["data"])
+    errors = sync_errors(item["def"], item["data"])
     assert (not errors) == item["valid"], errors
 
 
@@ -42,7 +48,7 @@ def test_pairing_link_fixture(item):
 def test_pairing_link_round_trips():
     fp = hashlib.sha256(b"x").hexdigest()
     link = serve.pairing_link(["host.local", "192.0.2.2"], 8765, "012345", fp)
-    assert serve.parse_pairing_link(link) == {"v": 0, "hosts": ["host.local", "192.0.2.2"], "port": 8765,
+    assert serve.parse_pairing_link(link) == {"v": 1, "hosts": ["host.local", "192.0.2.2"], "port": 8765,
                                              "code": "012345", "fp": fp}
 
 
@@ -71,57 +77,116 @@ def test_pairing_expires(monkeypatch):
 
 # -- what the phone pulls ------------------------------------------------------
 
-def _seed(store):
-    for item in CASES:
-        if item["schema"] == "event" and item["valid"] and item["data"]["type"] != "event.undone":
-            store.accept(item["data"])
+LOWER, UPPER, LATER, PLAN, DONE = (f"0193a0b0-0000-7000-8000-0000000001{i:02d}" for i in range(5))
+
+
+def write(store, *records, actor=AGENT):
+    return commands.log(store, actor, [{"kind": k, "id": i, "payload": p} for k, i, p in records])
+
+
+def lift(day, name, location="example-gym"):
+    return {"scheduled_on": day, "name": name, "location_id": location, "links": {"part_of": {"kind": "plan", "id": PLAN}},
+            "blocks": [{"rounds": 3, "efforts": [{"activity_id": "barbell_back_squat",
+                                                  "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
+
+
+def seed(store):
+    write(store,
+          ("activity", "barbell_back_squat", {"name": "Barbell back squat", "targets": {"main": ["quads"]}}),
+          ("location", "example-gym", {"name": "Example gym"}),
+          ("setting", "equipment", {"value": ["barbell", "rack"]}),
+          ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
+          ("planned_session", LOWER, lift("2026-11-23", "Lower A")),
+          ("planned_session", UPPER, lift("2026-11-25", "Upper A")),
+          ("planned_session", LATER, lift("2027-01-10", "Much later")))
+    answers = {"kind": "planned_session", "id": LOWER}
+    write(store, ("session", DONE, {"name": "Lower A", "location_id": "example-gym", "links": {"answers": answers},
+                                    "time": {"start": "2026-11-23T07:30:00-05:00"}}),
+          ("effort", None, {"activity_id": "barbell_back_squat", "round": 1, "time": {"start": "2026-11-23T07:35:00-05:00"},
+                            "links": {"part_of": {"kind": "session", "id": DONE},
+                                      "answers": {**answers, "part": f"{LOWER}.0.0"}},
+                            "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}), actor=ME)
 
 
 def test_plan_window_is_contract_shaped(store):
-    _seed(store)
+    seed(store)
     window = serve.plan_window(store, "2026-11-22", "2026-12-05")
-    assert contract.validate_sync("plan_window", window) == []
-    planned = {c["data"]["payload"]["id"]: c["data"]["payload"] for c in CASES
-               if c["valid"] and c["schema"] == "event" and c["data"]["type"] == "session.planned"}
-    assert {s["id"] for s in window["sessions"]} == set(planned)
-    for s in window["sessions"]:
-        assert s == planned[s["id"]]  # exactly as authored
-    assert [s["scheduled_on"] for s in window["sessions"]] == sorted(s["scheduled_on"] for s in window["sessions"])
-    assert "plan-2026-w48" in {p["id"] for p in window["plans"]}
-    assert {a["id"] for a in window["activities"]} >= {"barbell_back_squat"}
-    logged = {e["id"]: e for e in window["efforts"]}
-    assert logged["eff-1"]["round"] == 2 and logged["eff-1"]["metrics"]["load"] == {"value": 100, "unit": "kg"}
+    assert sync_errors("plan_window", window) == []
+    assert [s["id"] for s in window["planned_sessions"]] == [LOWER, UPPER]
+    for entry in window["planned_sessions"]:
+        assert entry["payload"] == store.get("planned_session", entry["id"])["payload"]  # exactly as authored
+        assert entry["prev"] == store.record("planned_session", entry["id"])["tips"]
+    assert [p["id"] for p in window["plans"]] == [PLAN]
+    assert [a["id"] for a in window["activities"]] == ["barbell_back_squat"]
+    assert [s["id"] for s in window["settings"]] == ["equipment"]
+    assert [s["id"] for s in window["sessions"]] == [DONE]
+    [effort] = window["efforts"]
+    assert effort["payload"]["round"] == 1 and effort["payload"]["metrics"]["load"] == {"value": 100, "unit": "kg"}
 
 
 def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
     (lib / "vocabulary.json").write_text("{}")
-    dip = {"id": "dip", "name": "Dip", "targets": {"main": ["triceps"]}, "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
+    dip = {"id": "dip", "name": "Dip", "targets": {"main": ["triceps"]},
+           "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
     (lib / "activities" / "dip.json").write_text(json.dumps(dip))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     with Store(byobot_home / "lib.db") as s:
         window = serve.plan_window(s, "2026-11-22", "2026-11-28")
-    assert window["activities"] == [dip] and contract.validate_sync("plan_window", window) == []
+    assert window["activities"] == [{"id": "dip", "payload": {k: v for k, v in dip.items() if k != "id"}, "prev": [],
+                                     "library": True}]
+    assert sync_errors("plan_window", window) == []
 
 
-def test_plan_window_follows_replanning_and_undo(store):
-    _seed(store)
-    first = case("event/session-planned-lift")
-    again = {**first, "id": "0193a0b0-0000-7000-8000-0000000000f1",
-             "payload": {**first["payload"], "name": "Lower A (deload)"}}
-    store.accept(again)
-    names = {s["id"]: s["name"] for s in serve.plan_window(store, "2026-11-01", "2026-12-31")["sessions"]}
-    assert names[first["payload"]["id"]] == "Lower A (deload)"
-    store.append("event.undone", {"event_id": again["id"]}, {"kind": "human", "id": "me"})
-    names = {s["id"]: s["name"] for s in serve.plan_window(store, "2026-11-01", "2026-12-31")["sessions"]}
-    assert names[first["payload"]["id"]] == first["payload"]["name"]
+def test_plan_window_follows_replanning_undo_and_rearranging(store):
+    seed(store)
+    replanned = commands.replan(store, AGENT, LOWER, lift("2026-11-23", "Lower A (deload)"))
+
+    def names():
+        window = serve.plan_window(store, "2026-11-01", "2026-12-31")
+        return {s["id"]: s["payload"]["name"] for s in window["planned_sessions"]}
+
+    assert names()[LOWER] == "Lower A (deload)"
+    commands.undo(store, ME, replanned["id"])
+    assert names()[LOWER] == "Lower A"
+    rid = store.contract.derived("overlay", ["rearrange", "planned_session", LOWER])
+    store.write(ME, [{"kind": "overlay", "id": rid, "op": "put", "payload": {
+        "effect": "rearrange", "target": {"kind": "planned_session", "id": LOWER}, "order": [f"{LOWER}.0.0"]}}])
+    window = serve.plan_window(store, "2026-11-01", "2026-12-31")
+    assert [o["payload"]["target"]["id"] for o in window["overlays"]] == [LOWER]
+
+
+def test_plan_window_shows_a_conflict(store):
+    seed(store)
+    tips, payload = store.record("planned_session", UPPER)["tips"], store.get("planned_session", UPPER)["payload"]
+    for name in ("Upper A (phone)", "Upper A (coach)"):
+        store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
+                          "payload": {**payload, "name": name}}])
+    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    assert entry["conflict"] is True and len(entry["prev"]) == 2  # a change naming both resolves it
 
 
 def test_plan_window_outside_the_dates_is_empty(store):
-    _seed(store)
+    seed(store)
     window = serve.plan_window(store, "2030-01-01", "2030-01-07")
-    assert window["sessions"] == [] and window["efforts"] == []
+    assert window["planned_sessions"] == [] and window["efforts"] == [] and window["sessions"] == []
+
+
+def test_plan_window_brings_the_last_two_times_at_each_location(store):
+    seed(store)
+    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel-gym")]):
+        sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
+        write(store, ("session", sid, {"name": "Squats", "location_id": location,
+                                       "time": {"start": f"2026-11-{day}T08:00:00Z"}}),
+              *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
+                  "activity_id": "barbell_back_squat", "round": n, "time": {"start": f"2026-11-{day}T08:0{n}:00Z"},
+                  "links": {"part_of": {"kind": "session", "id": sid}},
+                  "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
+    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    ours = [e["id"][-2:] for e in window["efforts"] if e["id"].startswith("0193a0b0-0000-7000-8000-0000000006")]
+    assert ours == ["11", "12", "21", "22", "31", "32"] and len(window["efforts"]) == 7  # and the seeded gym visit
+    assert [p["id"] for p in window["planned_sessions"]] == [UPPER]
 
 
 # -- over HTTPS ----------------------------------------------------------------
@@ -165,18 +230,30 @@ def server(byobot_home):
 
 
 def _pair(client, info, device_id=PHONE):
-    status, body = client.call("POST", "/v0/pair", {"code": info["code"], "device_id": device_id, "name": "Test phone"})
+    status, body = client.call("POST", "/v1/pair", {"code": info["code"], "device_id": device_id, "name": "Test phone"})
     assert status == 200, body
-    assert contract.validate_sync("pair_response", body) == []
+    assert sync_errors("pair_response", body) == []
     client.token = body["token"]
     return body
 
 
-def _event(type_, payload, device_id=PHONE, event_id=None):
-    from byobot.util import now, uuid7
+CLOCK = [1795400000000]
 
-    return {"id": event_id or uuid7(), "schema_version": 0, "type": type_, "ts": now(), "device_id": device_id,
-            "actor": {"kind": "human", "id": "me"}, "payload": payload}
+
+def _event(kind, rid, payload=None, op="put", prev=(), device_id=PHONE, actor=ME, at=None, reverts=None):
+    """An event as the app authors it."""
+    CLOCK[0] += 1000
+    ms = hlc.millis(datetime.fromisoformat(at.replace("Z", "+00:00"))) if at else CLOCK[0]
+    event = {"id": uuid7(), "schema_version": 1, "record": {"kind": kind, "id": rid}, "op": op,
+             "hlc": hlc.format((ms, 0)), "ts": at or "2026-11-23T08:00:00-05:00", "device_id": device_id,
+             "actor": actor, "prev": list(prev)}
+    if reverts:
+        event["reverts"] = reverts
+    return {**event, "kind_version": 1, "payload": payload} if op == "put" else {**event, "payload": payload or {}}
+
+
+def db(byobot_home):
+    return Store(byobot_home / "byobot.db")
 
 
 def test_certificate_is_made_once_and_kept(server, byobot_home):
@@ -184,56 +261,60 @@ def test_certificate_is_made_once_and_kept(server, byobot_home):
     cert = byobot_home / "serve" / "cert.pem"
     assert cert.is_file() and (byobot_home / "serve" / "key.pem").is_file()
     assert serve.fingerprint(cert.read_bytes()) == info["fingerprint"]
-    with Store(byobot_home / "byobot.db") as s:
+    with db(byobot_home) as s:
         _, _, again = serve.ensure_certificate(s.device_id)
     assert again == info["fingerprint"]
-    assert info["link"].startswith("byobot://pair?v=0&") and serve.parse_pairing_link(info["link"])["fp"] == again
+    assert info["link"].startswith("byobot://pair?v=1&") and serve.parse_pairing_link(info["link"])["fp"] == again
 
 
 def test_plain_http_is_refused(server):
     _, info, _, _ = server
     conn = http.client.HTTPConnection("127.0.0.1", info["port"], timeout=5)
     with pytest.raises((http.client.HTTPException, ConnectionError, socket.timeout, OSError)):
-        conn.request("GET", "/v0/hello")
+        conn.request("GET", "/v1/hello")
         conn.getresponse().read()
     conn.close()
 
 
-def test_hello_needs_no_token(server):
+def test_hello_needs_no_token_and_names_the_store(server, byobot_home):
     _, info, client, _ = server
-    status, body = client.call("GET", "/v0/hello")
+    status, body = client.call("GET", "/v1/hello")
     assert status == 200 and body["pairing_open"] is True and body["server"]["device_id"] == info["device_id"]
-    assert contract.validate_sync("hello", body) == []
+    with db(byobot_home) as s:
+        assert body["server"]["store_id"] == s.store_id
+    assert sync_errors("hello", body) == []
+    assert client.call("GET", "/v0/hello")[0] == 404  # an app on the old protocol is told nothing it would misread
 
 
 def test_everything_else_needs_a_token(server):
     _, _, client, _ = server
-    for method, path in (("GET", "/v0/status"), ("GET", "/v0/plan"), ("POST", "/v0/events"), ("POST", "/v0/telemetry")):
+    for method, path in (("GET", "/v1/status"), ("GET", "/v1/plan"), ("GET", "/v1/events"), ("POST", "/v1/events"),
+                         ("POST", "/v1/samples")):
         status, body = client.call(method, path, {"events": [], "samples": []} if method == "POST" else None,
                                    token="not-a-token")
         assert status == 401 and body["error"] == "unauthorized", path
-        assert contract.validate_sync("error", body) == []
+        assert sync_errors("error", body) == []
 
 
 def test_pairing_wrong_code_then_right_code_once(server):
     _, info, client, _ = server
     wrong = "000000" if info["code"] != "000000" else "111111"
-    status, body = client.call("POST", "/v0/pair", {"code": wrong, "device_id": PHONE, "name": "Phone"})
+    status, body = client.call("POST", "/v1/pair", {"code": wrong, "device_id": PHONE, "name": "Phone"})
     assert status == 403 and body["error"] == "wrong_code" and body["details"]["tries_left"] == serve.PAIRING_TRIES - 1
     paired = _pair(client, info)
     assert paired["device"]["device_id"] == PHONE and paired["server"]["device_id"] == info["device_id"]
-    status, body = client.call("POST", "/v0/pair", {"code": info["code"], "device_id": "other", "name": "Other"})
+    status, body = client.call("POST", "/v1/pair", {"code": info["code"], "device_id": "other", "name": "Other"})
     assert status == 403 and body["error"] == "pairing_closed"
-    status, body = client.call("GET", "/v0/status")
+    status, body = client.call("GET", "/v1/status")
     assert status == 200 and body["device"]["name"] == "Test phone"
-    assert contract.validate_sync("status", body) == []
+    assert sync_errors("status", body) == []
 
 
 def test_pair_rejects_a_bad_device_id(server):
     _, info, client, _ = server
-    status, body = client.call("POST", "/v0/pair", {"code": info["code"], "device_id": "no spaces", "name": "Phone"})
+    status, body = client.call("POST", "/v1/pair", {"code": info["code"], "device_id": "no spaces", "name": "Phone"})
     assert status == 400 and body["error"] == "invalid"
-    status, _ = client.call("GET", "/v0/hello")
+    status, _ = client.call("GET", "/v1/hello")
     assert status == 200  # and the code is still good
     _pair(client, info)
 
@@ -241,96 +322,157 @@ def test_pair_rejects_a_bad_device_id(server):
 def test_tokens_are_stored_hashed(server, byobot_home):
     _, info, client, _ = server
     token = _pair(client, info)["token"]
-    with Store(byobot_home / "byobot.db") as s:
-        stored = s.conn.execute("SELECT token_sha256 FROM sync_peers").fetchone()[0]
+    with db(byobot_home) as s:
+        stored = s.conn.execute("SELECT token_sha256 FROM peers").fetchone()[0]
     assert stored == hashlib.sha256(token.encode()).hexdigest() and token not in stored
 
 
 def test_pull_the_plan(server, byobot_home):
-    srv, info, client, _ = server
-    with Store(byobot_home / "byobot.db") as s:
-        _seed(s)
+    _, info, client, _ = server
+    with db(byobot_home) as s:
+        seed(s)
     _pair(client, info)
-    status, body = client.call("GET", "/v0/plan?from=2026-11-22&to=2026-12-05")
-    assert status == 200 and contract.validate_sync("plan_window", body) == []
-    assert len(body["sessions"]) == 6 and body["from"] == "2026-11-22"
-    status, body = client.call("GET", "/v0/plan?from=nope")
+    status, body = client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")
+    assert status == 200 and sync_errors("plan_window", body) == []
+    assert len(body["planned_sessions"]) == 2 and body["from"] == "2026-11-22"
+    status, body = client.call("GET", "/v1/plan?from=nope")
     assert status == 400
 
 
 def test_push_events_round_trip(server, byobot_home):
     _, info, client, _ = server
-    with Store(byobot_home / "byobot.db") as s:
-        _seed(s)
+    with db(byobot_home) as s:
+        seed(s)
     _pair(client, info)
-    session = _event("session.performed", {"id": "phone-sess-1", "planned_session_id": "sess-lower-a",
-                                            "started_at": "2026-11-23T07:30:00-05:00"})
-    effort = _event("effort.performed", {"id": "phone-eff-1", "session_id": "phone-sess-1", "activity_id": "barbell_back_squat",
-                                         "performed_at": "2026-11-23T07:35:00-05:00", "planned_effort_id": "e-squat",
-                                         "round": 1, "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "lb"}}})
-    finished = _event("session.performed", {"id": "phone-sess-1", "planned_session_id": "sess-lower-a",
-                                             "started_at": "2026-11-23T07:30:00-05:00",
-                                             "ended_at": "2026-11-23T08:20:00-05:00"})
-    not_mine = _event("effort.performed", {"id": "x", "activity_id": "plank", "performed_at": "2026-11-23T08:00:00Z"},
-                      device_id="someone-else")
-    invalid = _event("effort.performed", {"id": "y", "activity_id": "plank", "performed_at": "2026-11-23T08:00:00Z",
-                                          "metrics": {"rep": {"value": 5}}})
-    request = {"events": [session, effort, finished, not_mine, invalid]}
-    assert contract.validate_sync("events_request", {"events": [session, effort, finished]}) == []
-    status, body = client.call("POST", "/v0/events", request)
-    assert status == 200 and contract.validate_sync("events_response", body) == []
-    assert [r["status"] for r in body["results"]] == ["accepted", "accepted", "accepted", "rejected", "rejected"]
-    assert body["results"][3]["errors"][0]["path"] == "$.device_id"
-    assert any("rep" in e["message"] or "rep" in e["path"] for e in body["results"][4]["errors"])
+    sid, eid = uuid7(), uuid7()
+    answers = {"kind": "planned_session", "id": LOWER}
+    session = _event("session", sid, {"name": "Lower A", "modality": "self_reported", "links": {"answers": answers},
+                                      "time": {"start": "2026-11-23T07:30:00-05:00"}})
+    effort = _event("effort", eid, {"activity_id": "barbell_back_squat", "round": 2, "modality": "self_reported",
+                                    "time": {"start": "2026-11-23T07:40:00-05:00"},
+                                    "links": {"part_of": {"kind": "session", "id": sid},
+                                              "answers": {**answers, "part": f"{LOWER}.0.0"}},
+                                    "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "[lb_av]"}}})
+    finished = _event("session", sid, {**session["payload"], "time": {"start": "2026-11-23T07:30:00-05:00",
+                                                                      "end": "2026-11-23T08:20:00-05:00"}},
+                      prev=[session["id"]])
+    not_mine = _event("effort", uuid7(), effort["payload"], device_id="someone-else")
+    invalid = _event("effort", uuid7(), {**effort["payload"], "metrics": {"reps": {"value": 5, "unit": "kg"}}})
+    imported = _event("source_record", uuid7(), {"source": "whoop"})
+    request = {"events": [session, effort, finished, not_mine, invalid, imported]}
+    assert sync_errors("events_request", {"events": [session, effort, finished]}) == []
+    status, body = client.call("POST", "/v1/events", request)
+    assert status == 200 and sync_errors("events_response", body) == []
+    assert [r["status"] for r in body["results"]] == ["accepted"] * 3 + ["rejected"] * 3
+    assert "paired device" in body["results"][3]["reason"] and "a person writes" in body["results"][5]["reason"]
 
     # Retrying is harmless: the phone may not have seen the answer.
-    status, body = client.call("POST", "/v0/events", {"events": [session, effort]})
+    status, body = client.call("POST", "/v1/events", {"events": [session, effort]})
     assert [r["status"] for r in body["results"]] == ["duplicate", "duplicate"] and body["duplicate"] == 2
     # A different event reusing an id is not a duplicate.
-    status, body = client.call("POST", "/v0/events", {"events": [{**effort, "ts": "2026-11-23T09:00:00Z"}]})
+    status, body = client.call("POST", "/v1/events", {"events": [{**effort, "ts": "2026-11-23T09:00:00Z"}]})
     assert body["results"][0]["status"] == "rejected"
 
-    with Store(byobot_home / "byobot.db") as s:
-        row = s.rows("SELECT * FROM strength_sets WHERE effort_id = 'phone-eff-1'")[0]
-        assert row["reps"] == 5 and abs(row["load_kg"] - 102.058) < 0.01
-        sess = s.rows("SELECT * FROM performed_sessions WHERE id = 'phone-sess-1'")[0]
-        assert sess["device_id"] == PHONE and sess["ended_at"] == "2026-11-23T08:20:00-05:00"
-        assert s.rows("SELECT count(*) AS n FROM performed_efforts WHERE session_id = 'phone-sess-1'")[0]["n"] == 1
-        pva = s.rows("SELECT * FROM plan_vs_actual WHERE performed_effort_id = 'phone-eff-1'")[0]
-        assert pva["planned_effort_id"] == "e-squat" and pva["round"] == 1
+    with db(byobot_home) as s:
+        row = s.rows("SELECT * FROM strength_sets WHERE id = ?", (eid,))[0]
+        assert row["reps"] == 5 and abs(row["load_kg"] - 102.058) < 0.01 and row["location_id"] is None
+        assert s.rows("SELECT end_ms FROM sessions WHERE id = ?", (sid,))[0]["end_ms"] is not None
+        pva = s.rows("SELECT * FROM plan_vs_actual WHERE effort_id = ?", (eid,))[0]
+        assert pva["planned_effort_id"] == f"{LOWER}.0.0" and pva["round"] == 2
+        assert {r["device_id"] for r in s.rows("SELECT device_id FROM events WHERE record_id = ?", (sid,))} == {PHONE}
 
     # The effort now shows up in the plan the phone pulls.
-    status, body = client.call("GET", "/v0/plan?from=2026-11-22&to=2026-12-05")
-    assert "phone-eff-1" in {e["id"] for e in body["efforts"]}
+    status, body = client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")
+    assert eid in {e["id"] for e in body["efforts"]}
 
-    # Undo from the phone.
-    status, body = client.call("POST", "/v0/events", {"events": [_event("event.undone", {"event_id": effort["id"]})]})
-    assert body["accepted"] == 1
-    with Store(byobot_home / "byobot.db") as s:
-        assert s.rows("SELECT * FROM performed_efforts WHERE id = 'phone-eff-1'") == []
+    # Undoing a set on the phone retracts it.
+    gone = _event("effort", eid, {"reason": "Logged twice."}, op="retract", prev=[effort["id"]])
+    status, body = client.call("POST", "/v1/events", {"events": [gone]})
+    assert body["accepted"] == 1, body
+    with db(byobot_home) as s:
+        assert s.rows("SELECT * FROM efforts WHERE id = ?", (eid,)) == []
 
 
 def test_push_rejects_bad_requests(server):
     _, info, client, _ = server
     _pair(client, info)
-    assert client.call("POST", "/v0/events", {"nope": []})[0] == 400
-    assert client.call("POST", "/v0/events", {"events": [1]})[1]["results"][0]["status"] == "rejected"
-    assert client.call("GET", "/v0/nowhere")[0] == 404
+    assert client.call("POST", "/v1/events", {"nope": []})[0] == 400
+    assert client.call("POST", "/v1/events", {"events": [1]})[1]["results"][0]["status"] == "rejected"
+    assert client.call("GET", "/v1/nowhere")[0] == 404
 
 
-def test_push_telemetry(server, byobot_home):
+def test_an_edit_on_the_phone_and_one_by_the_coach_show_the_conflict(server, byobot_home):
+    _, info, client, _ = server
+    with db(byobot_home) as s:
+        seed(s)
+    _pair(client, info)
+    entry = next(e for e in client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")[1]["planned_sessions"]
+                 if e["id"] == UPPER)
+    with db(byobot_home) as s:  # the coach replans while the phone is offline
+        commands.replan(s, AGENT, UPPER, lift("2026-11-26", "Upper A (moved)"))
+    mine = _event("planned_session", UPPER, {**entry["payload"], "name": "Upper A (shorter)"}, prev=entry["prev"])
+    assert client.call("POST", "/v1/events", {"events": [mine]})[1]["accepted"] == 1
+    entry = next(e for e in client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")[1]["planned_sessions"]
+                 if e["id"] == UPPER)
+    assert entry["conflict"] is True and len(entry["prev"]) == 2
+    fixed = _event("planned_session", UPPER, {**entry["payload"], "name": "Upper A"}, prev=entry["prev"])
+    assert client.call("POST", "/v1/events", {"events": [fixed]})[1]["accepted"] == 1
+    entry = next(e for e in client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")[1]["planned_sessions"]
+                 if e["id"] == UPPER)
+    assert "conflict" not in entry and entry["payload"]["name"] == "Upper A" and entry["prev"] == [fixed["id"]]
+
+
+def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
     _, info, client, _ = server
     _pair(client, info)
-    good = SYNC["cases"][[c["name"] for c in SYNC["cases"]].index("sync/telemetry-request")]["data"]["samples"][0]
-    bad = {**good, "source_id": "bad", "unit": "lb"}
-    status, body = client.call("POST", "/v0/telemetry", {"samples": [good, bad]})
-    assert status == 200 and body["inserted"] == 1 and body["rejected"][0]["index"] == 1
-    assert contract.validate_sync("telemetry_response", body) == []
-    status, body = client.call("POST", "/v0/telemetry", {"samples": [good]})
-    assert body["unchanged"] == 1
-    with Store(byobot_home / "byobot.db") as s:
-        row = s.rows("SELECT * FROM telemetry_samples")[0]
-        assert row["source"] == "apple-health" and row["value"] == 82.4
+    eid = uuid7()
+    payload = {"activity_id": "barbell_back_squat", "modality": "self_reported",
+               "time": {"start": "2026-11-23T07:35:00-05:00"}, "metrics": {"reps": {"value": 5}}}
+    original = _event("effort", eid, payload)
+    fix = _event("effort", eid, {**payload, "metrics": {"reps": {"value": 4}}}, prev=[original["id"]])
+    assert client.call("POST", "/v1/events", {"events": [fix, original]})[1]["accepted"] == 2
+    with db(byobot_home) as s:
+        assert s.get("effort", eid)["payload"]["metrics"] == {"reps": {"value": 4}}
+        assert not s.get("effort", eid)["conflict"]
+
+
+def test_pull_events_after_a_cursor(server, byobot_home, monkeypatch):
+    _, info, client, _ = server
+    with db(byobot_home) as s:
+        seed(s)
+        total = s.rows("SELECT count(*) AS n FROM events")[0]["n"]
+    _pair(client, info)
+    status, body = client.call("GET", "/v1/events")
+    assert status == 200 and sync_errors("pull_response", body) == []
+    assert len(body["events"]) == total and body["more"] is False
+    assert client.call("GET", f"/v1/events?after={body['next']}")[1] == {"events": [], "next": body["next"],
+                                                                         "more": False}
+    monkeypatch.setattr(serve, "MAX_PULL", 3)
+    first = client.call("GET", "/v1/events?after=0")[1]
+    second = client.call("GET", f"/v1/events?after={first['next']}")[1]
+    assert first["more"] is True and len(first["events"]) == 3
+    assert [e["id"] for e in first["events"] + second["events"]] == [e["id"] for e in body["events"][:6]]
+    assert client.call("GET", "/v1/events?after=-1")[0] == 400
+
+
+def test_push_samples(server, byobot_home):
+    _, info, client, _ = server
+    _pair(client, info)
+    request = next(c for c in SYNC["cases"] if c["name"] == "sync/samples-request")["data"]
+    weight = request["samples"][0]
+    status, body = client.call("POST", "/v1/samples", {"samples": [weight]})
+    assert status == 200 and body == {"written": 1, "by_source": {"apple_health": 1}}
+    assert sync_errors("samples_response", body) == []
+    assert client.call("POST", "/v1/samples", {"samples": [weight]})[1]["written"] == 0
+    with db(byobot_home) as s:
+        assert s.rows("SELECT code, value FROM observations") == [{"code": "body_mass", "value": 82.4}]
+    gone = {"source": weight["source"], "source_id": weight["source_id"]}
+    assert client.call("POST", "/v1/samples", {"deleted": [gone]})[1]["written"] == 1
+    with db(byobot_home) as s:
+        assert s.rows("SELECT code FROM observations") == []
+    status, body = client.call("POST", "/v1/samples", {"samples": [{"source": "apple_health"}]})
+    assert status == 400 and body["error"] == "invalid"
+    assert client.call("POST", "/v1/samples", [weight])[0] == 400
 
 
 def test_unpair_revokes_the_token_at_once(server, capsys):
@@ -338,13 +480,13 @@ def test_unpair_revokes_the_token_at_once(server, capsys):
 
     _, info, client, _ = server
     _pair(client, info)
-    assert client.call("GET", "/v0/status")[0] == 200
+    assert client.call("GET", "/v1/status")[0] == 200
     assert main(["devices"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert listed["count"] == 1 and listed["items"][0]["device_id"] == PHONE
     assert main(["unpair", PHONE]) == 0
     assert json.loads(capsys.readouterr().out)["device"]["revoked_at"]
-    assert client.call("GET", "/v0/status")[0] == 401
+    assert client.call("GET", "/v1/status")[0] == 401
     assert main(["unpair", "nobody"]) == 1
 
 
@@ -352,8 +494,8 @@ def test_pairing_opens_by_default_only_until_a_device_is_paired(byobot_home):
     srv, info = serve.make_server("127.0.0.1", 0)
     srv.server_close()
     assert "code" in info
-    with Store(byobot_home / "byobot.db") as s:
-        s.pair_peer(PHONE, "Phone", "0" * 64)
+    with db(byobot_home) as s:
+        s.pair(PHONE, "Phone", "0" * 64)
     srv, info = serve.make_server("127.0.0.1", 0)
     srv.server_close()
     assert "code" not in info
@@ -373,62 +515,30 @@ def test_serve_command_reports_a_busy_port(capsys):
     assert "could not listen" in capsys.readouterr().err
 
 
-def test_out_of_order_push_from_the_phone(server, byobot_home):
-    """Ordering rule: the latest event time wins, whichever device's event arrives last."""
+def test_pushed_events_cannot_name_another_actor(server, byobot_home):
     _, info, client, _ = server
     _pair(client, info)
-    with Store(byobot_home / "byobot.db") as s:
-        laptop = s.device_id
-        s.accept(_event("activity.defined", {"id": "plank", "name": "Plank (laptop, 12:00)"}, device_id=laptop)
-                 | {"ts": "2026-11-21T12:00:00Z"})
-    # The phone logged a rename at 11:00 offline and syncs it late: the laptop's newer edit stands.
-    old = _event("activity.defined", {"id": "plank", "name": "Plank (phone, 11:00)"}) | {"ts": "2026-11-21T11:00:00Z"}
-    # The phone finished a session at 13:00 but its outbox pushes the end before the start.
-    end = _event("session.performed", {"id": "s1", "started_at": "2026-11-21T12:30:00Z",
-                                        "ended_at": "2026-11-21T13:00:00Z"}) | {"ts": "2026-11-21T13:00:00Z"}
-    start = _event("session.performed", {"id": "s1", "started_at": "2026-11-21T12:30:00Z"}) | {"ts": "2026-11-21T12:30:00Z"}
-    status, body = client.call("POST", "/v0/events", {"events": [old, end, start]})
-    assert body["accepted"] == 3
-    with Store(byobot_home / "byobot.db") as s:
-        assert s.rows("SELECT name FROM activities WHERE id = 'plank'")[0]["name"] == "Plank (laptop, 12:00)"
-        assert s.rows("SELECT ended_at FROM performed_sessions WHERE id = 's1'")[0]["ended_at"] == "2026-11-21T13:00:00Z"
-        # Arrival order is kept as the audit trail.
-        seqs = [r["id"] for r in s.rows("SELECT id FROM events ORDER BY seq")]
-        assert seqs[-3:] == [old["id"], end["id"], start["id"]]
-    # A newer edit from the phone wins.
-    new = _event("activity.defined", {"id": "plank", "name": "Plank (phone, 14:00)"}) | {"ts": "2026-11-21T14:00:00Z"}
-    client.call("POST", "/v0/events", {"events": [new]})
-    with Store(byobot_home / "byobot.db") as s:
-        assert s.rows("SELECT name FROM activities WHERE id = 'plank'")[0]["name"] == "Plank (phone, 14:00)"
+    mine = _event("activity", "plank", {"name": "Plank"})
+    agent = _event("activity", "curl", {"name": "Curl"}, actor={"kind": "agent", "id": "example-agent"})
+    other = _event("activity", "run", {"name": "Run"}, actor={"kind": "human", "id": "example-laptop"})
+    status, body = client.call("POST", "/v1/events", {"events": [mine, agent, other]})
+    assert status == 200 and sync_errors("events_response", body) == []
+    assert [r["status"] for r in body["results"]] == ["accepted", "rejected", "rejected"]
+    assert "user" in body["results"][1]["reason"] and "user" in body["results"][2]["reason"]
+    assert client.call("POST", "/v1/events", {"events": [mine]})[1]["results"][0]["status"] == "duplicate"
+    with db(byobot_home) as s:
+        assert s.rows("SELECT actor_kind, actor_id, actor_model FROM events") == [
+            {"actor_kind": "human", "actor_id": "me", "actor_model": None}]
 
 
-def test_a_correction_pushed_before_its_original_still_wins(server, byobot_home):
+def test_a_nested_body_is_rejected(server):
     _, info, client, _ = server
-    with Store(byobot_home / "byobot.db") as s:
-        _seed(s)
-    _pair(client, info)
-    effort = {"id": "phone-eff-2", "activity_id": "barbell_back_squat", "performed_at": "2026-11-23T07:35:00-05:00",
-              "planned_effort_id": "e-squat", "round": 1, "metrics": {"reps": {"value": 5}}}
-    original = _event("effort.performed", effort) | {"ts": "2026-11-23T12:35:05Z"}
-    fix = _event("effort.performed", {**effort, "metrics": {"reps": {"value": 4}}}) | {"ts": "2026-11-23T12:40:00Z"}
-    status, body = client.call("POST", "/v0/events", {"events": [fix, original]})
-    assert body["accepted"] == 2
-    status, body = client.call("GET", "/v0/plan?from=2026-11-22&to=2026-12-05")
-    logged = [e for e in body["efforts"] if e["id"] == "phone-eff-2"]
-    assert logged == [{**effort, "metrics": {"reps": {"value": 4}}}]
-
-
-def test_plan_window_has_locations_and_where_each_set_happened(store):
-    store.accept(case("event/location-defined"))
-    store.accept(case("event/session-planned-at-location"))
-    session = json.loads(json.dumps(case("event/session-performed-at-location")))
-    session["payload"]["efforts"][0]["planned_effort_id"] = "0193a0b0-0000-7000-8000-000000000412"
-    store.accept(session)
-    window = serve.plan_window(store, "2026-11-22", "2026-11-30")
-    assert contract.validate_sync("plan_window", window) == []
-    assert window["locations"] == [{"id": "home", "name": "Home gym", "notes": "Example bar, iron plates"}]
-    assert window["sessions"][0]["location_id"] == "home"
-    assert [e["location_id"] for e in window["efforts"]] == ["example-gym"]  # taken from its session
+    token = _pair(client, info)["token"]
+    nested = b"[" * 2000 + b"]" * 2000
+    request = _post_headers("/v1/events", f"Authorization: Bearer {token}", f"Content-Length: {len(nested)}") + nested
+    data = _raw_exchange(info["port"], info["fingerprint"], request)
+    assert _status_line(data) == 400 and _json_body(data)["error"] == "invalid"
+    assert client.call("GET", "/v1/status")[0] == 200
 
 
 def _raw_exchange(port, fp, request: bytes, timeout: float = 3) -> bytes:
@@ -475,7 +585,7 @@ def _post_headers(path: str, *headers: str) -> bytes:
 def test_unauthenticated_post_is_rejected_before_the_body_is_read(server):
     """A missing or wrong token is a 401 even when the body never arrives, and never a 100 Continue."""
     _, info, client, _ = server
-    for path in ("/v0/events", "/v0/telemetry"):
+    for path in ("/v1/events", "/v1/samples"):
         for auth in ("", "Authorization: Bearer not-a-token"):
             headers = ["Content-Length: 1000000", "Expect: 100-continue"]
             if auth:
@@ -486,9 +596,9 @@ def test_unauthenticated_post_is_rejected_before_the_body_is_read(server):
             assert _json_body(data)["error"] == "unauthorized"
     # A negative length must not be read either (read(-1) would block until the client closes).
     data = _raw_exchange(info["port"], info["fingerprint"],
-                         _post_headers("/v0/events", "Content-Length: -1", "Authorization: Bearer not-a-token"))
+                         _post_headers("/v1/events", "Content-Length: -1", "Authorization: Bearer not-a-token"))
     assert _status_line(data) == 401
-    status, body = client.call("GET", "/v0/hello")
+    status, body = client.call("GET", "/v1/hello")
     assert status == 200 and body["pairing_open"] is True
 
 
@@ -520,19 +630,19 @@ def test_expect_100_continue_is_sent_only_after_auth(server):
     """A client waiting on 100 gets 401 with no Continue, or 100 and then 200 once the token and length pass."""
     _, info, client, _ = server
     refused = _raw_exchange(info["port"], info["fingerprint"], _post_headers(
-        "/v0/events", "Content-Length: 13", "Expect: 100-continue", "Authorization: Bearer not-a-token"))
+        "/v1/events", "Content-Length: 13", "Expect: 100-continue", "Authorization: Bearer not-a-token"))
     assert refused.startswith(b"HTTP/1.1 401")
     assert b"HTTP/1.1 100" not in refused
     assert _json_body(refused)["error"] == "unauthorized"
 
     token = _pair(client, info)["token"]
     too_big = _raw_exchange(info["port"], info["fingerprint"], _post_headers(
-        "/v0/events", f"Authorization: Bearer {token}", f"Content-Length: {serve.MAX_BODY + 1}", "Expect: 100-continue"))
+        "/v1/events", f"Authorization: Bearer {token}", f"Content-Length: {serve.MAX_BODY + 1}", "Expect: 100-continue"))
     assert too_big.startswith(b"HTTP/1.1 413") and b"HTTP/1.1 100" not in too_big
 
     body = b'{"events":[]}'
     headers = (
-        "POST /v0/events HTTP/1.1\r\n"
+        "POST /v1/events HTTP/1.1\r\n"
         "Host: 127.0.0.1\r\n"
         f"Authorization: Bearer {token}\r\n"
         "Content-Type: application/json\r\n"
@@ -564,9 +674,9 @@ def test_expect_100_continue_is_sent_only_after_auth(server):
 def test_a_refused_post_does_not_desync_the_connection(server):
     """Bytes already sent with a 401 are not parsed as the next request."""
     _, info, _, _ = server
-    smuggled = b"GET /v0/hello HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+    smuggled = b"GET /v1/hello HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
     request = (
-        "POST /v0/events HTTP/1.1\r\n"
+        "POST /v1/events HTTP/1.1\r\n"
         "Host: 127.0.0.1\r\n"
         f"Content-Length: {len(smuggled)}\r\n"
         "Authorization: Bearer not-a-token\r\n"
@@ -585,12 +695,12 @@ def test_writes_are_not_under_the_query_deadline(server, monkeypatch):
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
     monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 1)
-    event = _event("activity.defined", {"id": "plank", "name": "Plank"})
-    status, body = client.call("POST", "/v0/events", {"events": [event]})
+    event = _event("activity", "plank", {"name": "Plank"})
+    status, body = client.call("POST", "/v1/events", {"events": [event]})
     assert status == 200 and body["accepted"] == 1
-    status, body = client.call("POST", "/v0/telemetry", {"samples": []})
-    assert status == 200 and body["inserted"] == 0
-    assert client.call("GET", "/v0/status")[0] == 503
+    status, body = client.call("POST", "/v1/samples", {"samples": []})
+    assert status == 200 and body["written"] == 0
+    assert client.call("GET", "/v1/status")[0] == 503
 
 
 def test_content_length_is_validated_before_the_body_is_read(server):
@@ -608,25 +718,25 @@ def test_content_length_is_validated_before_the_body_is_read(server):
         ([auth, "Content-Length: 0"], 400, "invalid"),  # present and empty: not "missing", and not a hang
     ]
     for headers, status, code in cases:
-        data = _raw_exchange(info["port"], info["fingerprint"], _post_headers("/v0/events", *headers))
+        data = _raw_exchange(info["port"], info["fingerprint"], _post_headers("/v1/events", *headers))
         assert _status_line(data) == status, headers
         body = _json_body(data)
         assert body["error"] == code, headers
-        assert contract.validate_sync("error", body) == []
+        assert sync_errors("error", body) == []
         if "Content-Length: 0" not in headers:
             assert b"Connection: close" in data  # the body was not read, so the connection must not be reused
     # The token still works, and a normal body is accepted.
-    assert client.call("POST", "/v0/events", {"events": []})[0] == 200
+    assert client.call("POST", "/v1/events", {"events": []})[0] == 200
 
 
 def test_pairing_rejects_a_bad_length_without_spending_a_guess(server):
     _, info, client, _ = server
-    huge = _post_headers("/v0/pair", f"Content-Length: {serve.MAX_PAIR_BODY + 1}")
-    negative = _post_headers("/v0/pair", "Content-Length: -1")
+    huge = _post_headers("/v1/pair", f"Content-Length: {serve.MAX_PAIR_BODY + 1}")
+    negative = _post_headers("/v1/pair", "Content-Length: -1")
     assert _status_line(_raw_exchange(info["port"], info["fingerprint"], huge)) == 413
     assert _status_line(_raw_exchange(info["port"], info["fingerprint"], negative)) == 400
     wrong = "000000" if info["code"] != "000000" else "111111"
-    status, body = client.call("POST", "/v0/pair", {"code": wrong, "device_id": PHONE, "name": "Example iPhone"})
+    status, body = client.call("POST", "/v1/pair", {"code": wrong, "device_id": PHONE, "name": "Example iPhone"})
     assert status == 403 and body["details"]["tries_left"] == serve.PAIRING_TRIES - 1
     _pair(client, info)
 
@@ -636,23 +746,23 @@ def test_a_stalled_client_is_disconnected(server, monkeypatch):
     _, info, client, _ = server
     started = time.monotonic()
     data = _raw_exchange(info["port"], info["fingerprint"],
-                         b"POST /v0/events HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n", timeout=4)
+                         b"POST /v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n", timeout=4)
     assert time.monotonic() - started < 5
     assert not data.endswith(b"<timeout>")
     assert b"HTTP/1.1 200" not in data
-    assert client.call("GET", "/v0/hello")[0] == 200
+    assert client.call("GET", "/v1/hello")[0] == 200
 
 
 def test_a_slow_body_is_stopped(server, monkeypatch):
     monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 1)
     _, info, client, _ = server
     token = _pair(client, info)["token"]
-    head = _post_headers("/v0/events", f"Authorization: Bearer {token}", "Content-Length: 100000")
+    head = _post_headers("/v1/events", f"Authorization: Bearer {token}", "Content-Length: 100000")
     # Headers plus one body byte, then nothing. The declared length is in range, so only the deadline can stop it.
     data = _raw_exchange(info["port"], info["fingerprint"], head + b"{", timeout=5)
     assert _status_line(data) == 408
     assert _json_body(data)["error"] == "timeout"
-    assert client.call("GET", "/v0/status")[0] == 200
+    assert client.call("GET", "/v1/status")[0] == 200
 
 
 def test_plan_and_status_give_up_on_a_long_query(server, monkeypatch):
@@ -660,60 +770,11 @@ def test_plan_and_status_give_up_on_a_long_query(server, monkeypatch):
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
     monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 1)
-    for path in ("/v0/plan", "/v0/status"):
+    for path in ("/v1/plan", "/v1/status"):
         status, body = client.call("GET", path)
         assert status == 503 and body["error"] == "timeout", path
-        assert contract.validate_sync("error", body) == []
-    assert client.call("GET", "/v0/hello")[0] == 200
-
-
-def test_pushed_events_cannot_name_another_actor(server, byobot_home):
-    _, info, client, _ = server
-    _pair(client, info)
-    mine = _event("activity.defined", {"id": "plank", "name": "Plank"})
-    agent = {**_event("activity.defined", {"id": "curl", "name": "Curl"}),
-             "actor": {"kind": "agent", "id": "example-agent", "model": "example-model-1"}}
-    other = {**_event("activity.defined", {"id": "run", "name": "Run"}),
-             "actor": {"kind": "human", "id": "example-laptop"}}
-    status, body = client.call("POST", "/v0/events", {"events": [mine, agent, other]})
-    assert status == 200 and contract.validate_sync("events_response", body) == []
-    assert [r["status"] for r in body["results"]] == ["accepted", "rejected", "rejected"]
-    assert body["results"][1]["errors"][0]["path"] == "$.actor"
-    assert body["results"][2]["errors"][0]["path"] == "$.actor"
-    assert client.call("POST", "/v0/events", {"events": [mine]})[1]["results"][0]["status"] == "duplicate"
-    assert client.call("POST", "/v0/events", {"events": [agent]})[1]["results"][0]["errors"][0]["path"] == "$.actor"
-    with Store(byobot_home / "byobot.db") as s:
-        assert s.rows("SELECT actor_kind, actor_id, actor_model FROM activities") == [
-            {"actor_kind": "human", "actor_id": "me", "actor_model": None}]
-
-
-def test_a_nested_body_is_rejected(server):
-    _, info, client, _ = server
-    token = _pair(client, info)["token"]
-    nested = b"[" * 2000 + b"]" * 2000
-    request = _post_headers("/v0/events", f"Authorization: Bearer {token}", f"Content-Length: {len(nested)}") + nested
-    data = _raw_exchange(info["port"], info["fingerprint"], request)
-    assert _status_line(data) == 400 and _json_body(data)["error"] == "invalid"
-    assert client.call("GET", "/v0/status")[0] == 200
-
-
-def test_plan_window_brings_the_last_two_times_at_each_location(store):
-    def logged(i, day, location):
-        store.accept({"id": f"0193a0b0-0000-7000-8000-0000000005{i:02d}", "schema_version": 0, "type": "session.performed",
-                      "ts": f"2026-11-{day}T09:00:00Z", "device_id": "phone-1", "actor": {"kind": "human", "id": "me"},
-                      "payload": {"id": f"s-{i}", "started_at": f"2026-11-{day}T08:00:00Z", "location_id": location,
-                                  "efforts": [{"id": f"s-{i}-{n}", "activity_id": "barbell_back_squat", "round": n,
-                                               "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}
-                                              for n in (1, 2)]}})
-
-    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel-gym")]):
-        logged(i, day, location)
-    store.accept(case("event/session-planned-at-location"))
-    window = serve.plan_window(store, "2026-11-22", "2026-11-30")
-    assert contract.validate_sync("plan_window", window) == []
-    assert [(e["id"], e["location_id"]) for e in window["efforts"]] == [
-        ("s-1-1", "home"), ("s-1-2", "home"), ("s-2-1", "home"), ("s-2-2", "home"),
-        ("s-3-1", "hotel-gym"), ("s-3-2", "hotel-gym")]
+        assert sync_errors("error", body) == []
+    assert client.call("GET", "/v1/hello")[0] == 200
 
 
 def test_default_profile_keeps_8765_and_profiles_get_their_own_port(byobot_home, monkeypatch):

@@ -14,7 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from ..util import Conflict, ValidationFailed, uuid7
+from .. import library
+from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
@@ -44,7 +45,11 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS records_conflict ON records (conflict) WHERE conflict = 1;
 CREATE TABLE IF NOT EXISTS unprojected (event_id TEXT PRIMARY KEY, kind TEXT NOT NULL, record_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL, seen_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS peers (
+  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
+  last_seen_at TEXT, revoked_at TEXT);
 """
+PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
 
 
 def _local_now() -> datetime:
@@ -91,7 +96,11 @@ class Store:
     def _migrate(self, device_id: str | None) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
-            raise RuntimeError(f"{self.path} is store version {version}; this byobot reads {STORE_VERSION}")
+            self.conn.close()
+            if version < STORE_VERSION:
+                raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
+                                  "aside to start a new store, and import your sources again")
+            raise ByobotError(f"{self.path} was written by a newer byobot (store version {version}); upgrade byobot")
         reshaped = version != 0 and self._get("shape") != reducers.SHAPE
         with self._tx():
             if reshaped:
@@ -109,6 +118,9 @@ class Store:
             elif device_id is not None:
                 self._set("device_id", device_id)
             self._set("shape", reducers.SHAPE)
+            if self._get("library") != library.fingerprint():
+                reducers.seed_library(self.conn)
+                self._set("library", library.fingerprint())
         if reshaped:
             self.rebuild()
         if self._get("contract") != self.contract.fingerprint():
@@ -144,6 +156,10 @@ class Store:
                           (key, value))
 
     @property
+    def store_id(self) -> str:
+        return self._get("store_id")
+
+    @property
     def device_id(self) -> str:
         return self._get("device_id")
 
@@ -157,9 +173,10 @@ class Store:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return row and _envelope(row)
 
-    def events(self, since: int = 0) -> list[dict]:
-        """Every event after arrival position `since`, in arrival order."""
-        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq", (since,))]
+    def events(self, since: int = 0, limit: int = -1) -> list[dict]:
+        """Every event after arrival position `since`, in arrival order: at most `limit` (-1 for all)."""
+        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
+                                                        (since, limit))]
 
     def history(self, kind: str, rid: str) -> list[dict]:
         """One record's events, in arrival order."""
@@ -395,12 +412,63 @@ class Store:
             out.append({"kind": k, "id": i, "versions": [self.event(h) for h in json.loads(heads)]})
         return out
 
+    def rows(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(sql, tuple(params))]
+
     def erased(self) -> list[tuple[str, str]]:
         return [tuple(r) for r in self.conn.execute("SELECT kind, id FROM records WHERE erased = 1 ORDER BY kind, id")]
 
     def clock_warnings(self) -> list[dict]:
         """Devices whose clocks run far ahead of this one's."""
         return [dict(r) for r in self.conn.execute("SELECT * FROM clocks ORDER BY device_id")]
+
+    def counts(self) -> dict:
+        tables = ("events", "records", "activities", "locations", "plans", "planned_sessions", "sessions", "efforts",
+                  "observations", "source_records", "overlays", "occurrences")
+        out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
+        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
+
+    # -- paired devices: local to this store, never in the log --------------------
+
+    def pair(self, device_id: str, name: str, token_sha256: str) -> dict:
+        """Pair a device, or pair it again with a new token (which also lifts an earlier unpair)."""
+        at = stamp(self.wall())
+        with self._tx():
+            self.conn.execute(
+                "INSERT INTO peers VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT (device_id) DO UPDATE SET "
+                "name = excluded.name, token_sha256 = excluded.token_sha256, paired_at = excluded.paired_at, "
+                "last_seen_at = excluded.last_seen_at, revoked_at = NULL", (device_id, name, token_sha256, at, at))
+        return self.peer(device_id)
+
+    def peer(self, device_id: str) -> dict | None:
+        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers WHERE device_id = ?", (device_id,)).fetchone()
+        return dict(row) if row else None
+
+    def peer_for_token(self, token_sha256: Any) -> dict | None:
+        """The paired device a token belongs to, if it is still paired, marked as seen. Every live hash is compared
+        in constant time, so the check doesn't stop at the first byte that differs or the first peer that fits."""
+        offered = token_sha256 if isinstance(token_sha256, str) else ""
+        found = None
+        for device_id, stored in self.conn.execute(
+                "SELECT device_id, token_sha256 FROM peers WHERE revoked_at IS NULL").fetchall():
+            if len(stored) == len(offered) and secrets.compare_digest(stored, offered):
+                found = device_id
+        if found is None:
+            return None
+        with self._tx():
+            self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+        return self.peer(found)
+
+    def peers(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers ORDER BY paired_at DESC")]
+
+    def unpair(self, device_id: str) -> dict:
+        if not self.peer(device_id):
+            raise NotFound(f"no paired device {device_id}")
+        with self._tx():
+            self.conn.execute("UPDATE peers SET revoked_at = coalesce(revoked_at, ?) WHERE device_id = ?",
+                              (stamp(self.wall()), device_id))
+        return self.peer(device_id)
 
     # -- writing ---------------------------------------------------------------
 
@@ -441,6 +509,40 @@ class Store:
         if kind in SLUG_KINDS:
             raise ValidationFailed(f"a {kind} needs an id")
         return self.new_id()
+
+
+def ddl() -> str:
+    """The store's SQL tables, for people and agents writing queries."""
+    return "\n".join(s.strip() for s in _statements(DDL + reducers.DDL)) + "\n"
+
+
+_READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+# The store's own key and the paired devices' token hashes stay out of queries.
+_UNREADABLE = {("meta", None), ("peers", "token_sha256")}
+
+
+def _authorize(action: int, table: Any, column: Any, *_: Any) -> int:
+    if action == sqlite3.SQLITE_READ and ((table, None) in _UNREADABLE or (table, column) in _UNREADABLE):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
+
+
+def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000) -> dict:
+    """Run one read-only SQL statement. Writes, ATTACH and PRAGMA are refused."""
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        conn.set_authorizer(_authorize)
+        try:
+            cur = conn.execute(sql, tuple(params))
+            columns = [d[0] for d in cur.description or []]
+            fetched = cur.fetchmany(limit + 1)
+        except (sqlite3.DatabaseError, sqlite3.Warning) as exc:
+            raise ValidationFailed(f"query refused: {exc}") from None
+        return {"columns": columns, "rows": [dict(zip(columns, r)) for r in fetched[:limit]],
+                "truncated": len(fetched) > limit}
+    finally:
+        conn.close()
 
 
 def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:

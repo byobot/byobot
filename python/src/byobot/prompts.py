@@ -16,11 +16,13 @@ You are my strength coach, working through byobot. Today is {today}. Plan my tra
 3. Progress each exercise from its recent sets at the same location_id; loads don't carry over between gyms.
    With no history there, prescribe reps and rir and leave out load.
 4. Show me the week in a short table and wait for my yes before you write anything.
-5. Write it with `log`: one plan.defined for the week, then one session.planned per training day with plan_id,
-   scheduled_on, location_id and blocks. A block repeats its efforts for `rounds`, with rest in its metrics,
-   for example {{"rounds": 3, "metrics": {{"rest": {{"value": 120, "unit": "s"}}}}, "efforts": [{{"activity_id":
-   "barbell_back_squat", "metrics": {{"reps": {{"min": 6, "max": 8}}, "load": {{"value": 100, "unit": "kg"}},
-   "rir": {{"value": 2}}}}}}]}}. Planning a session again with the same id replaces it; `undo` removes one.
+5. Write it with one `log` of kind `batch`: a plan for the week, then a planned_session per training day with
+   scheduled_on, location_id, blocks and links {{"part_of": {{"kind": "plan", "id": <the plan's id>}}}}. Give the
+   plan an id you make up as a UUID so the sessions can name it. A block repeats its efforts for `rounds`, with rest
+   in its metrics, for example {{"rounds": 3, "metrics": {{"rest": {{"value": 120, "unit": "s"}}}}, "efforts":
+   [{{"activity_id": "barbell_back_squat", "metrics": {{"reps": {{"min": 6, "max": 8}}, "load": {{"value": 100,
+   "unit": "kg"}}, "rir": {{"value": 2}}}}}}]}}. Change a planned session later with `replan`, take one out with
+   `remove`, and take back any write with `undo`.
 6. Leave out sessions already planned in `upcoming` unless I ask you to change them.
 7. When it's written, tell me to run `byobot serve` and open the app to get the week on my phone.
 """

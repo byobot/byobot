@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from byobot import contract
+from byobot.core.contract import Contract
+
+CONTRACT = Contract.shipped()
 
 HERE = Path(__file__).resolve()
 ROOT = next(p / "library" for p in HERE.parents if (p / "library" / "vocabulary.json").is_file())
@@ -18,7 +20,7 @@ def test_vocabulary_is_sorted_unique_names():
     for kind, names in VOCABULARY.items():
         assert names == sorted(set(names)), f"{kind} must be sorted, without repeats"
         for name in names:
-            assert contract.validate_payload("activity.defined", {"id": name, "name": name}) == [], name
+            assert CONTRACT.payload_errors("activity", {"name": name}, name) == [], name
 
 
 def test_movement_types_are_compound_or_isolation():
@@ -28,7 +30,8 @@ def test_movement_types_are_compound_or_isolation():
 @pytest.mark.parametrize("path", FILES, ids=[f.stem for f in FILES])
 def test_library_activity(path):
     activity = json.loads(path.read_text(encoding="utf-8"))
-    assert contract.validate_payload("activity.defined", activity) == []
+    payload = {k: v for k, v in activity.items() if k != "id"}
+    assert CONTRACT.payload_errors("activity", payload, activity["id"]) == []
     assert activity["id"] == path.stem, "the file name is the activity id"
     targets = activity.get("targets", {})
     main, synergists = targets.get("main", []), targets.get("synergists", [])

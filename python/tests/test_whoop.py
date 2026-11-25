@@ -194,31 +194,50 @@ def import_whoop(monkeypatch, fake, **args):
         ctx.close()
 
 
-def test_import_maps_recovery_sleep_and_strain_to_the_morning(monkeypatch, store):
+def observations(store):
+    return {r["code"]: r for r in store.rows("SELECT code, started_at, value FROM observations WHERE source = 'whoop'")}
+
+
+def test_import_keeps_each_record_and_reads_it_toward_the_morning(monkeypatch, store):
     from byobot.review import review
 
     out, _ = import_whoop(monkeypatch, whoop_api([sleep()], [recovery()], [cycle()]))
-    assert out["telemetry"] == {"inserted": 13, "updated": 0, "unchanged": 0} and out["skipped"] == []
-    assert out["whoop_api"] == "2.0.0"
-    rows = {r["type"]: r for r in store.rows("SELECT type, start_at, end_at, value FROM telemetry_samples")}
-    assert rows["byobot.RecoveryScore"]["start_at"] == rows["byobot.Strain"]["start_at"] == "2026-11-20T11:00:00.000Z"
-    assert rows["byobot.SleepDeepDuration"]["value"] == 5400
-    assert rows["HKQuantityTypeIdentifierOxygenSaturation"]["value"] == 96.5
+    assert out["fetched"] == out["written"] == 3 and out["whoop_api"] == "2.0.0"
+    raw = store.rows("SELECT source_type, source_id, raw FROM source_records ORDER BY source_type")
+    assert [(r["source_type"], r["source_id"]) for r in raw] == [("cycle", "10"), ("recovery", "10"),
+                                                                 ("sleep", SLEEP_ID)]
+    assert json.loads(raw[1]["raw"]) == recovery()  # kept as WHOOP sent it
+    found = observations(store)
+    assert found["recovery_score"]["started_at"] == "2026-11-20T11:00:00.000Z"  # when you woke
+    assert found["sleep_deep_duration"]["value"] == 5400 and found["oxygen_saturation"]["value"] == 96.5
     assert review(store, 1, "2026-11-22")["recovery"] == [
         {"date": "2026-11-20", "asleep_h": 7.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68, "resting_hr_bpm": 52,
-         "skin_temp_c": 33.4, "sleep_performance_pct": 91, "strain": 12.7}]
+         "respiratory_rate_bpm": 15.2, "skin_temp_c": 33.4, "sleep_performance_pct": 91, "spo2_pct": 96.5,
+         "strain": 12.7}]
+    assert {r["actor_kind"] for r in store.rows("SELECT actor_kind FROM events")} == {"connector"}
 
 
-def test_import_again_changes_nothing_and_starts_a_week_before_the_last(monkeypatch):
+def test_import_again_changes_nothing_and_starts_a_week_before_the_last(monkeypatch, store):
     import_whoop(monkeypatch, whoop_api([sleep()], [recovery()], [cycle()]))
     fake = whoop_api([sleep()], [recovery()], [cycle()])
     out, _ = import_whoop(monkeypatch, fake)
-    assert out["telemetry"] == {"inserted": 0, "updated": 0, "unchanged": 13}
-    assert out["since"] == "2026-11-13T11:00:00.000Z"
+    assert out["fetched"] == 3 and out["written"] == 0
+    assert out["since"] == "2026-11-13T03:00:00.000Z"
     assert all(r[2]["start"] == [out["since"]] for r in fake.requests)
+    assert store.rows("SELECT count(*) AS n FROM events")[0]["n"] == 3
 
 
-def test_import_follows_next_token(monkeypatch):
+def test_a_rescore_is_a_new_version(monkeypatch, store):
+    import_whoop(monkeypatch, whoop_api(recoveries=[recovery()]))
+    rescored = recovery(updated_at="2026-11-20T15:00:00.000Z")
+    rescored["score"] = {**rescored["score"], "recovery_score": 70.0}
+    out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[rescored]), days=30)
+    assert out["written"] == 1 and observations(store)["recovery_score"]["value"] == 70
+    rid = store.rows("SELECT id FROM source_records")[0]["id"]
+    assert len(run("history", Context(actor=YOU), {"kind": "source_record", "id": rid})["versions"]) == 2
+
+
+def test_import_follows_next_token(monkeypatch, store):
     fake = whoop_api()
     fake.answers[("GET", "/developer/v2/activity/sleep")] = [
         {"records": [sleep()], "next_token": "page-2"},
@@ -227,15 +246,12 @@ def test_import_follows_next_token(monkeypatch):
     out, _ = import_whoop(monkeypatch, fake, days=30)
     sleep_requests = [r[2] for r in fake.requests if r[1].endswith("/sleep")]
     assert sleep_requests[0]["limit"] == ["25"] and sleep_requests[1]["nextToken"] == ["page-2"]
-    assert out["telemetry"]["inserted"] == 8
+    assert out["written"] == 2
 
 
-def test_unscored_and_out_of_range_records_are_skipped(monkeypatch):
-    bad = cycle(id=11, score={"strain": 30.0, "kilojoule": 1.0, "average_heart_rate": 1, "max_heart_rate": 1})
-    out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[recovery(score_state="UNSCORABLE", score=None)],
-                                                 cycles=[bad]))
-    assert out["telemetry"]["inserted"] == 0
-    assert out["skipped"] == ["byobot.Strain at 2026-11-20T03:00:00.000Z: 30.0 is greater than the maximum of 21"]
+def test_an_unscored_record_is_kept_but_reads_nothing(monkeypatch, store):
+    out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[recovery(score_state="UNSCORABLE", score=None)]))
+    assert out["written"] == 1 and observations(store) == {}
 
 
 def test_a_page_whoop_changed_is_refused_before_anything_is_written(monkeypatch, store):
@@ -243,94 +259,71 @@ def test_a_page_whoop_changed_is_refused_before_anything_is_written(monkeypatch,
     renamed["score"]["stage_summary"]["total_slow_wave_sleep_time_milli"] = "5400000"
     with pytest.raises(whoop.UpstreamError, match="stage_summary/total_slow_wave_sleep_time_milli"):
         import_whoop(monkeypatch, whoop_api([renamed]))
-    assert store.rows("SELECT count(*) AS n FROM telemetry_samples")[0]["n"] == 0
+    assert store.rows("SELECT count(*) AS n FROM source_records")[0]["n"] == 0
 
 
-def test_workouts_become_sessions(monkeypatch, store):
-    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0, "merged": 0}
-    session = store.rows("SELECT * FROM performed_sessions")[0]
-    assert session["id"] == "whoop:workout:00000000-0000-4000-8000-000000000003" and session["name"] == "running"
-    metrics = store.metrics_of("performed_session", session["id"])
-    assert metrics["duration"]["value"] == 2700 and metrics["heart_rate"]["value"] == 148
-    assert metrics["x.calories"] == {"value": 500.0, "unit": "kcal"} and metrics["x.strain"]["value"] == 9.1
-    assert metrics["x.whoop_sport"] == {"value": "running"}
-    event = store.rows("SELECT actor_kind, actor_id FROM events")[0]
-    assert (event["actor_kind"], event["actor_id"]) == ("connector", "whoop")
-    again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
-    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1, "merged": 0}
+def workouts(store):
+    return run("list", Context(actor=YOU), {"kind": "workouts"})["items"]
+
+
+def test_workouts_are_listed_once_with_their_metrics(monkeypatch, store):
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    [found] = workouts(store)
+    assert found["name"] == "running" and [i["source"] for i in found["items"]] == ["whoop"]
+    assert found["metrics"]["duration"]["value"] == 2700 and found["metrics"]["heart_rate"]["value"] == 148
+    assert found["metrics"]["active_energy"]["value"] == 2092
 
 
 @pytest.mark.parametrize("code, name", [("weightlifting_msk", "strength training"),
                                         ("mountain-biking", "mountain biking"), ("some_new_sport", "some new sport")])
-def test_sports_get_readable_names(code, name):
-    assert whoop.sport(code) == name
-
-
-def test_your_undo_stands_until_whoop_changes_the_workout(monkeypatch, store):
-    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    event = store.rows("SELECT id FROM events")[0]["id"]
-    store.append("event.undone", {"event_id": event}, {"kind": "human", "id": "cli"})
-    import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
-    assert store.rows("SELECT count(*) AS n FROM performed_sessions")[0]["n"] == 0
-    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout(sport_name="cycling")]), days=30)
-    assert out["sessions"] == {"added": 0, "updated": 1, "unchanged": 0, "merged": 0}
-    assert store.rows("SELECT name FROM performed_sessions")[0]["name"] == "cycling"
+def test_sports_get_readable_names(monkeypatch, store, code, name):
+    import_whoop(monkeypatch, whoop_api(workouts=[workout(sport_name=code)]))
+    assert workouts(store)[0]["name"] == name
 
 
 YOU = {"kind": "human", "id": "cli"}
 
 
-def log_session(store, **overrides):
+def log_session(**overrides):
     """A session logged in byobot that overlaps workout() by 40 minutes, with one set."""
-    store.append("session.performed", {"id": "s1", "name": "Pull", "started_at": "2026-11-20T17:05:00Z",
-                                       "ended_at": "2026-11-20T17:50:00Z", **overrides}, YOU)
-    store.append("effort.performed", {"id": "e1", "session_id": "s1", "activity_id": "barbell_row",
-                                      "performed_at": "2026-11-20T17:10:00Z",
-                                      "metrics": {"reps": {"value": 8}}}, YOU)
+    sid = "01a2147e-0000-7000-8000-0000000000aa"
+    session = {"kind": "session", "id": sid, "payload": {
+        "name": "Pull", "time": {"start": "2026-11-20T17:05:00Z", "end": "2026-11-20T17:50:00Z"}, **overrides}}
+    effort = {"kind": "effort", "payload": {"activity_id": "barbell_row", "time": {"start": "2026-11-20T17:10:00Z"},
+                                            "links": {"part_of": {"kind": "session", "id": sid}},
+                                            "metrics": {"reps": {"value": 8}}}}
+    ctx = Context(actor=YOU)
+    run("log", ctx, {"kind": "batch", "payload": [session, effort]})
+    ctx.close()
+    return sid
 
 
-def test_a_workout_over_a_session_you_logged_adds_its_metrics_to_yours(monkeypatch, store):
+def test_a_workout_over_a_session_you_logged_is_one_workout(monkeypatch, store):
     from byobot.review import review
 
-    log_session(store, metrics={"duration": {"value": 3000, "unit": "s"}})
-    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    assert out["sessions"] == {"added": 0, "updated": 0, "unchanged": 0, "merged": 1}
-    session = store.rows("SELECT * FROM performed_sessions")
-    assert [s["id"] for s in session] == ["s1"] and session[0]["name"] == "Pull"
-    metrics = store.metrics_of("performed_session", "s1")
-    assert metrics["duration"]["value"] == 3000 and metrics["heart_rate"]["value"] == 148
-    assert store.rows("SELECT id FROM performed_efforts WHERE session_id = 's1'") == [{"id": "e1"}]
+    sid = log_session(metrics={"duration": {"value": 3000, "unit": "s"}})
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    [found] = workouts(store)
+    assert found["name"] == "Pull" and {i["kind"] for i in found["items"]} == {"session", "source_record"}
+    assert found["metrics"]["duration"]["value"] == 3000 and found["metrics"]["duration"]["from"]["id"] == sid
+    assert found["metrics"]["heart_rate"]["value"] == 148  # what you didn't record comes from WHOOP
     reviewed = review(store, 1, "2026-11-22")["sessions"]
-    assert reviewed[0]["sets"] == 1 and reviewed[0]["metrics_from"] == "whoop" and "imported_by" not in reviewed[0]
+    assert len(reviewed) == 1 and reviewed[0]["sets"] == 1 and reviewed[0]["sources"] == ["whoop"]
 
-    again, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
-    assert again["sessions"] == {"added": 0, "updated": 0, "unchanged": 1, "merged": 0}
-    changed = workout()
+    changed = workout(updated_at="2026-11-21T00:00:00.000Z")
     changed["score"] = {**changed["score"], "average_heart_rate": 150}
     import_whoop(monkeypatch, whoop_api(workouts=[changed]), days=30)
-    metrics = store.metrics_of("performed_session", "s1")
-    assert metrics["heart_rate"]["value"] == 150 and metrics["duration"]["value"] == 3000
+    [found] = workouts(store)
+    assert found["metrics"]["heart_rate"]["value"] == 150 and found["metrics"]["duration"]["value"] == 3000
 
 
-def test_a_workout_imported_before_you_logged_merges_on_the_next_import(monkeypatch, store):
+def test_a_workout_imported_before_you_logged_merges_too(monkeypatch, store):
     import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    log_session(store)
-    # Not fetched again: the stored duplicate merges anyway.
-    out, _ = import_whoop(monkeypatch, whoop_api(), days=30)
-    assert out["sessions"]["merged"] == 1
-    assert [s["id"] for s in store.rows("SELECT id FROM performed_sessions")] == ["s1"]
-    undo = store.rows("SELECT payload FROM events WHERE type = 'event.undone'")
-    assert json.loads(undo[0]["payload"])["reason"] == "merged into session s1"
-
-    yours = store.rows("SELECT id FROM events WHERE type = 'session.performed' AND actor_kind = 'human'")[0]["id"]
-    store.append("event.undone", {"event_id": yours}, YOU)
-    back, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]), days=30)
-    assert back["sessions"]["added"] == 1
-    assert store.rows("SELECT id FROM performed_sessions")[0]["id"].startswith("whoop:workout:")
+    log_session()
+    assert len(workouts(store)) == 1
 
 
-def test_a_workout_that_doesnt_overlap_stays_its_own_session(monkeypatch, store):
-    log_session(store, started_at="2026-11-20T18:00:00Z", ended_at="2026-11-20T19:00:00Z")
-    out, _ = import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
-    assert out["sessions"] == {"added": 1, "updated": 0, "unchanged": 0, "merged": 0}
+def test_a_workout_that_doesnt_overlap_stays_its_own(monkeypatch, store):
+    log_session(time={"start": "2026-11-20T18:00:00Z", "end": "2026-11-20T19:00:00Z"})
+    import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
+    assert sorted(w["name"] for w in workouts(store)) == ["Pull", "running"]

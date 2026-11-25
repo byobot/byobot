@@ -1,12 +1,4 @@
-import json
-from pathlib import Path
-
 import pytest
-
-HERE = Path(__file__).resolve()
-# The shared fixtures live at the repo root (or the sdist root, when testing an sdist).
-FIXTURES = next(p / "schema" / "fixtures" / "v0" / "cases.json" for p in HERE.parents if (p / "schema" / "fixtures").is_dir())
-CASES = json.loads(FIXTURES.read_text(encoding="utf-8"))["cases"]
 
 
 @pytest.fixture(autouse=True)
@@ -26,12 +18,9 @@ def byobot_home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def store(byobot_home):
-    from byobot.store import Store
+    from byobot.core.store import Store
 
     s = Store(byobot_home / "byobot.db")
     yield s
     s.close()
 
-
-def case(name):
-    return next(c for c in CASES if c["name"] == name)["data"]

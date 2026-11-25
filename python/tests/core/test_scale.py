@@ -22,7 +22,6 @@ GROWTH = 1.3
 SLACK = 0.003  # seconds, so timer noise on fast operations can't fail a check
 TRIES = 5
 ROUNDS = 3  # interleaved, so a runner slowing down mid-test hits every size alike
-REPLAY = "every late event or undo replays the whole log"
 UNDONE: dict[int, set] = {}  # each round undoes fresh creations
 BUDGETS = {"late_event": 0.05, "undo": 0.05, "offline_sync": 1.0}
 
@@ -81,7 +80,6 @@ def offline_sync(world: World) -> float:
 OPS = {"late_event": late_event, "undo": undo, "offline_sync": offline_sync}
 
 
-@pytest.mark.baseline(v0=REPLAY)
 @pytest.mark.parametrize("op", list(OPS))
 def test_s15_cost_does_not_grow_with_history(worlds, op):
     sizes = (BASE, N, 2 * N)
@@ -92,7 +90,6 @@ def test_s15_cost_does_not_grow_with_history(worlds, op):
 
 
 @pytest.mark.skipif(not SOAK, reason="absolute budgets run in the soak tier")
-@pytest.mark.baseline(v0=REPLAY)
 @pytest.mark.parametrize("op", list(OPS))
 def test_s15_operations_stay_within_budget(worlds, op):
     cost = OPS[op](worlds[2 * N])

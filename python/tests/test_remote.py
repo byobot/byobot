@@ -161,10 +161,9 @@ def remote_dir_for(monkeypatch, name):
 
 @pytest.fixture
 def running(byobot_home):
-    from byobot.store import Store
+    from byobot.core.store import Store
 
-    with Store(byobot_home / "byobot.db"):
-        pass
+    Store(byobot_home / "byobot.db").close()
     server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -256,10 +255,10 @@ def test_a_connected_assistant_uses_the_tools(running):
     resp, raw = rpc(running, token, "tools/list", session=session)
     assert "query" in {t["name"] for t in json.loads(raw)["result"]["tools"]}
     resp, raw = rpc(running, token, "tools/call", {"name": "log", "arguments": {
-        "type": "activity.defined", "payload": {"id": "plank", "name": "Plank"}}}, session=session)
+        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}}, session=session)
     assert json.loads(raw)["result"]["isError"] is False
     resp, raw = rpc(running, token, "tools/call", {"name": "query", "arguments": {
-        "sql": "SELECT actor_kind, actor_id FROM activities"}}, session=session)
+        "sql": "SELECT actor_kind, actor_id FROM events"}}, session=session)
     assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "example-assistant"}]
 
 
@@ -279,9 +278,9 @@ def test_sessions_belong_to_their_client(running):
 def test_without_a_session_writes_name_the_connected_app(running):
     _, tokens = connect(running)
     rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
-        "type": "activity.defined", "payload": {"id": "plank", "name": "Plank"}}})
+        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}})
     resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "query", "arguments": {
-        "sql": "SELECT actor_id FROM activities"}})
+        "sql": "SELECT actor_id FROM events"}})
     assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_id": "Example Assistant"}]
 
 
@@ -413,10 +412,10 @@ def test_an_api_key_calls_tools(running, header):
     auth = {header: f"Bearer {key}" if header == "Authorization" else key}
     resp, raw = request(running, "GET", "/api/tools", headers=auth)
     assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
-    resp, raw = request(running, "POST", "/api/tools/log", {"type": "activity.defined",
-                                                            "payload": {"id": "plank", "name": "Plank"}}, auth)
+    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "plank",
+                                                            "payload": {"name": "Plank"}}, auth)
     assert resp.status == 200, raw
-    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM activities"}, auth)
+    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
     assert json.loads(raw)["rows"] == [{"actor_id": "example_assistant"}]
     resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
     assert resp.status == 400 and json.loads(raw)["error"] == "invalid"

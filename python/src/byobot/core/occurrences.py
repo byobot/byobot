@@ -60,29 +60,29 @@ def _items_in(conn: sqlite3.Connection, lo: int, hi: int) -> set[tuple[str, str]
     return out
 
 
-def _rank(source: str | None, order: list[str]) -> tuple[int, str]:
+def rank(source: str | None, order: list[str]) -> tuple[int, str]:
     if source is None:
         return (0, "")
     return (1 + (order.index(source) if source in order else len(order)), source)
 
 
 def _item(conn: sqlite3.Connection, kind: str, rid: str, priority: list[str]) -> dict | None:
-    table, rank = ITEMS[kind]
+    table, author = ITEMS[kind]
     cols = "started_at, ended_at, start_ms, coalesce(end_ms, start_ms), offset_min, local_date, name"
-    row = conn.execute(f"SELECT {cols}{', source' if rank is None else ''} FROM {table} WHERE id = ?",
+    row = conn.execute(f"SELECT {cols}{', source' if author is None else ''} FROM {table} WHERE id = ?",
                        (rid,)).fetchone()
     if row is None:
         return None
-    source = row[7] if rank is None else None
+    source = row[7] if author is None else None
     metrics = {r[0]: tuple(r[1:]) for r in conn.execute(
         "SELECT code, value, text, unit, std_value, std_unit, overlay_id FROM metrics "
         "WHERE owner_kind = ? AND owner_id = ? AND part_id = ''", (kind, rid))}
-    return {"kind": kind, "id": rid, "you": rank == "you", "source": source, "order": _rank(source, priority),
+    return {"kind": kind, "id": rid, "you": author == "you", "source": source, "order": rank(source, priority),
             "row": row[:7],
             "start": row[2], "end": row[3], "metrics": metrics}
 
 
-def _priority(conn: sqlite3.Connection) -> tuple[list[str], dict[str, list[str]]]:
+def priority(conn: sqlite3.Connection) -> tuple[list[str], dict[str, list[str]]]:
     row = conn.execute("SELECT value FROM settings WHERE id = 'source_priority'").fetchone()
     found = json.loads(row[0]) if row else {}
     if not isinstance(found, dict):
@@ -119,7 +119,7 @@ def resolve(conn: sqlite3.Connection, touched: Iterable[tuple[str, str]], spans:
         for table in TABLES:
             conn.execute(f"DELETE FROM {table} WHERE {'id' if table == 'occurrences' else 'occurrence_id'} = ?",
                          (oid,))
-    default, codes = _priority(conn)
+    default, codes = priority(conn)
     live = [it for k, i in items if k in ITEMS and (it := _item(conn, k, i, default))]
     tied = {(it["kind"], it["id"]): links(conn, it["kind"], it["id"]) for it in live}
     clusters: list[list[dict]] = []
@@ -150,7 +150,7 @@ def _write(conn: sqlite3.Connection, ranked: list[dict], codes: dict[str, list[s
         conn.execute("INSERT INTO occurrence_items VALUES (?, ?, ?)", (oid, it["kind"], it["id"]))
     for code in {c for it in ranked for c in it["metrics"]}:
         order = codes.get(code)
-        by = sorted(ranked, key=lambda x: (_rank(x["source"], order), x["start"], x["id"])) if order else ranked
+        by = sorted(ranked, key=lambda x: (rank(x["source"], order), x["start"], x["id"])) if order else ranked
         it = next(x for x in by if code in x["metrics"])
         m = it["metrics"][code]
         taken[code] = (*m[:5], it["kind"], it["id"], m[5])

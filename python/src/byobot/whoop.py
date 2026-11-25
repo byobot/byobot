@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterator
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
-from byobot import __version__, contract, credentials, imports
+from byobot import __version__, credentials
 from byobot.util import ByobotError
 
 API = "https://api.prod.whoop.com/developer"
@@ -229,125 +229,41 @@ class Client:
             params["nextToken"] = body["next_token"]
 
 
-utc = imports.utc
+def utc(ts: str) -> str:
+    """An instant in UTC, to the millisecond."""
+    at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+    return at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _sample(type_: str, key: Any, start: str, end: str, value: Any, unit: str | None, raw: dict) -> dict:
-    sample = {"source": NAME, "source_id": f"{type_}:{key}", "type": type_, "start": start, "end": end,
-              "value": value, "raw": raw}
-    return {**sample, "unit": unit} if unit else sample
+# source_type -> (path, response schema): each record is kept as WHOOP sent it; byobot reads it on the way out.
+ENDPOINTS = {"sleep": ("/v2/activity/sleep", "PaginatedSleepResponse"),
+             "recovery": ("/v2/recovery", "RecoveryCollection"),
+             "cycle": ("/v2/cycle", "PaginatedCycleResponse"),
+             "workout": ("/v2/activity/workout", "WorkoutCollection")}
 
 
-STAGES = {
-    "total_light_sleep_time_milli": "byobot.SleepLightDuration",
-    "total_slow_wave_sleep_time_milli": "byobot.SleepDeepDuration",
-    "total_rem_sleep_time_milli": "byobot.SleepREMDuration",
-    "total_awake_time_milli": "byobot.SleepAwakeDuration",
-}
-RECOVERY = (
-    ("recovery_score", "byobot.RecoveryScore", "%"),
-    ("resting_heart_rate", "HKQuantityTypeIdentifierRestingHeartRate", "count/min"),
-    ("hrv_rmssd_milli", "byobot.HeartRateVariabilityRMSSD", "ms"),
-    ("spo2_percentage", "HKQuantityTypeIdentifierOxygenSaturation", "%"),
-    ("skin_temp_celsius", "byobot.SkinTemperature", "degC"),
-)
+def record_key(source_type: str, record: dict) -> str:
+    """A recovery has no id of its own: it's its cycle's."""
+    return str(record["cycle_id"] if source_type == "recovery" else record["id"])
 
 
-def from_sleep(record: dict) -> list[dict]:
-    start, end = utc(record["start"]), utc(record["end"])
-    samples = [_sample("HKCategoryTypeIdentifierSleepAnalysis", record["id"], start, end, "inBed", None, record)]
-    score = record.get("score") if record["score_state"] == "SCORED" else None
-    if not score:
-        return samples
-    for key, type_ in STAGES.items():
-        if score["stage_summary"].get(key) is not None:
-            samples.append(_sample(type_, record["id"], start, end, score["stage_summary"][key] / 1000, "s", record))
-    for key, type_, unit in (("sleep_performance_percentage", "byobot.SleepPerformance", "%"),
-                             ("respiratory_rate", "HKQuantityTypeIdentifierRespiratoryRate", "count/min")):
-        if score.get(key) is not None:
-            samples.append(_sample(type_, record["id"], end, end, score[key], unit, record))
-    return samples
+def collect(client: Client, start: str) -> list[tuple[str, str, dict]]:
+    """Every sleep, recovery, cycle and workout since `start`, as (source_type, source_id, raw)."""
+    return [(t, record_key(t, r), r) for t, (path, name) in ENDPOINTS.items() for r in client.pages(path, name, start)]
 
 
-def from_recovery(record: dict, woke: str | None) -> list[dict]:
-    score = record.get("score") if record["score_state"] == "SCORED" else None
-    if not score:
-        return []
-    at = woke or utc(record["created_at"])
-    return [_sample(type_, record["cycle_id"], at, at, score[key], unit, record)
-            for key, type_, unit in RECOVERY if score.get(key) is not None]
+def import_into(store, client: Client, days: int | None = None) -> dict:
+    """Fetch since the last import (a week back, so rescores are picked up), or `days` back, or 90 days."""
+    from byobot.core import sources
 
-
-def from_cycle(record: dict, woke: str | None) -> list[dict]:
-    score = record.get("score") if record["score_state"] == "SCORED" else None
-    if not score or score.get("strain") is None:
-        return []
-    at = woke or utc(record["start"])
-    return [_sample("byobot.Strain", record["id"], at, at, score["strain"], None, record)]
-
-
-# WHOOP sport codes whose words alone don't read well. Others become their words: mountain-biking -> mountain biking.
-SPORTS = {
-    "weightlifting_msk": "strength training",
-    "strength-trainer": "strength training",
-    "hiit": "HIIT",
-    "hiking-rucking": "hiking",
-    "track-field": "track and field",
-    "f45-training": "F45 training",
-    "barrys": "Barry's",
-}
-
-
-def sport(code: str) -> str:
-    return SPORTS.get(code) or re.sub(r"[_-]+", " ", code)
-
-
-def from_workout(record: dict) -> dict:
-    """A performed session with the workout's totals."""
-    start, end = utc(record["start"]), utc(record["end"])
-    seconds = (datetime.fromisoformat(end[:-1]) - datetime.fromisoformat(start[:-1])).total_seconds()
-    metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
-    score = (record.get("score") or {}) if record["score_state"] == "SCORED" else {}
-    for key, metric, unit, scale in (("average_heart_rate", "heart_rate", "bpm", 1),
-                                     ("max_heart_rate", "x.max_heart_rate", "bpm", 1),
-                                     ("distance_meter", "distance", "m", 1),
-                                     ("kilojoule", "x.calories", "kcal", 1 / 4.184),
-                                     ("strain", "x.strain", None, 1)):
-        if score.get(key) is not None:
-            value = round(score[key] * scale, 1) if scale != 1 else score[key]
-            metrics[metric] = {"value": value, "unit": unit} if unit else {"value": value}
-    metrics["x.whoop_sport"] = {"value": record["sport_name"]}
-    return {"id": f"whoop:workout:{record['id']}", "name": sport(record["sport_name"]),
-            "started_at": start, "ended_at": end, "metrics": metrics}
-
-
-def collect(client: Client, start: str) -> dict:
-    """Fetch recovery, sleep, strain and workouts since `start` and map them to byobot records.
-
-    Recovery and strain are dated when you woke, like in the WHOOP app.
-    """
-    sleeps = list(client.pages("/v2/activity/sleep", "PaginatedSleepResponse", start))
-    recoveries = list(client.pages("/v2/recovery", "RecoveryCollection", start))
-    cycles = list(client.pages("/v2/cycle", "PaginatedCycleResponse", start))
-    woke = {s["id"]: utc(s["end"]) for s in sleeps}
-    woke_in_cycle = {s["cycle_id"]: utc(s["end"]) for s in sleeps if not s["nap"]}
-    found = [s for r in sleeps for s in from_sleep(r)]
-    found += [s for r in recoveries for s in from_recovery(r, woke.get(r["sleep_id"]))]
-    found += [s for r in cycles for s in from_cycle(r, woke_in_cycle.get(r["id"]))]
-    samples, skipped = [], []
-    for sample in found:
-        errors = contract.validate("telemetry", sample)
-        if errors:
-            skipped.append(f"{sample['type']} at {sample['start']}: {errors[0]['message']}")
-        else:
-            samples.append(sample)
-    sessions = [from_workout(r) for r in client.pages("/v2/activity/workout", "WorkoutCollection", start)]
-    return {"samples": samples, "sessions": sessions, "skipped": skipped}
-
-
-ACTOR = {"kind": "connector", "id": NAME}
-
-
-def save_sessions(store, sessions: list[dict]) -> dict:
-    """Write WHOOP workouts as performed sessions, merged with the sessions you log (see imports.py)."""
-    return imports.save_sessions(store, sessions, ACTOR)
+    last = store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
+                              (NAME,)).fetchone()[0]
+    if days is None and last:
+        since = datetime.fromisoformat(last.replace("Z", "+00:00")) - timedelta(days=7)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(days=days or 90)
+    found = collect(client, utc(since.isoformat()))
+    written = sources.ingest(store, NAME, found)
+    return {"since": utc(since.isoformat()), "fetched": len(found), "written": len(written),
+            "whoop_api": version()}

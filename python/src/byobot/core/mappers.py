@@ -105,19 +105,33 @@ def sample(raw: dict, related: Related) -> dict:
     return {"observations": [{k: v for k, v in found.items() if k != "modality"}] if found else []}
 
 
+# HealthKit activity types whose words alone don't read well. Others become their words: crossTraining -> cross training.
+HEALTH_ACTIVITIES = {"traditionalStrengthTraining": "strength training",
+                     "functionalStrengthTraining": "functional strength training",
+                     "highIntensityIntervalTraining": "HIIT", "mixedCardio": "cardio", "stairClimbing": "stairs",
+                     "other": "workout"}
+HEALTH_TOTALS = (("distance_m", "distance", "m"), ("heart_rate_avg_bpm", "heart_rate", "/min"),
+                 ("heart_rate_max_bpm", "heart_rate_max", "/min"), ("energy_kcal", "active_energy", "kcal"))
+
+
 def health_workout(raw: dict, related: Related) -> dict:
     start, end = raw["start"], raw["end"]
-    seconds = (datetime.fromisoformat(end.replace("Z", "+00:00")) -
-               datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
-    metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
     totals = raw.get("raw") or {}
-    for key, code, unit in (("distance_m", "distance", "m"), ("heart_rate_avg_bpm", "heart_rate", "/min"),
-                            ("heart_rate_max_bpm", "heart_rate_max", "/min"), ("active_energy_kcal", "active_energy",
-                                                                                "kcal")):
-        if totals.get(key) is not None:
+    seconds = totals.get("duration_s")
+    if not _number(seconds):
+        seconds = (datetime.fromisoformat(end.replace("Z", "+00:00")) -
+                   datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
+    metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
+    for key, code, unit in HEALTH_TOTALS:
+        if _number(totals.get(key)):
             metrics[code] = {"value": totals[key], "unit": unit}
-    name = re.sub(r"(?<!^)([A-Z])", r" \1", str(raw.get("value") or "workout")).lower()
+    kind = str(raw.get("value") or "other")
+    name = HEALTH_ACTIVITIES.get(kind) or re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", kind).lower()
     return {"session": {"name": name, "time": {"start": start, "end": end}, "metrics": metrics}}
+
+
+def _number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def _whoop_revised(raw: dict) -> str:
@@ -139,6 +153,16 @@ MAPPERS: dict[tuple[str, str], tuple[Callable[[dict], str], Callable[[dict, Rela
     ("apple_health", "workout"): (_sample_revised, health_workout),
     ("hume", "quantity_sample"): (_sample_revised, sample),
 }
+
+
+def unstamped(raw: Any) -> Any:
+    """`raw` without the time it was revised, to tell a new revision from the same one sent again."""
+    if not isinstance(raw, dict):
+        return raw
+    out = {k: v for k, v in raw.items() if k not in ("updated_at", "modified_at")}
+    if isinstance(out.get("raw"), dict):
+        out["raw"] = {k: v for k, v in out["raw"].items() if k != "modified_at"}
+    return out
 
 
 def revised(payload: dict) -> str:

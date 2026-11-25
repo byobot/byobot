@@ -8,9 +8,8 @@ Schema 1: one append-only log of events, each writing one record, written by peo
 | `records.schema.json` | The header and each kind's payload at kind version 1 |
 | `common.schema.json` | Ids, times, refs, measures |
 | `registry.schema.json`, `registry.json` | Kinds, settings, derived-id namespaces and codes |
+| `sync.schema.json` | Sync protocol 1, between `byobot serve` and the app |
 | `../fixtures/v1/` | Conformance cases every implementation must pass |
-
-`SCHEMA_VERSION` in code stays `0` until the store moves to v1.
 
 ## Records and ids
 

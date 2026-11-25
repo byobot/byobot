@@ -4,10 +4,9 @@ import hashlib
 import statistics
 from collections import Counter
 
-import pytest
 from byobot import whoop
+from byobot.whoop import ENDPOINTS as WHOOP_PATHS
 
-from .drivers.v0 import WHOOP_PATHS
 from .harness import World
 from .model import Reference
 from .snapshot import diff
@@ -62,7 +61,6 @@ def test_training_volume():
     assert any(s.args[0]["intent"] == "replan_session" for s in YEAR.steps if s.op == "author")
 
 
-@pytest.mark.baseline(v0="v0 writes WHOOP's totals into the session you logged; schema 1 keeps yours as you wrote it")
 def test_a_fortnight_lands_whole(world):
     play(world, persona(5, 14))
     live = settle(world)

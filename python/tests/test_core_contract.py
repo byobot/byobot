@@ -42,3 +42,18 @@ def test_a_newer_contract_understands_newer_versions_and_kinds():
     unknown = next(c["data"] for c in CASES if c["name"] == "unknown/kind-version")
     assert not CONTRACT.understands(unknown) and newer.understands(unknown)
     assert newer.understands({**unknown, "record": {"kind": "meal", "id": unknown["record"]["id"]}})
+
+
+def test_library_activities_are_valid_activity_payloads(monkeypatch):
+    monkeypatch.delenv("BYOBOT_LIBRARY")
+    from byobot import library
+
+    for a in library.activities():
+        assert CONTRACT.payload_errors("activity", {k: v for k, v in a.items() if k != "id"}, a["id"]) == [], a["id"]
+
+
+def test_payload_errors_names_what_is_wrong():
+    assert CONTRACT.payload_errors("activity", {"name": "Plank"}, "plank") == []
+    assert CONTRACT.payload_errors("activity", {}, "plank")
+    assert CONTRACT.payload_errors("observation", {"code": "body_mass", "value": 80, "unit": "kg", "modality":
+                                   "self_reported", "time": {"start": "2026-01-01T08:00:00Z"}}) == []

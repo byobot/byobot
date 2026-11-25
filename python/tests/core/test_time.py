@@ -11,7 +11,6 @@ from .synth import persona, play
 
 ZONES = ("America/New_York", "Europe/London", "Asia/Tokyo", "UTC")
 pytestmark = pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset")
-MACHINE_ZONE = "local dates follow the zone of the machine reading them, not the offset the time was written in"
 
 
 @contextmanager
@@ -29,7 +28,6 @@ def machine_zone(zone: str):
         time.tzset()
 
 
-@pytest.mark.baseline(v0=MACHINE_ZONE)
 def test_s11_local_dates_come_from_the_written_offset(world):
     world.replica("phone")
     world.author("phone", effort("e1", at="2026-11-21T00:30:00.000+05:00"))
@@ -41,7 +39,6 @@ def test_s11_local_dates_come_from_the_written_offset(world):
             assert world.local_dates("phone") == want, zone
 
 
-@pytest.mark.baseline(v0=MACHINE_ZONE)
 def test_s11_a_fortnight_abroad_dates_every_set_where_it_happened(world):
     p = persona(3, 14)
     play(world, p)

@@ -19,7 +19,7 @@ from jsonschema.exceptions import best_match
 from referencing import Registry, Resource
 
 SCHEMA_VERSION = 1
-SCHEMA_NAMES = ("common", "records", "event", "registry")
+SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
 SLUG_KINDS = ("activity", "location", "setting")
 RULES = ("time-order", "date-order", "range-order", "code-value", "part-ids", "self-reference", "derived-id")
 
@@ -33,7 +33,8 @@ def schema_dir() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _documents() -> tuple[dict[str, dict], dict]:
+def documents() -> tuple[dict[str, dict], dict]:
+    """The shipped schemas by name, and the shipped registry."""
     docs = {n: json.loads((schema_dir() / f"{n}.schema.json").read_text(encoding="utf-8")) for n in SCHEMA_NAMES}
     return docs, json.loads((schema_dir() / "registry.json").read_text(encoding="utf-8"))
 
@@ -63,12 +64,25 @@ class Rejected(Exception):
         self.reason = reason
 
 
+def sync_errors(definition: str, document: Any) -> list[str]:
+    """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
+    return [f"{'/'.join(str(p) for p in e.absolute_path) or 'message'}: {e.message}"
+            for e in _sync_validator(definition).iter_errors(document)]
+
+
+@lru_cache(maxsize=None)
+def _sync_validator(definition: str) -> Draft202012Validator:
+    docs = documents()[0]
+    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in docs.values())
+    return Draft202012Validator({"$ref": f"{docs['sync']['$id']}#/$defs/{definition}"}, registry=resources)
+
+
 @dataclass
 class Contract:
     """The schemas and registry one install knows. `registry` may be newer than the shipped one."""
 
     registry: dict
-    schemas: dict[str, dict] = field(default_factory=lambda: _documents()[0])
+    schemas: dict[str, dict] = field(default_factory=lambda: documents()[0])
 
     @classmethod
     def shipped(cls) -> Contract:
@@ -103,6 +117,19 @@ class Contract:
             broken = set()  # a newer payload: its own install checked it, and this one checks it on upgrade
         if broken:
             raise Rejected("broken rule: " + ", ".join(sorted(broken)))
+
+    def payload_errors(self, kind: str, payload: Any, rid: str | None = None) -> list[str]:
+        """Why a payload can't be written as a `kind` record, checked as a put by a placeholder author."""
+        slug = kind in SLUG_KINDS
+        event = {"id": PLACEHOLDER_ID, "schema_version": 1, "op": "put", "kind_version": self.version(kind) or 1,
+                 "record": {"kind": kind, "id": rid or ("placeholder" if slug else PLACEHOLDER_ID)},
+                 "hlc": "0000000000000-000000", "ts": "2026-01-01T00:00:00Z", "device_id": "check",
+                 "actor": {"kind": "human", "id": "check"}, "prev": [], "payload": payload}
+        try:
+            self.check(event)
+        except Rejected as exc:
+            return [exc.reason.removeprefix("payload: ").removeprefix("payload/")]
+        return self.refusals(kind, payload) if isinstance(payload, dict) else []
 
     def understands(self, event: dict) -> bool:
         """Whether this install can project the event (it is stored either way)."""
@@ -215,6 +242,9 @@ class Contract:
         return Contract(registry, self.schemas)
 
 
+PLACEHOLDER_ID = "00000000-0000-7000-8000-000000000000"
+
+
 def _number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
@@ -235,7 +265,7 @@ def _measures(kind: str, p: dict):
 
 @lru_cache(maxsize=1)
 def _shipped() -> Contract:
-    return Contract(_documents()[1])
+    return Contract(documents()[1])
 
 
 def mac(key: bytes, payload: Any) -> str:

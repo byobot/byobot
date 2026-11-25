@@ -60,7 +60,9 @@ def merged(store):
 def test_the_same_revision_twice_writes_once(store):
     assert len(sources.ingest(store, "whoop", [("sleep", "s1", sleep())])) == 1
     assert sources.ingest(store, "whoop", [("sleep", "s1", sleep())]) == []
-    assert len(sources.ingest(store, "whoop", [("sleep", "s1", sleep("2026-03-02T14:00:00Z"))])) == 1
+    assert sources.ingest(store, "whoop", [("sleep", "s1", sleep("2026-03-02T14:00:00Z"))]) == []
+    rescored = {**sleep("2026-03-02T15:00:00Z"), "score": {"respiratory_rate": 15.9}}
+    assert len(sources.ingest(store, "whoop", [("sleep", "s1", rescored)])) == 1
     assert len(sources.history(store, sources.record_id(store, "whoop", "sleep", "s1"))) == 2
 
 
@@ -134,3 +136,24 @@ def test_a_rebuild_reads_the_same_as_writing_incrementally(store):
     before = {t: sorted(map(tuple, store.conn.execute(f"SELECT * FROM {t}"))) for t in tables}
     store.rebuild()
     assert {t: sorted(map(tuple, store.conn.execute(f"SELECT * FROM {t}"))) for t in tables} == before
+
+
+def test_apple_health_workouts_read_the_totals_the_phone_sends(store):
+    w = {**health(), "value": "traditionalStrengthTraining",
+         "raw": {"duration_s": 3000, "energy_kcal": 410.5, "heart_rate_avg_bpm": 128}}
+    sources.ingest(store, "apple_health", [("workout", "h1", w)])
+    name, = store.conn.execute("SELECT name FROM source_sessions").fetchone()
+    got = merged(store)
+    assert name == "strength training" and got["duration"][0] == 3000 and got["active_energy"][0] == 410.5
+
+
+def test_a_running_total_sent_again_with_a_newer_stamp_writes_nothing(store):
+    day = {"type": "HKQuantityTypeIdentifierStepCount", "source_id": "daily:steps:2026-03-02", "value": 4000,
+           "unit": "count", "start": "2026-03-02T05:00:00Z", "end": "2026-03-03T05:00:00Z",
+           "raw": {"modified_at": "2026-03-02T12:00:00Z"}}
+    key = ("quantity_sample", day["source_id"])
+    assert len(sources.ingest(store, "apple_health", [(*key, day)])) == 1
+    assert sources.ingest(store, "apple_health", [(*key, {**day, "raw": {"modified_at": "2026-03-02T13:00:00Z"}})]) == []
+    later = {**day, "value": 6500, "raw": {"modified_at": "2026-03-02T18:00:00Z"}}
+    assert len(sources.ingest(store, "apple_health", [(*key, later)])) == 1
+    assert [r[0] for r in store.conn.execute("SELECT value FROM observations")] == [6500]
