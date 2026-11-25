@@ -104,6 +104,19 @@ class Contract:
         if broken:
             raise Rejected("broken rule: " + ", ".join(sorted(broken)))
 
+    def payload_errors(self, kind: str, payload: Any, rid: str | None = None) -> list[str]:
+        """Why a payload can't be written as a `kind` record, checked as a put by a placeholder author."""
+        slug = kind in SLUG_KINDS
+        event = {"id": PLACEHOLDER_ID, "schema_version": 1, "op": "put", "kind_version": self.version(kind) or 1,
+                 "record": {"kind": kind, "id": rid or ("placeholder" if slug else PLACEHOLDER_ID)},
+                 "hlc": "0000000000000-000000", "ts": "2026-01-01T00:00:00Z", "device_id": "check",
+                 "actor": {"kind": "human", "id": "check"}, "prev": [], "payload": payload}
+        try:
+            self.check(event)
+        except Rejected as exc:
+            return [exc.reason.removeprefix("payload: ").removeprefix("payload/")]
+        return self.refusals(kind, payload) if isinstance(payload, dict) else []
+
     def understands(self, event: dict) -> bool:
         """Whether this install can project the event (it is stored either way)."""
         kind, op = event["record"]["kind"], event["op"]
@@ -213,6 +226,9 @@ class Contract:
             spec["version"] = max(spec["version"], version)
         registry["kinds"].update(kinds or {})
         return Contract(registry, self.schemas)
+
+
+PLACEHOLDER_ID = "00000000-0000-7000-8000-000000000000"
 
 
 def _number(x: Any) -> bool:
