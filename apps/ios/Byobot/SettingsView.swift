@@ -42,15 +42,18 @@ struct SettingsView: View {
             EquipmentSection()
             Section {
                 if model.healthEnabled {
-                    LabeledContent("Body mass last sent", value: Format.ago(model.state.lastHealthSyncAt))
+                    LabeledContent("Last sent", value: Format.ago(model.state.lastHealthSyncAt))
+                    if model.healthNeedsAccess {
+                        Button("Allow the new Apple Health data") { Task { await model.enableHealth() } }
+                    }
                 } else {
-                    Button("Read body mass from Apple Health") { Task { await model.enableHealth() } }
+                    Button("Read from Apple Health") { Task { await model.enableHealth() } }
                         .disabled(!model.health.available)
                 }
             } header: {
                 Text("Apple Health")
             } footer: {
-                Text("Your scale's app (Hume, for example) writes weigh-ins to Apple Health. byobot reads them and sends them only to your laptop.")
+                Text("byobot reads weigh-ins and body composition, heart rate variability, resting heart rate, sleep and workouts, and sends them only to your laptop. Where your laptop connects to a source like WHOOP directly, that source wins over its copy in Apple Health.")
             }
             Section {
                 Button("Forget this laptop", role: .destructive) { confirmForget = true }

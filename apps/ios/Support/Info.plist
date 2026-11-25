@@ -41,7 +41,7 @@
 		<true/>
 	</dict>
 	<key>NSHealthShareUsageDescription</key>
-	<string>byobot reads your body mass, such as weigh-ins from your scale's app, and sends it only to the laptop you paired.</string>
+	<string>byobot reads your weigh-ins, body composition, heart rate variability, resting heart rate, sleep and workouts, and sends them only to the laptop you paired.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>byobot syncs your plan and your logged training with byobot on your laptop over your local network.</string>
 	<key>UIApplicationSceneManifest</key>
