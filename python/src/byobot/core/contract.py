@@ -39,8 +39,18 @@ def _documents() -> tuple[dict[str, dict], dict]:
 
 
 def jcs(value: Any) -> str:
-    """RFC 8785 canonical JSON for the values byobot writes: sorted keys, no whitespace."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    """RFC 8785 canonical JSON for the values byobot writes: sorted keys, no whitespace, 225.0 written as 225."""
+    return json.dumps(_numbers(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
+def _numbers(value: Any) -> Any:
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e21:
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_numbers(v) for v in value]
+    return value
 
 
 def instant(ts: str) -> datetime:
