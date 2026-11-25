@@ -12,6 +12,7 @@ from .store import Store, stamp
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
 TIMED = ("session", "effort", "observation")
+TAKEN_BACK = (*AUTHORED, "overlay")  # what remove and undo work on
 
 
 def merge_patch(target: Any, patch: Any) -> Any:
@@ -183,7 +184,8 @@ def _parts(rid: str, payload: dict, old: list) -> dict:
 
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:
-    _authored(kind)
+    if kind not in TAKEN_BACK:
+        raise ValidationFailed(f"{kind} records aren't removed by hand")
     found = _live(store, kind, rid)
     payload = {"reason": reason} if reason else {}
     return store.write(actor, [{"kind": kind, "id": rid, "op": "retract", "payload": payload, **_from(found)}])[0]
@@ -221,7 +223,8 @@ def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
         kind, rid = e["record"]["kind"], e["record"]["id"]
         if e["op"] not in ("put", "retract"):
             raise ValidationFailed(f"can't undo a {e['op']}")
-        _authored(kind)
+        if kind not in TAKEN_BACK:
+            raise ValidationFailed(f"{kind} records aren't undone by hand")
         found = store.record(kind, rid)
         if found["current"] != e["id"] or found["conflict"]:
             raise Conflict(f"{kind} {rid} changed after {e['id']}; edit it instead")
