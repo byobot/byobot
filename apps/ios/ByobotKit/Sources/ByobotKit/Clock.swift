@@ -75,7 +75,7 @@ public enum Timestamp {
 
     /// The phone's IANA zone, where the contract can name it.
     public static func zone(_ zone: TimeZone = .current) -> String? {
-        let id = zone.identifier
+        let id = zone.identifier == "GMT" ? "UTC" : zone.identifier  // Foundation names UTC "GMT"
         return id.range(of: "^(UTC|[A-Z][A-Za-z_-]*(/[A-Za-z0-9_+-]+){1,2})$", options: .regularExpression) != nil ? id : nil
     }
 }
