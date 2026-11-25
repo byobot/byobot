@@ -102,7 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
                     "Shows a QR code to pair a phone when none is paired yet (or with --pair).")
     serve.add_argument("--host", default="0.0.0.0", help="Address to listen on. Default: all interfaces.")
-    serve.add_argument("--port", type=int, default=8765, help="Port to listen on. Default: 8765.")
+    serve.add_argument("--port", type=int, help="Port to listen on. Default: the one this profile used last, "
+                                                "else 8765 for the default profile.")
     serve.add_argument("--pair", action="store_true", default=None, help="Show a pairing code even if a device is paired.")
     serve.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a pairing code.")
     return parser

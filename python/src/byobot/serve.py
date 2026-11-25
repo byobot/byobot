@@ -54,7 +54,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__, contract
 from byobot.store import Store
-from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home
+from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 DEFAULT_PORT = 8765
 PAIRING_TTL_S = 600
@@ -131,6 +131,34 @@ def fingerprint(cert_pem_or_der: bytes) -> str:
 def short_fingerprint(fp: str) -> str:
     """The first 16 hex digits in groups of four, for comparing by eye."""
     return " ".join(fp[i:i + 4] for i in range(0, 16, 4))
+
+
+# -- port --------------------------------------------------------------------
+
+def choose_port(host: str) -> int:
+    """The port this profile used last, else 8765 for the default profile, else a free one from 8767 up.
+
+    Named profiles never take 8765, and the port is kept, so a paired phone keeps finding its laptop.
+    """
+    saved = serve_dir() / "port"
+    if saved.is_file():
+        return int(saved.read_text().strip())
+    if profile() is None:
+        return DEFAULT_PORT
+    for port in range(DEFAULT_PORT + 2, DEFAULT_PORT + 100):  # 8766 is WHOOP's sign-in callback
+        with socket.socket() as s:
+            try:
+                s.bind((host, port))
+                return port
+            except OSError:
+                continue
+    raise ByobotError("no free port for byobot serve; pass --port")
+
+
+def server_name() -> str:
+    """What the phone shows: the laptop's name, and the profile when it isn't the default."""
+    name = socket.gethostname() or "byobot"
+    return f"{name} ({profile()})" if profile() else name
 
 
 # -- pairing -----------------------------------------------------------------
@@ -664,7 +692,7 @@ def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool |
         device_id = store.device_id
         if pair is None:
             pair = not any(p["revoked_at"] is None for p in store.peers())
-    info: dict[str, Any] = {"device_id": device_id, "name": socket.gethostname() or "byobot"}
+    info: dict[str, Any] = {"device_id": device_id, "name": server_name()}
     context = None
     if tls:
         cert, key, fp = ensure_certificate(device_id)
@@ -683,17 +711,19 @@ def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool |
     return server, info
 
 
-def run(host: str, port: int, pair: bool | None) -> int:
+def run(host: str, port: int | None, pair: bool | None) -> int:
     """The ``byobot serve`` command: print how to pair, then serve until Ctrl-C."""
     def log(line: str) -> None:
         sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
         sys.stderr.flush()
 
+    port = port or choose_port(host)
     try:
         server, info = make_server(host, port, pair=pair, log=log)
     except OSError as exc:
         sys.stderr.write(json.dumps({"error": "serve", "message": f"could not listen on {host}:{port}: {exc}"}) + "\n")
         return 1
+    (serve_dir() / "port").write_text(f"{info['port']}\n")
     err = sys.stderr
     err.write(f"byobot serve · {info['name']} · port {info['port']} · store {db_path()}\n")
     err.write(f"certificate fingerprint {short_fingerprint(info['fingerprint'])} (full: {info['fingerprint']})\n")
