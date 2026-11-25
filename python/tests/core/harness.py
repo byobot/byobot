@@ -54,7 +54,11 @@ class World:
     def restore(self, name: str, backup: tuple, skew: timedelta = timedelta(0)) -> Replica:
         """A new install restored from `backup`, an earlier `export`."""
         log, model_log, held = backup
-        rep = Replica(name, Clock(skew), self.driver.restore(name, self.directory, log), set(held))
+        if name in self.replicas:  # the same device, wiped and restored
+            self.driver.close(self.replicas[name].state)
+        directory = self.directory / f"restore-{len(self.changes)}"
+        directory.mkdir()
+        rep = Replica(name, Clock(skew), self.driver.restore(name, directory, log), set(held))
         self.replicas[name], self.shadows[name] = rep, Reference().restore(name, self.directory, model_log)
         return rep
 

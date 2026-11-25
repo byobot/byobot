@@ -443,6 +443,8 @@ class Reference:
     def restore(self, name: str, directory: Any, log: list[Write]) -> ModelReplica:
         replica = ModelReplica(name)
         replica.deliver(log)
+        ours = [w.id.split(":", 1)[1] for w in log if w.id.startswith(f"{name}:")]
+        replica.authored = max((int(i) for i in ours if i.isdigit()), default=0)  # the same device, restored
         return replica
 
     def upgrade(self, replica: ModelReplica, version: int) -> None:
