@@ -10,7 +10,7 @@ JSON Schemas (draft 2020-12) for everything byobot stores and exchanges. Every i
 | `v0/common.schema.json` | Ids, times, dates and the metrics registry |
 | `v0/sync.schema.json` | The LAN sync messages between `byobot serve` and the app |
 | `fixtures/v0/` | Conformance cases every implementation must pass |
-| `v1/` | Schema 1, the next contract; see [`v1/README.md`](v1/README.md). Not yet used by the store. |
+| `v1/` | Schema 1, used by the store and sync protocol 1; see [`v1/README.md`](v1/README.md). The app moves to it next, then `v0/` goes. |
 
 ## Rules beyond the schemas
 

@@ -19,7 +19,7 @@ from jsonschema.exceptions import best_match
 from referencing import Registry, Resource
 
 SCHEMA_VERSION = 1
-SCHEMA_NAMES = ("common", "records", "event", "registry")
+SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
 SLUG_KINDS = ("activity", "location", "setting")
 RULES = ("time-order", "date-order", "range-order", "code-value", "part-ids", "self-reference", "derived-id")
 
@@ -62,6 +62,19 @@ class Rejected(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def sync_errors(definition: str, document: Any) -> list[str]:
+    """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
+    return [f"{'/'.join(str(p) for p in e.absolute_path) or 'message'}: {e.message}"
+            for e in _sync_validator(definition).iter_errors(document)]
+
+
+@lru_cache(maxsize=None)
+def _sync_validator(definition: str) -> Draft202012Validator:
+    docs = documents()[0]
+    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in docs.values())
+    return Draft202012Validator({"$ref": f"{docs['sync']['$id']}#/$defs/{definition}"}, registry=resources)
 
 
 @dataclass

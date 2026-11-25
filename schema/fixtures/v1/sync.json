@@ -1,0 +1,723 @@
+{
+  "description": "Conformance cases for sync.schema.json and the pairing link. `byobot serve` and the app both test against these.",
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "sync/hello",
+      "def": "hello",
+      "valid": true,
+      "data": {
+        "byobot": "0.1.0",
+        "protocol": 1,
+        "schema_version": 1,
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+          "name": "example-laptop"
+        },
+        "pairing_open": true
+      }
+    },
+    {
+      "name": "sync/hello-old-protocol",
+      "def": "hello",
+      "valid": false,
+      "description": "An app on protocol 1 can't sync with a v0 server.",
+      "data": {
+        "byobot": "0.1.0",
+        "protocol": 0,
+        "schema_version": 0,
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+          "name": "example-laptop"
+        },
+        "pairing_open": true
+      }
+    },
+    {
+      "name": "sync/hello-without-store-id",
+      "def": "hello",
+      "valid": false,
+      "data": {
+        "byobot": "0.1.0",
+        "protocol": 1,
+        "schema_version": 1,
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "name": "example-laptop"
+        },
+        "pairing_open": true
+      }
+    },
+    {
+      "name": "sync/pair-request",
+      "def": "pair_request",
+      "valid": true,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone"
+      }
+    },
+    {
+      "name": "sync/pair-request-short-code",
+      "def": "pair_request",
+      "valid": false,
+      "description": "Codes are six digits.",
+      "data": {
+        "code": "4281",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone"
+      }
+    },
+    {
+      "name": "sync/pair-request-extra-field",
+      "def": "pair_request",
+      "valid": false,
+      "description": "Requests are strict.",
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Example iPhone",
+        "token": "x"
+      }
+    },
+    {
+      "name": "sync/pair-response",
+      "def": "pair_response",
+      "valid": true,
+      "data": {
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+          "name": "example-laptop"
+        },
+        "device": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+          "name": "Example iPhone",
+          "paired_at": "2026-11-22T09:00:00-05:00",
+          "last_seen_at": "2026-11-22T09:00:00-05:00",
+          "revoked_at": null
+        }
+      }
+    },
+    {
+      "name": "sync/status",
+      "def": "status",
+      "valid": true,
+      "data": {
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+          "name": "example-laptop"
+        },
+        "device": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+          "name": "Example iPhone",
+          "paired_at": "2026-11-22T09:00:00-05:00",
+          "last_seen_at": "2026-11-22T09:00:00-05:00",
+          "revoked_at": null
+        },
+        "counts": {
+          "events": 12
+        },
+        "today": "2026-11-22"
+      }
+    },
+    {
+      "name": "sync/plan-window",
+      "def": "plan_window",
+      "valid": true,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ]
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": []
+      }
+    },
+    {
+      "name": "sync/plan-window-conflict",
+      "def": "plan_window",
+      "valid": true,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "conflict": true
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": []
+      }
+    },
+    {
+      "name": "sync/plan-window-without-overlays",
+      "def": "plan_window",
+      "valid": false,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ]
+          }
+        ],
+        "sessions": [],
+        "efforts": []
+      }
+    },
+    {
+      "name": "sync/plan-window-entry-without-prev",
+      "def": "plan_window",
+      "valid": false,
+      "description": "A change names what it saw, so every entry carries its prev.",
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": []
+      }
+    },
+    {
+      "name": "sync/events-request",
+      "def": "events_request",
+      "valid": true,
+      "data": {
+        "events": [
+          {
+            "id": "019aa000-0000-7000-8000-000000000005",
+            "schema_version": 1,
+            "record": {
+              "kind": "effort",
+              "id": "019aa000-0000-7000-8000-000000000104"
+            },
+            "op": "put",
+            "kind_version": 1,
+            "hlc": "1795131000000-000000",
+            "ts": "2026-11-21T07:10:30-05:00",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "prev": [],
+            "payload": {
+              "activity_id": "barbell_back_squat",
+              "round": 1,
+              "time": {
+                "start": "2026-11-21T07:10:00-05:00"
+              },
+              "modality": "self_reported",
+              "origin": {
+                "app": "byobot_ios",
+                "version": "0.1.0",
+                "device": "Example iPhone"
+              },
+              "metrics": {
+                "reps": {
+                  "value": 5
+                },
+                "load": {
+                  "value": 225,
+                  "unit": "[lb_av]"
+                },
+                "rpe": {
+                  "value": 7.5
+                }
+              },
+              "links": {
+                "part_of": {
+                  "kind": "session",
+                  "id": "019aa000-0000-7000-8000-000000000103"
+                },
+                "answers": {
+                  "kind": "planned_session",
+                  "id": "019aa000-0000-7000-8000-000000000102",
+                  "part": "pe1"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/events-request-bad-event",
+      "def": "events_request",
+      "valid": false,
+      "data": {
+        "events": [
+          {
+            "id": "019aa000-0000-7000-8000-000000000005",
+            "schema_version": 1,
+            "record": {
+              "kind": "effort",
+              "id": "019aa000-0000-7000-8000-000000000104"
+            },
+            "op": "put",
+            "kind_version": 1,
+            "ts": "2026-11-21T07:10:30-05:00",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "prev": [],
+            "payload": {
+              "activity_id": "barbell_back_squat",
+              "round": 1,
+              "time": {
+                "start": "2026-11-21T07:10:00-05:00"
+              },
+              "modality": "self_reported",
+              "origin": {
+                "app": "byobot_ios",
+                "version": "0.1.0",
+                "device": "Example iPhone"
+              },
+              "metrics": {
+                "reps": {
+                  "value": 5
+                },
+                "load": {
+                  "value": 225,
+                  "unit": "[lb_av]"
+                },
+                "rpe": {
+                  "value": 7.5
+                }
+              },
+              "links": {
+                "part_of": {
+                  "kind": "session",
+                  "id": "019aa000-0000-7000-8000-000000000103"
+                },
+                "answers": {
+                  "kind": "planned_session",
+                  "id": "019aa000-0000-7000-8000-000000000102",
+                  "part": "pe1"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/events-response",
+      "def": "events_response",
+      "valid": true,
+      "data": {
+        "results": [
+          {
+            "index": 0,
+            "id": "019aa000-0000-7000-8000-000000000005",
+            "status": "accepted"
+          },
+          {
+            "index": 1,
+            "id": null,
+            "status": "rejected",
+            "reason": "not an event"
+          }
+        ],
+        "accepted": 1,
+        "duplicate": 0,
+        "stored_unprojected": 0,
+        "rejected": 1
+      }
+    },
+    {
+      "name": "sync/events-response-unknown-status",
+      "def": "events_response",
+      "valid": false,
+      "data": {
+        "results": [
+          {
+            "index": 0,
+            "id": "019aa000-0000-7000-8000-000000000005",
+            "status": "queued"
+          }
+        ],
+        "accepted": 0,
+        "duplicate": 0,
+        "stored_unprojected": 0,
+        "rejected": 0
+      }
+    },
+    {
+      "name": "sync/pull-response",
+      "def": "pull_response",
+      "valid": true,
+      "data": {
+        "events": [
+          {
+            "id": "019aa000-0000-7000-8000-000000000005",
+            "schema_version": 1,
+            "record": {
+              "kind": "effort",
+              "id": "019aa000-0000-7000-8000-000000000104"
+            },
+            "op": "put",
+            "kind_version": 1,
+            "hlc": "1795131000000-000000",
+            "ts": "2026-11-21T07:10:30-05:00",
+            "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+            "actor": {
+              "kind": "human",
+              "id": "me"
+            },
+            "prev": [],
+            "payload": {
+              "activity_id": "barbell_back_squat",
+              "round": 1,
+              "time": {
+                "start": "2026-11-21T07:10:00-05:00"
+              },
+              "modality": "self_reported",
+              "origin": {
+                "app": "byobot_ios",
+                "version": "0.1.0",
+                "device": "Example iPhone"
+              },
+              "metrics": {
+                "reps": {
+                  "value": 5
+                },
+                "load": {
+                  "value": 225,
+                  "unit": "[lb_av]"
+                },
+                "rpe": {
+                  "value": 7.5
+                }
+              },
+              "links": {
+                "part_of": {
+                  "kind": "session",
+                  "id": "019aa000-0000-7000-8000-000000000103"
+                },
+                "answers": {
+                  "kind": "planned_session",
+                  "id": "019aa000-0000-7000-8000-000000000102",
+                  "part": "pe1"
+                }
+              }
+            }
+          }
+        ],
+        "next": 41,
+        "more": false
+      }
+    },
+    {
+      "name": "sync/pull-response-without-cursor",
+      "def": "pull_response",
+      "valid": false,
+      "data": {
+        "events": [],
+        "more": false
+      }
+    },
+    {
+      "name": "sync/samples-request",
+      "def": "samples_request",
+      "valid": true,
+      "data": {
+        "samples": [
+          {
+            "source": "apple_health",
+            "source_id": "8f2e1c3a-0000-4000-8000-000000000001",
+            "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-22T07:00:00-05:00",
+            "end": "2026-11-22T07:00:00-05:00",
+            "value": 82.4,
+            "unit": "kg",
+            "device": "Example scale"
+          }
+        ],
+        "deleted": [
+          {
+            "source": "apple_health",
+            "source_id": "8f2e1c3a-0000-4000-8000-000000000002",
+            "type": "HKQuantityTypeIdentifierBodyMass"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/samples-request-workout",
+      "def": "samples_request",
+      "valid": true,
+      "data": {
+        "samples": [
+          {
+            "source": "apple_health",
+            "source_id": "8f2e1c3a-0000-4000-8000-000000000003",
+            "type": "HKWorkoutTypeIdentifier",
+            "start": "2026-11-22T18:00:00-05:00",
+            "end": "2026-11-22T19:00:00-05:00",
+            "value": "traditionalStrengthTraining",
+            "device": "Example Watch",
+            "raw": {
+              "duration_s": 3600,
+              "energy_kcal": 310
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/samples-request-sample-without-id",
+      "def": "samples_request",
+      "valid": false,
+      "data": {
+        "samples": [
+          {
+            "source": "apple_health",
+            "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-22T07:00:00-05:00",
+            "end": "2026-11-22T07:00:00-05:00",
+            "value": 82.4,
+            "unit": "kg",
+            "device": "Example scale"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/samples-request-unknown-field",
+      "def": "samples_request",
+      "valid": false,
+      "data": {
+        "samples": [
+          {
+            "source": "apple_health",
+            "source_id": "8f2e1c3a-0000-4000-8000-000000000001",
+            "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-22T07:00:00-05:00",
+            "end": "2026-11-22T07:00:00-05:00",
+            "value": 82.4,
+            "unit": "kg",
+            "device": "Example scale",
+            "kind": "telemetry"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/samples-response",
+      "def": "samples_response",
+      "valid": true,
+      "data": {
+        "written": 2,
+        "by_source": {
+          "apple_health": 2
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "name": "link/two-hosts",
+      "valid": true,
+      "link": "byobot://pair?v=1&host=example-laptop.local&host=192.0.2.23&port=8765&code=042817&fp=a4MDGEnKSYddbOMtbD1ji6JSVQTXMWHWmFMjDKjrx_k",
+      "expect": {
+        "hosts": [
+          "example-laptop.local",
+          "192.0.2.23"
+        ],
+        "port": 8765,
+        "code": "042817",
+        "fp": "6b83031849ca49875d6ce32d6c3d638ba2525504d73161d69853230ca8ebc7f9"
+      }
+    },
+    {
+      "name": "link/ipv4-only",
+      "valid": true,
+      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "expect": {
+        "hosts": [
+          "192.0.2.5"
+        ],
+        "port": 9000,
+        "code": "000001",
+        "fp": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      }
+    },
+    {
+      "name": "link/old-protocol",
+      "valid": false,
+      "description": "A v0 server's link: the app asks to update byobot.",
+      "link": "byobot://pair?v=0&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    },
+    {
+      "name": "link/no-fingerprint",
+      "valid": false,
+      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001"
+    },
+    {
+      "name": "link/other-scheme",
+      "valid": false,
+      "link": "https://pair?v=1&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+  ]
+}
