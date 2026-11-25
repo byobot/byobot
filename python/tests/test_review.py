@@ -74,3 +74,53 @@ def test_review_shows_durations_readably():
 
     assert [readable_seconds(s) for s in (45, 90, 120, 2295.5, 3600, 4320)] == [
         "45 s", "1 min 30 s", "2 min", "38 min", "1 h", "1 h 12 min"]
+
+
+def test_review_takes_each_metric_from_one_source(store):
+    from datetime import datetime
+
+    from byobot.review import review
+
+    def at(text):  # local time, so dates hold in any time zone
+        return datetime.fromisoformat(text).astimezone().isoformat()
+
+    def sample(source, type_, start, end, value, unit=None, device=None):
+        s = {"source": source, "source_id": f"{type_}:{start}:{value}", "type": type_, "start": at(start), "end": at(end),
+             "value": value}
+        if device:
+            s["device"] = {"id": device}
+        return {**s, "unit": unit} if unit else s
+
+    def segment(start, end, stage, device):
+        return sample("apple-health", "HKCategoryTypeIdentifierSleepAnalysis", start, end, stage, device=device)
+
+    store.ingest([
+        # Nov 20: WHOOP directly, and its copies in Apple Health.
+        sample("whoop", "byobot.SleepDeepDuration", "2026-11-20T03:00:00", "2026-11-20T11:00:00", 7200, "s"),
+        sample("whoop", "byobot.HeartRateVariabilityRMSSD", "2026-11-20T12:00:00", "2026-11-20T12:00:00", 61, "ms"),
+        sample("whoop", "HKQuantityTypeIdentifierRestingHeartRate", "2026-11-20T12:00:00", "2026-11-20T12:00:00",
+               48, "count/min"),
+        segment("2026-11-20T03:00:00", "2026-11-20T11:00:00", "asleepUnspecified", "example-strap"),
+        sample("apple-health", "HKQuantityTypeIdentifierHeartRateVariabilitySDNN", "2026-11-20T12:00:00",
+               "2026-11-20T12:00:00", 61, "ms"),
+        sample("apple-health", "HKQuantityTypeIdentifierRestingHeartRate", "2026-11-20T12:00:00",
+               "2026-11-20T12:00:00", 48, "count/min"),
+        sample("apple-health", "HKQuantityTypeIdentifierBodyMass", "2026-11-20T12:10:00", "2026-11-20T12:10:00",
+               82.4, "kg"),
+        sample("apple-health", "HKQuantityTypeIdentifierBodyFatPercentage", "2026-11-20T12:10:00",
+               "2026-11-20T12:10:00", 18.4, "%"),
+        # Nov 21: Apple Health only, with two apps recording the night.
+        segment("2026-11-21T03:00:00", "2026-11-21T05:00:00", "asleepCore", "example-watch"),
+        segment("2026-11-21T05:00:00", "2026-11-21T06:00:00", "awake", "example-watch"),
+        segment("2026-11-21T06:00:00", "2026-11-21T09:30:00", "asleepREM", "example-watch"),
+        segment("2026-11-21T03:00:00", "2026-11-21T09:00:00", "asleepUnspecified", "example-ring"),
+        segment("2026-11-21T02:30:00", "2026-11-21T09:30:00", "inBed", "example-watch"),
+        sample("apple-health", "HKQuantityTypeIdentifierHeartRateVariabilitySDNN", "2026-11-21T12:00:00",
+               "2026-11-21T12:00:00", 55, "ms"),
+    ])
+    out = review(store, 1, "2026-11-22")
+    assert out["recovery"] == [
+        {"date": "2026-11-20", "asleep_h": 2.0, "hrv_rmssd_ms": 61, "resting_hr_bpm": 48},
+        {"date": "2026-11-21", "asleep_h": 6.0, "hrv_sdnn_ms": 55},
+    ]
+    assert out["body"] == [{"date": "2026-11-20", "body_fat_pct": 18.4, "weight_kg": 82.4}]

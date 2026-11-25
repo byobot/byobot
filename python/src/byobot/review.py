@@ -46,23 +46,69 @@ RECOVERY = {
     "byobot.SleepPerformance": "sleep_performance_pct",
     "byobot.Strain": "strain",
 }
+BODY = {
+    "HKQuantityTypeIdentifierBodyMass": "weight_kg",
+    "HKQuantityTypeIdentifierBodyFatPercentage": "body_fat_pct",
+    "HKQuantityTypeIdentifierLeanBodyMass": "lean_mass_kg",
+    "HKQuantityTypeIdentifierVO2Max": "vo2max",
+}
 ASLEEP = ("byobot.SleepLightDuration", "byobot.SleepDeepDuration", "byobot.SleepREMDuration")
+SLEEP = "HKCategoryTypeIdentifierSleepAnalysis"
+ASLEEP_STAGES = ("asleepUnspecified", "asleepCore", "asleepDeep", "asleepREM")
+# Keys that measure the same thing, so a day takes them from one source.
+SAME = {"hrv_sdnn_ms": "hrv", "hrv_rmssd_ms": "hrv"}
+# Apple Health collects what other apps write, including copies of sources byobot reads directly.
+COLLECTED = {"apple-health"}
 
 
-def _recovery(store: Store, lo: str, hi: str, first: str, last: str) -> list[dict]:
-    types = [*RECOVERY, *ASLEEP]
-    rows = store.rows(f"SELECT type, start_at, end_at, value FROM telemetry_samples WHERE type IN"
-                      f" ({', '.join('?' for _ in types)}) AND start_at >= ? AND start_at < ? ORDER BY start_at",
-                      [*types, lo, hi])
-    days: dict[str, dict] = defaultdict(dict)
+def _night(end_at: str) -> str:
+    """The day a sleep segment belongs to: a segment ending in the evening counts toward the next morning."""
+    end = datetime.fromisoformat(end_at.replace("Z", "+00:00")).astimezone()
+    return (end + timedelta(hours=6)).date().isoformat()
+
+
+def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
+    """Each day's values by review key, each metric from one source.
+
+    A source byobot reads directly beats Apple Health, which often holds a copy of the same data.
+    Within Apple Health, a night's sleep comes from the one app or device that recorded the most of it.
+    """
+    types = [*RECOVERY, *BODY, *ASLEEP, SLEEP]
+    rows = store.rows(f"SELECT source, type, start_at, end_at, value, category, coalesce(device_id, '') AS device"
+                      f" FROM telemetry_samples WHERE type IN ({', '.join('?' for _ in types)})"
+                      f" AND start_at >= ? AND start_at < ? ORDER BY start_at", [*types, lo, hi])
+    found: dict[tuple, dict] = defaultdict(lambda: defaultdict(list))  # (day, group) -> rank -> [(key, value)]
+    nights: dict[str, dict] = defaultdict(lambda: defaultdict(float))  # Apple Health: day -> device -> seconds
     for r in rows:
+        rank = int(r["source"] in COLLECTED)
+        if r["type"] == SLEEP:
+            if r["category"] in ASLEEP_STAGES and rank:
+                seconds = (datetime.fromisoformat(r["end_at"].replace("Z", "+00:00"))
+                           - datetime.fromisoformat(r["start_at"].replace("Z", "+00:00"))).total_seconds()
+                nights[_night(r["end_at"])][r["device"]] += seconds
+            continue
         if r["type"] in ASLEEP:
-            day = days[local_date(r["end_at"])]
-            day["asleep_h"] = day.get("asleep_h", 0) + r["value"] / 3600
+            day, key, value = local_date(r["end_at"]), "asleep_h", r["value"] / 3600
         else:
-            days[local_date(r["start_at"])][RECOVERY[r["type"]]] = r["value"]
-    return [{"date": d, **{k: round(v, 1) for k, v in sorted(days[d].items())}}
-            for d in sorted(days) if first <= d <= last]
+            key = RECOVERY.get(r["type"]) or BODY[r["type"]]
+            day, value = local_date(r["start_at"]), r["value"]
+        found[(day, SAME.get(key, key))][rank].append((key, value))
+    for day, devices in nights.items():
+        found[(day, "asleep_h")][1].append(("asleep_h", max(devices.values()) / 3600))
+    days: dict[str, dict] = defaultdict(dict)
+    for (day, _), ranks in found.items():
+        for key, value in ranks[min(ranks)]:
+            days[day][key] = days[day].get(key, 0) + value if key == "asleep_h" else value
+    return days
+
+
+def _by_day(days: dict[str, dict], keys: set[str], first: str, last: str) -> list[dict]:
+    out = []
+    for d in sorted(days):
+        values = {k: round(v, 1) for k, v in sorted(days[d].items()) if k in keys}
+        if values and first <= d <= last:
+            out.append({"date": d, **values})
+    return out
 
 
 def review(store: Store, weeks: int, until: str | None = None) -> dict:
@@ -126,6 +172,7 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
     planned = store.rows("SELECT id, scheduled_on, name, plan_id, location_id FROM planned_sessions"
                          " WHERE scheduled_on >= ? ORDER BY scheduled_on", [first])
     past = [p for p in planned if p["scheduled_on"] < last]
+    daily = _daily(store, lo, hi)
     return {
         "from": first,
         "to": last,
@@ -137,6 +184,7 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
         },
         "exercises": exercises,
         "weekly_sets_per_muscle": {w: dict(sorted(m.items())) for w, m in sorted(weekly.items())},
-        "recovery": _recovery(store, lo, hi, first, last),
+        "recovery": _by_day(daily, {*RECOVERY.values(), "asleep_h"}, first, last),
+        "body": _by_day(daily, set(BODY.values()), first, last),
         "upcoming": [p for p in planned if p["scheduled_on"] >= last],
     }
