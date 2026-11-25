@@ -46,6 +46,17 @@ claude mcp add byobot-alex -- byobot --profile alex mcp
 
 Or set `BYOBOT_PROFILE=alex`. Without a profile, byobot uses the default one.
 
+## Use it from an assistant on your phone
+
+`byobot remote` serves the same tools over the internet, with sign-in, to assistants that take a remote MCP server (such as custom connectors in Claude). It listens on this computer only, so give it an https address with a tunnel, for example [Tailscale Funnel](https://tailscale.com/kb/1223/funnel). The computer must be awake.
+
+```bash
+tailscale funnel --bg 8780    # shows your address, such as https://example-laptop.example.ts.net
+byobot remote --url https://example-laptop.example.ts.net
+```
+
+Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote` shows when it asks. Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote --revoke` disconnects every assistant.
+
 ## Pair the iPhone app
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
