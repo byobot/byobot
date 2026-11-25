@@ -302,17 +302,19 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
     Param("kind", "string", "The record's kind.", required=True, choices=(*core.AUTHORED, "source_record"),
           positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
+    Param("with", "string", "Erase these with it: a session's efforts.", choices=("efforts",)),
     read_only=False,
     mcp=False,
     description="Overlays on the record go with it. The iPhone app keeps its own copy until the app is deleted, "
                 "and exports made before now still hold it.",
 )
-def _erase(ctx: Context, kind: str, id: str) -> dict:
+def _erase(ctx: Context, kind: str, id: str, **also: Any) -> dict:
     store = ctx.store()
-    events = core.erase(store, ctx.actor, kind, id)
+    events = core.erase(store, ctx.actor, kind, id, with_efforts=also.get("with") == "efforts")
+    still = [{"kind": k, "id": r} for k, r in core.linked(store, kind, id)]
     cleanup = {"cleanup": "pending: another program has the store open; it finishes on a later write"} \
         if store.compact_pending() else {}
-    return {"events": events, **cleanup,
+    return {"events": events, **cleanup, **({"still_linked": still} if still else {}),
             "note": "The iPhone app keeps its own copy until the app is deleted from the phone, and exports made before "
                     "now still hold this record."}
 

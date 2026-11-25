@@ -505,3 +505,18 @@ def test_every_commit_is_flushed(pair):
     a, _ = pair
     assert a.conn.execute("PRAGMA synchronous").fetchone()[0] == 2
 
+
+
+def test_erasing_a_session_can_take_its_sets(pair):
+    a, _ = pair
+    [s] = commands.log(a, ME, [{"kind": "session", "payload": {"name": "Legs", "time": {"start": "2026-03-02T10:00:00-05:00"}}}])
+    sid = s["record"]["id"]
+    linked = {**effort(), "links": {"part_of": {"kind": "session", "id": sid}}}
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": linked}])
+    commands.erase(a, ME, "session", sid)
+    assert commands.linked(a, "session", sid) == [("effort", e["record"]["id"])]
+    [s] = commands.log(a, ME, [{"kind": "session", "payload": {"name": "Arms", "time": {"start": "2026-03-02T11:00:00-05:00"}}}])
+    sid = s["record"]["id"]
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": {**effort(), "links": {"part_of": {"kind": "session", "id": sid}}}}])
+    commands.erase(a, ME, "session", sid, with_efforts=True)
+    assert a.record("effort", e["record"]["id"])["erased"] and commands.linked(a, "session", sid) == []
