@@ -22,13 +22,16 @@ SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 LATEST = SUPPORTED_VERSIONS[0]
 
 INSTRUCTIONS = (
-    "byobot is the user's personal health store. Read with `list`, `query` (read-only SQL; see `schema` with "
-    "name 'sql' for tables; plan_vs_actual and strength_sets are ready-made views) and `schema`. Write with `log` "
-    "(activities, locations, plans, planned sessions, performed sessions and efforts; metrics are an open map such as "
-    "{\"reps\": {\"value\": 5}, \"load\": {\"value\": 100, \"unit\": \"kg\"}}, and your own metrics start with x.), "
-    "`ingest` (telemetry) and `undo`. Every write is recorded with you as its author and can be undone. "
+    "byobot is the user's personal health store. Read with `list`, `review`, `query` (read-only SQL; `schema` "
+    "with name 'sql' lists the tables; plan_vs_actual and strength_sets are ready-made views) and `schema`. "
+    "Write with `log` (activities, locations, settings, plans, planned sessions, sessions, efforts, observations), "
+    "`observe` (one measurement), `edit`, `replan` and `remove`. Metrics are a map of registry codes such as "
+    "{\"reps\": {\"value\": 5}, \"load\": {\"value\": 100, \"unit\": \"kg\"}}; your own codes start with x. "
+    "What sources imported is changed with `correct`, `exclude` and `same-as`, never edited. `ingest` adds health "
+    "samples. Every write is recorded with you as its author and `undo` takes it back. If two writers changed a "
+    "record at once, `conflicts` shows both versions and `resolve` ends it. "
     "Loads compare only within one location (gym): compare a set with earlier sets at its location_id. "
-    "Check a document with `validate` before writing if you are unsure of its shape."
+    "Check a payload with `validate` before writing if you are unsure of its shape."
 )
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602

@@ -33,7 +33,7 @@ def test_tools_come_from_the_registry():
     by_name = {t["name"]: t for t in tools()}
     assert by_name["query"]["annotations"]["readOnlyHint"] is True
     assert by_name["log"]["annotations"]["readOnlyHint"] is False
-    assert by_name["log"]["inputSchema"]["required"] == ["type", "payload"]
+    assert by_name["log"]["inputSchema"]["required"] == ["kind", "payload"]
     assert "model" in by_name["log"]["inputSchema"]["properties"]
     assert "model" not in by_name["query"]["inputSchema"]["properties"]
 
@@ -48,12 +48,11 @@ def test_initialize_negotiates_version():
 
 def test_writes_are_attributed_to_the_agent():
     server = initialized(client="claude-code")
-    result = tool(server, "log", type="activity.defined", payload={"id": "plank", "name": "Plank"},
-                  model="example-model-1")
+    result = tool(server, "log", kind="activity", id="plank", payload={"name": "Plank"}, model="example-model-1")
     assert result["isError"] is False
     assert result["structuredContent"]["event"]["actor"] == {"kind": "agent", "id": "claude-code",
                                                              "model": "example-model-1"}
-    rows = tool(server, "query", sql="SELECT actor_kind, actor_id, actor_model FROM activities")
+    rows = tool(server, "query", sql="SELECT actor_kind, actor_id, actor_model FROM events")
     assert rows["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "claude-code",
                                                   "actor_model": "example-model-1"}]
     server.close()
@@ -61,7 +60,7 @@ def test_writes_are_attributed_to_the_agent():
 
 def test_tool_errors_are_results_not_protocol_errors():
     server = initialized()
-    result = tool(server, "log", type="effort.performed", payload={"activity_id": "plank", "metrics": {"x.Bad": {"value": 1}}})
+    result = tool(server, "log", kind="effort", payload={"activity_id": "plank", "metrics": {"x.Bad": {"value": 1}}})
     assert result["isError"] is True
     assert json.loads(result["content"][0]["text"])["error"] == "invalid"
     result = tool(server, "query", sql="DELETE FROM events")
@@ -71,14 +70,17 @@ def test_tool_errors_are_results_not_protocol_errors():
 
 def test_agent_can_log_open_metrics_and_read_views():
     server = initialized(client="claude-code")
-    tool(server, "log", type="activity.defined", payload={"id": "squat", "name": "Squat"})
-    plan = {"id": "s1", "scheduled_on": "2026-11-23", "name": "Lift", "blocks": [
-        {"id": "b1", "rounds": 3, "efforts": [{"id": "e1", "activity_id": "squat",
-                                                "metrics": {"reps": {"min": 3, "max": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
-    assert tool(server, "log", type="session.planned", payload=plan)["isError"] is False
-    done = {"activity_id": "squat", "planned_effort_id": "e1", "round": 1,
-            "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "lb"}}}
-    assert tool(server, "log", type="effort.performed", payload=done)["isError"] is False
+    tool(server, "log", kind="activity", id="squat", payload={"name": "Squat"})
+    plan = {"scheduled_on": "2026-11-23", "name": "Lift", "blocks": [
+        {"rounds": 3, "efforts": [{"activity_id": "squat",
+                                   "metrics": {"reps": {"min": 3, "max": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
+    planned = tool(server, "log", kind="planned_session", payload=plan)
+    assert planned["isError"] is False
+    pid = planned["structuredContent"]["event"]["record"]["id"]
+    done = {"activity_id": "squat", "round": 1, "links": {"answers": {"kind": "planned_session", "id": pid,
+                                                                      "part": f"{pid}.0.0"}},
+            "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "[lb_av]"}, "x.tempo": {"value": "3010"}}}
+    assert tool(server, "log", kind="effort", payload=done)["isError"] is False
     rows = tool(server, "query", sql="SELECT target_reps_max, actual_reps, round(actual_load_kg, 1) AS kg FROM plan_vs_actual")
     assert rows["structuredContent"]["rows"] == [{"target_reps_max": 5, "actual_reps": 5, "kg": 102.1}]
     server.close()
@@ -86,15 +88,15 @@ def test_agent_can_log_open_metrics_and_read_views():
 
 def test_validate_tool_sets_is_error_when_invalid():
     server = initialized()
-    assert tool(server, "validate", document={"id": "plank", "name": "Plank"}, **{"as": "activity.defined"})["isError"] is False
-    assert tool(server, "validate", document={}, **{"as": "telemetry"})["isError"] is True
+    assert tool(server, "validate", document={"name": "Plank"}, **{"as": "activity"})["isError"] is False
+    assert tool(server, "validate", document={}, **{"as": "observation"})["isError"] is True
 
 
 def test_old_protocol_gets_no_structured_content():
     server = initialized(version="2024-11-05")
     result = tool(server, "schema")
     assert "structuredContent" not in result
-    assert json.loads(result["content"][0]["text"])["schema_version"] == 0
+    assert json.loads(result["content"][0]["text"])["schema_version"] == 1
 
 
 def test_protocol_errors():
@@ -129,12 +131,12 @@ def test_byobot_mcp_subprocess(byobot_home):
              "source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
              "start": "2026-11-20T07:12:00Z", "end": "2026-11-20T07:12:00Z", "value": 82.4, "unit": "kg"}}}},
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-         "params": {"name": "list", "arguments": {"kind": "telemetry"}}},
+         "params": {"name": "list", "arguments": {"kind": "observations"}}},
     ]
     proc = subprocess.run([sys.executable, "-m", "byobot", "mcp"], input="\n".join(json.dumps(m) for m in messages) + "\n",
                           capture_output=True, text=True, timeout=60, check=True)
     replies = {r["id"]: r for r in map(json.loads, proc.stdout.splitlines())}
-    assert replies[2]["result"]["structuredContent"] == {"inserted": 1, "updated": 0, "unchanged": 0}
+    assert replies[2]["result"]["structuredContent"] == {"written": {"hume": 1}, "unchanged": 0}
     assert replies[3]["result"]["structuredContent"]["items"][0]["value"] == 82.4
     assert (byobot_home / "byobot.db").exists()
 
