@@ -447,7 +447,7 @@ public struct SettingPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. Its event type is `<kind>.<op>`, such as `effort.put`.
+/// Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. So is an event of a later `schema_version` (see `$defs/later`). Its event type is `<kind>.<op>`, such as `effort.put`.
 public struct Event: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// UUIDv7, or for a source's events the id derived from what it holds (see README).
     public var id: String
@@ -744,13 +744,13 @@ public struct EventsResponse: Codable, Equatable, Hashable, Sendable {
 
 /// GET /v1/events?after=N. Events in the order this server received them, after position N (0 for all).
 public struct PullResponse: Codable, Equatable, Hashable, Sendable {
-    public var events: [Event]
+    public var events: [JSONValue]
     /// Pass as `after` next time.
     public var next: Int
     /// Pull again at once: there are more after `next`.
     public var more: Bool
 
-    public init(events: [Event], next: Int, more: Bool) {
+    public init(events: [JSONValue], next: Int, more: Bool) {
         self.events = events
         self.next = next
         self.more = more
