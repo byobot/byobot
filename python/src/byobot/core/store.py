@@ -35,8 +35,15 @@ CREATE TABLE IF NOT EXISTS events (
   reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_record ON events (kind, record_id);
 CREATE INDEX IF NOT EXISTS events_batch ON events (batch) WHERE batch IS NOT NULL;
-CREATE TRIGGER IF NOT EXISTS events_append_only_update BEFORE UPDATE ON events
-  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+DROP TRIGGER IF EXISTS events_append_only_update;
+CREATE TRIGGER IF NOT EXISTS events_redact_only BEFORE UPDATE ON events
+  WHEN OLD.op = 'erase' OR NEW.payload != '{}' OR NEW.redacted_by IS NULL OR NEW.seq IS NOT OLD.seq
+    OR NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind OR NEW.record_id IS NOT OLD.record_id OR NEW.op IS NOT OLD.op
+    OR NEW.kind_version IS NOT OLD.kind_version OR NEW.hlc IS NOT OLD.hlc OR NEW.ts IS NOT OLD.ts
+    OR NEW.device_id IS NOT OLD.device_id OR NEW.actor_kind IS NOT OLD.actor_kind OR NEW.actor_id IS NOT OLD.actor_id
+    OR NEW.actor_model IS NOT OLD.actor_model OR NEW.prev IS NOT OLD.prev OR NEW.batch IS NOT OLD.batch
+    OR NEW.reverts IS NOT OLD.reverts
+  BEGIN SELECT RAISE(ABORT, 'events are append-only; erase only blanks payloads'); END;
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete BEFORE DELETE ON events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TABLE IF NOT EXISTS records (
@@ -237,7 +244,7 @@ class Store:
             self.contract.check(event)
         except Rejected as exc:
             return "rejected", exc.reason
-        if event["record"]["kind"] == "source_record" and "redacted_by" not in event and \
+        if event["record"]["kind"] == "source_record" and event["op"] != "erase" and "redacted_by" not in event and \
                 event["id"] != self._source_event_id(event):
             return "rejected", "broken rule: derived-id"
         kind, rid = event["record"]["kind"], event["record"]["id"]
