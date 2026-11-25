@@ -8,7 +8,6 @@ from .snapshot import diff
 VARIANTS = ("unknown_kind", "newer_version", "extra_field")
 
 
-@pytest.mark.baseline(v0="unknown kinds, newer versions and unknown fields are all rejected")
 @pytest.mark.parametrize("variant", VARIANTS)
 def test_s12_an_older_install_keeps_relays_and_later_projects_newer_data(world, variant):
     for name in ("new", "old", "relay", "fresh"):

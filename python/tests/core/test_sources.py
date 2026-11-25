@@ -9,13 +9,11 @@ from .snapshot import diff
 
 T = "2026-03-02T{}:00.000Z".format
 SLEEP = whoop_sleep("8f3c2a10-0000-4000-8000-000000000001", 1001, T("00:00"), T("07:30"), T("08:00"))
-KEPT_ONE = "a revised source record replaces the old one; only the latest is kept"
 
 
 # -- S7. a source revises or deletes old records -----------------------------------------------------
 
 
-@pytest.mark.baseline(v0=KEPT_ONE)
 def test_s7_a_rescored_night_keeps_both_revisions(world):
     world.replica("laptop")
     world.ingest("laptop", "whoop", {"sleep": [SLEEP]})
@@ -26,7 +24,6 @@ def test_s7_a_rescored_night_keeps_both_revisions(world):
     assert [h["score"]["sleep_performance_percentage"] for h in history] == [80, 64]
 
 
-@pytest.mark.baseline(v0=KEPT_ONE)
 def test_s7_a_corrected_weight_keeps_both_readings(world):
     world.replica("phone")
     world.ingest("phone", "hume", [weight("hume-1", T("07:00"), 80.4, T("07:00"))])
@@ -67,7 +64,6 @@ def _arrive(world, step):
         world.ingest("laptop", "apple-health", [health_workout("h1", T("10:01"), T("10:59"), 9000)])
 
 
-@pytest.mark.baseline(v0="Apple Health's distance is in no read, and which values show depends on import order")
 @pytest.mark.parametrize("order", ORDERS, ids="-".join)
 def test_s8_one_workout_from_three_sources_is_one_session_with_gaps_filled(world, order):
     world.replica("phone")
@@ -81,7 +77,6 @@ def test_s8_one_workout_from_three_sources_is_one_session_with_gaps_filled(world
     assert one["metrics"]["distance_m"] == "9000"
 
 
-@pytest.mark.baseline(v0="the log holds 2, 4 or 6 events depending on the order connectors ran in")
 def test_s8_the_log_is_the_same_whatever_order_connectors_ran_in(driver, tmp_path):
     from .conftest import DRIVERS
     from .harness import World
@@ -102,8 +97,7 @@ def test_s8_the_log_is_the_same_whatever_order_connectors_ran_in(driver, tmp_pat
 
 @pytest.mark.parametrize("second", [
     pytest.param("whoop", id="both_whoop"),
-    pytest.param("apple-health", id="whoop_then_apple_health",
-                 marks=pytest.mark.baseline(v0="any positive overlap across sources merges two workouts into one")),
+    pytest.param("apple-health", id="whoop_then_apple_health"),
 ])
 def test_s8_back_to_back_runs_overlapping_a_minute_stay_two(world, second):
     world.replica("laptop")
@@ -118,7 +112,6 @@ def test_s8_back_to_back_runs_overlapping_a_minute_stay_two(world, second):
     assert world.occurrences("laptop") == world.expected_occurrences("laptop")
 
 
-@pytest.mark.baseline(v0="a rescore writes WHOOP's values over your correction")
 def test_s8_a_correction_survives_a_rescore(world):
     world.replica("laptop")
     w = whoop_workout(WID, T("10:00"), T("11:00"), T("11:05"), distance=5000)
@@ -143,7 +136,6 @@ def test_s8_an_import_after_undoing_your_session_still_counts_once(world):
 # -- S9. identity collisions ---------------------------------------------------------------------------
 
 
-@pytest.mark.baseline(v0="a reused id silently replaces the earlier record")
 def test_s9_an_agent_reusing_an_id_is_refused(world):
     world.replica("laptop")
     world.author("laptop", effort("e1", reps=5))
@@ -153,7 +145,6 @@ def test_s9_an_agent_reusing_an_id_is_refused(world):
     assert diff(world.snapshot("laptop"), world.expected("laptop")) == []
 
 
-@pytest.mark.baseline(v0="the later definition silently wins; no read shows a conflict")
 def test_s9_two_devices_defining_one_activity_apart_conflict(world):
     world.replica("phone")
     world.replica("laptop")
@@ -165,7 +156,6 @@ def test_s9_two_devices_defining_one_activity_apart_conflict(world):
         assert diff(world.snapshot(name), world.expected(name)) == []
 
 
-@pytest.mark.baseline(v0="each device's import writes its own events, so the same data arrives twice")
 def test_s9_two_devices_importing_the_same_data_write_it_once(world):
     world.replica("phone")
     world.replica("laptop")
@@ -184,7 +174,6 @@ PLAN = {"id": "ps1", "scheduled_on": "2026-03-02", "name": "Legs", "blocks": [
     {"id": "ps1.b1", "rounds": 3, "efforts": [{"id": "ps1.pe1", "activity_id": "lunge"}]}]}
 
 
-@pytest.mark.baseline(v0="re-planning without ids mints new ones, so logged sets drop out of the plan")
 def test_s10_replanning_without_ids_keeps_logged_sets_linked(world):
     world.replica("phone")
     for activity in ("barbell_back_squat", "lunge"):

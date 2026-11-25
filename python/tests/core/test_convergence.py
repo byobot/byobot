@@ -5,7 +5,6 @@ import tempfile
 from contextlib import contextmanager
 from datetime import timedelta
 
-import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
@@ -28,7 +27,7 @@ programs = st.lists(step, min_size=1, max_size=14)
 resolve = st.tuples(st.just("resolve"), st.integers(0, 2), st.sampled_from(IDS), st.integers(0, 3))
 with_resolves = st.lists(st.one_of(step, resolve, resolve), min_size=1, max_size=16)
 
-# An undo synced before the event it undoes: v0 rejects it for good.
+# An undo synced before the event it undoes.
 UNDO_FIRST = [("log", 0, "e1", 5), ("sync", 0, 1), ("edit", 1, "e1", 9), ("undo", 1, 1), ("sync", 1, 2)]
 # The phone, three hours fast, edits first; the laptop edits later having seen it.
 FAST_CLOCK = [("log", 0, "e1", 5), ("sync", 0, 1), ("skew", 1, 3), ("edit", 1, "e1", 5), ("sync", 1, 0),
@@ -104,7 +103,6 @@ def snapshots(world: World) -> dict:
     return {name: world.snapshot(name) for name in REPLICAS}
 
 
-@pytest.mark.baseline(v0="I1: orders that reject an undo end in different states")
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=UNDO_FIRST, seed=1)
 def test_i1_replicas_converge_whatever_the_delivery_order(driver, program, seed):
@@ -124,7 +122,6 @@ def test_i2_rebuild_equals_incremental_state(driver, program, seed):
             assert equal(before, world.snapshot(name)), diff(before, world.snapshot(name))
 
 
-@pytest.mark.baseline(v0="I3, I4, I17: one edit silently wins, by wall clock, with no conflict shown")
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=APART, seed=1)
 @example(program=FAST_CLOCK, seed=1)
@@ -135,7 +132,6 @@ def test_i3_i4_i17_every_replica_matches_the_reference_model(driver, program, se
             assert equal(got, want), diff(got, want)
 
 
-@pytest.mark.baseline(v0="I5: an undo that arrives before its target is rejected")
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=UNDO_FIRST, seed=1)
 def test_i5_delivery_is_total_and_idempotent(driver, program, seed):

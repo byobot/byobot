@@ -10,16 +10,14 @@ from .harness import START, Change
 from .scenarios import both_ways, edit, effort, reps
 from .snapshot import diff
 
-FAST = "the edit with the later wall clock wins, not the one made after seeing the other"
-NO_CONFLICTS = "concurrent edits silently pick a winner; no read shows a conflict"
 TO_2001 = datetime(2001, 1, 1, tzinfo=timezone.utc) - datetime.fromisoformat(START.replace("Z", "+00:00"))
 
 CLOCKS = [
     pytest.param({}, id="both_correct"),
-    pytest.param({"phone": timedelta(hours=3)}, id="phone_3h_fast", marks=pytest.mark.baseline(v0=FAST)),
+    pytest.param({"phone": timedelta(hours=3)}, id="phone_3h_fast"),
     pytest.param({"phone": timedelta(hours=-3)}, id="phone_3h_slow"),
     pytest.param({"phone": TO_2001}, id="phone_reset_to_2001"),
-    pytest.param({"laptop": timedelta(days=-40)}, id="laptop_skewed", marks=pytest.mark.baseline(v0=FAST)),
+    pytest.param({"laptop": timedelta(days=-40)}, id="laptop_skewed"),
 ]
 
 
@@ -53,7 +51,6 @@ def test_s1_an_edit_made_after_seeing_another_wins_whatever_the_clocks(world, sk
     converged(world, "phone", "laptop")
 
 
-@pytest.mark.baseline(v0=FAST)
 def test_s1_a_clock_jumping_back_mid_session_keeps_the_device_order(world):
     apart(world, "phone", "laptop")
     world.author("phone", edit(reps=7))
@@ -64,7 +61,6 @@ def test_s1_a_clock_jumping_back_mid_session_keeps_the_device_order(world):
     converged(world, "phone", "laptop")
 
 
-@pytest.mark.baseline(v0="with equal times the device id breaks the tie, not causality")
 def test_s1_identical_timestamps_still_order_by_causality(world):
     apart(world, "phone", "laptop")
     frozen = datetime(2026, 3, 2, 12, tzinfo=timezone.utc)
@@ -77,7 +73,6 @@ def test_s1_identical_timestamps_still_order_by_causality(world):
     converged(world, "phone", "laptop")
 
 
-@pytest.mark.baseline(v0=NO_CONFLICTS)
 @pytest.mark.parametrize("first", ["phone", "laptop"])
 def test_s1_concurrent_edits_are_a_visible_conflict(world, first):
     apart(world, "phone", "laptop")
@@ -108,7 +103,6 @@ def test_s1_sequential_edits_on_one_device_never_conflict(world):
     converged(world, "phone", "laptop")
 
 
-@pytest.mark.baseline(v0=NO_CONFLICTS)
 def test_s1_edits_on_three_devices_are_one_conflict(world):
     apart(world, "phone", "laptop", "tablet")
     for n, name in enumerate(("phone", "laptop", "tablet")):
@@ -145,7 +139,6 @@ def test_s1_two_devices_resolving_differently_conflict_and_converge(world):
 # -- S2. undo or remove racing an edit ---------------------------------------------------------------
 
 
-@pytest.mark.baseline(v0="half the delivery orders reject an event, and the orders end in different states")
 def test_s2_undo_racing_an_edit_converges_in_every_delivery_order(world):
     a, b = "a", "b"
     world.replica(a)
@@ -167,7 +160,6 @@ def test_s2_undo_racing_an_edit_converges_in_every_delivery_order(world):
     assert len(snapshots) == 1
 
 
-@pytest.mark.baseline(v0="undoing the logged set leaves it alive with its edits; there is no remove")
 def test_s2_remove_after_several_edits_leaves_nothing(world):
     world.replica("phone")
     world.replica("laptop")
@@ -197,7 +189,6 @@ def test_s2_undoing_an_undo_brings_the_edit_back(world):
 # -- S3. two devices undo the same event --------------------------------------------------------------
 
 
-@pytest.mark.baseline(v0="the second undo is rejected as a conflict instead of being a harmless no-op")
 def test_s3_two_devices_undoing_one_edit_agree_without_a_conflict(world):
     apart(world, "phone", "laptop")
     change = world.author("phone", edit(reps=6))
@@ -213,7 +204,6 @@ def test_s3_two_devices_undoing_one_edit_agree_without_a_conflict(world):
 # -- S4. duplicate and overlapping delivery -------------------------------------------------------------
 
 
-@pytest.mark.baseline(v0="the store raises on a repeat; only the HTTP layer reports a duplicate")
 def test_s4_redelivery_is_a_reported_no_op(world):
     world.replica("phone")
     world.replica("laptop")

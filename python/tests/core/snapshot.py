@@ -12,11 +12,21 @@ Arrival order, internal row ids and event ids never appear.
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timezone
 from typing import Any
 
-from byobot.contract import instant_key
-
 SECTIONS = ("records", "conflicts", "erased")
+
+
+def instant_key(text: str) -> str:
+    """A timestamp as UTC with nine fraction digits, so plain string order is time order across offsets."""
+    match = re.match(r"^(.*T\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$", text)
+    if not match:
+        raise ValueError(f"not a timestamp: {text!r}")
+    base, frac, offset = match.groups()
+    whole = datetime.fromisoformat(f"{base}{'+00:00' if offset == 'Z' else offset}").astimezone(timezone.utc)
+    return f"{whole:%Y-%m-%dT%H:%M:%S}.{(frac or '').ljust(9, '0')}Z"
 
 
 def canonical(value: Any) -> str:
