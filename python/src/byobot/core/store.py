@@ -74,6 +74,9 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
+        # Reads stay in memory as the log grows; past sqlite's 2 MB default each page read is a syscall.
+        self.conn.execute("PRAGMA cache_size=-65536")
+        self.conn.execute("PRAGMA mmap_size=268435456")
         self._migrate(device_id)
 
     def close(self) -> None:
