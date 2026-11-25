@@ -473,14 +473,15 @@ def test_older_stores_are_rebuilt_for_the_new_columns(byobot_home):
     path = byobot_home / "v1.db"
     with Store(path) as s:
         s.append("activity.defined", payload("event/activity-with-targets"), ME)
-        s.conn.execute("DROP VIEW plan_vs_actual")
-        s.conn.execute("DROP VIEW strength_sets")
+        for (view,) in s.conn.execute("SELECT name FROM sqlite_master WHERE type = 'view'").fetchall():
+            s.conn.execute(f"DROP VIEW {view}")
         s.conn.execute("ALTER TABLE activities DROP COLUMN targets")
         s.conn.execute("PRAGMA user_version=1")
     with Store(path) as s:
         assert s.conn.execute("PRAGMA user_version").fetchone()[0] == STORE_VERSION
         assert json.loads(s.rows("SELECT targets FROM activities")[0]["targets"])["main"] == ["lats"]
         s.rows("SELECT swapped FROM plan_vs_actual")
+        s.rows("SELECT * FROM daily")
 
 
 # -- locations -------------------------------------------------------------
