@@ -100,7 +100,8 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-SHAPE = hashlib.sha256(DDL.encode()).hexdigest()[:16]
+RULES = 2  # raise when records are derived differently, so stores rebuild on open
+SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
     "activity": ("activities",), "location": ("locations",), "setting": ("settings",), "plan": ("plans",),

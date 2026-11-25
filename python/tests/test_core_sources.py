@@ -157,3 +157,26 @@ def test_a_running_total_sent_again_with_a_newer_stamp_writes_nothing(store):
     later = {**day, "value": 6500, "raw": {"modified_at": "2026-03-02T18:00:00Z"}}
     assert len(sources.ingest(store, "apple_health", [(*key, later)])) == 1
     assert [r[0] for r in store.conn.execute("SELECT value FROM observations")] == [6500]
+
+
+def test_revision_times_compare_as_instants(store):
+    """13:00+02:00 is earlier than 12:00Z, though it sorts later as text."""
+    rid = sources.record_id(store, "whoop", "sleep", "s1")
+    sources.ingest(store, "whoop", [("sleep", "s1", {**sleep("2026-03-02T13:00:00+02:00"), "score": {"respiratory_rate": 1}})])
+    sources.ingest(store, "whoop", [("sleep", "s1", {**sleep("2026-03-02T12:00:00Z"), "score": {"respiratory_rate": 2}})])
+    assert store.get("source_record", rid)["payload"]["raw"]["score"]["respiratory_rate"] == 2
+
+
+def test_without_revision_times_the_last_written_is_current(store):
+    def weight(kg):
+        return {"source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+                "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": kg, "unit": "kg"}
+
+    for kg in (80.1, 80.2, 80.3, 80.4):
+        sources.ingest_samples(store, [weight(kg)])
+        assert seen_value(store, "body_mass") == kg
+
+
+def seen_value(store, code):
+    [v] = [r[0] for r in store.conn.execute("SELECT value FROM observations WHERE code = ?", (code,))]
+    return v
