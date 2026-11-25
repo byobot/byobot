@@ -24,6 +24,8 @@ step = st.one_of(
     st.tuples(st.just("skew"), st.integers(0, 2), st.integers(-48, 48)),
 )
 programs = st.lists(step, min_size=1, max_size=14)
+resolve = st.tuples(st.just("resolve"), st.integers(0, 2), st.sampled_from(IDS), st.integers(0, 3))
+with_resolves = st.lists(st.one_of(step, resolve, resolve), min_size=1, max_size=16)
 
 # An undo synced before the event it undoes: v0 rejects it for good.
 UNDO_FIRST = [("log", 0, "e1", 5), ("sync", 0, 1), ("edit", 1, "e1", 9), ("undo", 1, 1), ("sync", 1, 2)]
@@ -62,6 +64,11 @@ def run(world: World, program: list) -> None:
                 world.author(name, {"intent": "undo", "change": held[args[0] % len(held)].id})
         elif op == "sync":
             world.sync(name, REPLICAS[args[0]])
+        elif op == "resolve":
+            versions = world.expected(name)["conflicts"].get(f"effort/{args[0]}", [])
+            if versions:
+                choice = "remove" if args[1] == len(versions) or args[1] > 2 else args[1] % len(versions)
+                world.author(name, {"intent": "resolve", "record": ["effort", args[0]], "choice": choice})
         elif op == "skew":
             world.clock(name).skew = timedelta(hours=args[0])
 
@@ -141,4 +148,16 @@ def test_i5_delivery_is_total_and_idempotent(driver, program, seed):
         again = [o for name in REPLICAS for o in world.deliver(name, world.ordered(set(world.changes)))]
         assert {o for o, _ in again} <= {"duplicate"}
         assert snapshots(world) == before
+        world.close()
+
+
+@given(program=with_resolves, seed=st.integers(0, 2**16))
+@example(program=APART + [("sync", 0, 1), ("sync", 1, 0), ("resolve", 0, "e1", 1), ("resolve", 1, "e1", 0)], seed=1)
+def test_i17_resolutions_converge_and_match_the_reference_model(driver, program, seed):
+    world, outcomes, directory = history(driver, program, seed)
+    with directory:
+        assert [o for o in outcomes if o[0] == "rejected"] == []
+        for name in REPLICAS:
+            got, want = world.snapshot(name), world.expected(name)
+            assert equal(got, want), diff(got, want)
         world.close()
