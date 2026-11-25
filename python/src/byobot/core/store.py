@@ -367,7 +367,7 @@ class Store:
             (kind, rid, current and current["id"], int(live), int(conflict), int(erased),
              jcs([h["id"] for h in heads]), jcs([t["id"] for t in tips])))
         if self.contract.version(kind) is not None:
-            self._project(kind, rid, current["payload"] if live else None)
+            self._project(kind, rid, self._read(current) if live else None)
 
     def _project(self, kind: str, rid: str, payload: dict | None) -> None:
         """Rewrite one record's rows, then what reads it: the source records it feeds and the merged workouts
@@ -379,7 +379,7 @@ class Store:
         try:
             with self._tx():
                 reducers.project(conn, self.contract, kind, rid, payload)
-        except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
+        except (KeyError, TypeError, ValueError, AttributeError):  # a version its reducer can't read
             reducers.project(conn, self.contract, kind, rid, None)
         after = self._overlay_targets(kind, rid)
         for k, i in sorted((before | after) - {(kind, rid)}):
@@ -408,7 +408,7 @@ class Store:
     def _reproject(self, rid: str) -> None:
         found = self.record("source_record", rid)
         if found and found["live"]:
-            self._project("source_record", rid, self.event(found["current"])["payload"])
+            self._project("source_record", rid, self._read(self.event(found["current"])))
 
     def _resolve_all(self) -> None:
         occurrences.clear(self.conn)
@@ -437,15 +437,26 @@ class Store:
                 if row[5] is not None or not contract.understands(probe):
                     now[row[0]] = (row[1], row[2])
             changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
+            for kind in self._versions_changed(contract):  # their records now read through an upcast
+                changed |= {tuple(r) for r in self.conn.execute("SELECT kind, id FROM records WHERE live AND kind = ?",
+                                                                (kind,))}
             if self._units_changed(contract):
-                changed |= set(self.conn.execute(
+                changed |= {tuple(r) for r in self.conn.execute(
                     "SELECT kind, id FROM records WHERE live AND kind IN ('planned_session', 'session', 'effort', "
-                    "'observation')").fetchall())
+                    "'observation')")}
             self.conn.execute("DELETE FROM unprojected")
             self.conn.executemany("INSERT INTO unprojected VALUES (?, ?, ?)", [(i, *r) for i, r in now.items()])
             for kind, rid in sorted(changed):
                 self._reindex(kind, rid)
             self._set("contract", contract.fingerprint())
+
+    def _versions_changed(self, contract: Contract) -> set[str]:
+        try:
+            was = json.loads(self._get("contract") or "[{}]")[0]
+        except ValueError:
+            was = {}
+        now = json.loads(contract.fingerprint())[0]
+        return {k for k in set(was) | set(now) if was.get(k) != now.get(k)}
 
     def _units_changed(self, contract: Contract) -> bool:
         try:
@@ -479,7 +490,10 @@ class Store:
         if not found or not found["live"]:
             return None
         event = self.event(found["current"])
-        return {"kind": kind, "id": rid, "payload": event["payload"], "event": event, "conflict": found["conflict"]}
+        return {"kind": kind, "id": rid, "payload": self._read(event), "event": event, "conflict": found["conflict"]}
+
+    def _read(self, event: dict) -> dict:
+        return reducers.upcast(self.contract, event["record"]["kind"], event.get("kind_version"), event["payload"])
 
     def records(self, kind: str | None = None) -> list[dict]:
         """Every live record, current version, in kind then id order."""

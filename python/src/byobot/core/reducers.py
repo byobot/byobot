@@ -114,6 +114,19 @@ OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
                 ("source_record", "observations"): "source_record_id"}
 
 
+# (kind, version) -> the step that lifts a payload of that version to the next, so reducers and edits only ever
+# see the version this install writes. A version whose old payloads are still valid needs none.
+UPCASTS: dict[tuple[str, int], Callable[[dict], dict]] = {}
+
+
+def upcast(c: Contract, kind: str, version: int | None, payload: dict) -> dict:
+    """`payload`, written at kind version `version`, as this install's version of the kind holds it."""
+    for v in range(version or 1, c.version(kind) or 1):
+        if (kind, v) in UPCASTS:
+            payload = UPCASTS[(kind, v)](payload)
+    return payload
+
+
 def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload: dict | None) -> None:
     """Replace one record's rows: from `payload`, or none when it isn't live."""
     for table in TABLES.get(kind, ()):

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from byobot.core import commands
+from byobot.core import commands, reducers
 from byobot.core.contract import Contract
 from byobot.core.store import Store
 from byobot.util import Conflict
@@ -123,3 +123,17 @@ def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     with pytest.raises(Conflict, match="newer byobot"):
         commands.edit(old, AGENT, "effort", rid, {"notes": "agent note"})
     assert reps(new, rid) == 8
+
+
+def test_older_versions_are_lifted_before_they_are_read_or_edited(tmp_path, monkeypatch):
+    lift = {("effort", 1): lambda p: {**p, "metrics": {**p["metrics"], "rpe": {"value": 8}}}}
+    monkeypatch.setattr(reducers, "UPCASTS", lift)
+    old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
+    [e] = commands.log(old, ME, [{"kind": "effort", "payload": effort(5)}])
+    rid = e["record"]["id"]
+    old.use(Contract.shipped().newer(2))
+    assert old.rows("SELECT code FROM metrics WHERE owner_id = ? ORDER BY code", (rid,)) == [
+        {"code": "reps"}, {"code": "rpe"}]
+    edited = commands.edit(old, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
+    assert edited["kind_version"] == 2 and edited["payload"]["metrics"] == {"reps": {"value": 6}, "rpe": {"value": 8}}
+    assert old.event(e["id"])["payload"]["metrics"] == {"reps": {"value": 5}}
