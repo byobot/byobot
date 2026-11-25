@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ByobotKit
 
-/// The generated types against the shared contract fixtures: every valid document decodes and
+/// The generated types against the shared contract fixtures: every event a replica keeps decodes and
 /// encodes back to the same JSON, so no field is dropped, renamed or reshaped on the way through.
 final class ContractTests: XCTestCase {
     func roundTrip<T: Codable>(_ type: T.Type, _ value: JSONValue, _ name: String) throws {
@@ -16,40 +16,79 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(again, value, "\(name): \(T.self) does not encode back to the same JSON")
     }
 
-    func testEveryValidEventAndSampleRoundTrips() throws {
-        var checked = 0
-        for item in try Fixtures.cases("schema/fixtures/v0/cases.json") where item.bool("valid") == true {
-            let name = item.string("name") ?? "?"
-            guard let data = item["data"] else { continue }
-            switch item.string("schema") {
-            case "event": try roundTrip(Event.self, data, name)
-            case "telemetry": try roundTrip(TelemetrySample.self, data, name)
-            default: XCTFail("\(name): unknown schema")
+    func kept() throws -> [(name: String, data: JSONValue)] {
+        try Fixtures.cases("schema/fixtures/v1/cases.json").compactMap { item in
+            guard ["accepted", "stored_unprojected"].contains(item.string("outcome")), let data = item["data"] else {
+                return nil
             }
-            checked += 1
+            return (item.string("name") ?? "?", data)
         }
-        XCTAssertGreaterThan(checked, 20)
     }
 
-    func testEventPayloadFollowsItsType() throws {
-        let cases = try Fixtures.cases("schema/fixtures/v0/cases.json")
-        let lift = try XCTUnwrap(cases.first { $0.string("name") == "event/session-planned-superset" }?["data"])
-        let event = try JSONDecoder().decode(Event.self, from: Fixtures.data(lift))
-        XCTAssertEqual(event.type, .sessionPlanned)
-        XCTAssertEqual(event.actor.kind, .agent)
-        guard case .sessionPlanned(let session) = event.payload else { return XCTFail("wrong payload") }
-        XCTAssertEqual(session.blocks.first?.rounds, 4)
-        XCTAssertEqual(session.blocks.first?.efforts.first?.metrics?["reps"], Measure(min: 6, max: 8))
-        XCTAssertEqual(session.blocks.first?.efforts.first?.metrics?["load"], .exact(10, unit: "kg"))
+    func testEveryKeptEventRoundTrips() throws {
+        let cases = try kept()
+        for (name, data) in cases { try roundTrip(Event.self, data, name) }
+        XCTAssertGreaterThan(cases.count, 25)
     }
 
-    func testAnEventOfUnknownTypeDoesNotDecode() throws {
-        let cases = try Fixtures.cases("schema/fixtures/v0/cases.json")
-        guard case .object(var event)? = cases.first(where: { $0.string("name") == "event/effort-performed-lift" })?["data"] else {
-            return XCTFail("fixture missing")
+    func testEachKindsPayloadRoundTripsAsItsType() throws {
+        var checked = Set<String>()
+        for (name, data) in try kept() {
+            let event = try JSONDecoder().decode(Event.self, from: Fixtures.data(data))
+            guard event.op == .put, event.redactedBy == nil, event.kindVersion == KindVersion.all[event.record.kind] else {
+                continue
+            }
+            switch event.record.kind {
+            case "activity": try roundTrip(ActivityPayload.self, event.payload, name)
+            case "location": try roundTrip(LocationPayload.self, event.payload, name)
+            case "setting": try roundTrip(SettingPayload.self, event.payload, name)
+            case "plan": try roundTrip(PlanPayload.self, event.payload, name)
+            case "planned_session": try roundTrip(PlannedSessionPayload.self, event.payload, name)
+            case "session": try roundTrip(SessionPayload.self, event.payload, name)
+            case "effort": try roundTrip(EffortPayload.self, event.payload, name)
+            case "observation": try roundTrip(ObservationPayload.self, event.payload, name)
+            case "overlay": try roundTrip(OverlayPayload.self, event.payload, name)
+            default: continue
+            }
+            checked.insert(event.record.kind)
         }
-        event["type"] = .string("set.performed")
-        XCTAssertThrowsError(try JSONDecoder().decode(Event.self, from: Fixtures.data(.object(event))))
+        XCTAssertEqual(checked.count, 9, "\(checked.sorted())")
+    }
+
+    func testAPlannedSupersetReadsAsTyped() throws {
+        let cases = try kept()
+        let data = try XCTUnwrap(cases.first { $0.name == "planned_session/put" }?.data)
+        let event = try JSONDecoder().decode(Event.self, from: Fixtures.data(data))
+        let planned = try XCTUnwrap(event.decoded(PlannedSessionPayload.self))
+        XCTAssertFalse(planned.blocks.isEmpty)
+        XCTAssertNil(Event(id: event.id, schemaVersion: 1, record: event.record, op: .retract, hlc: event.hlc,
+                           ts: event.ts, deviceId: event.deviceId, actor: event.actor, prev: [], payload: .object([:]))
+            .decoded(PlannedSessionPayload.self), "a retract has no payload to read")
+    }
+
+    func testOverlayIdsMatchTheContract() throws {
+        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/ids.json"),
+              case .array(let overlays)? = doc["overlays"] else { return XCTFail("no overlays") }
+        XCTAssertFalse(overlays.isEmpty)
+        for case .object(let o) in overlays {
+            guard case .object(let target)? = o["target"], let effect = o.string("effect").flatMap(OverlayEffect.init),
+                  let kind = target.string("kind"), let id = target.string("id") else { return XCTFail("bad fixture") }
+            XCTAssertEqual(DerivedId.overlay(effect, kind: kind, id: id), o.string("record_id"), effect.rawValue)
+        }
+        XCTAssertEqual(Logbook.rearrangeId("019aa000-0000-7000-8000-000000000102"), "453d5c74-1e10-505f-8f8d-c8a44148345a")
+    }
+
+    func testClockReadingsOrderAsText() throws {
+        let pattern = try Fixtures.pattern("hlc")
+        let at = Date(timeIntervalSince1970: 1_795_000_000)
+        let first = HLC.next(after: nil, now: at)
+        XCTAssertEqual(first, "1795000000000-000000")
+        let second = HLC.next(after: first, now: at.addingTimeInterval(-5))
+        XCTAssertEqual(second, "1795000000000-000001", "a clock that went back still moves forward")
+        XCTAssertEqual(HLC.next(after: "1795000000000-999999", now: at), "1795000000001-000000")
+        XCTAssertEqual(HLC.next(after: second, now: at.addingTimeInterval(1)), "1795000001000-000000")
+        for reading in [first, second] { XCTAssertTrue(matches(reading, pattern), reading) }
+        XCTAssertLessThan(first, second)
     }
 
     func testWholeNumbersStayWhole() throws {
@@ -68,19 +107,39 @@ final class ContractTests: XCTestCase {
     }
 
     func testMetricRegistryMatchesTheContract() throws {
-        guard case .object(let doc) = try Fixtures.json("schema/v0/common.schema.json"),
-              case .object(let defs)? = doc["$defs"], case .object(let name)? = defs["metric_name"],
-              case .array(let anyOf)? = name["anyOf"], case .object(let first)? = anyOf.first,
-              case .array(let names)? = first["enum"] else { return XCTFail("registry not found") }
-        XCTAssertEqual(MetricRegistry.all.map { .string($0.name) }, names)
-        XCTAssertEqual(MetricRegistry.spec("load")?.units, ["kg", "lb", "%1rm"])
+        guard case .object(let doc) = try Fixtures.json("schema/v1/registry.json"),
+              case .object(let codes)? = doc["codes"] else { return XCTFail("registry not found") }
+        XCTAssertEqual(Set(MetricRegistry.all.map(\.name)), Set(codes.keys))
+        var healthkit: [String: String] = [:]
+        for spec in MetricRegistry.all {
+            guard case .object(let code)? = codes[spec.name] else { continue }
+            var units: Set<String> = []
+            if case .object(let u)? = code["units"] { units = Set(u.keys) }
+            XCTAssertEqual(Set(spec.units), units, spec.name)
+            XCTAssertEqual(spec.units.first, code.string("unit"), spec.name)
+            if case .number(let max)? = code["maximum"] { XCTAssertEqual(spec.maximum, max, spec.name) }
+            XCTAssertEqual(spec.exclusiveMinimum, code["exclusive_minimum"] != nil, spec.name)
+            if let hk = code.string("healthkit") { healthkit[hk] = spec.name }
+        }
+        XCTAssertEqual(MetricRegistry.healthkit, healthkit)
+        XCTAssertEqual(MetricRegistry.spec("load")?.units, ["kg", "[lb_av]", "%{1RM}"])
         XCTAssertEqual(MetricRegistry.spec("reps")?.kind, .integer)
+        XCTAssertEqual(MetricRegistry.spec("sleep_stage")?.values, HealthMapping.sleepStages.sorted { $0.key < $1.key }.map(\.value))
         XCTAssertTrue(MetricRegistry.isCustom("x.grade"))
         XCTAssertFalse(MetricRegistry.isCustom("grade"))
+        XCTAssertFalse(MetricRegistry.isCustom("x.Grade"))
+    }
+
+    func testTheSettingsTheAppWritesAreInTheRegistry() throws {
+        guard case .object(let doc) = try Fixtures.json("schema/v1/registry.json"),
+              case .object(let settings)? = doc["settings"] else { return XCTFail("registry not found") }
+        XCTAssertEqual(Set(SettingId.allCases.map(\.rawValue)), Set(settings.keys))
     }
 
     func testMeasureDisplay() {
         XCTAssertEqual(Measure.exact(100, unit: "kg").display, "100 kg")
+        XCTAssertEqual(Measure.exact(225, unit: "[lb_av]").display, "225 lb")
+        XCTAssertEqual(Measure(min: 140, max: 150, unit: "/min").display, "140–150 bpm")
         XCTAssertEqual(Measure(min: 6, max: 8).display, "6–8")
         XCTAssertEqual(Measure(min: 8).display, "≥ 8")
         XCTAssertEqual(Measure.exact(8.5).display, "8.5")

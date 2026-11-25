@@ -3,38 +3,21 @@ import XCTest
 @testable import ByobotKit
 
 final class WorkoutTests: XCTestCase {
+    /// The activities that ship with byobot, as the plan window carries them.
     func fixtureLibrary() throws -> [Activity] {
-        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v0/library.json"), let items = doc["activities"] else {
-            throw XCTSkip("no activities")
-        }
-        return try JSONDecoder().decode([Activity].self, from: Fixtures.data(items))
+        try window().activities.filter { $0.library == true }
     }
 
-    /// The fixture plan window, with the imported library as its activities.
     func window() throws -> PlanWindow {
-        let cases = try Fixtures.cases("schema/fixtures/v0/sync.json")
-        let data = try XCTUnwrap(cases.first { $0.string("name") == "sync/plan-window" }?["data"])
-        var window = try JSONDecoder().decode(PlanWindow.self, from: Fixtures.data(data))
-        let library = try fixtureLibrary()
-        window.activities = library + window.activities.filter { a in !library.contains { $0.id == a.id } }
-        return window
+        try Fixtures.window()
     }
 
     func session(_ id: String) throws -> PlannedSession {
-        try XCTUnwrap(try window().sessions.first { $0.id == id })
+        try XCTUnwrap(try window().plannedSessions.first { $0.id == id })
     }
 
     func makeBook() throws -> Logbook {
-        final class Clock: @unchecked Sendable {
-            var now = Date(timeIntervalSince1970: 1_795_000_000)
-        }
-        let clock = Clock()
-        var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: {
-            clock.now += 1
-            return clock.now
-        })
-        book.applyPlan(try window())
-        return book
+        makeLogbook(plan: try window())
     }
 
     // MARK: Library and swaps
@@ -87,6 +70,11 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(workout.slots.first?.id, "e-amrap:1")
         XCTAssertEqual(workout.changeNotes,
                        "Changed the order: Barbell back squat, Barbell back squat, Barbell back squat.")
+        let overlay = try XCTUnwrap(book.state.events.last)
+        XCTAssertEqual(overlay.record, RecordRef(kind: "overlay", id: Logbook.rearrangeId(lower.id)))
+        XCTAssertEqual(overlay.decoded(OverlayPayload.self),
+                       OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: lower.id),
+                                      order: ["e-amrap", "e-warm", "e-squat"]))
 
         // A superset alternates within each round, and its rest comes after the round's last effort.
         let upper = try book.workout(session("sess-upper"))
@@ -121,6 +109,20 @@ final class WorkoutTests: XCTestCase {
 
         book.swap("e-pullup", to: nil, for: upper.id)
         XCTAssertNil(book.changes(for: upper.id).swaps)
+        XCTAssertEqual(book.state.events.last?.op, .retract, "back to the plan takes the overlay back")
+
+        // Once sent, the laptop's overlay is what counts.
+        let sent = book.pendingEvents
+        book.applyPush(EventsResponse(results: sent.enumerated().map { EventResult(index: $0.offset, id: $0.element.id, status: .accepted) },
+                                      accepted: sent.count, duplicate: 0, storedUnprojected: 0, rejected: 0), sent: sent)
+        var window = try window()
+        window.overlays = [Overlay(id: Logbook.rearrangeId(upper.id),
+                                   payload: OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: upper.id),
+                                                           order: ["e-dip", "e-pullup"]), prev: ["o1"])]
+        book.applyPlan(window)
+        XCTAssertEqual(book.changes(for: upper.id), WorkoutChanges(order: ["e-dip", "e-pullup"]))
+        book.setOrder(["e-pullup", "e-dip"], for: upper.id)
+        XCTAssertEqual(book.state.events.last?.prev, ["o1"])
     }
 
     func testUpNextSkipsWhatYouFinished() throws {
@@ -168,7 +170,7 @@ final class WorkoutTests: XCTestCase {
         metrics = Nudge.apply(metrics, "rpe", 1)
         metrics = Nudge.apply(metrics, "tempo", 1)
         XCTAssertEqual(metrics, ["reps": .exact(4), "load": .exact(102.5, unit: "kg"), "rpe": .exact(10), "tempo": .text("3010")])
-        XCTAssertEqual(Nudge.apply(["load": .exact(225, unit: "lb")], "load", 1), ["load": .exact(230, unit: "lb")])
+        XCTAssertEqual(Nudge.apply(["load": .exact(225, unit: "[lb_av]")], "load", 1), ["load": .exact(230, unit: "[lb_av]")])
         XCTAssertEqual(Nudge.apply(["reps": .exact(0)], "reps", -1), ["reps": .exact(0)])
         XCTAssertEqual(Nudge.apply(["duration": .exact(60, unit: "s")], "duration", 1), ["duration": .exact(65, unit: "s")])
     }
@@ -190,13 +192,14 @@ final class WorkoutTests: XCTestCase {
         var book = try makeBook()
         XCTAssertEqual(book.locations, [])
         let home = book.addLocation(name: " Home Gym ")
-        XCTAssertEqual(home, Location(id: "home-gym", name: "Home Gym"))
+        XCTAssertEqual(home.id, "home-gym")
+        XCTAssertEqual(home.name, "Home Gym")
         XCTAssertEqual(book.currentLocationId, "home-gym")
         XCTAssertEqual(book.addLocation(name: "home gym!").id, "home-gym-2")
         XCTAssertEqual(book.addLocation(name: "Éxample").id, "xample")
         XCTAssertEqual(book.addLocation(name: "🏋️").id, "gym")
         var window = try window()
-        window.locations = [Location(id: "home-gym", name: "Garage")]
+        window.locations = [Location(id: "home-gym", payload: LocationPayload(name: "Garage"), prev: ["l1"])]
         book.applyPlan(window)
         XCTAssertEqual(book.location("home-gym")?.name, "Home Gym", "this phone's newer name until it syncs")
         XCTAssertEqual(book.locations.count, 4)
@@ -232,8 +235,8 @@ final class WorkoutTests: XCTestCase {
     func testLastTimeWithALoadIsAtTheSameGym() throws {
         var book = try makeBook()
         func effort(_ id: String, _ activity: String, _ day: Int, _ location: String, _ metrics: Metrics) -> PerformedEffort {
-            PerformedEffort(id: id, activityId: activity, performedAt: "2026-11-\(day)T08:00:00Z", locationId: location,
-                            metrics: metrics, sessionId: "s-\(id)")
+            PerformedEffort(id: id, activityId: activity, performedAt: "2026-11-\(day)T08:00:00Z", session: "s-\(id)",
+                            locationId: location, metrics: metrics)
         }
         var window = try window()
         window.efforts = [
@@ -287,7 +290,7 @@ final class WorkoutTests: XCTestCase {
     func testANorwegianFourByFourRunsOnTheIntervalClock() throws {
         let block = Block(id: "b-4x4", rounds: 4, metrics: ["rest": .exact(3, unit: "min")], efforts: [
             PlannedEffort(id: "e-4x4", activityId: "run", metrics: ["duration": .exact(4, unit: "min"),
-                                                                    "heart_rate": Measure(min: 170, max: 180, unit: "bpm")]),
+                                                                    "heart_rate": Measure(min: 170, max: 180, unit: "/min")]),
         ])
         let workout = Workout(session: PlannedSession(id: "s", scheduledOn: "2026-11-28", name: "4x4", blocks: [block]))
         XCTAssertTrue(workout.isIntervalBlock(block))

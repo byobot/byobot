@@ -1,0 +1,776 @@
+{
+ "from": "2026-11-22",
+ "to": "2026-12-05",
+ "activities": [
+  {
+   "id": "barbell_back_squat",
+   "payload": {
+    "name": "Barbell back squat",
+    "tags": [
+     "strength",
+     "legs"
+    ],
+    "default_metrics": [
+     "reps",
+     "load",
+     "rpe"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "adductors",
+      "erector_spinae"
+     ]
+    },
+    "equipment": [
+     "barbell",
+     "rack"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000001"
+   ],
+   "library": true
+  },
+  {
+   "id": "goblet_squat",
+   "payload": {
+    "name": "Goblet squat",
+    "tags": [
+     "strength",
+     "legs"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "adductors",
+      "abs"
+     ]
+    },
+    "equipment": [
+     "dumbbell"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000002"
+   ],
+   "library": true
+  },
+  {
+   "id": "bulgarian_split_squat",
+   "payload": {
+    "name": "Bulgarian split squat",
+    "tags": [
+     "strength",
+     "legs",
+     "unilateral"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "adductors"
+     ]
+    },
+    "equipment": [
+     "dumbbell",
+     "bench"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000003"
+   ],
+   "library": true
+  },
+  {
+   "id": "walking_lunge",
+   "payload": {
+    "name": "Walking lunge",
+    "tags": [
+     "strength",
+     "legs",
+     "unilateral"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "adductors",
+      "hamstrings"
+     ]
+    },
+    "equipment": [
+     "dumbbell"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000004"
+   ],
+   "library": true
+  },
+  {
+   "id": "leg_press",
+   "payload": {
+    "name": "Leg press",
+    "tags": [
+     "strength",
+     "legs"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "adductors"
+     ]
+    },
+    "equipment": [
+     "machine"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000005"
+   ],
+   "library": true
+  },
+  {
+   "id": "plank",
+   "payload": {
+    "name": "Plank",
+    "tags": [
+     "core"
+    ],
+    "default_metrics": [
+     "duration"
+    ],
+    "targets": {
+     "main": [
+      "abs"
+     ],
+     "synergists": [
+      "obliques",
+      "glutes"
+     ]
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000006"
+   ],
+   "library": true
+  },
+  {
+   "id": "pull_up",
+   "payload": {
+    "name": "Pull-up",
+    "tags": [
+     "strength",
+     "pull"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "lats"
+     ],
+     "synergists": [
+      "biceps",
+      "traps",
+      "forearms"
+     ]
+    },
+    "equipment": [
+     "pull_up_bar"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000007"
+   ],
+   "library": true
+  },
+  {
+   "id": "lat_pulldown",
+   "payload": {
+    "name": "Lat pulldown",
+    "tags": [
+     "strength",
+     "pull"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "lats"
+     ],
+     "synergists": [
+      "biceps",
+      "traps"
+     ]
+    },
+    "equipment": [
+     "cable"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000008"
+   ],
+   "library": true
+  },
+  {
+   "id": "seated_cable_row",
+   "payload": {
+    "name": "Seated cable row",
+    "tags": [
+     "strength",
+     "pull"
+    ],
+    "default_metrics": [
+     "reps",
+     "load"
+    ],
+    "targets": {
+     "main": [
+      "traps",
+      "lats"
+     ],
+     "synergists": [
+      "biceps",
+      "rear_delts"
+     ]
+    },
+    "equipment": [
+     "cable"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000009"
+   ],
+   "library": true
+  },
+  {
+   "id": "run",
+   "payload": {
+    "name": "Run",
+    "tags": [
+     "cardio"
+    ],
+    "default_metrics": [
+     "duration",
+     "distance",
+     "heart_rate",
+     "pace"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "hamstrings",
+      "calves"
+     ],
+     "synergists": [
+      "glutes"
+     ]
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000010"
+   ],
+   "library": true
+  },
+  {
+   "id": "treadmill_run",
+   "payload": {
+    "name": "Treadmill run",
+    "tags": [
+     "cardio"
+    ],
+    "default_metrics": [
+     "duration",
+     "distance",
+     "heart_rate",
+     "pace"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "hamstrings",
+      "calves"
+     ],
+     "synergists": [
+      "glutes"
+     ]
+    },
+    "equipment": [
+     "treadmill"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000011"
+   ],
+   "library": true
+  },
+  {
+   "id": "bike",
+   "payload": {
+    "name": "Bike",
+    "tags": [
+     "cardio"
+    ],
+    "default_metrics": [
+     "duration",
+     "distance",
+     "heart_rate",
+     "power"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "hamstrings",
+      "calves"
+     ]
+    },
+    "equipment": [
+     "bike"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000012"
+   ],
+   "library": true
+  },
+  {
+   "id": "pigeon_stretch",
+   "payload": {
+    "name": "Pigeon stretch",
+    "tags": [
+     "mobility",
+     "unilateral"
+    ],
+    "default_metrics": [
+     "duration"
+    ],
+    "targets": {
+     "main": [
+      "glutes"
+     ],
+     "synergists": [
+      "hip_flexors"
+     ]
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000013"
+   ],
+   "library": true
+  },
+  {
+   "id": "couch_stretch",
+   "payload": {
+    "name": "Couch stretch",
+    "tags": [
+     "mobility",
+     "unilateral"
+    ],
+    "default_metrics": [
+     "duration"
+    ],
+    "targets": {
+     "main": [
+      "hip_flexors",
+      "quads"
+     ]
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000014"
+   ],
+   "library": true
+  },
+  {
+   "id": "bouldering",
+   "payload": {
+    "name": "Bouldering",
+    "tags": [
+     "climbing"
+    ],
+    "default_metrics": [
+     "x.grade",
+     "duration"
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000015"
+   ]
+  }
+ ],
+ "locations": [],
+ "settings": [],
+ "plans": [
+  {
+   "id": "plan-2026-w48",
+   "payload": {
+    "name": "Strength block, week 1",
+    "goal": "Add 10 kg to the squat by February",
+    "starts_on": "2026-11-23",
+    "ends_on": "2027-02-15"
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000016"
+   ]
+  }
+ ],
+ "planned_sessions": [
+  {
+   "id": "sess-lower-a",
+   "payload": {
+    "scheduled_on": "2026-11-23",
+    "name": "Lower A",
+    "blocks": [
+     {
+      "id": "b-warmup",
+      "name": "Warm-up",
+      "efforts": [
+       {
+        "id": "e-warm",
+        "activity_id": "barbell_back_squat",
+        "metrics": {
+         "reps": {
+          "value": 5
+         },
+         "load": {
+          "value": 60,
+          "unit": "kg"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "b-main",
+      "rounds": 3,
+      "metrics": {
+       "rest": {
+        "value": 3,
+        "unit": "min"
+       }
+      },
+      "efforts": [
+       {
+        "id": "e-squat",
+        "activity_id": "barbell_back_squat",
+        "metrics": {
+         "reps": {
+          "min": 3,
+          "max": 5
+         },
+         "load": {
+          "value": 100,
+          "unit": "kg"
+         },
+         "rpe": {
+          "value": 8
+         },
+         "tempo": {
+          "value": "3010"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "b-amrap",
+      "efforts": [
+       {
+        "id": "e-amrap",
+        "activity_id": "barbell_back_squat",
+        "metrics": {
+         "reps": {
+          "min": 8
+         },
+         "load": {
+          "value": 70,
+          "unit": "%{1RM}"
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "links": {
+     "part_of": {
+      "kind": "plan",
+      "id": "plan-2026-w48"
+     }
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000017"
+   ]
+  },
+  {
+   "id": "sess-track",
+   "payload": {
+    "scheduled_on": "2026-11-25",
+    "name": "6 x 400 m",
+    "metrics": {
+     "duration": {
+      "max": 50,
+      "unit": "min"
+     }
+    },
+    "blocks": [
+     {
+      "id": "b-easy",
+      "efforts": [
+       {
+        "id": "e-easy",
+        "activity_id": "run",
+        "metrics": {
+         "duration": {
+          "value": 15,
+          "unit": "min"
+         },
+         "heart_rate": {
+          "max": 145,
+          "unit": "/min"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "b-reps",
+      "rounds": 6,
+      "efforts": [
+       {
+        "id": "e-400",
+        "activity_id": "run",
+        "metrics": {
+         "distance": {
+          "value": 400,
+          "unit": "m"
+         },
+         "pace": {
+          "min": 215,
+          "max": 225,
+          "unit": "s/km"
+         }
+        }
+       },
+       {
+        "id": "e-jog",
+        "activity_id": "jog",
+        "metrics": {
+         "duration": {
+          "value": 90,
+          "unit": "s"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000018"
+   ]
+  },
+  {
+   "id": "sess-mobility",
+   "payload": {
+    "scheduled_on": "2026-11-24",
+    "name": "Hips",
+    "blocks": [
+     {
+      "id": "b-couch",
+      "rounds": 2,
+      "efforts": [
+       {
+        "id": "e-couch-l",
+        "activity_id": "couch_stretch",
+        "side": "left",
+        "metrics": {
+         "duration": {
+          "value": 60,
+          "unit": "s"
+         }
+        }
+       },
+       {
+        "id": "e-couch-r",
+        "activity_id": "couch_stretch",
+        "side": "right",
+        "metrics": {
+         "duration": {
+          "value": 60,
+          "unit": "s"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000019"
+   ]
+  },
+  {
+   "id": "sess-upper",
+   "payload": {
+    "scheduled_on": "2026-11-26",
+    "name": "Upper superset",
+    "blocks": [
+     {
+      "id": "b-ss",
+      "rounds": 4,
+      "metrics": {
+       "rest": {
+        "value": 90,
+        "unit": "s"
+       }
+      },
+      "efforts": [
+       {
+        "id": "e-pullup",
+        "activity_id": "pull_up",
+        "metrics": {
+         "reps": {
+          "min": 6,
+          "max": 8
+         },
+         "load": {
+          "value": 10,
+          "unit": "kg"
+         }
+        }
+       },
+       {
+        "id": "e-dip",
+        "activity_id": "dip",
+        "metrics": {
+         "reps": {
+          "min": 8,
+          "max": 12
+         },
+         "rir": {
+          "value": 2
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000020"
+   ]
+  },
+  {
+   "id": "sess-emom",
+   "payload": {
+    "scheduled_on": "2026-11-27",
+    "name": "EMOM 10",
+    "blocks": [
+     {
+      "id": "b-emom",
+      "rounds": 10,
+      "metrics": {
+       "duration": {
+        "value": 60,
+        "unit": "s"
+       }
+      },
+      "efforts": [
+       {
+        "id": "e-swing",
+        "activity_id": "kettlebell_swing",
+        "metrics": {
+         "reps": {
+          "value": 15
+         },
+         "load": {
+          "value": 24,
+          "unit": "kg"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000021"
+   ]
+  }
+ ],
+ "overlays": [],
+ "sessions": [],
+ "efforts": [
+  {
+   "id": "eff-1",
+   "payload": {
+    "time": {
+     "start": "2026-11-23T07:42:10-05:00"
+    },
+    "modality": "self_reported",
+    "status": "completed",
+    "links": {
+     "part_of": {
+      "kind": "session",
+      "id": "done-lower-a"
+     }
+    },
+    "activity_id": "barbell_back_squat",
+    "round": 2,
+    "metrics": {
+     "reps": {
+      "value": 5
+     },
+     "load": {
+      "value": 100,
+      "unit": "kg"
+     },
+     "rpe": {
+      "value": 8.5
+     }
+    }
+   },
+   "prev": [
+    "0193a0b0-0000-7000-8000-000000000022"
+   ]
+  }
+ ]
+}
