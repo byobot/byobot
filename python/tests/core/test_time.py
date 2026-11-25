@@ -10,6 +10,7 @@ from .scenarios import effort, session, whoop_workout
 from .synth import persona, play
 
 ZONES = ("America/New_York", "Europe/London", "Asia/Tokyo", "UTC")
+pytestmark = pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset")
 MACHINE_ZONE = "local dates follow the zone of the machine reading them, not the offset the time was written in"
 
 
