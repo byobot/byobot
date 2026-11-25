@@ -20,7 +20,9 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import socket
+import subprocess
 import threading
 import sys
 import time
@@ -32,10 +34,10 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import mcp, serve
+from byobot import __version__, mcp, serve
 from byobot.commands import Context
 from byobot.serve import Pairing
-from byobot.util import ByobotError, ValidationFailed, db_path, home, profile
+from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
 
 SCOPE = "byobot"
 ACCESS_TTL_S = 3600
@@ -114,7 +116,8 @@ class Auth:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             data = {}
-        return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {})}
+        return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {}),
+                "keys": data.get("keys", {})}
 
     def _save(self, data: dict) -> None:
         now = time.time()
@@ -231,20 +234,37 @@ class Auth:
                 "refresh_token": refresh, "scope": SCOPE}
 
     def client_for_token(self, token: str) -> dict | None:
+        """The client an access token or API key belongs to."""
+        if not token:
+            return None
         with self.lock:
             data = self._load()
-        held = data["access"].get(_hash(token)) if token else None
+        h = _hash(token)
+        if h in data["keys"]:
+            return {"client_id": "key:" + h[:16], "client_name": data["keys"][h]["name"]}
+        held = data["access"].get(h)
         if held is None or held["expires_at"] < time.time():
             return None
         return data["clients"].get(held["client_id"])
 
+    def create_key(self, name: str) -> str:
+        """A long-lived API key, for assistants that call an API with a fixed key instead of signing in."""
+        if not PROFILE_NAME.fullmatch(name):
+            raise ValidationFailed(f"API key names are lowercase letters, digits and _, not {name!r}")
+        key = "byobot_" + secrets.token_urlsafe(32)
+        with self.lock:
+            data = self._load()
+            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time())}
+            self._save(data)
+        return key
+
     def revoke_all(self) -> int:
         with self.lock:
             data = self._load()
-            count = len(data["clients"])
+            count = len(data["clients"]) + len(data["keys"])
             self.pending.clear()
             self.grants.clear()
-            self._save({"clients": {}, "access": {}, "refresh": {}})
+            self._save({"clients": {}, "access": {}, "refresh": {}, "keys": {}})
         return count
 
 
@@ -320,13 +340,18 @@ class Handler(serve.Handler):
         routes = {"/.well-known/oauth-protected-resource": self.resource_metadata,
                   "/.well-known/oauth-protected-resource/mcp": self.resource_metadata,
                   "/.well-known/oauth-authorization-server": self.server_metadata,
-                  "/oauth/authorize": self.authorize_page, "/mcp": self.mcp_not_allowed}
+                  "/oauth/authorize": self.authorize_page, "/mcp": self.mcp_not_allowed,
+                  "/api/openapi.json": self.api_spec, "/api/tools": self.api_tools}
         self._guard(routes.get(self._route(), self.not_found))
 
     def do_POST(self) -> None:  # noqa: N802
         routes = {"/oauth/register": self.register, "/oauth/authorize": self.approve, "/oauth/token": self.token,
                   "/mcp": self.mcp}
-        self._guard(routes.get(self._route(), self.not_found))
+        route = self._route()
+        if route.startswith("/api/tools/"):
+            self._guard(lambda: self.api_call(route[len("/api/tools/"):]))
+            return
+        self._guard(routes.get(route, self.not_found))
 
     def do_DELETE(self) -> None:  # noqa: N802
         self._guard(self.end_session if self._route() == "/mcp" else self.not_found)
@@ -450,7 +475,7 @@ class Handler(serve.Handler):
     # -- MCP --
 
     def _client(self) -> dict:
-        token = self._bearer()
+        token = self._bearer() or self.headers.get("X-API-Key", "").strip()[:serve.MAX_TOKEN]
         client = self.server.auth.client_for_token(token) if token else None
         if client is None:
             challenge = f'Bearer resource_metadata="{self.server.base}/.well-known/oauth-protected-resource/mcp"'
@@ -522,6 +547,63 @@ class Handler(serve.Handler):
                 self.server.sessions.pop(sid, None)
         self._send_bytes(HTTPStatus.NO_CONTENT, b"", None)
 
+    # -- plain JSON API --
+
+    def api_spec(self) -> None:
+        self._send(HTTPStatus.OK, openapi(self.server.base))
+
+    def api_tools(self) -> None:
+        try:
+            self._client()
+        except _Sent:
+            return
+        self._send(HTTPStatus.OK, {"tools": mcp.tools()})
+
+    def api_call(self, name: str) -> None:
+        try:
+            client = self._client()
+        except _Sent:
+            return
+        args = self._body()
+        if args is None:
+            args = {}
+        if not isinstance(args, dict):
+            raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
+        server = mcp.Server()
+        server.client = {"name": client["client_name"]}
+        server.ctx = Context(actor={}, path=self.server.db)
+        try:
+            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                   "params": {"name": name, "arguments": args}})
+        finally:
+            server.close()
+        if "error" in reply:
+            raise serve.HTTPError(HTTPStatus.NOT_FOUND if reply["error"]["code"] == mcp.INVALID_PARAMS
+                                  else HTTPStatus.INTERNAL_SERVER_ERROR, "tool", reply["error"]["message"])
+        result = reply["result"]
+        body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
+        failed = isinstance(body, dict) and "error" in body and result["isError"]
+        self._send(HTTPStatus.BAD_REQUEST if failed else HTTPStatus.OK, body)
+
+
+def openapi(base: str) -> dict:
+    """An OpenAPI 3.1 description of the JSON API: one POST per tool, its body the tool's arguments."""
+    paths = {}
+    for tool in mcp.tools():
+        paths[f"/api/tools/{tool['name']}"] = {"post": {
+            "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
+            "description": tool["description"][:300],
+            "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
+            "responses": {"200": {"description": "The result, as JSON."},
+                          "400": {"description": "The arguments were not valid; the body says why."}}}}
+    return {"openapi": "3.1.0",
+            "info": {"title": "byobot", "version": __version__, "description": mcp.INSTRUCTIONS},
+            "servers": [{"url": base}], "paths": paths,
+            "components": {"securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"},
+                                               "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}},
+            "security": [{"bearer": []}, {"apiKey": []}]}
+
 
 # -- running it --------------------------------------------------------------
 
@@ -555,9 +637,36 @@ def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *,
     return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
 
 
-def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool) -> int:
+CLIPBOARD = (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
+
+
+def clipboard() -> list[str]:
+    for cmd in CLIPBOARD:
+        if shutil.which(cmd[0]):
+            return cmd
+    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); run without --copy")
+
+
+def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
+        api_key: str | None = None, copy: bool = False) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
+    if copy and api_key is None:
+        raise ValidationFailed("--copy goes with --api-key")
+    if api_key is not None:
+        cmd = clipboard() if copy else None
+        key = Auth(remote_dir() / "oauth.json").create_key(api_key)
+        base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
+        out = {"name": api_key, "openapi": base + "/api/openapi.json", "mcp": base + "/mcp"}
+        if cmd:
+            subprocess.run(cmd, input=key.encode(), check=True)
+            out["copied"] = True
+        else:
+            out["key"] = key
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
+        sys.stderr.write(("Key copied to the clipboard, not shown. " if cmd else "Shown once. ")
+                         + "Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
+        return 0
     if revoke:
         count = Auth(remote_dir() / "oauth.json").revoke_all()
         sys.stdout.write(json.dumps({"disconnected": count}) + "\n")

@@ -57,6 +57,8 @@ byobot remote --url https://example-laptop.example.ts.net
 
 Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote` shows when it asks. Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote --revoke` disconnects every assistant.
 
+For an assistant that calls an API instead, run `byobot remote --api-key NAME` for a key (add `--copy` to put it on the clipboard instead of the screen), and point it at `https://example-laptop.example.ts.net/api/openapi.json`. Each tool is `POST /api/tools/TOOL` with its arguments as JSON and the key as `Authorization: Bearer KEY` or `X-API-Key: KEY`.
+
 ## Pair the iPhone app
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).

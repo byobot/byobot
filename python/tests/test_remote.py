@@ -372,3 +372,92 @@ def test_remote_ports_differ_per_profile(monkeypatch, byobot_home):
     assert remote.choose_port("127.0.0.1") == remote.DEFAULT_PORT
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
     assert remote.choose_port("127.0.0.1") > remote.DEFAULT_PORT
+
+
+# -- API keys -------------------------------------------------------------------
+
+def test_an_api_key_names_its_holder_until_revoked(auth):
+    key = auth.create_key("example_assistant")
+    assert key.startswith("byobot_") and key not in auth.path.read_text()
+    assert auth.client_for_token(key)["client_name"] == "example_assistant"
+    assert auth.client_for_token(key + "x") is None
+    assert Auth(auth.path).revoke_all() == 1
+    assert auth.client_for_token(key) is None
+
+
+def test_api_key_names_are_checked(auth):
+    with pytest.raises(remote.ValidationFailed):
+        auth.create_key("Not OK")
+
+
+# -- the plain JSON API -----------------------------------------------------------
+
+def test_openapi_describes_every_tool(running):
+    resp, raw = request(running, "GET", "/api/openapi.json")
+    spec = json.loads(raw)
+    assert resp.status == 200 and spec["openapi"] == "3.1.0" and spec["servers"] == [{"url": BASE}]
+    assert {p.rsplit("/", 1)[1] for p in spec["paths"]} == {t["name"] for t in remote.mcp.tools()}
+    assert spec["paths"]["/api/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
+        "required"] == ["sql"]
+
+
+def test_the_api_needs_a_key(running):
+    assert request(running, "GET", "/api/tools")[0].status == 401
+    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"},
+                   {"Authorization": "Bearer byobot_wrong"})[0].status == 401
+
+
+@pytest.mark.parametrize("header", ["Authorization", "X-API-Key"])
+def test_an_api_key_calls_tools(running, header):
+    key = running.auth.create_key("example_assistant")
+    auth = {header: f"Bearer {key}" if header == "Authorization" else key}
+    resp, raw = request(running, "GET", "/api/tools", headers=auth)
+    assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
+    resp, raw = request(running, "POST", "/api/tools/log", {"type": "activity.defined",
+                                                            "payload": {"id": "plank", "name": "Plank"}}, auth)
+    assert resp.status == 200, raw
+    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM activities"}, auth)
+    assert json.loads(raw)["rows"] == [{"actor_id": "example_assistant"}]
+    resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
+    assert resp.status == 400 and json.loads(raw)["error"] == "invalid"
+    assert request(running, "POST", "/api/tools/nope", {}, auth)[0].status == 404
+
+
+def test_an_api_key_also_works_for_mcp(running):
+    key = running.auth.create_key("example_assistant")
+    resp, raw = rpc(running, key, "tools/list")
+    assert resp.status == 200 and json.loads(raw)["result"]["tools"]
+
+
+def test_remote_api_key_prints_a_working_key(capsys, auth):
+    from byobot.cli import main
+
+    assert main(["remote", "--api-key", "example_assistant"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["openapi"].endswith("/api/openapi.json")
+    assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
+    assert main(["remote", "--api-key", "Bad Name"]) == 1
+
+
+def test_remote_api_key_copy_puts_the_key_on_the_clipboard(capsys, auth, monkeypatch):
+    from byobot import remote
+    from byobot.cli import main
+
+    copied = []
+    monkeypatch.setattr(remote.shutil, "which", lambda name: name == "pbcopy")
+    monkeypatch.setattr(remote.subprocess, "run", lambda cmd, input, check: copied.append((cmd, input)))
+    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "key" not in out and out["copied"]
+    assert copied[0][0] == ["pbcopy"]
+    assert auth.client_for_token(copied[0][1].decode())["client_name"] == "example_assistant"
+
+
+def test_remote_api_key_copy_fails_without_a_clipboard(capsys, auth, monkeypatch):
+    from byobot import remote
+    from byobot.cli import main
+
+    monkeypatch.setattr(remote.shutil, "which", lambda name: None)
+    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 1
+    assert "clipboard" in capsys.readouterr().err
+    assert not auth._load()["keys"] and main(["remote", "--copy"]) == 1
