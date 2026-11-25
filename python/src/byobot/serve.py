@@ -12,19 +12,20 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
   minutes and five tries, as a QR code holding a ``byobot://pair`` link. The
   phone trades the code for a token; the store keeps only the token's hash.
   ``byobot unpair`` revokes a device.
-* **Protocol (v0).** JSON over HTTPS under ``/v0``:
+* **Protocol (v1).** JSON over HTTPS under ``/v1``:
 
-  ``GET /v0/hello``        who this is (no token needed)
-  ``POST /v0/pair``        trade a pairing code for a token
-  ``GET /v0/status``       a cheap authenticated check
-  ``GET /v0/plan``         activities, plans, planned sessions in a date window, and efforts already logged
-                           against them, all in contract shape
-  ``POST /v0/events``      push events authored on the phone; each is accepted, a duplicate, or rejected
-  ``POST /v0/telemetry``   push telemetry samples read from Apple Health; workouts become sessions
+  ``GET /v1/hello``        who this is (no token needed)
+  ``POST /v1/pair``        trade a pairing code for a token
+  ``GET /v1/status``       a cheap authenticated check
+  ``GET /v1/plan``         what the phone needs to train from a date window: each record with its payload and
+                           the versions a change to it names as ``prev``
+  ``GET /v1/events``       the log after an arrival position, in arrival order
+  ``POST /v1/events``      push events authored on the phone; each is accepted, a duplicate, or rejected
+  ``POST /v1/samples``     push samples read from Apple Health, and the ones it says were deleted
 
   Pushed events must carry the paired device's id as their ``device_id`` and
-  that device's user as their ``actor`` (``human`` / ``me``). Anything else is
-  rejected. Pushing the same event twice is harmless, so a phone can retry freely.
+  that device's user as their ``actor`` (``human`` / ``me``), and write only the records a person writes.
+  Anything else is rejected. Pushing the same event twice is harmless, so a phone can retry freely.
 
   Calls that need a token are refused before the body is read. Plan and status
   reads are stopped if they run longer than a few seconds.
@@ -52,8 +53,11 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
-from byobot import __version__, apple_health, contract
-from byobot.store import Store
+from byobot import __version__
+from byobot.core import commands as core
+from byobot.core import sources
+from byobot.core.contract import SCHEMA_VERSION
+from byobot.core.store import Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 DEFAULT_PORT = 8765
@@ -66,11 +70,14 @@ MAX_TOKEN = 200
 # Bytes already in the socket buffer that we may drop after a refusal, so close() does not RST
 # the response away. We never wait for the client to send more.
 DISCARD_BUFFERED = 64 * 1024
-PROTOCOL = 0
+PROTOCOL = 1
 SOCKET_TIMEOUT_S = 15  # idle cap so a stalled handshake or header cannot hold a thread
 REQUEST_DEADLINE_S = 30  # whole-request cap, so a slow body cannot refresh the idle timer forever
 QUERY_TIMEOUT_S = 5
 QUERY_PROGRESS_INTERVAL = 10_000
+ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+DATE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
+MAX_PULL = 5000
 # A paired phone logs the person's training. The body does not get to name another actor.
 PAIRED_ACTOR = {"kind": "human", "id": "me"}
 
@@ -226,64 +233,84 @@ def token_hash(token: str) -> str:
 
 # -- what the phone pulls ----------------------------------------------------
 
-def _payload_of(store: Store, event_id: str) -> dict:
-    row = store.conn.execute("SELECT payload FROM events WHERE id = ?", (event_id,)).fetchone()
-    return json.loads(row[0])
+PLAN_SETTINGS = ("equipment", "current_location", "home_zone")
+PHONE_KINDS = (*core.AUTHORED, "overlay")
+
+
+def _entry(store: Store, kind: str, rid: str) -> dict | None:
+    """A live record as the phone keeps it: its payload, and the versions a change to it names as prev."""
+    found = store.get(kind, rid)
+    if found is None:
+        return None
+    return {"id": rid, "payload": found["payload"], "prev": store.record(kind, rid)["tips"],
+            **({"conflict": True} if found["conflict"] else {})}
+
+
+def _entries(store: Store, kind: str, ids) -> list[dict]:
+    return [e for rid in ids if (e := _entry(store, kind, rid))]
 
 
 def plan_window(store: Store, start: str, end: str) -> dict:
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
-    Activities, locations, plans and planned sessions come back exactly as their
-    current event wrote them, so the phone decodes them with the contract types.
-    Efforts already logged against those sessions come back as performed efforts,
-    each with its location (its session's when it has none of its own), and so do
-    the last two times each planned activity was done at each location, so the
-    phone can show last time at the gym you're in.
+    Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
+    planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
+    efforts of the last two times each planned activity was done at each location.
     """
-    activities = [json.loads(r["payload"]) for r in store.rows("SELECT payload FROM activities ORDER BY id")]
-    locations = [_payload_of(store, r["event_id"]) for r in store.rows("SELECT event_id FROM locations ORDER BY name, id")]
-    sessions = [_payload_of(store, r["event_id"]) for r in store.rows(
-        "SELECT event_id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ?"
-        " ORDER BY scheduled_on, name, id", [start, end])]
-    plan_ids = sorted({s["plan_id"] for s in sessions if "plan_id" in s})
-    plans = [_payload_of(store, r["event_id"]) for r in store.rows(
-        "SELECT event_id FROM plans WHERE id IN (SELECT value FROM json_each(?))"
-        " OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) ORDER BY starts_on, id",
-        [json.dumps(plan_ids), end, start])]
-    efforts = [store.effort_payload(r) for r in store.rows(
-        f"SELECT {_EFFORT_COLUMNS} FROM performed_efforts pf {_SESSION_JOIN}"
-        " JOIN planned_efforts pe ON pe.id = pf.planned_effort_id JOIN planned_sessions s ON s.id = pe.planned_session_id"
-        " WHERE s.scheduled_on >= ? AND s.scheduled_on <= ? ORDER BY pf.performed_at, pf.id", [start, end])]
-    seen = {e["id"] for e in efforts}
-    efforts += [e for e in _recent_efforts(store, start, end) if e["id"] not in seen]
-    return {"from": start, "to": end, "activities": activities, "locations": locations, "plans": plans,
-            "sessions": sessions, "efforts": efforts}
+    ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
+    activities = []
+    for r in store.rows("SELECT id, source FROM activities ORDER BY id"):
+        if r["source"] == "store":
+            activities += _entries(store, "activity", [r["id"]])
+        else:
+            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
+            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
+            activities.append({"id": r["id"], "payload": payload, "prev": [], "library": True})
+    planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
+                  "ORDER BY scheduled_on, name, id", start, end)
+    plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
+                "(SELECT value FROM json_each(?))) OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) "
+                "ORDER BY starts_on, id", json.dumps(planned), end, start)
+    window = json.dumps(planned)
+    sessions = ids("SELECT id FROM sessions WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
+                   "ORDER BY start_ms, id", window)
+    efforts = ids("SELECT id FROM efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
+                  "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
+                  json.dumps(sessions))
+    efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
+    overlays = ids("SELECT id FROM overlays WHERE effect = 'rearrange' AND target_kind = 'planned_session' "
+                   "AND target_id IN (SELECT value FROM json_each(?)) ORDER BY id", window)
+    return {"from": start, "to": end, "activities": activities,
+            "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
+            "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
+            "planned_sessions": _entries(store, "planned_session", planned),
+            "overlays": _entries(store, "overlay", overlays), "sessions": _entries(store, "session", sessions),
+            "efforts": _entries(store, "effort", efforts)}
 
 
-def _recent_efforts(store: Store, start: str, end: str, times: int = 2) -> list[dict]:
-    """Efforts from the last `times` sessions each activity planned in the window was done in, per location."""
-    rows = store.rows(f"""
-        WITH planned AS (
-          SELECT DISTINCT pe.activity_id FROM planned_efforts pe JOIN planned_sessions s ON s.id = pe.planned_session_id
-          WHERE s.scheduled_on >= ? AND s.scheduled_on <= ?),
+_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
+             "resistance_curve")
+_JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
+
+
+def _recent_efforts(store: Store, planned: list[str], times: int = 2) -> list[str]:
+    """Efforts from the last `times` occasions each planned activity was done, per location."""
+    rows = store.conn.execute("""
+        WITH wanted AS (
+          SELECT DISTINCT activity_id FROM planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?))),
         done AS (
-          SELECT {_EFFORT_COLUMNS}, coalesce(pf.session_id, pf.id) AS occasion
-          FROM performed_efforts pf {_SESSION_JOIN} WHERE pf.activity_id IN (SELECT activity_id FROM planned)),
+          SELECT e.id, e.activity_id, e.start_ms, coalesce(e.location_id, s.location_id, '') AS location_id,
+                 coalesce(e.session_id, e.local_date) AS occasion
+          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id
+          WHERE e.activity_id IN (SELECT activity_id FROM wanted)),
         occasions AS (
           SELECT activity_id, location_id, occasion, dense_rank() OVER (
-            PARTITION BY activity_id, coalesce(location_id, '') ORDER BY max(performed_at) DESC, occasion DESC) AS n
+            PARTITION BY activity_id, location_id ORDER BY max(start_ms) DESC, occasion DESC) AS n
           FROM done GROUP BY activity_id, location_id, occasion)
-        SELECT d.* FROM done d JOIN occasions o ON o.activity_id = d.activity_id AND o.occasion = d.occasion
-          AND coalesce(o.location_id, '') = coalesce(d.location_id, '')
-        WHERE o.n <= ? ORDER BY d.performed_at, d.id""", [start, end, times])
-    return [store.effort_payload(r) for r in rows]
-
-
-# A performed effort's columns, with its session's location when it has none of its own.
-_EFFORT_COLUMNS = ("pf.id, pf.session_id, pf.activity_id, pf.performed_at, pf.planned_effort_id, pf.round, pf.side,"
-                   " pf.notes, coalesce(pf.location_id, ps.location_id) AS location_id")
-_SESSION_JOIN = "LEFT JOIN performed_sessions ps ON ps.id = pf.session_id"
+        SELECT d.id FROM done d JOIN occasions o ON o.activity_id = d.activity_id AND o.occasion = d.occasion
+          AND o.location_id = d.location_id
+        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (json.dumps(planned), times))
+    return [r[0] for r in rows]
 
 
 def actor_for_peer(peer: dict) -> dict:
@@ -321,53 +348,39 @@ def _query_interrupted(exc: sqlite3.OperationalError) -> NoReturn:
 def accept_events(store: Store, device_id: str, events: list, actor: dict) -> list[dict]:
     """Accept pushed events one by one, in order. Retrying an event already accepted is harmless.
 
-    ``device_id`` and ``actor`` are the authenticated peer's. An event that names
-    another device or actor is rejected and not written.
+    ``device_id`` and ``actor`` are the authenticated peer's. An event that names another device or actor, or
+    writes a record a person doesn't write, is rejected and not written.
     """
     results = []
     for i, event in enumerate(events):
-        event_id = event.get("id") if isinstance(event, dict) else None
-        result: dict[str, Any] = {"index": i, "id": event_id}
-        if not isinstance(event, dict):
-            results.append({**result, "status": "rejected", "errors": [{"path": "$", "message": "not an object"}]})
+        result: dict[str, Any] = {"index": i, "id": event.get("id") if isinstance(event, dict) else None}
+        record = event.get("record") if isinstance(event, dict) else None
+        if not isinstance(event, dict) or not isinstance(record, dict):
+            reason = "not an event"
+        elif event.get("device_id") != device_id:
+            reason = "events must be authored by the paired device that pushes them"
+        elif event.get("actor") != actor:
+            reason = "events must be authored by the paired device's user"
+        elif record.get("kind") not in PHONE_KINDS or event.get("op") not in ("put", "retract"):
+            reason = "a phone writes only what a person writes"
+        else:
+            outcome, reason = store.accept(event)
+            results.append({**result, "status": outcome, **({"reason": reason} if reason else {})})
             continue
-        if event.get("device_id") != device_id:
-            results.append({**result, "status": "rejected", "errors": [
-                {"path": "$.device_id", "message": "events must be authored by the paired device that pushes them"}]})
-            continue
-        if event.get("actor") != actor:
-            results.append({**result, "status": "rejected", "errors": [
-                {"path": "$.actor", "message": "events must be authored by the paired device's user"}]})
-            continue
-        existing = store.stored_event(event_id) if isinstance(event_id, str) else None
-        if existing is not None:
-            same = existing == event
-            results.append({**result, "status": "duplicate" if same else "rejected", **({} if same else {
-                "errors": [{"path": "$.id", "message": "a different event with this id already exists"}]})})
-            continue
-        try:
-            store.accept(event)
-        except ByobotError as exc:
-            errors = exc.details if isinstance(exc.details, list) else [{"path": "$", "message": exc.message}]
-            results.append({**result, "status": "rejected", "errors": errors})
-            continue
-        results.append({**result, "status": "accepted"})
+        results.append({**result, "status": "rejected", "reason": reason})
     return results
 
 
-def accept_samples(store: Store, samples: list) -> dict:
-    """Ingest the valid samples; report the rest. One bad sample does not hold back the others."""
-    good, rejected = [], []
-    for i, sample in enumerate(samples):
-        errors = contract.validate("telemetry", sample)
-        if errors:
-            rejected.append({"index": i, "errors": errors})
-        else:
-            good.append(sample)
-    counts = store.ingest(good) if good else {"inserted": 0, "updated": 0, "unchanged": 0}
-    if any(s["source"] == apple_health.NAME and s["type"] == apple_health.WORKOUT for s in good):
-        apple_health.save_sessions(store)
-    return {**counts, "rejected": rejected}
+def accept_samples(store: Store, body: Any) -> dict:
+    """Write Apple Health's samples as source records, all or none per source."""
+    samples = body.get("samples", []) if isinstance(body, dict) else None
+    deleted = body.get("deleted", []) if isinstance(body, dict) else None
+    if not isinstance(samples, list) or not isinstance(deleted, list) or len(samples) + len(deleted) > MAX_BATCH:
+        raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid",
+                        f"send {{samples: [...], deleted: [...]}} with at most {MAX_BATCH} in all")
+    written = sources.ingest_samples(store, samples, deleted)
+    return {"written": sum(len(e) for e in written.values()),
+            "by_source": {s: len(e) for s, e in written.items()}}
 
 
 # -- HTTP --------------------------------------------------------------------
@@ -391,7 +404,7 @@ class Server(ThreadingHTTPServer):
         self.name = name
         self.log = log or (lambda line: None)
         with Store(db) as store:
-            self.device_id = store.device_id
+            self.device_id, self.store_id = store.device_id, store.store_id
         super().__init__(address, Handler)
 
     def finish_request(self, request: Any, client_address: Any) -> None:
@@ -419,8 +432,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"byobot/{__version__}"
     peer: dict | None = None
 
-    # Posts that require a bearer token. Checked before the body is read; /v0/pair is not one of them.
-    _AUTH_POSTS = {"/v0/events", "/v0/telemetry"}
+    # Posts that require a bearer token. Checked before the body is read; /v1/pair is not one of them.
+    _AUTH_POSTS = {"/v1/events", "/v1/samples"}
 
     # -- plumbing --
 
@@ -593,7 +606,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.BAD_REQUEST, exc.to_dict())
 
     def do_GET(self) -> None:  # noqa: N802
-        self._dispatch({"/v0/hello": self.hello, "/v0/status": self.status, "/v0/plan": self.plan})
+        self._dispatch({"/v1/hello": self.hello, "/v1/status": self.status, "/v1/plan": self.plan,
+                        "/v1/events": self.pull})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path.rstrip("/")
@@ -605,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
             except HTTPError as exc:
                 self._fail(exc)
                 return
-        self._dispatch({"/v0/pair": self.pair, "/v0/events": self.events, "/v0/telemetry": self.telemetry})
+        self._dispatch({"/v1/pair": self.pair, "/v1/events": self.events, "/v1/samples": self.samples})
 
     def _query(self) -> dict[str, str]:
         return {k: v[-1] for k, v in parse_qs(urlsplit(self.path).query).items()}
@@ -613,11 +627,11 @@ class Handler(BaseHTTPRequestHandler):
     # -- endpoints --
 
     def _server_info(self) -> dict:
-        return {"device_id": self.server.device_id, "name": self.server.name}
+        return {"device_id": self.server.device_id, "store_id": self.server.store_id, "name": self.server.name}
 
     def hello(self) -> dict:
         pairing = self.server.pairing
-        return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": contract.SCHEMA_VERSION,
+        return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": SCHEMA_VERSION,
                 "server": self._server_info(), "pairing_open": bool(pairing and pairing.open)}
 
     def pair(self) -> dict:
@@ -625,9 +639,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send {code, device_id, name}")
         device_id, name = body.get("device_id"), body.get("name")
-        id_errors = contract.validate_value("id", device_id)
-        if id_errors:
-            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "device_id is not a valid byobot id", id_errors)
+        if not isinstance(device_id, str) or not ID.fullmatch(device_id):
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "device_id is not a valid byobot id")
         if not isinstance(name, str) or not 0 < len(name) <= 200:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
         with self.server.pairing_lock:
@@ -640,7 +653,7 @@ class Handler(BaseHTTPRequestHandler):
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
         with Store(self.server.db) as store:
-            self.peer = store.pair_peer(device_id, name, token_hash(token))
+            self.peer = store.pair(device_id, name, token_hash(token))
         self.server.log(f"paired {name} ({device_id})")
         return {"token": token, "server": self._server_info(), "device": self.peer}
 
@@ -662,12 +675,27 @@ class Handler(BaseHTTPRequestHandler):
         with Store(self.server.db) as store:
             self._guard_reads(store)
             for label, value in (("from", start), ("to", end)):
-                if contract.validate_value("date", value):
+                if not DATE.fullmatch(value):
                     raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"{label} must be a YYYY-MM-DD date")
             try:
                 return plan_window(store, start, end)
             except sqlite3.OperationalError as exc:
                 _query_interrupted(exc)
+
+    def pull(self) -> dict:
+        q = self._query()
+        after = q.get("after", "0")
+        if not after.isdigit():
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "after must be an arrival position")
+        with Store(self.server.db) as store:
+            self._guard_reads(store)
+            try:
+                found = store.events(int(after), MAX_PULL + 1)
+                last = store.conn.execute("SELECT max(seq) FROM (SELECT seq FROM events WHERE seq > ? ORDER BY seq "
+                                          "LIMIT ?)", (int(after), MAX_PULL)).fetchone()[0]
+            except sqlite3.OperationalError as exc:
+                _query_interrupted(exc)
+            return {"events": found[:MAX_PULL], "next": last or int(after), "more": len(found) > MAX_PULL}
 
     def events(self) -> dict:
         body = self._body()
@@ -677,17 +705,15 @@ class Handler(BaseHTTPRequestHandler):
         with Store(self.server.db) as store:
             peer = self._auth(store)
             results = accept_events(store, peer["device_id"], events, actor_for_peer(peer))
-        counts = {s: sum(r["status"] == s for r in results) for s in ("accepted", "duplicate", "rejected")}
+        counts = {s: sum(r["status"] == s for r in results)
+                  for s in ("accepted", "duplicate", "stored_unprojected", "rejected")}
         return {"results": results, **counts}
 
-    def telemetry(self) -> dict:
+    def samples(self) -> dict:
         body = self._body()
-        samples = body.get("samples") if isinstance(body, dict) else None
-        if not isinstance(samples, list) or len(samples) > MAX_BATCH:
-            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"send {{samples: [...]}} with at most {MAX_BATCH} samples")
         with Store(self.server.db) as store:
             self._auth(store)
-            return accept_samples(store, samples)
+            return accept_samples(store, body)
 
 
 # -- running it --------------------------------------------------------------
