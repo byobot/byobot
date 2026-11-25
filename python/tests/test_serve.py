@@ -164,7 +164,10 @@ def test_plan_window_shows_a_conflict(store):
         store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
                           "payload": {**payload, "name": name}}])
     [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
-    assert entry["conflict"] is True and len(entry["prev"]) == 2  # a change naming both resolves it
+    assert entry["conflict"] is True and entry["prev"] == [store.record("planned_session", UPPER)["current"]]
+    store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": entry["prev"],
+                      "payload": {**entry["payload"], "notes": "from the phone"}}])
+    assert store.record("planned_session", UPPER)["conflict"]  # a phone edit keeps the conflict
 
 
 def test_plan_window_outside_the_dates_is_empty(store):
@@ -414,12 +417,15 @@ def test_an_edit_on_the_phone_and_one_by_the_coach_show_the_conflict(server, byo
     assert client.call("POST", "/v1/events", {"events": [mine]})[1]["accepted"] == 1
     entry = next(e for e in client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")[1]["planned_sessions"]
                  if e["id"] == UPPER)
-    assert entry["conflict"] is True and len(entry["prev"]) == 2
-    fixed = _event("planned_session", UPPER, {**entry["payload"], "name": "Upper A"}, prev=entry["prev"])
-    assert client.call("POST", "/v1/events", {"events": [fixed]})[1]["accepted"] == 1
+    assert entry["conflict"] is True and len(entry["prev"]) == 1
+    edited = _event("planned_session", UPPER, {**entry["payload"], "notes": "short on time"}, prev=entry["prev"])
+    assert client.call("POST", "/v1/events", {"events": [edited]})[1]["accepted"] == 1
+    with db(byobot_home) as s:  # editing one version doesn't choose it
+        [found] = s.conflicts("planned_session", UPPER)
+        fixed = commands.resolve(s, ME, "planned_session", UPPER, edited["id"], [v["id"] for v in found["versions"]])
     entry = next(e for e in client.call("GET", "/v1/plan?from=2026-11-22&to=2026-12-05")[1]["planned_sessions"]
                  if e["id"] == UPPER)
-    assert "conflict" not in entry and entry["payload"]["name"] == "Upper A" and entry["prev"] == [fixed["id"]]
+    assert "conflict" not in entry and entry["payload"]["notes"] == "short on time" and entry["prev"] == [fixed["id"]]
 
 
 def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
