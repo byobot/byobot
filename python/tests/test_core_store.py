@@ -376,3 +376,21 @@ def test_samples_deleted_by_id_alone_are_found_by_their_source(tmp_path):
         assert s.counts()["observations"] == 0
         with pytest.raises(ValidationFailed):
             sources.ingest_samples(s, [{"source": "apple_health"}])
+
+
+def test_erase_cleanup_waits_out_a_reader(tmp_path):
+    """While another connection reads, erased content can stay on disk; the next write clears it."""
+    def held():
+        return b"".join(p.read_bytes() for p in tmp_path.iterdir() if p.name.startswith("s.db"))
+
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        commands.log(s, ME, [{"kind": "location", "id": "gym", "payload": {"name": "erase-me-7f3a"}}])
+        reader = sqlite3.connect(tmp_path / "s.db")
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM events").fetchone()
+        started = time.monotonic()
+        commands.erase(s, ME, "location", "gym")
+        assert time.monotonic() - started < 2 and s.compact_pending()
+        reader.close()
+        commands.log(s, ME, [{"kind": "location", "id": "pool", "payload": {"name": "pool"}}])
+        assert not s.compact_pending() and b"erase-me-7f3a" not in held()

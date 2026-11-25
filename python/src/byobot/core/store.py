@@ -93,8 +93,8 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=5000")
         # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
         self.conn.execute("PRAGMA secure_delete=ON")
-        self._erasing = False
         self._migrate(device_id)
+        self._compact()
 
     def close(self) -> None:
         self.conn.close()
@@ -226,15 +226,24 @@ class Store:
         return out
 
     def _compact(self) -> None:
-        """After an erase: rewrite the file and empty the WAL, so no page still holds what was erased."""
-        if not self._erasing or self.conn.in_transaction:
+        """After an erase: rewrite the file and empty the WAL, so no page still holds what was erased. While
+        another connection reads that can't finish, so it's tried again after each later write and on open."""
+        if self.conn.in_transaction or not self.compact_pending():
             return
-        self._erasing = False
+        self.conn.execute("PRAGMA busy_timeout=0")
         try:
             self.conn.execute("VACUUM")
-        except sqlite3.OperationalError:  # another connection is reading; secure_delete already zeroed the rows
-            pass
-        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+        except sqlite3.OperationalError:  # another connection is reading
+            return
+        finally:
+            self.conn.execute("PRAGMA busy_timeout=5000")
+        if not busy:
+            self.conn.execute("DELETE FROM meta WHERE key = 'compact_pending'")
+
+    def compact_pending(self) -> bool:
+        """An erase whose content may still be on disk."""
+        return self._get("compact_pending") is not None
 
     def _accept(self, event: Any) -> tuple[str, str]:
         if not isinstance(event, dict) or not isinstance(event.get("id"), str):
@@ -283,7 +292,8 @@ class Store:
         changed = self.conn.execute(
             "UPDATE events SET payload = '{}', redacted_by = ? WHERE kind = ? AND record_id = ? AND op != 'erase' "
             "AND (redacted_by IS NULL OR redacted_by != ?)", (erase, kind, rid, erase)).rowcount
-        self._erasing = self._erasing or changed > 0
+        if changed:
+            self._set("compact_pending", erase)
 
     def _source_event_id(self, event: dict) -> str | None:
         """A source event's id: derived from its content with the store key, so two devices importing the same
