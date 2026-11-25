@@ -58,7 +58,7 @@ func encodeNumber(_ n: Double, into c: inout SingleValueEncodingContainer) throw
     }
 }
 
-/// A number, text or true/false: a metric's value, or a telemetry sample's value.
+/// A number, text or true/false: a measure's value, or a sample's.
 public enum Scalar: Codable, Equatable, Hashable, Sendable {
     case number(Double)
     case string(String)
@@ -162,11 +162,11 @@ public struct Measure: Codable, Equatable, Hashable, Sendable {
         } else {
             amount = "?"
         }
-        return unit.map { "\(amount) \($0)" } ?? amount
+        return unit.map { "\(amount) \(UnitLabel.text($0))" } ?? amount
     }
 }
 
-/// One metric in the contract's registry.
+/// One code in the contract's registry.
 public struct MetricSpec: Equatable, Hashable, Sendable {
     public enum Kind: String, Sendable {
         case integer, number, text
@@ -174,24 +174,34 @@ public struct MetricSpec: Equatable, Hashable, Sendable {
 
     public var name: String
     public var summary: String
-    /// Allowed units, in the contract's order (the first is the app's default). Empty for unitless metrics.
+    /// Accepted UCUM units, the code's own first. Empty for unitless codes.
     public var units: [String]
     public var unitRequired: Bool
     public var kind: Kind
     public var minimum: Double?
+    /// The value must be above `minimum`, not at it.
+    public var exclusiveMinimum: Bool
     public var maximum: Double?
     public var pattern: String?
+    /// The values a category takes.
+    public var values: [String]?
+    /// The kinds it may be written on.
+    public var on: [String]
 
-    public init(name: String, summary: String, units: [String], unitRequired: Bool, kind: Kind,
-                minimum: Double?, maximum: Double?, pattern: String?) {
+    public init(name: String, summary: String, units: [String], unitRequired: Bool, kind: Kind, minimum: Double?,
+                exclusiveMinimum: Bool = false, maximum: Double?, pattern: String?, values: [String]? = nil,
+                on: [String] = []) {
         self.name = name
         self.summary = summary
         self.units = units
         self.unitRequired = unitRequired
         self.kind = kind
         self.minimum = minimum
+        self.exclusiveMinimum = exclusiveMinimum
         self.maximum = maximum
         self.pattern = pattern
+        self.values = values
+        self.on = on
     }
 
     /// A readable label: `heart_rate` → `Heart rate`, `x.grade` → `Grade`.
@@ -212,11 +222,22 @@ extension MetricRegistry {
     }
 
     public static func isCustom(_ name: String) -> Bool {
-        name.range(of: customNamePattern, options: .regularExpression) != nil
+        name.hasPrefix("x.") && name.range(of: codePattern, options: .regularExpression) != nil
     }
 
     /// Where a metric sorts when the app lists several: registry order, then custom metrics by name.
     static func order(_ name: String) -> Int {
         all.firstIndex { $0.name == name } ?? all.count
+    }
+}
+
+/// UCUM units as the app shows them: `[lb_av]` → `lb`, `/min` → `bpm`.
+public enum UnitLabel {
+    static let labels = ["[lb_av]": "lb", "[mi_i]": "mi", "[yd_i]": "yd", "[ft_i]": "ft", "/min": "bpm",
+                         "%{1RM}": "% 1RM", "Cel": "°C", "mm[Hg]": "mmHg", "s/[mi_i]": "s/mi", "s/(100.m)": "s/100 m",
+                         "s/(500.m)": "s/500 m", "mL/(kg.min)": "mL/kg/min"]
+
+    public static func text(_ unit: String) -> String {
+        labels[unit] ?? unit
     }
 }

@@ -16,7 +16,7 @@ struct SessionView: View {
     @State private var confirmFinish = false
 
     private var planned: PlannedSession? {
-        plannedId.flatMap { id in model.plan?.sessions.first { $0.id == id } }
+        plannedId.flatMap { id in model.plan?.plannedSessions.first { $0.id == id } }
     }
 
     private var active: PerformedSession? { model.book.activeSession }

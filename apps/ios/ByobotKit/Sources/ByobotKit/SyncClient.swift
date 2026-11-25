@@ -79,31 +79,31 @@ public final class SyncClient: @unchecked Sendable {
     // MARK: Endpoints
 
     public func hello() async throws -> SyncHello {
-        try await call("GET", "/v0/hello", body: Optional<Int>.none)
+        try await call("GET", "/v1/hello", body: Optional<Int>.none)
     }
 
     public func pair(code: String, deviceId: String, name: String) async throws -> PairResponse {
-        try await call("POST", "/v0/pair", body: PairRequest(code: code, deviceId: deviceId, name: name))
+        try await call("POST", "/v1/pair", body: PairRequest(code: code, deviceId: deviceId, name: name))
     }
 
     public func status() async throws -> SyncStatus {
-        try await call("GET", "/v0/status", body: Optional<Int>.none)
+        try await call("GET", "/v1/status", body: Optional<Int>.none)
     }
 
     public func plan(from: String? = nil, to: String? = nil) async throws -> PlanWindow {
         var query: [String] = []
         if let from { query.append("from=\(from)") }
         if let to { query.append("to=\(to)") }
-        return try await call("GET", "/v0/plan" + (query.isEmpty ? "" : "?" + query.joined(separator: "&")),
+        return try await call("GET", "/v1/plan" + (query.isEmpty ? "" : "?" + query.joined(separator: "&")),
                               body: Optional<Int>.none)
     }
 
     public func push(events: [Event]) async throws -> EventsResponse {
-        try await call("POST", "/v0/events", body: EventsRequest(events: events))
+        try await call("POST", "/v1/events", body: EventsRequest(events: events))
     }
 
-    public func push(samples: [TelemetrySample]) async throws -> TelemetryResponse {
-        try await call("POST", "/v0/telemetry", body: TelemetryRequest(samples: samples))
+    public func push(samples: [Sample], deleted: [Deletion] = []) async throws -> SamplesResponse {
+        try await call("POST", "/v1/samples", body: SamplesRequest(samples: samples, deleted: deleted.isEmpty ? nil : deleted))
     }
 
     // MARK: Plumbing

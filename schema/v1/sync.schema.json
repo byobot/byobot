@@ -207,7 +207,7 @@
         },
         "library": {
           "const": true,
-          "description": "An activity that ships with byobot, not yet written to the log."
+          "description": "An activity that ships with byobot, not yet written to the logbook."
         }
       }
     },

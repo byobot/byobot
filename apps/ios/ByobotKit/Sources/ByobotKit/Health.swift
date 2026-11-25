@@ -1,5 +1,5 @@
-// Apple Health readings as byobot telemetry: body measurements, heart, activity, mobility, vitals, sleep and
-// workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
+// Apple Health readings as samples for the laptop: body measurements, heart, activity, mobility, vitals, sleep
+// and workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
 // reads them there and sends them to the laptop, which decides which source wins for each metric.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
@@ -46,8 +46,8 @@ public struct WorkoutTotals: Equatable, Sendable {
 }
 
 public enum HealthValue: Equatable, Sendable {
-    /// A quantity already in the contract's unit for its type (see HealthMapping.units).
-    case quantity(TelemetryType, Double)
+    /// A quantity of a HealthKit type, already in its registry code's own unit.
+    case quantity(String, Double)
     /// HealthKit's sleep analysis value, as its raw number.
     case sleep(Int)
     /// A HealthKit activity type name, such as `traditionalStrengthTraining`.
@@ -73,14 +73,15 @@ public struct HealthReading: Equatable, Sendable {
 
 /// A day's total, or for heart rate its average, as HealthKit's statistics give it across every app and device.
 public struct DailyTotal: Equatable, Sendable {
-    public var type: TelemetryType
+    /// The HealthKit type, such as `HKQuantityTypeIdentifierStepCount`.
+    public var type: String
     public var start: Date
     public var end: Date
     public var value: Double
     public var lowest: Double?
     public var highest: Double?
 
-    public init(type: TelemetryType, start: Date, end: Date, value: Double, lowest: Double? = nil,
+    public init(type: String, start: Date, end: Date, value: Double, lowest: Double? = nil,
                 highest: Double? = nil) {
         self.type = type
         self.start = start
@@ -92,85 +93,77 @@ public struct DailyTotal: Equatable, Sendable {
 }
 
 public enum HealthMapping {
-    /// The telemetry source for anything read from Apple Health. The device that measured it is kept on the sample.
-    public static let source = "apple-health"
+    /// Where anything read from Apple Health comes from. The device that measured it is kept on the sample.
+    public static let source = "apple_health"
+    public static let workoutType = "HKWorkoutTypeIdentifier"
+    public static let sleepType = "HKCategoryTypeIdentifierSleepAnalysis"
 
-    /// The quantity types the app reads, with the contract's unit and the largest value it accepts.
-    public static let units: [TelemetryType: (unit: String, max: Double)] = [
-        .bodyMass: ("kg", 700), .leanBodyMass: ("kg", 700), .bodyFatPercentage: ("%", 100),
-        .bodyMassIndex: ("kg/m2", 200), .height: ("m", 5), .waistCircumference: ("m", 5),
-        .vo2Max: ("ml/kg*min", 100), .heartRateVariabilitySDNN: ("ms", 1000), .restingHeartRate: ("count/min", 300),
-        .walkingHeartRateAverage: ("count/min", 300), .heartRateRecoveryOneMinute: ("count/min", 300),
-        .respiratoryRate: ("count/min", 100), .oxygenSaturation: ("%", 100),
-        .walkingSpeed: ("m/s", 20), .walkingStepLength: ("m", 5), .walkingDoubleSupportPercentage: ("%", 100),
-        .walkingAsymmetryPercentage: ("%", 100), .appleWalkingSteadiness: ("%", 100),
-        .sixMinuteWalkTestDistance: ("m", 1_000_000), .stairAscentSpeed: ("m/s", 20), .stairDescentSpeed: ("m/s", 20),
-        .bloodPressureSystolic: ("mmHg", 400), .bloodPressureDiastolic: ("mmHg", 400),
-        .bloodGlucose: ("mg/dL", 2000), .bodyTemperature: ("degC", 50), .appleSleepingWristTemperature: ("degC", 50),
-    ]
+    /// HealthKit's sleep analysis values by raw number, as the registry names them.
+    public static let sleepStages = [0: "in_bed", 1: "asleep_unspecified", 2: "awake", 3: "asleep_core",
+                                     4: "asleep_deep", 5: "asleep_rem"]
 
-    /// Types read as one total per day, or for heart rate one average, with their unit and largest value.
-    public static let dailyUnits: [TelemetryType: (unit: String, max: Double)] = [
-        .stepCount: ("count", 200_000), .flightsClimbed: ("count", 200_000),
-        .distanceWalkingRunning: ("m", 1_000_000), .distanceCycling: ("m", 1_000_000),
-        .distanceSwimming: ("m", 1_000_000), .activeEnergyBurned: ("kcal", 50000),
-        .basalEnergyBurned: ("kcal", 50000), .appleExerciseTime: ("s", 86400), .appleStandTime: ("s", 86400),
-        .heartRate: ("count/min", 300),
-    ]
+    /// The registry code a HealthKit type is read as.
+    public static func spec(_ type: String) -> MetricSpec? {
+        MetricRegistry.healthkit[type].flatMap(MetricRegistry.spec)
+    }
 
-    /// HealthKit's sleep analysis values by raw number, as the contract names them.
-    public static let sleepStages = [0: "inBed", 1: "asleepUnspecified", 2: "awake", 3: "asleepCore",
-                                     4: "asleepDeep", 5: "asleepREM"]
+    /// The unit to send a type's values in: its code's own, or none for a count.
+    public static func unit(_ type: String) -> String? {
+        spec(type)?.units.first
+    }
 
-    /// A telemetry sample keyed on HealthKit's sample UUID, so sending it again changes nothing.
+    /// A sample keyed on HealthKit's sample UUID, so sending it again changes nothing.
     /// Readings the contract would refuse (zero, negative, absurd) are skipped.
-    public static func sample(_ r: HealthReading) -> TelemetrySample? {
+    public static func sample(_ r: HealthReading) -> Sample? {
         guard r.end >= r.start else { return nil }
+        let type: String
         let value: Scalar
         var unit: String?
         var raw: JSONValue?
         switch r.value {
-        case .quantity(let type, let amount):
-            guard let spec = units[type], amount.isFinite, amount <= spec.max,
-                  amount > 0 || (amount == 0 && spec.unit == "%") else { return nil }
+        case .quantity(let t, let amount):
+            guard let spec = spec(t), amount.isFinite, amount <= (spec.maximum ?? .infinity),
+                  amount > 0 || (amount == 0 && spec.units.first == "%") else { return nil }
+            type = t
             value = .number((amount * 1000).rounded() / 1000)
-            unit = spec.unit
+            unit = spec.units.first
         case .sleep(let stage):
             guard let name = sleepStages[stage] else { return nil }
+            type = sleepType
             value = .string(name)
         case .workout(let activity, let totals):
             guard activity.range(of: "^[a-z][A-Za-z0-9]{0,63}$", options: .regularExpression) != nil,
                   totals.durationS.isFinite, totals.durationS >= 0 else { return nil }
+            type = workoutType
             value = .string(activity)
             raw = .object(workoutTotals(totals))
         }
-        return TelemetrySample(source: source, sourceId: r.uuid.uuidString.lowercased(), type: telemetryType(r.value),
-                               start: Timestamp.string(r.start), end: Timestamp.string(r.end), value: value,
-                               unit: unit, device: device(r.origin), raw: raw)
+        return Sample(source: source, sourceId: r.uuid.uuidString.lowercased(), type: type,
+                      start: Timestamp.string(r.start), end: Timestamp.string(r.end), value: value, unit: unit,
+                      device: device(r.origin), raw: raw)
     }
 
-    /// A day's total keyed on its type and local date, so a later sync of a day still under way replaces it.
-    public static func sample(_ d: DailyTotal, calendar: Calendar = .current) -> TelemetrySample? {
-        guard let spec = dailyUnits[d.type], d.value.isFinite, d.value > 0, d.value <= spec.max,
+    /// A day's total keyed on its type and local date. It carries when it was read, so a later read of a day
+    /// still under way is a new revision of the same record.
+    public static func sample(_ d: DailyTotal, readAt: Date, calendar: Calendar = .current) -> Sample? {
+        guard let spec = spec(d.type), d.value.isFinite, d.value > 0, d.value <= (spec.maximum ?? .infinity),
               d.end > d.start else { return nil }
         let day = calendar.dateComponents([.year, .month, .day], from: d.start)
         let key = String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
-        var range: [String: JSONValue] = [:]
+        var raw: [String: JSONValue] = ["modified_at": .string(Timestamp.string(readAt))]
         for (name, value) in [("min_bpm", d.lowest), ("max_bpm", d.highest)] {
-            if let value, value.isFinite, value > 0, value <= spec.max { range[name] = .number(value.rounded()) }
+            if let value, value.isFinite, value > 0, value <= (spec.maximum ?? .infinity) {
+                raw[name] = .number(value.rounded())
+            }
         }
-        return TelemetrySample(source: source, sourceId: "daily:\(d.type.rawValue):\(key)", type: d.type,
-                               start: Timestamp.string(d.start), end: Timestamp.string(d.end),
-                               value: .number((d.value * 1000).rounded() / 1000), unit: spec.unit,
-                               raw: range.isEmpty ? nil : .object(range))
+        return Sample(source: source, sourceId: "daily:\(d.type):\(key)", type: d.type, start: Timestamp.string(d.start),
+                      end: Timestamp.string(d.end), value: .number((d.value * 1000).rounded() / 1000),
+                      unit: spec.units.first, raw: .object(raw))
     }
 
-    static func telemetryType(_ value: HealthValue) -> TelemetryType {
-        switch value {
-        case .quantity(let type, _): return type
-        case .sleep: return .sleepAnalysis
-        case .workout: return .workout
-        }
+    /// A sample HealthKit says was deleted.
+    public static func deletion(_ uuid: UUID, type: String) -> Deletion {
+        Deletion(source: source, sourceId: uuid.uuidString.lowercased(), type: type)
     }
 
     static func workoutTotals(_ t: WorkoutTotals) -> [String: JSONValue] {
@@ -187,16 +180,9 @@ public enum HealthMapping {
         return out
     }
 
-    static func device(_ o: HealthOrigin) -> TelemetryDevice? {
-        let id = [o.deviceIdentifier, o.sourceBundleId].compactMap { $0 }.first { !$0.isEmpty }
-        return id.map {
-            TelemetryDevice(id: String($0.prefix(200)), name: clip(o.deviceName ?? o.sourceName),
-                            manufacturer: clip(o.deviceManufacturer), model: clip(o.deviceModel))
-        }
-    }
-
-    static func clip(_ text: String?) -> String? {
-        guard let text, !text.isEmpty else { return nil }
-        return String(text.prefix(200))
+    /// The device that measured it, else the app that wrote it.
+    static func device(_ o: HealthOrigin) -> String? {
+        guard let name = [o.deviceName, o.sourceName].compactMap({ $0 }).first(where: { !$0.isEmpty }) else { return nil }
+        return String(name.prefix(200))
     }
 }

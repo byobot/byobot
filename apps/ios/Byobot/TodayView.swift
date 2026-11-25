@@ -41,7 +41,7 @@ struct TodayView: View {
 
     @ViewBuilder
     private func current(_ active: PerformedSession) -> some View {
-        if let id = active.plannedSessionId, let planned = model.plan?.sessions.first(where: { $0.id == id }) {
+        if let id = active.plannedSessionId, let planned = model.plan?.plannedSessions.first(where: { $0.id == id }) {
             let workout = model.book.workout(planned)
             Button {
                 path.append(planned.id)

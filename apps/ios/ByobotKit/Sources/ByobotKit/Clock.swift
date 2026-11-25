@@ -49,16 +49,16 @@ public enum UUID7 {
 
 /// RFC 3339 timestamps and calendar dates as the contract writes them.
 public enum Timestamp {
-    private static func formatter() -> ISO8601DateFormatter {
+    private static func formatter(_ zone: TimeZone) -> ISO8601DateFormatter {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        f.timeZone = TimeZone(identifier: "UTC")
+        f.timeZone = zone
         return f
     }
 
-    /// UTC with milliseconds, for example `2026-11-21T03:26:09.123Z`.
-    public static func string(_ date: Date) -> String {
-        formatter().string(from: date)
+    /// With the local offset and milliseconds, for example `2026-11-21T07:26:09.123-05:00` (`Z` only in UTC).
+    public static func string(_ date: Date, zone: TimeZone = .current) -> String {
+        formatter(zone).string(from: date)
     }
 
     public static func now() -> String {
@@ -67,10 +67,16 @@ public enum Timestamp {
 
     /// Parse any contract timestamp (any offset, with or without a fraction).
     public static func date(_ text: String) -> Date? {
-        if let d = formatter().date(from: text) { return d }
+        if let d = formatter(TimeZone(identifier: "UTC")!).date(from: text) { return d }
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
         return plain.date(from: text)
+    }
+
+    /// The phone's IANA zone, where the contract can name it.
+    public static func zone(_ zone: TimeZone = .current) -> String? {
+        let id = zone.identifier == "GMT" ? "UTC" : zone.identifier  // Foundation names UTC "GMT"
+        return id.range(of: "^(UTC|[A-Z][A-Za-z_-]*(/[A-Za-z0-9_+-]+){1,2})$", options: .regularExpression) != nil ? id : nil
     }
 }
 

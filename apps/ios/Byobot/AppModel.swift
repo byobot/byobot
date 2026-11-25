@@ -31,11 +31,14 @@ final class AppModel: ObservableObject {
     init() {
         file = AppModel.stateFile()
         let state = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(AppState.self, from: $0) }
-        book = Logbook(state: state ?? AppState())
+        book = Logbook(state: state ?? AppState(), origin: Origin(app: "byobot_ios", version: AppModel.version,
+                                                                   device: UIDevice.current.name))
         healthEnabled = UserDefaults.standard.bool(forKey: "healthEnabled")
         if state == nil { save() }
         keepAwake()
     }
+
+    static var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
 
     var state: AppState { book.state }
     var plan: PlanWindow? { book.state.plan }
@@ -156,7 +159,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
-    private static let healthReads = 2
+    private static let healthReads = 3
 
     private func syncHealth(_ client: SyncClient) async throws {
         guard health.available else { return }
@@ -165,14 +168,22 @@ final class AppModel: ObservableObject {
         // Sending a reading twice changes nothing on the laptop.
         let current = UserDefaults.standard.integer(forKey: "healthReads") >= Self.healthReads
         let last = current ? state.lastHealthSyncAt.flatMap(Timestamp.date) : nil
-        let since = last?.addingTimeInterval(-30 * 86_400)
-        let from = since ?? Date().addingTimeInterval(-365 * 86_400)
-        let readings = try await health.readings(since: from).compactMap { HealthMapping.sample($0) }
-        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0) }
-        let samples = readings + days
+        let now = Date()
+        let yearAgo = now.addingTimeInterval(-365 * 86_400)
+        let anchors = current ? (UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]) : [:]
+        let changes = try await health.changes(since: yearAgo, anchors: anchors)
+        // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
+        let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
+        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0, readAt: now) }
+        let samples = changes.readings.compactMap { HealthMapping.sample($0) } + days
+        let deleted = changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) }
         for start in stride(from: 0, to: samples.count, by: 1000) {
             _ = try await client.push(samples: Array(samples[start..<min(start + 1000, samples.count)]))
         }
+        for start in stride(from: 0, to: deleted.count, by: 1000) {
+            _ = try await client.push(samples: [], deleted: Array(deleted[start..<min(start + 1000, deleted.count)]))
+        }
+        UserDefaults.standard.set(changes.anchors, forKey: "healthAnchors")
         UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
         change { $0.state.lastHealthSyncAt = Timestamp.now() }
     }
@@ -279,7 +290,7 @@ final class AppModel: ObservableObject {
         }
         guard let running = clock, let timer = intervalClock(running) else { return }
         let elapsed = now.timeIntervalSince(running.startedAt)
-        if let planned = plan?.sessions.first(where: { $0.id == running.plannedSessionId }) {
+        if let planned = plan?.plannedSessions.first(where: { $0.id == running.plannedSessionId }) {
             let workout = book.workout(planned)
             for slot in timer.finishedSlots(elapsed: elapsed) where slot.logged == nil {
                 let metrics = book.asPlanned(slot, in: workout)
@@ -302,7 +313,7 @@ final class AppModel: ObservableObject {
 
     /// The running clock's phases, from the slots it started with as they stand now.
     func intervalClock(_ running: RunningClock) -> IntervalClock? {
-        guard let planned = plan?.sessions.first(where: { $0.id == running.plannedSessionId }) else { return nil }
+        guard let planned = plan?.plannedSessions.first(where: { $0.id == running.plannedSessionId }) else { return nil }
         let byId = Dictionary(book.workout(planned).slots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return IntervalClock(slots: running.slotIds.compactMap { byId[$0] })
     }

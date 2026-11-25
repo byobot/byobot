@@ -19,7 +19,7 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
   ``GET /v1/status``       a cheap authenticated check
   ``GET /v1/plan``         what the phone needs to train from a date window: each record with its payload and
                            the versions a change to it names as ``prev``
-  ``GET /v1/events``       the log after an arrival position, in arrival order
+  ``GET /v1/events``       the logbook after an arrival position, in arrival order
   ``POST /v1/events``      push events authored on the phone; each is accepted, a duplicate, or rejected
   ``POST /v1/samples``     push samples read from Apple Health, and the ones it says were deleted
 

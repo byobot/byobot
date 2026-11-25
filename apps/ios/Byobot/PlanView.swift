@@ -24,7 +24,7 @@ struct PlanView: View {
                 }
             }
             if let plan = model.plan {
-                if plan.sessions.isEmpty {
+                if plan.plannedSessions.isEmpty {
                     Text("Nothing planned from \(Format.day(plan.from)) to \(Format.day(plan.to)). Ask your coach for a plan, then pull down to sync.")
                         .foregroundStyle(.secondary)
                 }

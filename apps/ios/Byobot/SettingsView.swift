@@ -26,7 +26,7 @@ struct SettingsView: View {
                 ForEach(model.state.rejected) { rejected in
                     VStack(alignment: .leading) {
                         Text("Refused by your laptop").font(.subheadline)
-                        Text(describe(rejected.errors)).font(.caption).foregroundStyle(.secondary)
+                        Text(rejected.reason ?? "No reason given").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } footer: {
@@ -68,15 +68,6 @@ struct SettingsView: View {
         } message: {
             Text("What you've logged stays on this phone and goes to the next laptop you pair. On the laptop, `byobot unpair` revokes this phone.")
         }
-    }
-
-    private func describe(_ errors: [JSONValue]) -> String {
-        let messages = errors.compactMap { error -> String? in
-            if case .object(let o) = error, case .string(let m)? = o["message"] { return m }
-            if case .string(let m) = error { return m }
-            return nil
-        }
-        return messages.isEmpty ? "No reason given" : messages.joined(separator: "; ")
     }
 }
 

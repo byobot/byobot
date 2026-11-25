@@ -23,7 +23,7 @@ struct WorkoutView: View {
     @State private var unplanned = false
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
-    private var planned: PlannedSession? { model.plan?.sessions.first { $0.id == plannedId } }
+    private var planned: PlannedSession? { model.plan?.plannedSessions.first { $0.id == plannedId } }
     private var active: PerformedSession? { model.book.activeSession }
     private var running: Bool { active?.plannedSessionId == plannedId }
 

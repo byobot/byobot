@@ -1,4 +1,4 @@
-"""v0 telemetry types in v1's vocabulary: each sample type's code, and its unit as the registry spells it."""
+"""Apple Health sample types in the registry's vocabulary: each type's code, and its unit as the registry spells it."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import re
 
 from .contract import Contract
 
-# byobot's own v0 types; HealthKit ones map through the registry's `healthkit` field.
+# byobot's own types; HealthKit ones map through the registry's `healthkit` field.
 OWN = {
     "byobot.HeartRateVariabilityRMSSD": "hrv_rmssd", "byobot.SkinTemperature": "skin_temperature",
     "byobot.SleepLightDuration": "sleep_light_duration", "byobot.SleepDeepDuration": "sleep_deep_duration",
@@ -24,7 +24,7 @@ def codes(contract: Contract | None = None) -> dict[str, str]:
 
 
 def observation(sample: dict, contract: Contract | None = None) -> dict | None:
-    """A v0 sample's observation payload, or None for a type that isn't one."""
+    """A sample's observation payload, or None for a type that isn't one."""
     code = codes(contract).get(sample["type"])
     if code is None:
         return None

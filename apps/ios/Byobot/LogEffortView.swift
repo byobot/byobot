@@ -154,12 +154,12 @@ private struct FieldRow: View {
                     .frame(maxWidth: 120)
                 if field.units.count > 1 {
                     Picker("Unit", selection: $field.unit) {
-                        ForEach(field.units, id: \.self) { Text($0).tag(String?.some($0)) }
+                        ForEach(field.units, id: \.self) { Text(UnitLabel.text($0)).tag(String?.some($0)) }
                     }
                     .labelsHidden()
                     .fixedSize()
                 } else if let unit = field.unit {
-                    Text(unit).foregroundStyle(.secondary)
+                    Text(UnitLabel.text(unit)).foregroundStyle(.secondary)
                 }
             }
             if let target = field.target {

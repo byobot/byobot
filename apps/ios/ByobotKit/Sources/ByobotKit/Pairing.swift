@@ -27,7 +27,7 @@ public struct PairingLink: Equatable, Sendable {
         case invalid(String)
     }
 
-    /// Parse `byobot://pair?v=0&host=...&host=...&port=8765&code=123456&fp=<base64url>`.
+    /// Parse `byobot://pair?v=1&host=...&host=...&port=8765&code=123456&fp=<base64url>`.
     public init(link: String) throws {
         guard let parts = URLComponents(string: link), parts.scheme == "byobot", parts.host == "pair" else {
             throw Problem.notAPairingLink
