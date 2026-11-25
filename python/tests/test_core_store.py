@@ -1,6 +1,7 @@
 """The core store and its commands, on small hand-made histories."""
 
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -204,3 +205,34 @@ def test_a_newer_payload_this_install_can_not_check_is_still_kept(pair):
     assert b.accept(odd) == ("stored_unprojected", "")
     assert b.accept({**odd, "id": "019aa000-0000-7000-8000-0000000000cd", "payload": {"x": float("nan")}})[0] \
         == "rejected"
+
+
+def test_local_dates_and_offsets_come_from_the_record(pair):
+    a, _ = pair
+    [late] = commands.log(a, ME, [{"kind": "effort", "payload": {
+        **effort(), "time": {"start": "2026-11-21T00:30:00+05:00"}}}])
+    [walk] = commands.log(a, ME, [{"kind": "session", "payload": {
+        "time": {"start": "2026-03-08T01:30:00-05:00", "end": "2026-03-08T03:30:00-04:00"},
+        "modality": "self_reported"}}])
+    row = a.conn.execute("SELECT local_date, offset_min FROM efforts WHERE id = ?", (late["record"]["id"],)).fetchone()
+    assert tuple(row) == ("2026-11-21", 300)
+    start, end = a.conn.execute("SELECT start_ms, end_ms FROM sessions WHERE id = ?",
+                                (walk["record"]["id"],)).fetchone()
+    assert end - start == 3600 * 1000
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset")
+def test_log_writes_the_offset_in_force(pair, monkeypatch):
+    a, _ = pair
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        [now, summer] = commands.log(a, ME, [
+            {"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg",
+                                                "modality": "self_reported"}},
+            {"kind": "effort", "payload": {**effort(), "time": {"start": "2026-07-01T07:00:00"}}}])
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert now["payload"]["time"]["start"].endswith("-05:00")
+    assert summer["payload"]["time"]["start"] == "2026-07-01T07:00:00.000-04:00"
