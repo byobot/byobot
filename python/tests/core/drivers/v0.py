@@ -10,7 +10,7 @@ from unittest import mock
 
 from byobot import apple_health, commands, review, whoop
 from byobot.store import Store
-from byobot.util import ByobotError, Conflict
+from byobot.util import ByobotError, Conflict, NotFound
 
 from ..driver import Unsupported
 from ..snapshot import canonical, empty, key, occurrence
@@ -106,7 +106,7 @@ class V0:
         table = "activities" if kind == "activity" else TABLES[kind]
         row = store.conn.execute(f"SELECT event_id FROM {table} WHERE id = ?", (rid,)).fetchone()
         if not row or not row[0]:
-            raise Unsupported(f"no {kind} {rid}")
+            raise NotFound(f"no {kind} {rid}")
         return json.loads(store.conn.execute("SELECT payload FROM events WHERE id = ?", (row[0],)).fetchone()[0])
 
     def _creator(self, store: Store, kind: str, rid: str) -> str:
@@ -118,7 +118,7 @@ class V0:
                 [e.get("id") for e in payload.get("efforts", [])]
             if rid in ids:
                 return event["id"]
-        raise Unsupported(f"no event created {kind} {rid}")
+        raise NotFound(f"no event created {kind} {rid}")
 
     def deliver(self, store: Store, events: list[dict]) -> list[tuple[str, str]]:
         out = []
