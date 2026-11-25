@@ -26,7 +26,9 @@ def millis(at: datetime) -> int:
 
 def tick(floor: tuple[int, int], wall_ms: int) -> tuple[int, int]:
     """The next reading after `floor` at wall time `wall_ms`."""
-    return (wall_ms, 0) if wall_ms > floor[0] else (floor[0], floor[1] + 1)
+    if wall_ms > floor[0]:
+        return wall_ms, 0
+    return (floor[0], floor[1] + 1) if floor[1] + 1 < 10 ** DIGITS[1] else (floor[0] + 1, 0)
 
 
 def runaway(seen: tuple[int, int], wall_ms: int) -> bool:

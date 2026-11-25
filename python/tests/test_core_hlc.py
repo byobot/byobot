@@ -10,6 +10,7 @@ def test_tick_follows_the_wall_clock_and_never_goes_back():
     assert hlc.tick((100, 4), 200) == (200, 0)
     assert hlc.tick((100, 4), 100) == (100, 5)
     assert hlc.tick((100, 4), 50) == (100, 5)
+    assert hlc.tick((100, 999_999), 50) == (101, 0)
 
 
 def test_a_day_ahead_is_a_runaway_clock():
