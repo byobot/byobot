@@ -44,7 +44,7 @@ public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
     case both
 }
 
-/// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`.
+/// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`. Apple Health's activity totals and heart rate arrive one sample per day, from the day's start to its end: a sum, or for heart rate the day's average with `min_bpm` and `max_bpm` in `raw`.
 public enum TelemetryType: String, Codable, CaseIterable, Hashable, Sendable {
     case bodyMass = "HKQuantityTypeIdentifierBodyMass"
     case bodyFatPercentage = "HKQuantityTypeIdentifierBodyFatPercentage"
@@ -64,6 +64,34 @@ public enum TelemetryType: String, Codable, CaseIterable, Hashable, Sendable {
     case sleepPerformance = "byobot.SleepPerformance"
     case recoveryScore = "byobot.RecoveryScore"
     case strain = "byobot.Strain"
+    case stepCount = "HKQuantityTypeIdentifierStepCount"
+    case distanceWalkingRunning = "HKQuantityTypeIdentifierDistanceWalkingRunning"
+    case distanceCycling = "HKQuantityTypeIdentifierDistanceCycling"
+    case distanceSwimming = "HKQuantityTypeIdentifierDistanceSwimming"
+    case flightsClimbed = "HKQuantityTypeIdentifierFlightsClimbed"
+    case activeEnergyBurned = "HKQuantityTypeIdentifierActiveEnergyBurned"
+    case basalEnergyBurned = "HKQuantityTypeIdentifierBasalEnergyBurned"
+    case appleExerciseTime = "HKQuantityTypeIdentifierAppleExerciseTime"
+    case appleStandTime = "HKQuantityTypeIdentifierAppleStandTime"
+    case heartRate = "HKQuantityTypeIdentifierHeartRate"
+    case walkingHeartRateAverage = "HKQuantityTypeIdentifierWalkingHeartRateAverage"
+    case heartRateRecoveryOneMinute = "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute"
+    case walkingSpeed = "HKQuantityTypeIdentifierWalkingSpeed"
+    case walkingStepLength = "HKQuantityTypeIdentifierWalkingStepLength"
+    case walkingDoubleSupportPercentage = "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage"
+    case walkingAsymmetryPercentage = "HKQuantityTypeIdentifierWalkingAsymmetryPercentage"
+    case appleWalkingSteadiness = "HKQuantityTypeIdentifierAppleWalkingSteadiness"
+    case sixMinuteWalkTestDistance = "HKQuantityTypeIdentifierSixMinuteWalkTestDistance"
+    case stairAscentSpeed = "HKQuantityTypeIdentifierStairAscentSpeed"
+    case stairDescentSpeed = "HKQuantityTypeIdentifierStairDescentSpeed"
+    case bloodPressureSystolic = "HKQuantityTypeIdentifierBloodPressureSystolic"
+    case bloodPressureDiastolic = "HKQuantityTypeIdentifierBloodPressureDiastolic"
+    case bloodGlucose = "HKQuantityTypeIdentifierBloodGlucose"
+    case bodyTemperature = "HKQuantityTypeIdentifierBodyTemperature"
+    case appleSleepingWristTemperature = "HKQuantityTypeIdentifierAppleSleepingWristTemperature"
+    case height = "HKQuantityTypeIdentifierHeight"
+    case bodyMassIndex = "HKQuantityTypeIdentifierBodyMassIndex"
+    case waistCircumference = "HKQuantityTypeIdentifierWaistCircumference"
     case workout = "HKWorkoutTypeIdentifier"
 }
 
@@ -544,7 +572,7 @@ public struct TelemetrySample: Codable, Equatable, Hashable, Sendable {
     public var source: String
     /// The source's own id for this sample, stable across re-imports.
     public var sourceId: String
-    /// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`.
+    /// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`. Apple Health's activity totals and heart rate arrive one sample per day, from the day's start to its end: a sum, or for heart rate the day's average with `min_bpm` and `max_bpm` in `raw`.
     public var type: TelemetryType
     public var start: String
     public var end: String
