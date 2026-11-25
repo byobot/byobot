@@ -66,6 +66,15 @@ def _timed(store: Store, kind: str, payload: Any) -> Any:
     return payload
 
 
+def _written(store: Store, kind: str, payload: Any) -> Any:
+    """The payload as a command writes it: times filled in, and held to the registry."""
+    payload = _timed(store, kind, payload)
+    refused = store.contract.refusals(kind, payload) if isinstance(payload, dict) else []
+    if refused:
+        raise ValidationFailed("; ".join(refused))
+    return payload
+
+
 def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     """Create records, all or none: [{kind, id?, payload}]. An id already in use is refused, never overwritten."""
     changes = []
@@ -75,11 +84,20 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
         found = store.record(r["kind"], rid)
         if found and (found["live"] or found["erased"]):
             raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
-        payload = _timed(store, r["kind"], r["payload"])
+        payload = _written(store, r["kind"], r["payload"])
         changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
     return store.write(actor, changes)
+
+
+def observe(store: Store, actor: dict, code: str, value: Any, unit: str | None = None, start: str | None = None,
+            end: str | None = None, modality: str = "self_reported", notes: str | None = None) -> dict:
+    """Log one observation, such as a weight: `start` defaults to now, and a time without an offset is local."""
+    time = {k: v for k, v in (("start", start), ("end", end)) if v is not None} or None
+    payload = {"code": code, "value": value, "unit": unit, "time": time, "modality": modality, "notes": notes}
+    payload = {k: v for k, v in payload.items() if v is not None}
+    return log(store, actor, [{"kind": "observation", "payload": payload}])[0]
 
 
 def _live(store: Store, kind: str, rid: str) -> dict:
@@ -92,7 +110,7 @@ def _live(store: Store, kind: str, rid: str) -> dict:
 def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     """Change a live record by a JSON merge patch over its current version."""
     _authored(kind)
-    payload = _timed(store, kind, merge_patch(_live(store, kind, rid)["payload"], patch))
+    payload = _written(store, kind, merge_patch(_live(store, kind, rid)["payload"], patch))
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload}])[0]
 
 
@@ -108,7 +126,7 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
                    for ei, e in enumerate(block.get("efforts", []))]
         blocks.append({"id": was.get("id", f"{rid}.{bi}"), **block, "efforts": efforts})
     return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
-                                "payload": {**payload, "blocks": blocks}}])[0]
+                                "payload": _written(store, "planned_session", {**payload, "blocks": blocks})}])[0]
 
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:
@@ -156,7 +174,7 @@ def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict) 
         raise NotFound(f"{kind} {rid} has no conflict")
     versions = {v["id"]: v for v in found[0]["versions"]}
     if isinstance(choice, dict):
-        change = {"op": "put", "payload": _timed(store, kind, choice)}
+        change = {"op": "put", "payload": _written(store, kind, choice)}
     elif choice == "remove":
         change = {"op": "retract", "payload": {}}
     elif choice in versions:

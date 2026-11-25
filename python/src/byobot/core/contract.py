@@ -71,7 +71,7 @@ class Contract:
     schemas: dict[str, dict] = field(default_factory=lambda: _documents()[0])
 
     @classmethod
-    def shipped(cls) -> "Contract":
+    def shipped(cls) -> Contract:
         return _shipped()
 
     @cached_property
@@ -167,11 +167,43 @@ class Contract:
                 return False
         return True
 
-    def fingerprint(self) -> str:
-        """What decides which events this contract projects."""
-        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"])])
+    def refusals(self, kind: str, p: dict) -> list[str]:
+        """Why a command won't write this payload: codes, units and values outside the registry, or a code on a
+        kind it isn't for. Delivery still keeps them; only writers are held to the registry."""
+        out = []
+        for metrics in _measures(kind, p):
+            for code, m in metrics.items():
+                spec = self.registry["codes"].get(code)
+                if spec is None:
+                    if not code.startswith("x."):
+                        out.append(f"unknown code {code}; use a registry code or your own x. one")
+                    continue
+                if kind not in spec["on"]:
+                    out.append(f"{code} isn't used on {kind}")
+                if "unit" in m and m["unit"] not in spec.get("units", {}):
+                    units = ", ".join(spec.get("units", {})) or "none"
+                    out.append(f"{code} has no unit {m['unit']}; use one of {units}")
+                if spec["value"] == "category" and m.get("value") not in spec["values"]:
+                    out.append(f"{code} has no value {m.get('value')}; use one of {', '.join(spec['values'])}")
+        return out
 
-    def newer(self, version: int, kinds: dict[str, dict] | None = None) -> "Contract":
+    def canonical(self, code: str, m: dict, key: str = "value") -> float | None:
+        """`m[key]` in the code's own unit, or None when it can't be converted."""
+        spec, x = self.registry["codes"].get(code), m.get(key)
+        if spec is None or not _number(x):
+            return None
+        if spec["value"] != "quantity":
+            return x if spec["value"] in ("integer", "number") else None
+        factor = spec["units"].get(m.get("unit"))
+        return None if factor is None else x * factor
+
+    def fingerprint(self) -> str:
+        """What decides which events this contract projects, and how."""
+        units = {k: v.get("units") for k, v in self.registry["codes"].items()}
+        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"]),
+                    units])
+
+    def newer(self, version: int, kinds: dict[str, dict] | None = None) -> Contract:
         """A contract as an install `version` would know it: every kind at that version, plus `kinds`.
 
         Only for tests and tooling: a real upgrade ships its own schemas.

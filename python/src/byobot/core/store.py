@@ -92,7 +92,10 @@ class Store:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
             raise RuntimeError(f"{self.path} is store version {version}; this byobot reads {STORE_VERSION}")
+        reshaped = version != 0 and self._get("shape") != reducers.SHAPE
         with self._tx():
+            if reshaped:
+                reducers.drop(self.conn)
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
@@ -105,6 +108,9 @@ class Store:
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
+            self._set("shape", reducers.SHAPE)
+        if reshaped:
+            self.rebuild()
         if self._get("contract") != self.contract.fingerprint():
             self.use(self.contract)
 
@@ -234,9 +240,9 @@ class Store:
         if self.contract.version(kind) is not None:
             try:
                 with self._tx():
-                    reducers.project(self.conn, kind, rid, current["payload"] if live else None)
+                    reducers.project(self.conn, self.contract, kind, rid, current["payload"] if live else None)
             except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
-                reducers.project(self.conn, kind, rid, None)
+                reducers.project(self.conn, self.contract, kind, rid, None)
 
     def use(self, contract: Contract) -> None:
         """Switch to another contract (an upgrade or a downgrade) and re-derive every record it reads differently."""
@@ -249,11 +255,21 @@ class Store:
                 if not contract.understands(probe):
                     now[row[0]] = (row[1], row[2])
             changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
+            if self._units_changed(contract):
+                changed |= set(self.conn.execute(
+                    "SELECT kind, id FROM records WHERE live AND kind IN ('planned_session', 'session', 'effort', "
+                    "'observation')").fetchall())
             self.conn.execute("DELETE FROM unprojected")
             self.conn.executemany("INSERT INTO unprojected VALUES (?, ?, ?)", [(i, *r) for i, r in now.items()])
             for kind, rid in sorted(changed):
                 self._reindex(kind, rid)
             self._set("contract", contract.fingerprint())
+
+    def _units_changed(self, contract: Contract) -> bool:
+        try:
+            return json.loads(self._get("contract") or "[]")[2:] != json.loads(contract.fingerprint())[2:]
+        except ValueError:
+            return True
 
     def rebuild(self) -> None:
         """Re-derive every record from the log. A repair tool: accepting never needs it."""

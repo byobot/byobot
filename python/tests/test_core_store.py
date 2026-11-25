@@ -9,7 +9,7 @@ import pytest
 from byobot.core import commands
 from byobot.core.contract import Contract
 from byobot.core.store import Store
-from byobot.util import Conflict, NotFound
+from byobot.util import Conflict, NotFound, ValidationFailed
 
 ME = {"kind": "human", "id": "me"}
 T0 = datetime(2026, 3, 2, 10, tzinfo=timezone(timedelta(hours=-5)))
@@ -243,3 +243,43 @@ def test_a_home_zone_dates_times_written_without_an_offset(pair):
     commands.log(a, ME, [{"kind": "setting", "id": "home_zone", "payload": {"value": "Asia/Tokyo"}}])
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": {**effort(), "time": {"start": "2026-03-02T07:00:00"}}}])
     assert e["payload"]["time"]["start"] == "2026-03-02T07:00:00.000+09:00"
+
+
+def test_commands_hold_writes_to_the_registry(pair):
+    a, _ = pair
+    bad = [({"reps": {"value": 5}, "x.grip": {"value": "wide"}}, None),
+           ({"tempo_typo": {"value": 1}}, "unknown code tempo_typo"),
+           ({"load": {"value": 100, "unit": "stone"}}, "load has no unit stone"),
+           ({"body_mass": {"value": 80, "unit": "kg"}}, "body_mass isn't used on effort")]
+    for metrics, refusal in bad:
+        record = {"kind": "effort", "payload": {**effort(), "metrics": metrics}}
+        if refusal is None:
+            commands.log(a, ME, [record])
+        else:
+            with pytest.raises(ValidationFailed, match=refusal):
+                commands.log(a, ME, [record])
+    with pytest.raises(ValidationFailed, match="sleep_stage has no value napping"):
+        commands.observe(a, ME, "sleep_stage", "napping", start="2026-03-02T01:00:00-05:00")
+
+
+def test_measures_are_kept_in_each_codes_own_unit_too(pair):
+    a, _ = pair
+    lb = commands.log(a, ME, [{"kind": "effort", "payload": {**effort(), "metrics": {
+        "load": {"value": 100, "unit": "[lb_av]"}, "rest": {"min": 1, "max": 2, "unit": "min"}}}}])[0]
+    rows = {r[0]: tuple(r)[1:] for r in a.conn.execute(
+        "SELECT code, std_value, std_min, std_max, std_unit FROM metrics WHERE owner_id = ?", (lb["record"]["id"],))}
+    assert rows["load"] == (pytest.approx(45.359237), None, None, "kg")
+    assert rows["rest"] == (None, 60, 120, "s")
+    weight = commands.observe(a, ME, "body_mass", 180, "[lb_av]", start="2026-03-02T07:00:00-05:00")
+    row = a.conn.execute("SELECT std_value, std_unit, modality FROM observations WHERE id = ?", (weight["record"]["id"],))
+    assert tuple(row.fetchone()) == (pytest.approx(81.6466266), "kg", "self_reported")
+
+
+def test_derived_tables_rebuild_when_their_shape_changes(tmp_path):
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        commands.observe(s, ME, "body_mass", 80, "kg", start="2026-03-02T07:00:00-05:00")
+        s.conn.execute("ALTER TABLE observations DROP COLUMN std_value")
+        s._set("shape", "older")
+        s.conn.commit()
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        assert tuple(s.conn.execute("SELECT std_value FROM observations").fetchone()) == (80,)
