@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -13,10 +14,27 @@ from pathlib import Path
 from typing import Any
 
 
-def home() -> Path:
-    """The byobot home directory: ``$BYOBOT_HOME``, else ``~/.byobot``."""
+PROFILE_NAME = re.compile(r"[a-z0-9_]{1,40}")
+
+
+def profile() -> str | None:
+    """The profile in use (``$BYOBOT_PROFILE``), or None for the default one."""
+    name = os.environ.get("BYOBOT_PROFILE") or None
+    if name is not None and not PROFILE_NAME.fullmatch(name):
+        raise ValidationFailed(f"profile names are lowercase letters, digits and _, not {name!r}")
+    return name
+
+
+def base() -> Path:
+    """``$BYOBOT_HOME``, else ``~/.byobot``."""
     override = os.environ.get("BYOBOT_HOME")
     return Path(override).expanduser() if override else Path.home() / ".byobot"
+
+
+def home() -> Path:
+    """The byobot home directory: the base, or ``<base>/profiles/<name>`` for a named profile."""
+    name = profile()
+    return base() / "profiles" / name if name else base()
 
 
 def db_path() -> Path:

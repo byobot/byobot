@@ -15,7 +15,7 @@ from typing import Any, Sequence
 
 from byobot import __version__, mascot
 from byobot.commands import REGISTRY, Context, Param, run
-from byobot.util import ByobotError, ValidationFailed, db_path, utf8_stdio
+from byobot.util import ByobotError, ValidationFailed, db_path, profile, utf8_stdio
 
 DEFAULT_ACTOR = "human:me"
 
@@ -77,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"byobot {__version__}")
     parser.add_argument("--home", help="Use this byobot home instead of $BYOBOT_HOME or ~/.byobot.")
+    parser.add_argument("--profile", help="Use this person's profile, with its own store and sign-ins. "
+                                          "Default: $BYOBOT_PROFILE, else the default profile.")
     parser.add_argument("--actor", help=f"Who is acting, as KIND:ID[:MODEL]. Default: $BYOBOT_ACTOR or {DEFAULT_ACTOR}.")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     groups: dict[str, Any] = {}
@@ -109,7 +111,11 @@ def build_parser() -> argparse.ArgumentParser:
 def _banner() -> None:
     if not sys.stderr.isatty():
         return
-    info = [f"byobot {__version__} · bring your own bot", f"db  {db_path()}", "run `byobot --help` for commands"]
+    try:
+        where = [f"profile  {profile() or 'default'}", f"db  {db_path()}"]
+    except ByobotError as exc:
+        where = [exc.message]
+    info = [f"byobot {__version__} · bring your own bot", *where, "run `byobot --help` for commands"]
     sys.stderr.write("\n".join(mascot.beside(mascot.render(), info)) + "\n\n")
 
 
@@ -119,11 +125,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.home:
         os.environ["BYOBOT_HOME"] = args.home
+    if args.profile:
+        os.environ["BYOBOT_PROFILE"] = args.profile
     if args.command is None:
         _banner()
         parser.print_help()
         return 0
     try:
+        profile()
         actor = parse_actor(args.actor or os.environ.get("BYOBOT_ACTOR") or DEFAULT_ACTOR)
         if args.command == "mcp":
             from byobot.mcp import serve
