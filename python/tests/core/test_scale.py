@@ -70,7 +70,7 @@ def offline_sync(world: World) -> float:
     for i in range(TRIES):
         phone = f"phone{i}"
         workout = [world.author(phone, effort(f"{phone}.{len(world.changes)}")) for _ in range(30)]
-        costs.append(timed(lambda: world.deliver("hub", workout)))
+        costs.append(timed(lambda w=workout: world.deliver("hub", w)))
     return min(costs)
 
 
