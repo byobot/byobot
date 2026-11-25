@@ -38,7 +38,7 @@ The store key is 32 random bytes created with the store. It never enters the log
 
 ## Writes and conflicts
 
-- `prev` lists the events of the record the author saw as current. A record's heads are its events no other event of it names in `prev`. Two or more heads with different content are a conflict: reads show the head with the highest `hlc` and `id`, flagged, counted once. A write naming every head resolves it.
+- `prev` lists the events of the record the author saw as current. A record's heads are its events no other event of it names in `prev`. Two or more heads with different content are a conflict: reads show the head with the highest `hlc` and `id`, flagged, counted once. An ordinary write names the one version it was made from, so a conflict stays until a resolve names the heads the person saw.
 - `retract` removes a record and conflicts like any edit.
 - Undo is a command, not an op: it writes the record's previous content (or a `retract` if the undone event created it) with `reverts` set and `prev` filled as usual.
 - `erase` always wins and never conflicts. Every replica then blanks the payload of each event of that record, sets `redacted_by`, and keeps ids and order so the logbook still replays. An event of an erased record arriving later is stored blanked. Nothing derived from an erased payload's content may remain, except ids made with the store key.

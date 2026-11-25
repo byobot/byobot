@@ -1,4 +1,5 @@
-"""The authoring commands over the core store. They fill `prev` from what they read, so callers never do."""
+"""The authoring commands over the core store. Each write names the version it was made from as `prev`, so a
+version written meanwhile stays a visible conflict."""
 
 from __future__ import annotations
 
@@ -105,13 +106,19 @@ def observe(store: Store, actor: dict, code: str, value: Any, unit: str | None =
     return log(store, actor, [{"kind": "observation", "payload": payload}])[0]
 
 
-def _overlay(store: Store, actor: dict, effect: str, target: str, body: dict) -> dict:
+def _overlay(store: Store, actor: dict, effect: str, target: str, body: dict, read: dict | None = None) -> dict:
     rid = store.contract.derived("overlay", [effect, "source_record", target])
     payload = {"effect": effect, "target": {"kind": "source_record", "id": target}, **body}
     refused = store.contract.refusals("overlay", payload)
     if refused:
         raise ValidationFailed("; ".join(refused))
-    return store.write(actor, [{"kind": "overlay", "id": rid, "op": "put", "payload": payload}])[0]
+    change = {"kind": "overlay", "id": rid, "op": "put", "payload": payload, **_from(read)}
+    return store.write(actor, [change])[0]
+
+
+def _from(read: dict | None) -> dict:
+    """The `prev` of a write made from what `get` returned."""
+    return {"prev": [read["event"]["id"]]} if read else {}
 
 
 def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
@@ -123,7 +130,7 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
     if "time" in fields:
         fields = _timed(store, "session", fields)
-    return _overlay(store, actor, "correct", target, {"fields": fields})
+    return _overlay(store, actor, "correct", target, {"fields": fields}, found)
 
 
 def exclude(store: Store, actor: dict, target: str, notes: str | None = None) -> dict:
@@ -146,8 +153,9 @@ def _live(store: Store, kind: str, rid: str) -> dict:
 def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     """Change a live record by a JSON merge patch over its current version."""
     _authored(kind)
-    payload = _written(store, kind, merge_patch(_live(store, kind, rid)["payload"], patch))
-    return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload}])[0]
+    found = _live(store, kind, rid)
+    payload = _written(store, kind, merge_patch(found["payload"], patch))
+    return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload, **_from(found)}])[0]
 
 
 def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
@@ -156,7 +164,7 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
     current = store.get("planned_session", rid)
     payload = _parts(rid, payload, current["payload"]["blocks"] if current else [])
     return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
-                                "payload": _written(store, "planned_session", payload)}])[0]
+                                "payload": _written(store, "planned_session", payload), **_from(current)}])[0]
 
 
 def _parts(rid: str, payload: dict, old: list) -> dict:
@@ -176,9 +184,9 @@ def _parts(rid: str, payload: dict, old: list) -> dict:
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:
     _authored(kind)
-    _live(store, kind, rid)
+    found = _live(store, kind, rid)
     payload = {"reason": reason} if reason else {}
-    return store.write(actor, [{"kind": kind, "id": rid, "op": "retract", "payload": payload}])[0]
+    return store.write(actor, [{"kind": kind, "id": rid, "op": "retract", "payload": payload, **_from(found)}])[0]
 
 
 def erase(store: Store, actor: dict, kind: str, rid: str) -> list[dict]:
@@ -229,12 +237,20 @@ def conflicts(store: Store, kind: str | None = None, rid: str | None = None) -> 
     return store.conflicts(kind, rid)
 
 
-def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict) -> dict:
-    """End a conflict: keep one version (its event id), "remove" the record, or write a combined payload."""
+def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict, seen: list[str] | None = None) -> dict:
+    """End a conflict: keep one version (its event id), "remove" the record, or write a combined payload.
+
+    `seen` is the versions the person was shown; a version that arrived since keeps the conflict open.
+    """
     found = store.conflicts(kind, rid)
     if not found:
         raise NotFound(f"{kind} {rid} has no conflict")
     versions = {v["id"]: v for v in found[0]["versions"]}
+    if seen is not None:
+        held = {e["id"] for e in store.history(kind, rid)}
+        if not isinstance(seen, list) or not seen or not all(isinstance(i, str) and i in held for i in seen):
+            raise ValidationFailed(f"seen must list versions of {kind} {rid}")
+    prev = sorted(set(seen)) if seen is not None else list(versions)
     if isinstance(choice, dict):
         change = {"op": "put", "payload": _written(store, kind, choice)}
     elif choice == "remove":
@@ -246,4 +262,6 @@ def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict) 
             change["kind_version"] = picked["kind_version"]
     else:
         raise ValidationFailed(f"{choice} is not a version of {kind} {rid}")
-    return store.write(actor, [{"kind": kind, "id": rid, **change}])[0]
+    if isinstance(choice, str) and choice in versions and choice not in prev:
+        raise ValidationFailed(f"{choice} is not one of the versions you saw")
+    return store.write(actor, [{"kind": kind, "id": rid, "prev": prev, **change}])[0]

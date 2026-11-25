@@ -2,7 +2,7 @@
 per-record projections.
 
 Each event writes one record. A record's heads are its put and retract events that no other event has seen
-(through `prev`); more than one distinct head is a conflict, shown until a write that names every head.
+(through `prev`); more than one distinct head is a conflict, shown until a resolve names the heads it ends.
 Accepting an event re-derives only that record, so cost doesn't grow with history.
 """
 
@@ -572,7 +572,11 @@ class Store:
     def _event(self, actor: dict, change: dict, batch: str | None) -> dict:
         kind, rid, op = change["kind"], change["id"], change["op"]
         found = self.record(kind, rid)
-        prev = change.get("prev", found["tips"] if found else [])
+        if found and kind != "source_record" and op != "erase" and not set(found["tips"]) <= set(found["heads"]):
+            raise Conflict(f"{kind} {rid} holds a version written by a newer byobot; upgrade to change it")
+        prev = change.get("prev")
+        if prev is None:  # a write names the version it was made from, so a concurrent one stays a conflict
+            prev = [found["current"]] if found and found["current"] else []
         if len(prev) > MAX_PREV:
             raise Conflict(f"{kind} {rid} has more than {MAX_PREV} current versions; resolve some first")
         wall = self.wall()

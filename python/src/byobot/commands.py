@@ -339,12 +339,15 @@ def _conflicts(ctx: Context, kind: str | None = None, id: str | None = None) -> 
     Param("id", "string", "The record's id.", required=True, positional=True),
     Param("choice", "json", "The event id of the version to keep, \"remove\", or a combined payload.",
           required=True, positional=True, schema={"type": ["string", "object"]}),
+    Param("seen", "json", "The event ids of the versions you were shown (from `conflicts`). A version that "
+          "arrived since stays a conflict. Leave it out to end every current version.",
+          schema={"type": "array", "items": {"type": "string"}}),
     read_only=False,
 )
-def _resolve(ctx: Context, kind: str, id: str, choice: Any) -> dict:
+def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) -> dict:
     if not isinstance(choice, (str, dict)):
         raise ValidationFailed("choice must be an event id, \"remove\" or a payload object")
-    return {"event": core.resolve(ctx.store(), ctx.actor, kind, id, choice)}
+    return {"event": core.resolve(ctx.store(), ctx.actor, kind, id, choice, seen)}
 
 
 # -- what sources imported --------------------------------------------------------

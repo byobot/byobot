@@ -238,11 +238,11 @@ PHONE_KINDS = (*core.AUTHORED, "overlay")
 
 
 def _entry(store: Store, kind: str, rid: str) -> dict | None:
-    """A live record as the phone keeps it: its payload, and the versions a change to it names as prev."""
+    """A live record as the phone keeps it: its payload, and the version a change to it names as prev."""
     found = store.get(kind, rid)
     if found is None:
         return None
-    return {"id": rid, "payload": found["payload"], "prev": store.record(kind, rid)["tips"],
+    return {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
             **({"conflict": True} if found["conflict"] else {})}
 
 
