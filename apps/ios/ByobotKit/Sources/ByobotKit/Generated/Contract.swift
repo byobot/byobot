@@ -44,9 +44,12 @@ public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
     case both
 }
 
-/// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it.
+/// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`.
 public enum TelemetryType: String, Codable, CaseIterable, Hashable, Sendable {
     case bodyMass = "HKQuantityTypeIdentifierBodyMass"
+    case bodyFatPercentage = "HKQuantityTypeIdentifierBodyFatPercentage"
+    case leanBodyMass = "HKQuantityTypeIdentifierLeanBodyMass"
+    case vo2Max = "HKQuantityTypeIdentifierVO2Max"
     case heartRateVariabilitySDNN = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN"
     case heartRateVariabilityRMSSD = "byobot.HeartRateVariabilityRMSSD"
     case restingHeartRate = "HKQuantityTypeIdentifierRestingHeartRate"
@@ -61,6 +64,7 @@ public enum TelemetryType: String, Codable, CaseIterable, Hashable, Sendable {
     case sleepPerformance = "byobot.SleepPerformance"
     case recoveryScore = "byobot.RecoveryScore"
     case strain = "byobot.Strain"
+    case workout = "HKWorkoutTypeIdentifier"
 }
 
 public struct Activity: Codable, Equatable, Hashable, Sendable, Identifiable {
@@ -540,7 +544,7 @@ public struct TelemetrySample: Codable, Equatable, Hashable, Sendable {
     public var source: String
     /// The source's own id for this sample, stable across re-imports.
     public var sourceId: String
-    /// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it.
+    /// Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`.
     public var type: TelemetryType
     public var start: String
     public var end: String

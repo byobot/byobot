@@ -2764,6 +2764,75 @@
       }
     },
     {
+      "name": "telemetry/body-fat",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A scale's body fat reading, as a percentage 0 to 100.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0001",
+        "type": "HKQuantityTypeIdentifierBodyFatPercentage",
+        "start": "2026-11-20T07:12:00-05:00",
+        "end": "2026-11-20T07:12:00-05:00",
+        "value": 18.4,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/lean-body-mass",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Lean body mass in kg.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0002",
+        "type": "HKQuantityTypeIdentifierLeanBodyMass",
+        "start": "2026-11-20T07:12:00-05:00",
+        "end": "2026-11-20T07:12:00-05:00",
+        "value": 67.2,
+        "unit": "kg"
+      }
+    },
+    {
+      "name": "telemetry/vo2max",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "VO2 max in HealthKit's unit string, ml/kg*min.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0003",
+        "type": "HKQuantityTypeIdentifierVO2Max",
+        "start": "2026-11-20T18:30:00Z",
+        "end": "2026-11-20T18:30:00Z",
+        "value": 48.1,
+        "unit": "ml/kg*min"
+      }
+    },
+    {
+      "name": "telemetry/workout",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A workout from Apple Health: the activity type is the value and the totals are in raw.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0004",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "traditionalStrengthTraining",
+        "device": {
+          "id": "example-watch",
+          "name": "Example Watch"
+        },
+        "raw": {
+          "duration_s": 2700,
+          "energy_kcal": 310.5,
+          "heart_rate_avg_bpm": 112,
+          "heart_rate_max_bpm": 158
+        }
+      }
+    },
+    {
       "name": "telemetry/body-mass-in-lb",
       "schema": "telemetry",
       "valid": false,
@@ -2953,6 +3022,85 @@
         "start": "2026-11-20T03:00:00Z",
         "end": "2026-11-20T11:00:00Z",
         "value": 22
+      }
+    },
+    {
+      "name": "telemetry/body-fat-over-100",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Body fat is a percentage, 0 to 100, not HealthKit's fraction scaled twice.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierBodyFatPercentage",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 1840,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/vo2max-wrong-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "VO2 max is in ml/kg*min.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierVO2Max",
+        "start": "2026-11-20T18:30:00Z",
+        "end": "2026-11-20T18:30:00Z",
+        "value": 48.1,
+        "unit": "ml/min"
+      }
+    },
+    {
+      "name": "telemetry/workout-without-totals",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout carries its totals in raw.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "running"
+      }
+    },
+    {
+      "name": "telemetry/workout-with-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout's value is an activity type, with no unit.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "running",
+        "unit": "min",
+        "raw": {
+          "duration_s": 2700
+        }
+      }
+    },
+    {
+      "name": "telemetry/workout-number",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout's value is its activity type, not a duration.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": 45,
+        "raw": {
+          "duration_s": 2700
+        }
       }
     },
     {

@@ -12,6 +12,9 @@
     "type": {
       "enum": [
         "HKQuantityTypeIdentifierBodyMass",
+        "HKQuantityTypeIdentifierBodyFatPercentage",
+        "HKQuantityTypeIdentifierLeanBodyMass",
+        "HKQuantityTypeIdentifierVO2Max",
         "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
         "byobot.HeartRateVariabilityRMSSD",
         "HKQuantityTypeIdentifierRestingHeartRate",
@@ -25,9 +28,10 @@
         "byobot.SleepAwakeDuration",
         "byobot.SleepPerformance",
         "byobot.RecoveryScore",
-        "byobot.Strain"
+        "byobot.Strain",
+        "HKWorkoutTypeIdentifier"
       ],
-      "description": "Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it."
+      "description": "Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`."
     },
     "start": { "$ref": "common.schema.json#/$defs/timestamp" },
     "end": { "$ref": "common.schema.json#/$defs/timestamp" },
@@ -38,7 +42,7 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierBodyMass" } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierBodyMass", "HKQuantityTypeIdentifierLeanBodyMass"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 700 }, "unit": { "const": "kg" } }
@@ -66,7 +70,7 @@
       }
     },
     {
-      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierOxygenSaturation", "byobot.SleepPerformance", "byobot.RecoveryScore"] } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierOxygenSaturation", "HKQuantityTypeIdentifierBodyFatPercentage", "byobot.SleepPerformance", "byobot.RecoveryScore"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "minimum": 0, "maximum": 100 }, "unit": { "const": "%" } }
@@ -99,9 +103,38 @@
         "not": { "required": ["unit"] },
         "properties": { "value": { "type": "number", "minimum": 0, "maximum": 21 } }
       }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierVO2Max" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 }, "unit": { "const": "ml/kg*min" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKWorkoutTypeIdentifier" } }, "required": ["type"] },
+      "then": {
+        "not": { "required": ["unit"] },
+        "required": ["raw"],
+        "properties": {
+          "value": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" },
+          "raw": { "$ref": "#/$defs/workout_totals" }
+        }
+      }
     }
   ],
   "$defs": {
+    "workout_totals": {
+      "description": "A workout's totals as the source reports them. Anything else the source gives may ride along.",
+      "type": "object",
+      "properties": {
+        "duration_s": { "type": "number", "minimum": 0 },
+        "energy_kcal": { "type": "number", "minimum": 0 },
+        "distance_m": { "type": "number", "minimum": 0 },
+        "heart_rate_avg_bpm": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
+        "heart_rate_max_bpm": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }
+      }
+    },
     "device": {
       "description": "The physical device that took the measurement, so baselines can be kept per device.",
       "type": "object",
