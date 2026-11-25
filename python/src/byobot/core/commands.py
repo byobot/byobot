@@ -181,6 +181,23 @@ def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = 
     return store.write(actor, [{"kind": kind, "id": rid, "op": "retract", "payload": payload}])[0]
 
 
+def erase(store: Store, actor: dict, kind: str, rid: str) -> list[dict]:
+    """Destroy a record's content everywhere, with every overlay on it. Can't be undone."""
+    if kind not in AUTHORED and kind != "source_record":
+        raise ValidationFailed(f"{kind} records can't be erased on their own")
+    found = store.record(kind, rid)
+    if found is None:
+        raise NotFound(f"no {kind} {rid}")
+    if found["erased"]:
+        raise Conflict(f"{kind} {rid} was already erased")
+    overlays = [r[0] for r in store.conn.execute(
+        "SELECT DISTINCT record_id FROM events WHERE kind = 'overlay' AND json_extract(payload, '$.target.kind') = ? "
+        "AND json_extract(payload, '$.target.id') = ? ORDER BY record_id", (kind, rid))]
+    changes = [{"kind": kind, "id": rid, "op": "erase"}]
+    changes += [{"kind": "overlay", "id": o, "op": "erase"} for o in overlays if not store.record("overlay", o)["erased"]]
+    return store.write(actor, changes)
+
+
 def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
     """Take an event back by writing its record's previous version (a retract if it had none).
 
