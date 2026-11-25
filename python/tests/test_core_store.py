@@ -404,3 +404,17 @@ def test_query_stops_at_its_deadline(tmp_path):
     with pytest.raises(ValidationFailed, match="stopped after"):
         query(tmp_path / "s.db", endless, seconds=0.5)
     assert time.monotonic() - started < 5
+
+
+def test_a_redaction_without_its_erase_blanks_nothing(pair):
+    """A synced event marked erased, whose erase never came, can't blank a live record."""
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    sync(a, b)
+    rid = e["record"]["id"]
+    forged = {**e, "id": a.new_id(), "prev": [e["id"]], "hlc": "2026000000000-000000", "payload": {},
+              "redacted_by": a.new_id()}
+    forged["hlc"] = e["hlc"][:-1] + "9"
+    b.accept_many([forged])
+    assert reps(b, rid) == 5 and not b.record("effort", rid)["conflict"]
+

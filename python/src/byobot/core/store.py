@@ -328,7 +328,9 @@ class Store:
         rows = self.conn.execute("SELECT * FROM events WHERE kind = ? AND record_id = ?", (kind, rid)).fetchall()
         events = {r["id"]: _envelope(r) for r in rows}
         erased = any(e["op"] == "erase" for e in events.values())
-        versions = {i: e for i, e in events.items() if e["op"] in ("put", "retract") and not erased}
+        # a redacted event whose erase isn't held yet takes no part, so a forged one can't blank a live record
+        versions = {i: e for i, e in events.items()
+                    if e["op"] in ("put", "retract") and not erased and "redacted_by" not in e}
         understood = {i: e for i, e in versions.items() if self.contract.understands(e)}
         if kind == "source_record":
             current, live, conflict, heads, tips = _source_current(understood)
