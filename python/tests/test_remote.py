@@ -427,3 +427,13 @@ def test_an_api_key_also_works_for_mcp(running):
     key = running.auth.create_key("example_assistant")
     resp, raw = rpc(running, key, "tools/list")
     assert resp.status == 200 and json.loads(raw)["result"]["tools"]
+
+
+def test_remote_api_key_prints_a_working_key(capsys, auth):
+    from byobot.cli import main
+
+    assert main(["remote", "--api-key", "example_assistant"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["openapi"].endswith("/api/openapi.json")
+    assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
+    assert main(["remote", "--api-key", "Bad Name"]) == 1

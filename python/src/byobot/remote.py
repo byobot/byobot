@@ -635,9 +635,17 @@ def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *,
     return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
 
 
-def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool) -> int:
+def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
+        api_key: str | None = None) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
+    if api_key is not None:
+        key = Auth(remote_dir() / "oauth.json").create_key(api_key)
+        base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
+        sys.stdout.write(json.dumps({"name": api_key, "key": key, "openapi": base + "/api/openapi.json",
+                                     "mcp": base + "/mcp"}, indent=2) + "\n")
+        sys.stderr.write("Shown once. Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
+        return 0
     if revoke:
         count = Auth(remote_dir() / "oauth.json").revoke_all()
         sys.stdout.write(json.dumps({"disconnected": count}) + "\n")
