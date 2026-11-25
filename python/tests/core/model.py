@@ -110,12 +110,17 @@ class ModelReplica:
         return (wall, 0) if wall > self.floor[0] else (self.floor[0], self.floor[1] + 1)
 
     def _write(self, at: str, actor: str, kind: str, rid: str, op: str, content: Any, reverts: str | None = None,
-               wid: str | None = None) -> Write:
+               wid: str | None = None, read: bool = False) -> Write:
+        """`read`: the write was made from the record's current version, and names only that one."""
+        record = key(kind, rid)
+        cur = self.current(record) if read else None
+        if read and self._unread(record):
+            raise Refused(f"{record} holds a version written by a newer byobot")
+        prior = frozenset({cur.id}) if cur else frozenset(self.by_record.get(record, ()))
         if wid is None:
             self.authored += 1
             wid = f"{self.name}:{self.authored}"
-        w = Write(wid, self.name, at, actor, kind, rid, op, content,
-                  frozenset(self.by_record.get(key(kind, rid), ())), self._clock(at), reverts)
+        w = Write(wid, self.name, at, actor, kind, rid, op, content, prior, self._clock(at), reverts)
         self.deliver([w])
         return w
 
@@ -129,6 +134,11 @@ class ModelReplica:
                     if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
         superseded = set().union(*(v.prior for v in versions)) if versions else set()
         return sorted((v for v in versions if v.id not in superseded), key=Write.order)
+
+    def _unread(self, record: str) -> bool:
+        versions = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op in ("put", "retract")]
+        superseded = set().union(*(v.prior for v in versions)) if versions else set()
+        return any(not self.understands(v) for v in versions if v.id not in superseded) and record not in self.gone
 
     def current(self, record: str, among: set[str] | None = None) -> Write | None:
         heads = self.heads(record, among)
@@ -168,12 +178,12 @@ class ModelReplica:
             current = self.fields(key(kind, rid))
             if current is None:
                 raise Refused(f"no {kind} {rid}")
-            return [self._write(at, actor, kind, rid, "put", _strip({**current, **intent["fields"]}))]
+            return [self._write(at, actor, kind, rid, "put", _strip({**current, **intent["fields"]}), read=True)]
         if name == "remove":
             kind, rid = intent["record"]
             if self.fields(key(kind, rid)) is None:
                 raise Refused(f"no {kind} {rid}")
-            return [self._write(at, actor, kind, rid, "retract", None)]
+            return [self._write(at, actor, kind, rid, "retract", None, read=True)]
         if name == "undo":
             return [self._undo(target, at, actor) for target in intent["events"]]
         if name == "resolve":
@@ -206,7 +216,7 @@ class ModelReplica:
                         **e} for ei, e in enumerate(block["efforts"])]
             blocks.append({"id": was.get("id", f"{record['id']}.{bi}"), **block, "efforts": efforts})
         content = {k: v for k, v in record.items() if k != "id"} | {"blocks": blocks}
-        return [self._write(at, actor, "planned_session", record["id"], "put", content)]
+        return [self._write(at, actor, "planned_session", record["id"], "put", content, read=True)]
 
     def _undo(self, target: Write, at: str, actor: str) -> Write:
         if target.op not in ("put", "retract"):
@@ -239,7 +249,7 @@ class ModelReplica:
         else:
             rid = f"same_as:{target}"
             content = {"target": target, "session": intent["session"]}
-        return self._write(at, actor, "overlay", rid, "put", content)
+        return self._write(at, actor, "overlay", rid, "put", content, read=True)
 
     # -- sources -------------------------------------------------------------
 
