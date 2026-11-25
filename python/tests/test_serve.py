@@ -481,6 +481,23 @@ def test_push_samples(server, byobot_home):
     assert client.call("POST", "/v1/samples", [weight])[0] == 400
 
 
+def test_a_phone_writes_only_apple_health(server, byobot_home):
+    """A paired device can't sign samples, or delete them, as another source."""
+    _, info, client, _ = server
+    _pair(client, info)
+    weight = next(c for c in SYNC["cases"] if c["name"] == "sync/samples-request")["data"]["samples"][0]
+    whoop = {**weight, "source": "whoop"}
+    status, body = client.call("POST", "/v1/samples", {"samples": [whoop]})
+    assert status == 400 and body["error"] == "invalid"
+    from byobot.core import sources
+    with db(byobot_home) as s:
+        sources.ingest_samples(s, [whoop])
+    status, body = client.call("POST", "/v1/samples", {"deleted": [{"source": "whoop", "source_id": weight["source_id"]}]})
+    assert status == 400
+    with db(byobot_home) as s:
+        assert s.rows("SELECT source FROM source_records") == [{"source": "whoop"}]
+
+
 def test_unpair_revokes_the_token_at_once(server, capsys):
     from byobot.cli import main
 

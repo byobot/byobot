@@ -378,6 +378,9 @@ def accept_samples(store: Store, body: Any) -> dict:
     if not isinstance(samples, list) or not isinstance(deleted, list) or len(samples) + len(deleted) > MAX_BATCH:
         raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid",
                         f"send {{samples: [...], deleted: [...]}} with at most {MAX_BATCH} in all")
+    if any(not isinstance(s, dict) or sources.SAMPLE_SOURCES.get(s.get("source"), s.get("source")) != "apple_health"
+           for s in samples + deleted):
+        raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "a phone sends only apple_health samples")
     written = sources.ingest_samples(store, samples, deleted)
     return {"written": sum(len(e) for e in written.values()),
             "by_source": {s: len(e) for s, e in written.items()}}
