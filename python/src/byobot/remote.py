@@ -20,14 +20,22 @@ import hashlib
 import json
 import os
 import secrets
+import socket
 import threading
+import sys
 import time
 from dataclasses import dataclass, field
+from html import escape
+from http import HTTPStatus
+from http.server import ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
+from typing import Any, Callable
+from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot.util import ValidationFailed, home
+from byobot import mcp, serve
+from byobot.commands import Context
+from byobot.serve import Pairing
+from byobot.util import ByobotError, ValidationFailed, db_path, home, profile
 
 SCOPE = "byobot"
 ACCESS_TTL_S = 3600
@@ -238,3 +246,318 @@ class Auth:
             self.grants.clear()
             self._save({"clients": {}, "access": {}, "refresh": {}})
         return count
+
+
+# -- HTTP --------------------------------------------------------------------
+
+MAX_FORM = 8192
+MAX_SESSIONS = 1000
+QUERY_TIMEOUT_S = 20
+
+
+class RemoteServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, address: tuple[str, int], base: str, db: Path, auth: Auth, pairing: Pairing | None,
+                 name: str, log: Callable[[str], None] | None = None):
+        self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
+        self.pairing_lock = threading.Lock()
+        self.sessions: dict[str, dict] = {}
+        self.sessions_lock = threading.Lock()
+        self.log = log or (lambda line: None)
+        super().__init__(address, Handler)
+
+    @property
+    def resource(self) -> str:
+        return self.base + "/mcp"
+
+    def finish_request(self, request: Any, client_address: Any) -> None:
+        request.settimeout(serve.SOCKET_TIMEOUT_S)
+        super().finish_request(request, client_address)
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
+class Handler(serve.Handler):
+    server: RemoteServer  # type: ignore[assignment]
+
+    # -- plumbing --
+
+    def _html(self, status: HTTPStatus, title: str, body: str) -> None:
+        page = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                f"<title>{escape(title)}</title><style>body{{font:16px/1.5 system-ui;max-width:28em;margin:2em auto;"
+                f"padding:0 1em}}input,button{{font:inherit;padding:.4em}}</style><h1>{escape(title)}</h1>{body}")
+        self._send_bytes(status, page.encode(), "text/html; charset=utf-8",
+                         {"X-Frame-Options": "DENY", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; "
+                          "frame-ancestors 'none'"})
+
+    def _oauth_fail(self, exc: OAuthError) -> None:
+        headers = {"WWW-Authenticate": 'Basic realm="byobot"'} if exc.status == 401 else None
+        self._send_bytes(HTTPStatus(exc.status), json.dumps(exc.to_dict()).encode(), "application/json", headers)
+
+    def _form(self) -> dict[str, str]:
+        length = self._content_length(MAX_FORM)
+        self._continue_if_expected()
+        raw = self._read_exact(length).decode("utf-8", "replace")
+        return {k: v[-1] for k, v in parse_qs(raw).items()}
+
+    def _route(self) -> str:
+        return urlsplit(self.path).path.rstrip("/") or "/"
+
+    def _guard(self, fn: Callable[[], None]) -> None:
+        try:
+            fn()
+        except OAuthError as exc:
+            self._oauth_fail(exc)
+        except serve.HTTPError as exc:
+            self._fail(exc)
+
+    def do_GET(self) -> None:  # noqa: N802
+        routes = {"/.well-known/oauth-protected-resource": self.resource_metadata,
+                  "/.well-known/oauth-protected-resource/mcp": self.resource_metadata,
+                  "/.well-known/oauth-authorization-server": self.server_metadata,
+                  "/oauth/authorize": self.authorize_page, "/mcp": self.mcp_not_allowed}
+        self._guard(routes.get(self._route(), self.not_found))
+
+    def do_POST(self) -> None:  # noqa: N802
+        routes = {"/oauth/register": self.register, "/oauth/authorize": self.approve, "/oauth/token": self.token,
+                  "/mcp": self.mcp}
+        self._guard(routes.get(self._route(), self.not_found))
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._guard(self.end_session if self._route() == "/mcp" else self.not_found)
+
+    def not_found(self) -> None:
+        raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"no such endpoint {self._route()}")
+
+    # -- metadata --
+
+    def resource_metadata(self) -> None:
+        """RFC 9728."""
+        self._send(HTTPStatus.OK, {"resource": self.server.resource, "authorization_servers": [self.server.base],
+                                   "scopes_supported": [SCOPE], "bearer_methods_supported": ["header"],
+                                   "resource_name": f"byobot ({self.server.name})"})
+
+    def server_metadata(self) -> None:
+        """RFC 8414."""
+        base = self.server.base
+        self._send(HTTPStatus.OK, {
+            "issuer": base, "authorization_endpoint": base + "/oauth/authorize", "token_endpoint": base + "/oauth/token",
+            "registration_endpoint": base + "/oauth/register", "scopes_supported": [SCOPE],
+            "response_types_supported": ["code"], "grant_types_supported": ["authorization_code", "refresh_token"],
+            "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": list(AUTH_METHODS),
+            "authorization_response_iss_parameter_supported": True})
+
+    # -- registration, approval, tokens --
+
+    def register(self) -> None:
+        self._send(HTTPStatus.CREATED, self.server.auth.register(self._body(MAX_FORM)))
+
+    def _authorization(self, q: dict[str, str]) -> tuple[dict, str]:
+        """The client and redirect URI of an authorization request. Errors here are shown, not redirected."""
+        client = self.server.auth.client(q.get("client_id"))
+        if client is None:
+            raise _Shown("This connection request names an app byobot doesn't know. Start again from your assistant.")
+        uris = client["redirect_uris"]
+        uri = q.get("redirect_uri") or (uris[0] if len(uris) == 1 else None)
+        if uri not in uris:
+            raise _Shown("This connection request's return address doesn't match the app. Start again from your assistant.")
+        return client, uri
+
+    def _check_request(self, q: dict[str, str]) -> None:
+        if q.get("response_type") != "code":
+            raise OAuthError("unsupported_response_type", "response_type must be code")
+        if q.get("code_challenge_method") != "S256" or not 43 <= len(q.get("code_challenge", "")) <= 128:
+            raise OAuthError("invalid_request", "PKCE with code_challenge_method S256 is required")
+        self.server.auth.check_resource(q.get("resource"))
+
+    def authorize_page(self) -> None:
+        self._authorize({k: v[-1] for k, v in parse_qs(urlsplit(self.path).query).items()})
+
+    def approve(self) -> None:
+        self._authorize(self._form(), submitted=True)
+
+    def _authorize(self, q: dict[str, str], submitted: bool = False) -> None:
+        try:
+            client, uri = self._authorization(q)
+        except _Shown as exc:
+            self._html(HTTPStatus.BAD_REQUEST, "Can't connect", f"<p>{escape(str(exc))}</p>")
+            return
+        try:
+            self._check_request(q)
+        except OAuthError as exc:
+            self._redirect(uri, {"error": exc.error, "error_description": exc.description, "state": q.get("state")})
+            return
+        message = ""
+        if submitted:
+            with self.server.pairing_lock:
+                pairing = self.server.pairing
+                is_open = pairing is not None and pairing.open
+                ok = is_open and pairing.check(q.get("approval_code", ""))
+                tries = pairing.tries_left if pairing else 0
+            if ok:
+                code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"])
+                self.server.log(f"approved {client['client_name']}")
+                self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
+                return
+            message = "That code isn't right." if is_open and tries else ""
+        if self.server.pairing is None or not self.server.pairing.open:
+            self._html(HTTPStatus.FORBIDDEN, "Approval is closed",
+                       "<p>Run <code>byobot remote --pair</code> on the computer that holds your byobot, "
+                       "then connect again.</p>")
+            return
+        keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
+                       if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
+                                "code_challenge_method", "state", "scope", "resource"))
+        self._html(HTTPStatus.FORBIDDEN if message else HTTPStatus.OK, "Connect to byobot",
+                   f"<p><b>{escape(client['client_name'])}</b> wants to read and write your byobot "
+                   f"({escape(self.server.name)}). It will return to {escape(urlsplit(uri).hostname or '')}.</p>"
+                   f"<p>Enter the code <code>byobot remote</code> shows.</p>"
+                   f"<form method=post action='/oauth/authorize'>{keep}"
+                   f"<p><input name=approval_code inputmode=numeric autocomplete=one-time-code size=8 autofocus>"
+                   f" <button>Connect</button></p></form><p>{escape(message)}</p>")
+
+    def _redirect(self, uri: str, params: dict[str, Any]) -> None:
+        query = urlencode({k: v for k, v in params.items() if v is not None})
+        self._send_bytes(HTTPStatus.FOUND, b"", None, {"Location": uri + ("&" if urlsplit(uri).query else "?") + query})
+
+    def token(self) -> None:
+        form = self._form()
+        client_id, secret = form.get("client_id"), form.get("client_secret")
+        basic = self.headers.get("Authorization", "")
+        if basic.lower().startswith("basic "):
+            try:
+                pair = base64.b64decode(basic[6:].strip(), validate=True).decode()
+                client_id, secret = (unquote_plus(x) for x in pair.split(":", 1))
+            except (ValueError, UnicodeDecodeError):
+                raise OAuthError("invalid_client", "malformed Basic credentials", 401) from None
+        client = self.server.auth.authenticate(client_id, secret)
+        self.server.auth.check_resource(form.get("resource"))
+        grant_type = form.get("grant_type")
+        if grant_type == "authorization_code":
+            tokens = self.server.auth.exchange(client, form.get("code"), form.get("redirect_uri"),
+                                               form.get("code_verifier"))
+        elif grant_type == "refresh_token":
+            tokens = self.server.auth.refresh(client, form.get("refresh_token"))
+        else:
+            raise OAuthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token")
+        self._send(HTTPStatus.OK, tokens)
+
+    # -- MCP --
+
+    def _client(self) -> dict:
+        token = self._bearer()
+        client = self.server.auth.client_for_token(token) if token else None
+        if client is None:
+            challenge = f'Bearer resource_metadata="{self.server.base}/.well-known/oauth-protected-resource/mcp"'
+            if token:
+                challenge += ', error="invalid_token"'
+            body = json.dumps({"error": "unauthorized", "message": "connect this assistant to byobot first"}).encode()
+            self._send_bytes(HTTPStatus.UNAUTHORIZED, body, "application/json", {"WWW-Authenticate": challenge})
+            raise _Sent
+        self.peer = {"name": client["client_name"]}
+        return client
+
+    def _session(self, client: dict) -> dict | None:
+        sid = self.headers.get("Mcp-Session-Id")
+        if sid is None:
+            return None
+        with self.server.sessions_lock:
+            session = self.server.sessions.get(sid)
+        if session is None or session["client_id"] != client["client_id"]:
+            raise serve.HTTPError(HTTPStatus.NOT_FOUND, "no_session", "unknown session; initialize again")
+        return session
+
+    def mcp(self) -> None:
+        try:
+            client = self._client()
+        except _Sent:
+            return
+        version = self.headers.get("MCP-Protocol-Version")
+        if version is not None and version not in mcp.SUPPORTED_VERSIONS:
+            raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
+        message = self._body()
+        initializing = isinstance(message, dict) and message.get("method") == "initialize"
+        session = None if initializing else self._session(client)
+        server = mcp.Server()
+        server.client = session["client"] if session else {"name": client["client_name"]}
+        if session:
+            server.protocol = session["protocol"]
+        server.ctx = Context(actor={}, path=self.server.db)
+        try:
+            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            reply = server.handle(message)
+        finally:
+            server.close()
+        headers = {}
+        if initializing and isinstance(reply, dict) and "result" in reply:
+            sid = secrets.token_urlsafe(24)
+            with self.server.sessions_lock:
+                while len(self.server.sessions) >= MAX_SESSIONS:
+                    self.server.sessions.pop(next(iter(self.server.sessions)))
+                self.server.sessions[sid] = {"client_id": client["client_id"], "client": server.client,
+                                             "protocol": server.protocol}
+            headers["Mcp-Session-Id"] = sid
+        if reply is None:
+            self._send_bytes(HTTPStatus.ACCEPTED, b"", None, headers)
+        else:
+            self._send_bytes(HTTPStatus.OK, json.dumps(reply, ensure_ascii=False).encode(),
+                             "application/json; charset=utf-8", headers)
+
+    def mcp_not_allowed(self) -> None:
+        self._send_bytes(HTTPStatus.METHOD_NOT_ALLOWED, b"", None, {"Allow": "POST, DELETE"})
+
+    def end_session(self) -> None:
+        try:
+            client = self._client()
+        except _Sent:
+            return
+        sid = self.headers.get("Mcp-Session-Id")
+        if self._session(client) is not None:
+            with self.server.sessions_lock:
+                self.server.sessions.pop(sid, None)
+        self._send_bytes(HTTPStatus.NO_CONTENT, b"", None)
+
+
+# -- running it --------------------------------------------------------------
+
+DEFAULT_PORT = 8780
+
+
+def choose_port(host: str) -> int:
+    """The port this profile used last, else 8780 for the default profile, else a free one from 8781 up."""
+    saved = remote_dir() / "port"
+    if saved.is_file():
+        return int(saved.read_text().strip())
+    if profile() is None:
+        return DEFAULT_PORT
+    for port in range(DEFAULT_PORT + 1, DEFAULT_PORT + 100):
+        with socket.socket() as s:
+            try:
+                s.bind((host, port))
+                return port
+            except OSError:
+                continue
+    raise ByobotError("no free port for byobot remote; pass --port")
+
+
+def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,
+                db: Path | None = None, log: Callable[[str], None] | None = None) -> RemoteServer:
+    """Build a server (not yet serving). ``pair=None`` opens approval only when no client is connected yet."""
+    auth = Auth(remote_dir() / "oauth.json", base + "/mcp")
+    if pair is None:
+        pair = not auth.clients()
+    name = profile() or "default profile"
+    return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
+
+
+class _Shown(Exception):
+    """An authorization error shown on the page, because redirecting to an unchecked address is unsafe."""
+
+
+class _Sent(Exception):
+    """The response is already sent."""
