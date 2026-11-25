@@ -124,3 +124,43 @@ def test_review_takes_each_metric_from_one_source(store):
         {"date": "2026-11-21", "asleep_h": 6.0, "hrv_sdnn_ms": 55},
     ]
     assert out["body"] == [{"date": "2026-11-20", "body_fat_pct": 18.4, "weight_kg": 82.4}]
+
+
+def test_review_shows_activity_mobility_and_vitals(store):
+    from datetime import datetime
+
+    from byobot.review import review
+
+    def at(text):
+        return datetime.fromisoformat(text).astimezone().isoformat()
+
+    def sample(source, type_, start, end, value, unit):
+        return {"source": source, "source_id": f"{type_}:{start}", "type": f"HKQuantityTypeIdentifier{type_}",
+                "start": at(start), "end": at(end), "value": value, "unit": unit}
+
+    day = ("2026-11-20T00:00:00", "2026-11-21T00:00:00")
+    store.ingest([
+        sample("apple-health", "StepCount", *day, 9412, "count"),
+        sample("apple-health", "DistanceWalkingRunning", *day, 7210.5, "m"),
+        sample("apple-health", "AppleExerciseTime", *day, 2520, "s"),
+        sample("apple-health", "HeartRate", *day, 71.4, "count/min"),
+        sample("apple-health", "WalkingSpeed", "2026-11-20T09:00:00", "2026-11-20T09:05:00", 1.4, "m/s"),
+        sample("apple-health", "WalkingSpeed", "2026-11-20T17:00:00", "2026-11-20T17:05:00", 1.2, "m/s"),
+        sample("apple-health", "BloodPressureSystolic", "2026-11-20T08:00:00", "2026-11-20T08:00:00", 120, "mmHg"),
+        sample("apple-health", "BloodPressureSystolic", "2026-11-20T20:00:00", "2026-11-20T20:00:00", 116, "mmHg"),
+        sample("apple-health", "WaistCircumference", "2026-11-20T08:00:00", "2026-11-20T08:00:00", 0.82, "m"),
+        # A night's wrist temperature counts toward the morning, and a direct source's skin temperature wins.
+        sample("apple-health", "AppleSleepingWristTemperature", "2026-11-20T23:30:00", "2026-11-21T06:30:00",
+               34.9, "degC"),
+        sample("apple-health", "AppleSleepingWristTemperature", "2026-11-21T23:30:00", "2026-11-22T06:30:00",
+               35.1, "degC"),
+        {"source": "whoop", "source_id": "skin", "type": "byobot.SkinTemperature", "start": at("2026-11-21T07:00:00"),
+         "end": at("2026-11-21T07:00:00"), "value": 33.4, "unit": "degC"},
+    ])
+    out = review(store, 1, "2026-11-22")
+    assert out["activity"] == [{"date": "2026-11-20", "avg_hr_bpm": 71.4, "exercise_min": 42, "steps": 9412,
+                                "walk_run_km": 7.2}]
+    assert out["mobility"] == [{"date": "2026-11-20", "walking_speed_kmh": 4.7}]
+    assert out["vitals"] == [{"date": "2026-11-20", "bp_systolic_mmhg": 118}]
+    assert out["body"] == [{"date": "2026-11-20", "waist_cm": 82}]
+    assert [(d["date"], d["skin_temp_c"]) for d in out["recovery"]] == [("2026-11-21", 33.4), ("2026-11-22", 35.1)]
