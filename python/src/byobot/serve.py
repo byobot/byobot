@@ -443,11 +443,17 @@ class Handler(BaseHTTPRequestHandler):
         self.log_message("%s", code)
 
     def _send(self, status: HTTPStatus, body: Any) -> None:
-        data = json.dumps(body, ensure_ascii=False).encode()
+        self._send_bytes(status, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+
+    def _send_bytes(self, status: HTTPStatus, data: bytes, content_type: str | None,
+                    headers: dict[str, str] | None = None) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        if content_type:
+            self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         # Leaving an unread body on a keep-alive connection would desync the next request.
         unread = self.command == "POST" and not self._body_consumed
         if unread:

@@ -106,6 +106,18 @@ def build_parser() -> argparse.ArgumentParser:
                                                 "else 8765 for the default profile.")
     serve.add_argument("--pair", action="store_true", default=None, help="Show a pairing code even if a device is paired.")
     serve.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a pairing code.")
+    remote = sub.add_parser(
+        "remote", help="Serve these commands over the internet, for assistants on your phone.",
+        description="Serve the MCP tools at /mcp, with sign-in, for assistants that run elsewhere. Listens on this "
+                    "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.")
+    remote.add_argument("--url", help="The https address your tunnel gives this profile. Saved after the first run.")
+    remote.add_argument("--host", default="127.0.0.1", help="Address to listen on. Default: this computer only.")
+    remote.add_argument("--port", type=int, help="Port to listen on. Default: the one this profile used last, "
+                                                 "else 8780 for the default profile.")
+    remote.add_argument("--pair", action="store_true", default=None,
+                        help="Show a code to connect an assistant even if one is connected.")
+    remote.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a code.")
+    remote.add_argument("--revoke", action="store_true", help="Disconnect every assistant from this profile, then exit.")
     return parser
 
 
@@ -143,6 +155,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             from byobot import serve as lan
 
             return lan.run(args.host, args.port, args.pair)
+        if args.command == "remote":
+            from byobot import remote
+
+            return remote.run(args.url, args.host, args.port, args.pair, args.revoke)
         name = f"{args.command} {args.subcommand}" if getattr(args, "subcommand", None) else args.command
         if name not in REGISTRY:
             parser.parse_args([args.command, "--help"])

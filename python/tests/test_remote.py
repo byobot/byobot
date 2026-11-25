@@ -1,0 +1,374 @@
+"""``byobot remote``: OAuth for remote MCP clients, and MCP over HTTP."""
+
+import base64
+import hashlib
+import http.client
+import json
+import secrets
+import threading
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+import pytest
+
+from byobot import remote, serve
+from byobot.remote import Auth, OAuthError
+
+BASE = "https://example-laptop.example.ts.net"
+CALLBACK = "https://client.example/callback"
+
+
+def pkce():
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    return verifier, challenge
+
+
+@pytest.fixture
+def auth(byobot_home):
+    return Auth(byobot_home / "remote" / "oauth.json", BASE + "/mcp")
+
+
+def approved(auth, method="none"):
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                            "token_endpoint_auth_method": method})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    tokens = auth.exchange(auth.authenticate(client["client_id"], client.get("client_secret")), code, CALLBACK, verifier)
+    return client, tokens
+
+
+# -- the authorization server ---------------------------------------------------
+
+@pytest.mark.parametrize("url,expect", [
+    ("https://example-laptop.example.ts.net/", "https://example-laptop.example.ts.net"),
+    ("https://Example.TS.net:8443", "https://example.ts.net:8443"),
+    ("http://localhost:8780", "http://localhost:8780"),
+])
+def test_check_url_accepts(url, expect):
+    assert remote.check_url(url) == expect
+
+
+@pytest.mark.parametrize("url", ["http://example.test", "https://example.test/mcp", "https://example.test/?a=1",
+                                 "ftp://example.test", "example.test"])
+def test_check_url_refuses(url):
+    with pytest.raises(remote.ValidationFailed):
+        remote.check_url(url)
+
+
+def test_register_refuses_unsafe_redirects(auth):
+    for uris in ([], ["http://client.example/cb"], ["https://client.example/cb#x"], "https://client.example/cb"):
+        with pytest.raises(OAuthError) as exc:
+            auth.register({"redirect_uris": uris, "token_endpoint_auth_method": "none"})
+        assert exc.value.error == "invalid_redirect_uri"
+    assert auth.register({"redirect_uris": ["http://localhost:6274/cb"], "token_endpoint_auth_method": "none"})
+
+
+def test_a_public_client_gets_tokens_with_pkce(auth):
+    client, tokens = approved(auth)
+    assert "client_secret" not in client
+    assert tokens["token_type"] == "Bearer" and tokens["scope"] == "byobot"
+    assert auth.client_for_token(tokens["access_token"])["client_name"] == "Example Assistant"
+    assert auth.clients() == [{"client_id": client["client_id"], "client_name": "Example Assistant"}]
+
+
+def test_a_confidential_client_must_send_its_secret(auth):
+    client = auth.register({"redirect_uris": [CALLBACK]})
+    assert client["token_endpoint_auth_method"] == "client_secret_basic" and client["client_secret"]
+    with pytest.raises(OAuthError) as exc:
+        auth.authenticate(client["client_id"], "wrong")
+    assert exc.value.status == 401
+    assert auth.authenticate(client["client_id"], client["client_secret"])
+
+
+def test_codes_are_single_use_and_need_the_right_verifier(auth):
+    client = auth.register({"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    with pytest.raises(OAuthError, match="does not match"):
+        auth.exchange(client, code, CALLBACK, secrets.token_urlsafe(48))
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    with pytest.raises(OAuthError, match="redirect_uri"):
+        auth.exchange(client, code, "https://client.example/other", verifier)
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    assert auth.exchange(client, code, CALLBACK, verifier)
+    with pytest.raises(OAuthError) as exc:
+        auth.exchange(client, code, CALLBACK, verifier)
+    assert exc.value.error == "invalid_grant"
+
+
+def test_a_code_works_only_for_its_client(auth):
+    one = auth.register({"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none"})
+    two = auth.register({"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(one["client_id"], CALLBACK, challenge)
+    with pytest.raises(OAuthError):
+        auth.exchange(two, code, CALLBACK, verifier)
+
+
+def test_refresh_tokens_rotate(auth):
+    client, tokens = approved(auth)
+    fresh = auth.refresh(client, tokens["refresh_token"])
+    assert fresh["access_token"] != tokens["access_token"]
+    with pytest.raises(OAuthError):
+        auth.refresh(client, tokens["refresh_token"])
+    assert auth.refresh(client, fresh["refresh_token"])
+
+
+def test_access_tokens_expire(auth, monkeypatch):
+    _, tokens = approved(auth)
+    later = remote.time.time() + remote.ACCESS_TTL_S + 1
+    monkeypatch.setattr(remote.time, "time", lambda: later)
+    assert auth.client_for_token(tokens["access_token"]) is None
+
+
+def test_resource_must_be_this_server(auth):
+    auth.check_resource(None)
+    auth.check_resource(BASE + "/mcp")
+    auth.check_resource(BASE + "/")
+    with pytest.raises(OAuthError) as exc:
+        auth.check_resource("https://other.example/mcp")
+    assert exc.value.error == "invalid_target"
+
+
+def test_revoke_all_is_seen_by_a_running_server(auth, byobot_home):
+    _, tokens = approved(auth)
+    other = Auth(auth.path)  # as `byobot remote --revoke` would, from another process
+    assert other.revoke_all() == 1
+    assert auth.client_for_token(tokens["access_token"]) is None
+    assert auth.clients() == []
+
+
+def test_token_file_is_private_and_holds_only_hashes(auth):
+    client, tokens = approved(auth, method="client_secret_post")
+    text = auth.path.read_text()
+    assert tokens["access_token"] not in text and tokens["refresh_token"] not in text
+    assert client["client_secret"] not in text
+    if remote.os.name == "posix":
+        assert auth.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_profiles_do_not_share_tokens(byobot_home, monkeypatch):
+    _, tokens = approved(Auth(remote_dir_for(monkeypatch, "alex") / "oauth.json"))
+    assert Auth(remote_dir_for(monkeypatch, "sam") / "oauth.json").client_for_token(tokens["access_token"]) is None
+
+
+def remote_dir_for(monkeypatch, name):
+    monkeypatch.setenv("BYOBOT_PROFILE", name)
+    return remote.remote_dir()
+
+
+# -- over HTTP ----------------------------------------------------------------
+
+@pytest.fixture
+def running(byobot_home):
+    from byobot.store import Store
+
+    with Store(byobot_home / "byobot.db"):
+        pass
+    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+def request(server, method, path, body=None, headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+    data = body if isinstance(body, (bytes, type(None))) else (
+        urlencode(body).encode() if isinstance(body, dict) and (headers or {}).get("Content-Type", "").startswith(
+            "application/x-www-form") else json.dumps(body).encode())
+    hdrs = dict(headers or {})
+    if data is not None:
+        hdrs.setdefault("Content-Type", "application/json")
+    conn.request(method, path, body=data, headers=hdrs)
+    resp = conn.getresponse()
+    raw = resp.read()
+    conn.close()
+    return resp, raw
+
+
+FORM = {"Content-Type": "application/x-www-form-urlencoded"}
+
+
+def connect(server, name="Example Assistant"):
+    """Run the whole connector flow: register, approve with the code, exchange. Returns (client, tokens)."""
+    resp, raw = request(server, "POST", "/oauth/register", {"client_name": name, "redirect_uris": [CALLBACK],
+                                                            "token_endpoint_auth_method": "none"})
+    assert resp.status == 201
+    client = json.loads(raw)
+    verifier, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
+              "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz",
+              "resource": BASE + "/mcp"}
+    resp, raw = request(server, "GET", "/oauth/authorize?" + urlencode(params))
+    assert resp.status == 200 and name.encode() in raw and b"client.example" in raw
+    resp, _ = request(server, "POST", "/oauth/authorize", {**params, "approval_code": server.pairing.code}, FORM)
+    assert resp.status == 302
+    location = urlsplit(resp.getheader("Location"))
+    q = parse_qs(location.query)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == CALLBACK
+    assert q["state"] == ["xyz"] and q["iss"] == [BASE]
+    resp, raw = request(server, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": q["code"][0],
+                                                         "redirect_uri": CALLBACK, "client_id": client["client_id"],
+                                                         "code_verifier": verifier}, FORM)
+    assert resp.status == 200, raw
+    return client, json.loads(raw)
+
+
+def rpc(server, token, method, params=None, mid=1, session=None):
+    msg = {"jsonrpc": "2.0", "method": method, **({"id": mid} if mid is not None else {}),
+           **({"params": params} if params is not None else {})}
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream"}
+    if session:
+        headers["Mcp-Session-Id"] = session
+    return request(server, "POST", "/mcp", msg, headers)
+
+
+def test_metadata_points_clients_at_sign_in(running):
+    resp, raw = request(running, "GET", "/.well-known/oauth-protected-resource/mcp")
+    assert json.loads(raw)["resource"] == BASE + "/mcp" and json.loads(raw)["authorization_servers"] == [BASE]
+    resp, raw = request(running, "GET", "/.well-known/oauth-authorization-server")
+    meta = json.loads(raw)
+    assert meta["issuer"] == BASE and meta["registration_endpoint"] == BASE + "/oauth/register"
+    assert meta["code_challenge_methods_supported"] == ["S256"]
+
+
+def test_mcp_needs_a_token(running):
+    resp, _ = rpc(running, "nope", "tools/list")
+    assert resp.status == 401
+    assert resp.getheader("WWW-Authenticate") == (
+        f'Bearer resource_metadata="{BASE}/.well-known/oauth-protected-resource/mcp", error="invalid_token"')
+    resp, _ = request(running, "POST", "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert resp.status == 401 and "error=" not in resp.getheader("WWW-Authenticate")
+
+
+def test_a_connected_assistant_uses_the_tools(running):
+    _, tokens = connect(running)
+    token = tokens["access_token"]
+    resp, raw = rpc(running, token, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                   "clientInfo": {"name": "example-assistant", "version": "1"}})
+    assert resp.status == 200 and json.loads(raw)["result"]["serverInfo"]["name"] == "byobot"
+    session = resp.getheader("Mcp-Session-Id")
+    assert session
+    resp, raw = rpc(running, token, "notifications/initialized", mid=None, session=session)
+    assert resp.status == 202 and raw == b""
+    resp, raw = rpc(running, token, "tools/list", session=session)
+    assert "query" in {t["name"] for t in json.loads(raw)["result"]["tools"]}
+    resp, raw = rpc(running, token, "tools/call", {"name": "log", "arguments": {
+        "type": "activity.defined", "payload": {"id": "plank", "name": "Plank"}}}, session=session)
+    assert json.loads(raw)["result"]["isError"] is False
+    resp, raw = rpc(running, token, "tools/call", {"name": "query", "arguments": {
+        "sql": "SELECT actor_kind, actor_id FROM activities"}}, session=session)
+    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "example-assistant"}]
+
+
+def test_sessions_belong_to_their_client(running):
+    _, one = connect(running, "One")
+    running.pairing = serve.Pairing()
+    _, two = connect(running, "Two")
+    resp, _ = rpc(running, one["access_token"], "initialize", {"protocolVersion": "2025-06-18",
+                                                               "clientInfo": {"name": "one"}})
+    session = resp.getheader("Mcp-Session-Id")
+    resp, _ = rpc(running, two["access_token"], "tools/list", session=session)
+    assert resp.status == 404
+    resp, _ = rpc(running, one["access_token"], "tools/list", session="unknown")
+    assert resp.status == 404
+
+
+def test_without_a_session_writes_name_the_connected_app(running):
+    _, tokens = connect(running)
+    rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
+        "type": "activity.defined", "payload": {"id": "plank", "name": "Plank"}}})
+    resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "query", "arguments": {
+        "sql": "SELECT actor_id FROM activities"}})
+    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_id": "Example Assistant"}]
+
+
+def test_a_wrong_code_does_not_approve(running):
+    resp, raw = request(running, "POST", "/oauth/register", {"redirect_uris": [CALLBACK],
+                                                             "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    _, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
+              "code_challenge": challenge, "code_challenge_method": "S256"}
+    wrong = "000000" if running.pairing.code != "000000" else "111111"
+    for _ in range(serve.PAIRING_TRIES):
+        resp, _ = request(running, "POST", "/oauth/authorize", {**params, "approval_code": wrong}, FORM)
+        assert resp.status == 403 and resp.getheader("Location") is None
+    resp, raw = request(running, "POST", "/oauth/authorize", {**params, "approval_code": running.pairing.code}, FORM)
+    assert resp.status == 403 and b"Approval is closed" in raw
+
+
+def test_an_unknown_return_address_is_not_redirected_to(running):
+    resp, raw = request(running, "POST", "/oauth/register", {"redirect_uris": [CALLBACK],
+                                                             "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    resp, _ = request(running, "GET", "/oauth/authorize?" + urlencode({
+        "response_type": "code", "client_id": client["client_id"], "redirect_uri": "https://attacker.example/cb"}))
+    assert resp.status == 400 and resp.getheader("Location") is None
+
+
+def test_a_bad_request_is_redirected_with_an_error(running):
+    resp, raw = request(running, "POST", "/oauth/register", {"redirect_uris": [CALLBACK],
+                                                             "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    resp, _ = request(running, "GET", "/oauth/authorize?" + urlencode({
+        "response_type": "code", "client_id": client["client_id"], "state": "s"}))
+    assert resp.status == 302
+    q = parse_qs(urlsplit(resp.getheader("Location")).query)
+    assert q["error"] == ["invalid_request"] and q["state"] == ["s"]
+
+
+def test_refresh_over_http_and_revoke(running):
+    client, tokens = connect(running)
+    resp, raw = request(running, "POST", "/oauth/token", {"grant_type": "refresh_token", "client_id": client["client_id"],
+                                                          "refresh_token": tokens["refresh_token"]}, FORM)
+    assert resp.status == 200
+    fresh = json.loads(raw)
+    assert rpc(running, fresh["access_token"], "ping")[0].status == 200
+    Auth(running.auth.path).revoke_all()
+    assert rpc(running, fresh["access_token"], "ping")[0].status == 401
+
+
+def test_get_mcp_is_not_offered(running):
+    resp, _ = request(running, "GET", "/mcp")
+    assert resp.status == 405 and resp.getheader("Allow") == "POST, DELETE"
+
+
+def test_a_confidential_client_can_use_basic_auth(running):
+    resp, raw = request(running, "POST", "/oauth/register", {"client_name": "Basic", "redirect_uris": [CALLBACK]})
+    client = json.loads(raw)
+    creds = base64.b64encode(f"{client['client_id']}:{client['client_secret']}".encode()).decode()
+    resp, raw = request(running, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": "x"},
+                        {**FORM, "Authorization": f"Basic {creds}"})
+    assert resp.status == 400 and json.loads(raw)["error"] == "invalid_grant"
+    bad = base64.b64encode(f"{client['client_id']}:wrong".encode()).decode()
+    resp, raw = request(running, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": "x"},
+                        {**FORM, "Authorization": f"Basic {bad}"})
+    assert resp.status == 401 and json.loads(raw)["error"] == "invalid_client"
+
+
+# -- the command ----------------------------------------------------------------
+
+def test_remote_needs_a_url_the_first_time(capsys):
+    from byobot.cli import main
+
+    assert main(["remote"]) == 1
+    assert "--url" in json.loads(capsys.readouterr().err)["message"]
+    assert main(["remote", "--url", "http://example.test"]) == 1
+
+
+def test_remote_revoke_disconnects_everyone(capsys, auth):
+    from byobot.cli import main
+
+    approved(auth)
+    assert main(["remote", "--revoke"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"disconnected": 1}
+    assert auth.clients() == []
+
+
+def test_remote_ports_differ_per_profile(monkeypatch, byobot_home):
+    assert remote.choose_port("127.0.0.1") == remote.DEFAULT_PORT
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    assert remote.choose_port("127.0.0.1") > remote.DEFAULT_PORT
