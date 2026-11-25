@@ -1,0 +1,6 @@
+# Logs, keys and the generated Xcode project stay on your machine.
+*.jsonl
+*.p8
+.env
+ios/PushProbe.xcodeproj/
+ios/build/
