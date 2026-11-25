@@ -167,9 +167,21 @@ class Contract:
                 return False
         return True
 
+    def canonical(self, code: str, m: dict, key: str = "value") -> float | None:
+        """`m[key]` in the code's own unit, or None when it can't be converted."""
+        spec, x = self.registry["codes"].get(code), m.get(key)
+        if spec is None or not _number(x):
+            return None
+        if spec["value"] != "quantity":
+            return x if spec["value"] in ("integer", "number") else None
+        factor = spec["units"].get(m.get("unit"))
+        return None if factor is None else x * factor
+
     def fingerprint(self) -> str:
-        """What decides which events this contract projects."""
-        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"])])
+        """What decides which events this contract projects, and how."""
+        units = {k: v.get("units") for k, v in self.registry["codes"].items()}
+        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"]),
+                    units])
 
     def newer(self, version: int, kinds: dict[str, dict] | None = None) -> "Contract":
         """A contract as an install `version` would know it: every kind at that version, plus `kinds`.
