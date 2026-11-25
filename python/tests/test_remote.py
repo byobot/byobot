@@ -347,3 +347,28 @@ def test_a_confidential_client_can_use_basic_auth(running):
     resp, raw = request(running, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": "x"},
                         {**FORM, "Authorization": f"Basic {bad}"})
     assert resp.status == 401 and json.loads(raw)["error"] == "invalid_client"
+
+
+# -- the command ----------------------------------------------------------------
+
+def test_remote_needs_a_url_the_first_time(capsys):
+    from byobot.cli import main
+
+    assert main(["remote"]) == 1
+    assert "--url" in json.loads(capsys.readouterr().err)["message"]
+    assert main(["remote", "--url", "http://example.test"]) == 1
+
+
+def test_remote_revoke_disconnects_everyone(capsys, auth):
+    from byobot.cli import main
+
+    approved(auth)
+    assert main(["remote", "--revoke"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"disconnected": 1}
+    assert auth.clients() == []
+
+
+def test_remote_ports_differ_per_profile(monkeypatch, byobot_home):
+    assert remote.choose_port("127.0.0.1") == remote.DEFAULT_PORT
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    assert remote.choose_port("127.0.0.1") > remote.DEFAULT_PORT

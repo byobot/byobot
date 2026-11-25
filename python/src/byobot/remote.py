@@ -555,6 +555,49 @@ def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *,
     return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
 
 
+def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool) -> int:
+    """The ``byobot remote`` command."""
+    saved = remote_dir() / "url"
+    if revoke:
+        count = Auth(remote_dir() / "oauth.json").revoke_all()
+        sys.stdout.write(json.dumps({"disconnected": count}) + "\n")
+        return 0
+    if url is None and not saved.is_file():
+        raise ValidationFailed("pass --url with the https address your tunnel gives this profile (saved after that)")
+    base = check_url(url if url is not None else saved.read_text())
+    remote_dir().mkdir(parents=True, exist_ok=True)
+    saved.write_text(base + "\n")
+
+    def log(line: str) -> None:
+        sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
+        sys.stderr.flush()
+
+    port = port or choose_port(host)
+    try:
+        server = make_server(base, host, port, pair=pair, log=log)
+    except OSError as exc:
+        raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
+    (remote_dir() / "port").write_text(f"{server.server_address[1]}\n")
+    err = sys.stderr
+    err.write(f"byobot remote · {server.name} · http://{host}:{server.server_address[1]} · store {server.db}\n")
+    err.write(f"Point your tunnel's {base} at http://{host}:{server.server_address[1]}.\n")
+    err.write(f"\nIn your assistant, add a custom connector with the URL {server.resource}\n")
+    if server.pairing:
+        err.write(f"When it asks for a code, enter {server.pairing.code} (good for {serve.PAIRING_TTL_S // 60} minutes).\n")
+    else:
+        names = ", ".join(c["client_name"] for c in server.auth.clients())
+        err.write(f"Connected: {names}. Run with --pair to connect another, --revoke to disconnect all.\n")
+    err.write("\nServing. Press Ctrl-C to stop.\n")
+    err.flush()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 class _Shown(Exception):
     """An authorization error shown on the page, because redirecting to an unchecked address is unsafe."""
 
