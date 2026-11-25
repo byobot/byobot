@@ -35,10 +35,7 @@ extension Logbook {
     /// Locations from your laptop and any added on this phone, by name.
     public var locations: [Location] {
         var byId = Dictionary((state.plan?.locations ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let undone = undoneEventIds
-        for event in state.events where !undone.contains(event.id) {
-            if case .locationDefined(let l) = event.payload { byId[l.id] = l }
-        }
+        for location in written("location", as: LocationPayload.self) { byId[location.id] = location }
         return byId.values.sorted { ($0.name.lowercased(), $0.id) < ($1.name.lowercased(), $1.id) }
     }
 
@@ -55,24 +52,26 @@ extension Logbook {
     /// Add a location by name and train there from now on.
     @discardableResult
     public mutating func addLocation(name: String) -> Location {
-        let location = Location(id: LocationId.make(name, taken: Set(locations.map(\.id))),
-                                name: name.trimmingCharacters(in: .whitespacesAndNewlines))
-        append(.locationDefined(location))
-        setLocation(location.id)
-        return location
+        let id = LocationId.make(name, taken: Set(locations.map(\.id)))
+        let payload = LocationPayload(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        let event = put("location", id, payload)
+        setLocation(id)
+        return Location(id: id, payload: payload, prev: [event.id])
     }
 
     /// Where you're training. During a session it moves the whole session, sets already logged included.
     public mutating func setLocation(_ id: String?) {
-        state.locationId = id
+        if id != state.locationId { setCurrentLocation(id) }
         guard var session = activeSession, session.locationId != id else { return }
-        session.locationId = id
-        append(.sessionPerformed(session))
+        session.payload.locationId = id
+        put("session", session.id, session.payload)
     }
 
     /// Where a set happened: its own location, else its session's.
     public func locationId(of effort: PerformedEffort) -> String? {
-        effort.locationId ?? effort.sessionId.flatMap { latestSessions[$0]?.locationId }
+        if let own = effort.locationId { return own }
+        guard let session = effort.sessionId else { return nil }
+        return latestSessions[session]?.locationId ?? state.plan?.sessions.first { $0.id == session }?.locationId
     }
 
     /// The sets of an activity from the last time you did it outside `sessionId`, in the order done.

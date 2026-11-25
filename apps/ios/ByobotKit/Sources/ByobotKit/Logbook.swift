@@ -14,20 +14,25 @@ public struct AppState: Codable, Equatable, Sendable {
     public var planFetchedAt: String?
     /// Every event written on this phone, in the order it was written.
     public var events: [Event]
-    /// Ids of events the laptop hasn't accepted yet, oldest first.
+    /// Ids of events the laptop hasn't taken yet, oldest first.
     public var pending: [String]
     /// Events the laptop refused. Retrying won't change that, so they are kept here to show.
     public var rejected: [RejectedEvent]
     public var activeSessionId: String?
     public var lastSyncAt: String?
     public var lastHealthSyncAt: String?
+    /// The last clock reading this phone wrote.
+    public var hlc: String?
+    /// For each record written here (`kind/id`), the events a change to it names as `prev`, until a pull
+    /// brings the laptop's.
+    public var heads: [String: [String]]?
     /// Sets logged elsewhere, as they stood before this phone first corrected them.
     public var remoteOriginals: [String: PerformedEffort]?
-    /// Your order and swaps for each planned session, by its id.
+    /// Your order and swaps for each planned session, by its id, until a pull brings the laptop's.
     public var workouts: [String: WorkoutChanges]?
     /// Equipment you have, for ranking swaps. Nil means everything.
     public var equipment: [String]?
-    /// The location you last trained at, for the next session you start.
+    /// Where the next session starts.
     public var locationId: String?
 
     public init(deviceId: String = UUID7.make()) {
@@ -40,13 +45,13 @@ public struct AppState: Codable, Equatable, Sendable {
 
 public struct RejectedEvent: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var eventId: String
-    public var errors: [JSONValue]
+    public var reason: String?
     public var at: String
     public var id: String { eventId }
 
-    public init(eventId: String, errors: [JSONValue], at: String) {
+    public init(eventId: String, reason: String?, at: String) {
         self.eventId = eventId
-        self.errors = errors
+        self.reason = reason
         self.at = at
     }
 }
@@ -56,37 +61,89 @@ public struct RejectedEvent: Codable, Equatable, Hashable, Sendable, Identifiabl
 public struct Logbook: Sendable {
     public var state: AppState
     public var actor: Actor
+    /// The app and device that capture what you log.
+    public var origin: Origin?
     public var clock: @Sendable () -> Date
 
-    public init(state: AppState, actor: Actor = Actor(kind: .human, id: "me"),
+    public init(state: AppState, actor: Actor = Actor(kind: .human, id: "me"), origin: Origin? = nil,
                 clock: @escaping @Sendable () -> Date = { Date() }) {
         self.state = state
         self.actor = actor
+        self.origin = origin
         self.clock = clock
     }
 
     // MARK: Writing
 
+    static func key(_ kind: String, _ id: String) -> String { "\(kind)/\(id)" }
+
     @discardableResult
-    mutating func append(_ payload: EventPayload) -> Event {
-        let event = Event(id: UUID7.make(at: clock()), ts: Timestamp.string(clock()), deviceId: state.deviceId,
-                          actor: actor, payload: payload)
+    mutating func put<P: Encodable>(_ kind: String, _ id: String, _ payload: P, known: [String]? = nil,
+                                    reverts: String? = nil) -> Event {
+        append(kind, id, .put, Payloads.json(payload), known: known, reverts: reverts)
+    }
+
+    @discardableResult
+    mutating func retract(_ kind: String, _ id: String, reverts: String? = nil) -> Event {
+        append(kind, id, .retract, .object([:]), known: nil, reverts: reverts)
+    }
+
+    private mutating func append(_ kind: String, _ id: String, _ op: Op, _ payload: JSONValue, known: [String]?,
+                                 reverts: String?) -> Event {
+        let now = clock()
+        let hlc = HLC.next(after: state.hlc, now: now)
+        let event = Event(id: UUID7.make(at: now), schemaVersion: ContractVersion.schema,
+                          record: RecordRef(kind: kind, id: id), op: op,
+                          kindVersion: op == .put ? KindVersion.all[kind] : nil, hlc: hlc, ts: Timestamp.string(now),
+                          deviceId: state.deviceId, actor: actor, prev: prev(kind, id, known: known), reverts: reverts,
+                          payload: payload)
+        state.hlc = hlc
         state.events.append(event)
         state.pending.append(event.id)
+        var heads = state.heads ?? [:]
+        heads[Self.key(kind, id)] = [event.id]
+        state.heads = heads
         return event
+    }
+
+    /// The events a change to the record names as `prev`: this phone's last write, else the laptop's.
+    func prev(_ kind: String, _ id: String, known: [String]? = nil) -> [String] {
+        if let mine = state.heads?[Self.key(kind, id)] { return mine }
+        if let known { return known }
+        guard let plan = state.plan else { return [] }
+        let entries: [(String, [String])]
+        switch kind {
+        case "activity": entries = plan.activities.map { ($0.id, $0.prev) }
+        case "location": entries = plan.locations.map { ($0.id, $0.prev) }
+        case "setting": entries = plan.settings.map { ($0.id, $0.prev) }
+        case "plan": entries = plan.plans.map { ($0.id, $0.prev) }
+        case "planned_session": entries = plan.plannedSessions.map { ($0.id, $0.prev) }
+        case "overlay": entries = plan.overlays.map { ($0.id, $0.prev) }
+        case "session": entries = plan.sessions.map { ($0.id, $0.prev) }
+        case "effort": entries = plan.efforts.map { ($0.id, $0.prev) }
+        default: entries = []
+        }
+        return entries.first { $0.0 == id }?.1 ?? []
+    }
+
+    func now() -> RecordTime {
+        RecordTime(start: Timestamp.string(clock()), zone: Timestamp.zone())
     }
 
     /// Start a session, from a planned one or on its own, where it was planned or else where you last trained.
     @discardableResult
     public mutating func startSession(planned: PlannedSession? = nil, name: String? = nil) -> PerformedSession {
         let location = planned?.locationId ?? state.locationId
-        state.locationId = location
-        let session = PerformedSession(id: UUID7.make(at: clock()), plannedSessionId: planned?.id, planId: planned?.planId,
-                                       name: planned?.name ?? name, startedAt: Timestamp.string(clock()),
-                                       locationId: location)
-        append(.sessionPerformed(session))
-        state.activeSessionId = session.id
-        return session
+        if location != state.locationId { setCurrentLocation(location) }
+        let links = planned.map { p in
+            Links(partOf: p.planId.map { Ref(kind: "plan", id: $0) }, answers: Ref(kind: "planned_session", id: p.id))
+        }
+        let id = UUID7.make(at: clock())
+        let payload = SessionPayload(time: now(), modality: .selfReported, origin: origin, status: .inProgress,
+                                     links: links, name: planned?.name ?? name, locationId: location)
+        let event = put("session", id, payload)
+        state.activeSessionId = id
+        return PerformedSession(id: id, payload: payload, prev: [event.id])
     }
 
     /// Log one effort: a set, an interval, a stretch hold. Ties it to the active session unless told otherwise.
@@ -94,69 +151,104 @@ public struct Logbook: Sendable {
     public mutating func logEffort(activityId: String, metrics: Metrics, plannedEffortId: String? = nil,
                                    round: Int? = nil, side: Side? = nil, notes: String? = nil,
                                    sessionId: String? = nil) -> PerformedEffort {
-        let effort = PerformedEffort(id: UUID7.make(at: clock()), activityId: activityId,
-                                     performedAt: Timestamp.string(clock()), plannedEffortId: plannedEffortId,
-                                     round: round, side: side, metrics: metrics.isEmpty ? nil : metrics,
-                                     notes: notes?.isEmpty == true ? nil : notes,
-                                     sessionId: sessionId ?? state.activeSessionId)
-        append(.effortPerformed(effort))
-        return effort
+        let session = sessionId ?? state.activeSessionId
+        let answers = plannedEffortId.flatMap { part in
+            plannedSessionId(containing: part, session: session).map { Ref(kind: "planned_session", id: $0, part: part) }
+        }
+        let partOf = session.map { Ref(kind: "session", id: $0) }
+        let links = partOf == nil && answers == nil ? nil : Links(partOf: partOf, answers: answers)
+        let id = UUID7.make(at: clock())
+        let payload = EffortPayload(time: now(), modality: .selfReported, origin: origin, status: .completed,
+                                    links: links, activityId: activityId, round: round, side: side,
+                                    metrics: metrics.isEmpty ? nil : metrics, notes: notes?.isEmpty == true ? nil : notes)
+        let event = put("effort", id, payload)
+        return PerformedEffort(id: id, payload: payload, prev: [event.id])
     }
 
-    /// Finish the active session: log it again with its end time and what you changed from the plan.
+    /// The planned session a planned effort belongs to: the active session's, else the first in the plan that has it.
+    func plannedSessionId(containing part: String, session: String?) -> String? {
+        let planned = state.plan?.plannedSessions ?? []
+        let has = { (id: String) in
+            planned.first { $0.id == id }?.blocks.contains { $0.efforts.contains { $0.id == part } } ?? false
+        }
+        let answered = session.flatMap { latestSessions[$0]?.plannedSessionId }
+        if let answered, has(answered) { return answered }
+        return planned.first { has($0.id) }?.id ?? answered
+    }
+
+    /// Finish the active session: write it again with its end time and what you changed from the plan.
     @discardableResult
     public mutating func finishSession(notes: String? = nil) -> PerformedSession? {
         guard var session = activeSession else { return nil }
-        session.endedAt = Timestamp.string(clock())
-        let changed = session.plannedSessionId.flatMap { id in state.plan?.sessions.first { $0.id == id } }
+        session.payload.time.end = Timestamp.string(clock())
+        session.payload.status = .completed
+        let changed = session.plannedSessionId.flatMap { id in state.plan?.plannedSessions.first { $0.id == id } }
             .flatMap { workout($0).changeNotes }
         let parts = [notes?.isEmpty == false ? notes : nil, changed].compactMap { $0 }
-        if !parts.isEmpty { session.notes = parts.joined(separator: " ") }
-        append(.sessionPerformed(session))
+        if !parts.isEmpty { session.payload.notes = parts.joined(separator: " ") }
+        let event = put("session", session.id, session.payload)
         state.activeSessionId = nil
+        session.prev = [event.id]
         return session
     }
 
-    /// Correct a logged set from any device. Same id, so the newest version wins; keeps its time and round.
+    /// Correct a logged set from any device. Keeps its round; naming its current version as prev means a
+    /// change made elsewhere at the same time shows as a conflict instead of being lost.
     @discardableResult
     public mutating func editEffort(_ original: PerformedEffort, metrics: Metrics, side: Side?, notes: String?,
                                     activityId: String? = nil, performedAt: String? = nil) -> PerformedEffort {
-        if !wroteEffort(original.id) {
+        if !wrote("effort", original.id) {
             var originals = state.remoteOriginals ?? [:]
             originals[original.id] = original
             state.remoteOriginals = originals
         }
         var effort = original
-        effort.metrics = metrics.isEmpty ? nil : metrics
-        effort.side = side
-        effort.notes = notes?.isEmpty == true ? nil : notes
-        if let activityId, !activityId.isEmpty { effort.activityId = activityId }
-        if let performedAt { effort.performedAt = performedAt }
-        append(.effortPerformed(effort))
+        effort.payload.metrics = metrics.isEmpty ? nil : metrics
+        effort.payload.side = side
+        effort.payload.notes = notes?.isEmpty == true ? nil : notes
+        if let activityId, !activityId.isEmpty { effort.payload.activityId = activityId }
+        if let performedAt {
+            effort.payload.time.start = performedAt
+            if let end = effort.payload.time.end, end < performedAt { effort.payload.time.end = nil }
+        }
+        let event = put("effort", original.id, effort.payload, known: original.prev)
+        effort.prev = [event.id]
         return effort
     }
 
-    /// Take back everything this phone wrote for a set: one logged here goes away, one corrected here
-    /// goes back to how it was logged elsewhere.
+    /// Take back what this phone wrote for a set: one logged here goes away, one corrected here goes back
+    /// to how it was logged elsewhere.
     @discardableResult
     public mutating func undoEffort(id effortId: String) -> [Event] {
-        let undone = undoneEventIds
-        let live = state.events.filter {
-            if case .effortPerformed(let e) = $0.payload { return e.id == effortId && !undone.contains($0.id) }
-            return false
+        guard canUndo(effortId), let last = lastEvent("effort", effortId) else { return [] }
+        if let original = state.remoteOriginals?[effortId] {
+            return [put("effort", effortId, original.payload, reverts: last.id)]
         }
-        var out: [Event] = []
-        for event in live.reversed() {
-            out.append(append(.eventUndone(Undo(eventId: event.id))))
-        }
-        return out
+        return [retract("effort", effortId, reverts: last.id)]
     }
 
     // MARK: Reading
 
-    /// Events this phone has undone.
-    public var undoneEventIds: Set<String> {
-        Set(state.events.compactMap { if case .eventUndone(let u) = $0.payload { return u.eventId } else { return nil } })
+    func lastEvent(_ kind: String, _ id: String) -> Event? {
+        state.events.last { $0.record.kind == kind && $0.record.id == id }
+    }
+
+    func wrote(_ kind: String, _ id: String) -> Bool {
+        lastEvent(kind, id) != nil
+    }
+
+    /// The latest version of each record of a kind written here, in the order first written. Retracted ones
+    /// are left out.
+    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type) -> [Record<P>] {
+        var order: [String] = []
+        var latest: [String: P?] = [:]
+        for event in state.events where event.record.kind == kind {
+            if latest[event.record.id] == nil { order.append(event.record.id) }
+            latest[event.record.id] = .some(event.decoded(P.self))
+        }
+        return order.compactMap { id in
+            latest[id].flatMap { $0 }.map { Record(id: id, payload: $0, prev: prev(kind, id)) }
+        }
     }
 
     public var activeSession: PerformedSession? {
@@ -166,14 +258,7 @@ public struct Logbook: Sendable {
 
     /// The latest version of each session logged on this phone.
     var latestSessions: [String: PerformedSession] {
-        var out: [String: (String, PerformedSession)] = [:]
-        let undone = undoneEventIds
-        for event in state.events where !undone.contains(event.id) {
-            if case .sessionPerformed(let s) = event.payload, (out[s.id]?.0 ?? "") <= event.ts {
-                out[s.id] = (event.ts, s)
-            }
-        }
-        return out.mapValues(\.1)
+        Dictionary(written("session", as: SessionPayload.self).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
     }
 
     /// Sessions logged on this phone, newest first.
@@ -183,24 +268,13 @@ public struct Logbook: Sendable {
 
     /// The latest version of each set this phone logged or corrected, in the order first logged.
     public var localEfforts: [PerformedEffort] {
-        let undone = undoneEventIds
-        var order: [String] = []
-        var latest: [String: PerformedEffort] = [:]
-        for event in state.events where !undone.contains(event.id) {
-            guard case .effortPerformed(let e) = event.payload else { continue }
-            if latest[e.id] == nil { order.append(e.id) }
-            latest[e.id] = e
-        }
-        return order.compactMap { latest[$0] }
+        written("effort", as: EffortPayload.self)
     }
 
-    func wroteEffort(_ id: String) -> Bool {
-        state.events.contains { if case .effortPerformed(let e) = $0.payload { return e.id == id } else { return false } }
-    }
-
-    /// This phone has a live version of the set, so undo can take it back.
+    /// This phone wrote the set's current version, so undo can take it back.
     public func canUndo(_ id: String) -> Bool {
-        localEfforts.contains { $0.id == id }
+        guard let last = lastEvent("effort", id) else { return false }
+        return last.op == .put && last.reverts == nil
     }
 
     /// The set was first logged on another device.
@@ -208,23 +282,15 @@ public struct Logbook: Sendable {
         state.remoteOriginals?[id] != nil
     }
 
-    /// Sets this phone changed since the last pull, in the order first changed.
-    var freshEffortIds: [String] {
+    /// Ids of records of a kind this phone changed since the last pull, in the order first changed.
+    func fresh(_ kind: String) -> [String] {
         let fetched = state.planFetchedAt.flatMap(Timestamp.date)
         let pending = Set(state.pending)
-        var effortOf: [String: String] = [:]
         var out: [String] = []
-        for event in state.events {
-            let fresh = pending.contains(event.id) || fetched.map { (Timestamp.date(event.ts) ?? .distantPast) > $0 } ?? true
-            switch event.payload {
-            case .effortPerformed(let e):
-                effortOf[event.id] = e.id
-                if fresh, !out.contains(e.id) { out.append(e.id) }
-            case .eventUndone(let u):
-                if fresh, let id = effortOf[u.eventId], !out.contains(id) { out.append(id) }
-            default:
-                break
-            }
+        for event in state.events where event.record.kind == kind {
+            let isFresh = pending.contains(event.id)
+                || fetched.map { (Timestamp.date(event.ts) ?? .distantPast) > $0 } ?? true
+            if isFresh, !out.contains(event.record.id) { out.append(event.record.id) }
         }
         return out
     }
@@ -244,16 +310,29 @@ public struct Logbook: Sendable {
             current[effort.id] = effort
         }
         let local = Dictionary(localEfforts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        for id in freshEffortIds {
+        for id in fresh("effort") {
             if current[id] == nil { order.append(id) }
-            current[id] = local[id] ?? state.remoteOriginals?[id]
+            current[id] = local[id]
         }
         var out: [String: [Int: PerformedEffort]] = [:]
         for id in order {
-            guard let effort = current[id], let pid = effort.plannedEffortId, plannedIds.contains(pid) else { continue }
+            guard let effort = current[id], effort.plannedSessionId == planned.id, let pid = effort.plannedEffortId,
+                  plannedIds.contains(pid) else { continue }
             out[pid, default: [:]][effort.round ?? 1] = effort
         }
         return out
+    }
+
+    // MARK: Settings
+
+    /// Where the next session starts.
+    mutating func setCurrentLocation(_ id: String?) {
+        state.locationId = id
+        put("setting", SettingId.currentLocation.rawValue, SettingPayload(value: id.map(JSONValue.string) ?? .null))
+    }
+
+    func setting(_ id: SettingId) -> JSONValue? {
+        state.plan?.settings.first { $0.id == id.rawValue }?.value
     }
 
     // MARK: Sync
@@ -264,26 +343,47 @@ public struct Logbook: Sendable {
         return state.pending.compactMap { byId[$0] }
     }
 
-    /// Record the laptop's answer to a push of `sent`. Accepted and duplicate events are done;
-    /// rejected ones are set aside with the reasons, since sending them again won't help.
+    /// Record the laptop's answer to a push of `sent`. Whatever it kept is done; rejected events are set
+    /// aside with the reason, since sending them again won't help.
     public mutating func applyPush(_ response: EventsResponse, sent: [Event]) {
         var done = Set<String>()
         for result in response.results where result.index >= 0 && result.index < sent.count {
             let id = sent[result.index].id
-            switch result.status {
-            case .accepted, .duplicate:
-                done.insert(id)
-            case .rejected:
-                done.insert(id)
-                state.rejected.append(RejectedEvent(eventId: id, errors: result.errors ?? [], at: Timestamp.string(clock())))
+            done.insert(id)
+            if result.status == .rejected {
+                state.rejected.append(RejectedEvent(eventId: id, reason: result.reason, at: Timestamp.string(clock())))
             }
         }
         state.pending.removeAll { done.contains($0) }
     }
 
+    /// Take a pulled plan. For records the laptop now has, its versions replace what this phone kept, unless
+    /// this phone has changes to them still to send.
     public mutating func applyPlan(_ window: PlanWindow) {
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
+        let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
+        let pulled = window.activities.map { Self.key("activity", $0.id) } + window.locations.map { Self.key("location", $0.id) }
+            + window.settings.map { Self.key("setting", $0.id) } + window.plans.map { Self.key("plan", $0.id) }
+            + window.plannedSessions.map { Self.key("planned_session", $0.id) }
+            + window.overlays.map { Self.key("overlay", $0.id) } + window.sessions.map { Self.key("session", $0.id) }
+            + window.efforts.map { Self.key("effort", $0.id) }
+        for key in pulled where !waiting.contains(key) { state.heads?[key] = nil }
+        state.workouts = state.workouts?.filter { waiting.contains(Self.key("overlay", Self.rearrangeId($0.key))) }
+        if !waiting.contains(Self.key("setting", SettingId.equipment.rawValue)) {
+            if case .array(let items)? = setting(.equipment) {
+                state.equipment = items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
+            } else {
+                state.equipment = nil
+            }
+        }
+        if !waiting.contains(Self.key("setting", SettingId.currentLocation.rawValue)), activeSession == nil {
+            if case .string(let id)? = setting(.currentLocation) { state.locationId = id } else { state.locationId = nil }
+        }
+    }
+
+    static func rearrangeId(_ plannedSessionId: String) -> String {
+        DerivedId.overlay(.rearrange, kind: "planned_session", id: plannedSessionId)
     }
 }
 
@@ -294,14 +394,18 @@ extension PlanWindow {
 
     /// Planned sessions grouped by day, in date order.
     public var days: [(date: String, sessions: [PlannedSession])] {
-        let grouped = Dictionary(grouping: sessions, by: \.scheduledOn)
+        let grouped = Dictionary(grouping: plannedSessions, by: { $0.payload.scheduledOn })
         return grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
+    }
+
+    public func plannedSession(_ id: String?) -> PlannedSession? {
+        id.flatMap { id in plannedSessions.first { $0.id == id } }
     }
 }
 
-extension PlannedSession {
+extension Record where Payload == PlannedSessionPayload {
     /// How many planned efforts there are, counting each round.
     public var plannedCount: Int {
-        blocks.reduce(0) { $0 + ($1.rounds ?? 1) * $1.efforts.count }
+        payload.blocks.reduce(0) { $0 + ($1.rounds ?? 1) * $1.efforts.count }
     }
 }

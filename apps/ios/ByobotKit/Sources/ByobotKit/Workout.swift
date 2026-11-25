@@ -4,17 +4,7 @@
 
 import Foundation
 
-public struct Swap: Codable, Equatable, Hashable, Sendable {
-    public var activityId: String
-    public var reason: String?
-
-    public init(activityId: String, reason: String? = nil) {
-        self.activityId = activityId
-        self.reason = reason
-    }
-}
-
-/// What you changed about a planned session on the phone. Kept on the phone; the log shows the result.
+/// Your order and swaps for a planned session, as its rearrange overlay holds them.
 public struct WorkoutChanges: Codable, Equatable, Sendable {
     /// Planned effort ids in the order you want them.
     public var order: [String]?

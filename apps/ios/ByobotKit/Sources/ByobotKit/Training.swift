@@ -43,13 +43,13 @@ public enum Nudge {
     public static func step(_ metric: String, unit: String?) -> Double? {
         switch (metric, unit) {
         case ("reps", _), ("rir", _), ("heart_rate", _): return 1
-        case ("load", "lb"): return 5
+        case ("load", "[lb_av]"): return 5
         case ("load", _): return 2.5
         case ("rpe", _), ("incline", _): return 0.5
         case ("duration", "min"), ("rest", "min"): return 0.5
         case ("duration", "h"): return 0.25
         case ("duration", _), ("rest", _): return 5
-        case ("distance", "m"), ("distance", "yd"), ("distance", "ft"): return 50
+        case ("distance", "m"), ("distance", "[yd_i]"), ("distance", "[ft_i]"): return 50
         case ("distance", _): return 0.1
         case ("power", _): return 5
         case ("pace", _): return 5
@@ -64,6 +64,7 @@ public enum Nudge {
         }
         var next = ((n + Double(direction) * step) * 1000).rounded() / 1000
         next = max(MetricRegistry.spec(name)?.minimum ?? 0, next)
+        if MetricRegistry.spec(name)?.exclusiveMinimum == true, next <= 0 { return metrics }
         if let top = MetricRegistry.spec(name)?.maximum { next = min(top, next) }
         measure.value = .number(next)
         var out = metrics
@@ -178,8 +179,10 @@ extension Logbook {
 
     /// Every set this phone knows of: pulled from the laptop, with this phone's own versions on top.
     var allEfforts: [PerformedEffort] {
-        var byId: [String: PerformedEffort] = [:]
-        for effort in (state.plan?.efforts ?? []) + localEfforts { byId[effort.id] = effort }
+        var byId = Dictionary((state.plan?.efforts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        let local = Dictionary(localEfforts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        for id in fresh("effort") { byId[id] = local[id] }
+        for (id, effort) in local where byId[id] == nil && !fresh("effort").contains(id) { byId[id] = effort }
         return Array(byId.values)
     }
 
@@ -190,8 +193,12 @@ extension Logbook {
                                  atAnotherGym: plannedElsewhere(workout.session))
     }
 
+    /// Your order and swaps for a planned session: what you changed here since the last pull, else the laptop's.
     public func changes(for plannedSessionId: String) -> WorkoutChanges {
-        state.workouts?[plannedSessionId] ?? WorkoutChanges()
+        if let mine = state.workouts?[plannedSessionId] { return mine }
+        let id = Self.rearrangeId(plannedSessionId)
+        guard let overlay = state.plan?.overlays.first(where: { $0.id == id }) else { return WorkoutChanges() }
+        return WorkoutChanges(order: overlay.order, swaps: overlay.swaps)
     }
 
     public func workout(_ planned: PlannedSession) -> Workout {
@@ -213,10 +220,22 @@ extension Logbook {
         setChanges(updated, for: plannedSessionId)
     }
 
+    /// Write the planned session's rearrange overlay, or take it back once nothing is changed.
     mutating func setChanges(_ changes: WorkoutChanges, for plannedSessionId: String) {
+        let order = changes.order?.isEmpty == false ? changes.order : nil
+        let swaps = changes.swaps?.isEmpty == false ? changes.swaps : nil
         var all = state.workouts ?? [:]
-        all[plannedSessionId] = changes
+        all[plannedSessionId] = WorkoutChanges(order: order, swaps: swaps)
         state.workouts = all
+        let id = Self.rearrangeId(plannedSessionId)
+        if order == nil && swaps == nil {
+            let exists = state.plan?.overlays.contains { $0.id == id } == true
+                || written("overlay", as: OverlayPayload.self).contains { $0.id == id }
+            if exists { retract("overlay", id) }
+        } else {
+            put("overlay", id, OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: plannedSessionId),
+                                              order: order, swaps: swaps))
+        }
     }
 
     /// The first planned session from `today` on that you haven't finished or logged in full.
@@ -231,6 +250,8 @@ extension Logbook {
 
     public mutating func setEquipment(_ items: Set<String>?) {
         state.equipment = items?.sorted()
+        let value = state.equipment.map { JSONValue.array($0.map(JSONValue.string)) } ?? .null
+        put("setting", SettingId.equipment.rawValue, SettingPayload(value: value))
     }
 
     /// Swaps for a planned effort, ranked against the activity the plan asked for.
