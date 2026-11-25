@@ -9,7 +9,7 @@ writes and computes everything an agent can read from them:
 * A record's heads are its writes no other held write had seen. More than one distinct head is a
   visible conflict; reads show the head with the highest hlc meanwhile. Identical heads don't conflict.
 * Undo is a command: it writes the record's previous content back (a retract if the undone write
-  created it). Remove is a retract. Resolving is a write that has seen every head.
+  created it), and only while the undone write is the record's one head. Remove is a retract. Resolving is a write that has seen every head.
 * Logging an id that's already taken is refused, not overwritten.
 * Erase wins over everything: the record and every write to it, earlier or later, are gone.
 * Source revisions are writes too, keyed by their content, so the same revision imported twice is one
@@ -221,10 +221,12 @@ class ModelReplica:
     def _undo(self, target: Write, at: str, actor: str) -> Write:
         if target.op not in ("put", "retract"):
             raise Refused(f"can't undo a {target.op}")
+        if [h.id for h in self.heads(target.record)] != [target.id]:
+            raise Refused(f"{target.record} changed after {target.id}")
         before = self.current(target.record, set(target.prior))
         if before is None or before.op == "retract":
-            return self._write(at, actor, target.kind, target.rid, "retract", None, reverts=target.id)
-        return self._write(at, actor, target.kind, target.rid, "put", before.content, reverts=target.id)
+            return self._write(at, actor, target.kind, target.rid, "retract", None, reverts=target.id, read=True)
+        return self._write(at, actor, target.kind, target.rid, "put", before.content, reverts=target.id, read=True)
 
     def _resolve(self, intent: dict, at: str, actor: str) -> Write:
         kind, rid = intent["record"]

@@ -40,7 +40,7 @@ The store key is 32 random bytes created with the store. It never enters the log
 
 - `prev` lists the events of the record the author saw as current. A record's heads are its events no other event of it names in `prev`. Two or more heads with different content are a conflict: reads show the head with the highest `hlc` and `id`, flagged, counted once. An ordinary write names the one version it was made from, so a conflict stays until a resolve names the heads the person saw.
 - `retract` removes a record and conflicts like any edit.
-- Undo is a command, not an op: it writes the record's previous content (or a `retract` if the undone event created it) with `reverts` set and `prev` filled as usual.
+- Undo is a command, not an op: it writes the record's previous content (or a `retract` if the undone event created it) with `reverts` set and `prev` naming the undone event, which must be the record's only head.
 - `erase` always wins and never conflicts. Every replica then blanks the payload of each event of that record, sets `redacted_by`, and keeps ids and order so the logbook still replays. An event of an erased record arriving later is stored blanked. Nothing derived from an erased payload's content may remain, except ids made with the store key.
 - Source records never conflict. Only connectors `put` or `retract` them, with `prev` empty on a `put` and naming the deleted revision on a `retract`. The current revision is the latest by the time its mapper reads from `raw`, then event id; a `retract` hides the record only while the revision it names is current. Your changes to a source's record are overlays.
 
