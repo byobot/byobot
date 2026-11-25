@@ -166,6 +166,7 @@ def test_schema(capsys):
     assert cli(capsys, "schema", "event")[1]["title"].startswith("byobot event")
     ddl = cli(capsys, "schema", "sql")[1]["ddl"]
     assert "CREATE VIEW plan_vs_actual" in ddl and "CREATE VIEW strength_sets" in ddl
+    assert "CREATE VIEW daily" in ddl and "CREATE VIEW weekly_volume_by_muscle" in ddl
 
 
 def test_rebuild_and_status(capsys):

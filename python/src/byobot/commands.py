@@ -443,8 +443,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     "Run one read-only SQL query against the store.",
     Param("sql", "string", "A single SELECT (or WITH ... SELECT) statement.", required=True, positional=True),
     Param("limit", "integer", "At most this many rows.", default=1000),
-    description="Tables and views are listed by `byobot schema sql`. Metrics are one row each in `metrics`; the views "
-                "plan_vs_actual and strength_sets give plain columns.",
+    description="Tables and views are listed by `byobot schema sql`. Start with the views: daily (one row per local "
+                "date), exercise_progress (per exercise, location and day), weekly_volume_by_muscle, strength_sets "
+                "and plan_vs_actual. Metrics are one row each in `metrics`.",
 )
 def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
     ctx.store()  # make sure the store exists before opening it read-only

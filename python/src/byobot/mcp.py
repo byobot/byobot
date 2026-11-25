@@ -23,7 +23,8 @@ LATEST = SUPPORTED_VERSIONS[0]
 
 INSTRUCTIONS = (
     "byobot is the user's personal health store. Read with `list`, `query` (read-only SQL; see `schema` with "
-    "name 'sql' for tables; plan_vs_actual and strength_sets are ready-made views) and `schema`. Write with `log` "
+    "name 'sql' for tables; start with the views daily, exercise_progress, weekly_volume_by_muscle, strength_sets and "
+    "plan_vs_actual) and `schema`. Write with `log` "
     "(activities, locations, plans, planned sessions, performed sessions and efforts; metrics are an open map such as "
     "{\"reps\": {\"value\": 5}, \"load\": {\"value\": 100, \"unit\": \"kg\"}}, and your own metrics start with x.), "
     "`ingest` (telemetry) and `undo`. Every write is recorded with you as its author and can be undone. "

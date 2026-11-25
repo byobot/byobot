@@ -22,7 +22,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from byobot import contract, library
+from byobot import contract, library, views
 from byobot.util import Conflict, NotFound, ValidationFailed, canonical_json, db_path, now, uuid7
 
 STORE_VERSION = 4
@@ -312,7 +312,7 @@ TELEMETRY_OBJECTS = [("table", "telemetry_samples")]
 
 def full_ddl() -> str:
     """The store's SQL schema, for people and agents writing queries."""
-    return "\n".join(part.strip() for part in (BASE_DDL, LEDGER_DDL, TELEMETRY_DDL, SYNC_DDL)) + "\n"
+    return "\n".join(part.strip() for part in (BASE_DDL, LEDGER_DDL, TELEMETRY_DDL, views.ANALYSIS_DDL, SYNC_DDL)) + "\n"
 
 
 def _metric_row(metric: str, measure: dict) -> dict:
@@ -422,6 +422,10 @@ class Store:
                 self._rebuild_ledger()
             if self.meta("library") != library.fingerprint():
                 self._rebuild_ledger()
+            if self.meta("views") != views.fingerprint() or not self._have(views.ANALYSIS_OBJECTS):
+                self._drop(views.ANALYSIS_OBJECTS)
+                self._create(views.ANALYSIS_DDL)
+                self._set_meta("views", views.fingerprint())
 
     def _tx(self):
         conn = self.conn
@@ -454,6 +458,10 @@ class Store:
     def _drop(self, objects: Iterable[tuple[str, str]]) -> None:
         for kind, name in objects:
             self.conn.execute(f"DROP {kind.upper()} IF EXISTS {name}")
+
+    def _have(self, objects: Iterable[tuple[str, str]]) -> bool:
+        return all(self.conn.execute("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", o).fetchone()
+                   for o in objects)
 
     def _set_meta(self, key: str, value: str) -> None:
         self.conn.execute(
