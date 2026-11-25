@@ -46,7 +46,8 @@ def whoop_workout(wid: str, start: str, end: str, updated: str, strain: float = 
 
 
 def whoop_sleep(sid: str, cycle: int, start: str, end: str, updated: str, performance: int = 80) -> dict:
-    summary = {"total_in_bed_time_milli": 28_800_000, "total_awake_time_milli": 1_800_000, "total_no_data_time_milli": 0,
+    summary = {"total_in_bed_time_milli": 28_800_000, "total_awake_time_milli": 1_800_000,
+               "total_no_data_time_milli": 0,
                "total_light_sleep_time_milli": 14_000_000, "total_slow_wave_sleep_time_milli": 6_000_000,
                "total_rem_sleep_time_milli": 7_000_000, "sleep_cycle_count": 4, "disturbance_count": 8}
     need = {"baseline_milli": 27_000_000, "need_from_sleep_debt_milli": 0, "need_from_recent_strain_milli": 0,

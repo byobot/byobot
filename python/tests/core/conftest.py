@@ -72,6 +72,7 @@ def pytest_sessionfinish(session):
     if not summary or not _matrix:
         return
     lines = ["| scenario | " + " | ".join(DRIVERS) + " |", "|---" * (len(DRIVERS) + 1) + "|"]
-    lines += [f"| {name} | " + " | ".join(row.get(d, "") for d in DRIVERS) + " |" for name, row in sorted(_matrix.items())]
+    lines += [f"| {name} | " + " | ".join(row.get(d, "") for d in DRIVERS) + " |"
+              for name, row in sorted(_matrix.items())]
     with open(summary, "a", encoding="utf-8") as out:
         out.write("\n".join(["### Core scenarios by driver", "", *lines, ""]))

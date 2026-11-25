@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Any
 
 from .driver import Unsupported
-from .snapshot import canonical, empty, key, num, occurrence
+from .snapshot import canonical, empty, key, occurrence
 
 AUTHORED = ("activity", "location", "plan", "planned_session", "session", "effort")
 NEW_IN = {"meal": 2}  # kinds a newer install writes, by the version that introduced them
@@ -125,7 +125,8 @@ class ModelReplica:
         if record in self.gone:
             return []
         ids = [i for i in self.by_record.get(record, ()) if among is None or i in among]
-        versions = [self.writes[i] for i in ids if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
+        versions = [self.writes[i] for i in ids
+                    if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
         superseded = set().union(*(v.prior for v in versions)) if versions else set()
         return sorted((v for v in versions if v.id not in superseded), key=Write.order)
 

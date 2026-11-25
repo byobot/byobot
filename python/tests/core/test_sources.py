@@ -125,7 +125,8 @@ def test_s8_a_correction_survives_a_rescore(world):
     world.ingest("laptop", "whoop", {"workout": [w]})
     world.author("laptop", {"intent": "correct_import", "source": "whoop", "source_id": WID,
                             "fields": {"distance_m": 10000}})
-    world.ingest("laptop", "whoop", {"workout": [{**w, "updated_at": T("15:00"), "score": {**w["score"], "strain": 14.0}}]})
+    rescored = {**w, "updated_at": T("15:00"), "score": {**w["score"], "strain": 14.0}}
+    world.ingest("laptop", "whoop", {"workout": [rescored]})
     [one] = world.occurrences("laptop")
     assert one["metrics"]["distance_m"] == "10000"
     assert world.occurrences("laptop") == world.expected_occurrences("laptop")
