@@ -161,8 +161,26 @@ FROM strength_sets s LEFT JOIN activities a ON a.id = s.activity_id
 GROUP BY 1, s.activity_id, s.location_id;
 """
 
-ANALYSIS_DDL = _daily_sql() + EXERCISE_PROGRESS
-ANALYSIS_OBJECTS = [("view", "daily"), ("view", "exercise_progress")]
+WEEKLY_VOLUME_BY_MUSCLE = """-- Sets per muscle per week (weeks start on Monday, local time). Every logged effort counts once for each
+-- muscle its activity works, as main or synergist (activities.targets).
+CREATE VIEW weekly_volume_by_muscle AS
+WITH worked AS (
+  SELECT date(e.performed_at, 'localtime', '-6 days', 'weekday 1') AS week_start, m.value AS muscle,
+    'main' AS role, s.reps * s.load_kg AS volume
+  FROM performed_efforts e JOIN activities a ON a.id = e.activity_id
+  JOIN json_each(a.targets, '$.main') m LEFT JOIN strength_sets s ON s.effort_id = e.id
+  UNION ALL
+  SELECT date(e.performed_at, 'localtime', '-6 days', 'weekday 1'), m.value, 'synergist', NULL
+  FROM performed_efforts e JOIN activities a ON a.id = e.activity_id
+  JOIN json_each(a.targets, '$.synergists') m
+)
+SELECT week_start, muscle, sum(role = 'main') AS main_sets, sum(role = 'synergist') AS synergist_sets,
+  coalesce(sum(volume), 0) AS main_volume_kg
+FROM worked GROUP BY week_start, muscle;
+"""
+
+ANALYSIS_DDL = _daily_sql() + EXERCISE_PROGRESS + WEEKLY_VOLUME_BY_MUSCLE
+ANALYSIS_OBJECTS = [("view", "daily"), ("view", "exercise_progress"), ("view", "weekly_volume_by_muscle")]
 
 
 def fingerprint() -> str:

@@ -56,3 +56,23 @@ def test_exercise_progress_per_exercise_location_and_day(store):
     assert rows == [{"date": "2026-11-16", "activity_id": "squat", "activity_name": "Squat",
                      "location_id": "example-gym", "sets": 2, "total_reps": 8, "max_reps": 5,
                      "top": 102.1, "volume": 806.2, "e1rm": 116.7}]
+
+
+def test_weekly_volume_by_muscle(store):
+    lift(store)
+    rows = store.rows("SELECT week_start, muscle, main_sets, synergist_sets, round(main_volume_kg, 1) AS volume"
+                      " FROM weekly_volume_by_muscle ORDER BY muscle")
+    assert rows == [
+        {"week_start": "2026-11-16", "muscle": "abs", "main_sets": 1, "synergist_sets": 0, "volume": 0},
+        {"week_start": "2026-11-16", "muscle": "adductors", "main_sets": 0, "synergist_sets": 2, "volume": 0},
+        {"week_start": "2026-11-16", "muscle": "glutes", "main_sets": 2, "synergist_sets": 0, "volume": 806.2},
+        {"week_start": "2026-11-16", "muscle": "quads", "main_sets": 2, "synergist_sets": 0, "volume": 806.2},
+    ]
+
+
+def test_views_work_through_read_only_query(store):
+    from byobot.store import query
+
+    lift(store)
+    for view in ("daily", "exercise_progress", "weekly_volume_by_muscle"):
+        assert query(store.path, f"SELECT * FROM {view}")["rows"], view
