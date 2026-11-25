@@ -120,6 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     remote.add_argument("--revoke", action="store_true", help="Disconnect every assistant from this profile, then exit.")
     remote.add_argument("--api-key", metavar="NAME", help="Make an API key for an assistant that calls an API, "
                                                           "such as `my_assistant`, print it once, then exit.")
+    remote.add_argument("--copy", action="store_true",
+                        help="With --api-key, put the key on the clipboard instead of printing it.")
     return parser
 
 
@@ -160,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "remote":
             from byobot import remote
 
-            return remote.run(args.url, args.host, args.port, args.pair, args.revoke, args.api_key)
+            return remote.run(args.url, args.host, args.port, args.pair, args.revoke, args.api_key, args.copy)
         name = f"{args.command} {args.subcommand}" if getattr(args, "subcommand", None) else args.command
         if name not in REGISTRY:
             parser.parse_args([args.command, "--help"])

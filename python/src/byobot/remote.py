@@ -20,7 +20,9 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import socket
+import subprocess
 import threading
 import sys
 import time
@@ -635,16 +637,35 @@ def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *,
     return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
 
 
+CLIPBOARD = (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
+
+
+def clipboard() -> list[str]:
+    for cmd in CLIPBOARD:
+        if shutil.which(cmd[0]):
+            return cmd
+    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); run without --copy")
+
+
 def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
-        api_key: str | None = None) -> int:
+        api_key: str | None = None, copy: bool = False) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
+    if copy and api_key is None:
+        raise ValidationFailed("--copy goes with --api-key")
     if api_key is not None:
+        cmd = clipboard() if copy else None
         key = Auth(remote_dir() / "oauth.json").create_key(api_key)
         base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
-        sys.stdout.write(json.dumps({"name": api_key, "key": key, "openapi": base + "/api/openapi.json",
-                                     "mcp": base + "/mcp"}, indent=2) + "\n")
-        sys.stderr.write("Shown once. Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
+        out = {"name": api_key, "openapi": base + "/api/openapi.json", "mcp": base + "/mcp"}
+        if cmd:
+            subprocess.run(cmd, input=key.encode(), check=True)
+            out["copied"] = True
+        else:
+            out["key"] = key
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
+        sys.stderr.write(("Key copied to the clipboard, not shown. " if cmd else "Shown once. ")
+                         + "Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
         return 0
     if revoke:
         count = Auth(remote_dir() / "oauth.json").revoke_all()
