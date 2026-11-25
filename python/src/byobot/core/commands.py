@@ -34,8 +34,9 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     for r in records:
         _authored(r["kind"])
         rid = r.get("id") or store.new_record_id(r["kind"])
-        if store.get(r["kind"], rid) is not None:
-            raise Conflict(f"{r['kind']} {rid} already exists")
+        found = store.record(r["kind"], rid)
+        if found and (found["live"] or found["erased"]):
+            raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
         changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": r["payload"]})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
@@ -54,6 +55,21 @@ def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     _authored(kind)
     payload = merge_patch(_live(store, kind, rid)["payload"], patch)
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload}])[0]
+
+
+def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
+    """Write a planned session's new version. Blocks and planned efforts given without ids keep the ids at
+    their positions, so efforts already logged against them stay linked."""
+    current = store.get("planned_session", rid)
+    old = current["payload"]["blocks"] if current else []
+    blocks = []
+    for bi, block in enumerate(payload.get("blocks", [])):
+        was = old[bi] if bi < len(old) else {"efforts": []}
+        efforts = [{"id": was["efforts"][ei]["id"] if ei < len(was["efforts"]) else f"{rid}.{bi}.{ei}", **e}
+                   for ei, e in enumerate(block.get("efforts", []))]
+        blocks.append({"id": was.get("id", f"{rid}.{bi}"), **block, "efforts": efforts})
+    return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
+                                "payload": {**payload, "blocks": blocks}}])[0]
 
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:
