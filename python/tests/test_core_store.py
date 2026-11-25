@@ -433,3 +433,25 @@ def test_a_redaction_without_its_erase_blanks_nothing(pair):
     b.accept_many([forged])
     assert reps(b, rid) == 5 and not b.record("effort", rid)["conflict"]
 
+
+
+def test_an_export_is_one_snapshot(tmp_path):
+    with Store(tmp_path / "a.db", wall=Wall()) as a, Store(tmp_path / "a.db", wall=Wall()) as writer:
+        commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+        lines = a.export()
+        header = next(lines)
+        commands.log(writer, ME, [{"kind": "effort", "payload": effort()}])
+        exported = [header, *lines]
+    with Store(tmp_path / "b.db", wall=Wall()) as b:
+        assert b.restore(exported)["events"] == {"accepted": len(exported) - 1}
+
+
+def test_restore_refuses_an_export_with_a_bad_event(tmp_path):
+    with Store(tmp_path / "a.db", wall=Wall()) as a:
+        commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+        lines = list(a.export())
+    lines[1] = lines[1].replace('"op":"put"', '"op":"nope"')
+    with Store(tmp_path / "b.db", wall=Wall()) as b:
+        with pytest.raises(ValidationFailed, match="refused"):
+            b.restore(lines)
+        assert b.position() == 0

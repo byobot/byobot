@@ -503,10 +503,17 @@ class Store:
     def export(self) -> Iterable[str]:
         """The whole logbook as JSON lines: a header with the store's id and key, then every event in arrival
         order. Paired devices stay behind; they pair again with the restored store."""
+        own = not self.conn.in_transaction
+        if own:
+            self.conn.execute("BEGIN")  # one snapshot, so a write meanwhile can't make the count disagree
+        try:
+            events, key = self.events(), self._get("store_key")
+        finally:
+            if own:
+                self.conn.execute("COMMIT")
         yield jcs({"byobot_export": EXPORT_VERSION, "schema_version": 1, "store_id": self.store_id,
-                   "store_key": self._get("store_key"), "exported_at": stamp(self.wall()),
-                   "events": self.position()}) + "\n"
-        for event in self.events():
+                   "store_key": key, "exported_at": stamp(self.wall()), "events": len(events)}) + "\n"
+        for event in events:
             yield jcs(event) + "\n"
 
     def restore(self, lines: Iterable[str]) -> dict:
@@ -530,6 +537,8 @@ class Store:
                     event = None
                 outcome, _ = self._accept(event)
                 outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            if outcomes.get("rejected"):
+                raise ValidationFailed(f"{outcomes['rejected']} events in the export were refused; nothing restored")
             if sum(outcomes.values()) != header.get("events"):
                 raise ValidationFailed(f"the export is cut short: {sum(outcomes.values())} of {header.get('events')} "
                                        "events")
