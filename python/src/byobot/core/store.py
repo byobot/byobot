@@ -73,6 +73,9 @@ class Store:
         self.conn = sqlite3.connect(self.path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # WAL's recommended level: no corruption on power loss, and no flush on every commit, which on
+        # Windows costs more as the file grows.
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._migrate(device_id)
 
