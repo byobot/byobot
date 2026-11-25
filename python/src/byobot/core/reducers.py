@@ -7,6 +7,7 @@ import json
 import sqlite3
 from typing import Any, Callable
 
+from . import mappers, occurrences
 from .contract import Contract, instant
 
 DDL = """
@@ -44,42 +45,64 @@ CREATE INDEX IF NOT EXISTS efforts_planned ON efforts (planned_session_id, plann
 CREATE TABLE IF NOT EXISTS observations (
   id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, text TEXT, unit TEXT, started_at TEXT NOT NULL,
   ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL,
-  zone TEXT, modality TEXT NOT NULL, std_value REAL, std_unit TEXT);
+  zone TEXT, modality TEXT NOT NULL, std_value REAL, std_unit TEXT, source TEXT, source_record_id TEXT,
+  overlay_id TEXT);
 CREATE INDEX IF NOT EXISTS observations_code ON observations (code, start_ms);
 CREATE INDEX IF NOT EXISTS observations_day ON observations (local_date);
+CREATE INDEX IF NOT EXISTS observations_source ON observations (source_record_id) WHERE source_record_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS metrics (
   owner_kind TEXT NOT NULL, owner_id TEXT NOT NULL, part_id TEXT NOT NULL DEFAULT '', code TEXT NOT NULL,
   value REAL, min REAL, max REAL, text TEXT, unit TEXT, std_value REAL, std_min REAL, std_max REAL, std_unit TEXT,
-  PRIMARY KEY (owner_kind, owner_id, part_id, code));
+  overlay_id TEXT, PRIMARY KEY (owner_kind, owner_id, part_id, code));
+CREATE TABLE IF NOT EXISTS source_records (
+  id TEXT PRIMARY KEY, source TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL,
+  revised_at TEXT NOT NULL, excluded INTEGER NOT NULL, raw TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS source_records_key ON source_records (source, source_type, source_id);
+CREATE TABLE IF NOT EXISTS source_links (id TEXT NOT NULL, related_id TEXT NOT NULL, PRIMARY KEY (id, related_id));
+CREATE INDEX IF NOT EXISTS source_links_related ON source_links (related_id);
+CREATE TABLE IF NOT EXISTS source_sessions (
+  id TEXT PRIMARY KEY, source TEXT NOT NULL, name TEXT, started_at TEXT NOT NULL, ended_at TEXT,
+  start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL, zone TEXT,
+  overlay_id TEXT);
+CREATE INDEX IF NOT EXISTS source_sessions_start ON source_sessions (start_ms);
+CREATE TABLE IF NOT EXISTS overlays (
+  id TEXT PRIMARY KEY, effect TEXT NOT NULL, target_kind TEXT NOT NULL, target_id TEXT NOT NULL, with_kind TEXT,
+  with_id TEXT, fields TEXT, arrangement TEXT);
+CREATE INDEX IF NOT EXISTS overlays_target ON overlays (target_kind, target_id);
+CREATE INDEX IF NOT EXISTS overlays_with ON overlays (with_kind, with_id) WHERE with_id IS NOT NULL;
 """
 
+DDL += occurrences.DDL
 SHAPE = hashlib.sha256(DDL.encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
     "activity": ("activities",), "location": ("locations",), "setting": ("settings",), "plan": ("plans",),
     "planned_session": ("planned_sessions", "planned_blocks", "planned_efforts"), "session": ("sessions",),
     "effort": ("efforts",), "observation": ("observations",),
+    "source_record": ("source_records", "source_links", "source_sessions", "observations"), "overlay": ("overlays",),
 }
-OWNER_COLUMN = {"planned_blocks": "planned_session_id", "planned_efforts": "planned_session_id"}
+OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
+                ("planned_session", "planned_efforts"): "planned_session_id",
+                ("source_record", "observations"): "source_record_id"}
 
 
 def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload: dict | None) -> None:
     """Replace one record's rows: from `payload`, or none when it isn't live."""
     for table in TABLES.get(kind, ()):
-        conn.execute(f"DELETE FROM {table} WHERE {OWNER_COLUMN.get(table, 'id')} = ?", (rid,))
+        conn.execute(f"DELETE FROM {table} WHERE {OWNER_COLUMN.get((kind, table), 'id')} = ?", (rid,))
     conn.execute("DELETE FROM metrics WHERE owner_kind = ? AND owner_id = ?", (kind, rid))
     if payload is not None and kind in REDUCERS:
         REDUCERS[kind](conn, c, rid, payload)
 
 
 def clear(conn: sqlite3.Connection) -> None:
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics"}:
+    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
         conn.execute(f"DELETE FROM {table}")
 
 
 def drop(conn: sqlite3.Connection) -> None:
     """Remove the derived tables, for a store written by a build whose tables had another shape."""
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics"}:
+    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
         conn.execute(f"DROP TABLE IF EXISTS {table}")
 
 
@@ -110,12 +133,14 @@ def _std(c: Contract, code: str, m: dict) -> tuple:
     return (*values, unit)
 
 
-def _metrics(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, metrics: dict | None, part: str = "") -> None:
+def _metrics(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, metrics: dict | None, part: str = "",
+             corrected: dict | None = None) -> None:
+    """`corrected`: code -> the overlay whose value it is."""
     for code, m in (metrics or {}).items():
         value = m.get("value")
-        conn.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+        conn.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             kind, rid, part, code, value if not isinstance(value, str) else None, m.get("min"), m.get("max"),
-            value if isinstance(value, str) else None, m.get("unit"), *_std(c, code, m)))
+            value if isinstance(value, str) else None, m.get("unit"), *_std(c, code, m), (corrected or {}).get(code)))
 
 
 def _activity(conn, c, rid, p):
@@ -167,14 +192,64 @@ def _effort(conn, c, rid, p):
     _metrics(conn, c, "effort", rid, p.get("metrics"))
 
 
-def _observation(conn, c, rid, p):
+def _observation(conn, c, rid, p, source=None, source_record_id=None, overlay_id=None):
     value = p.get("value")
-    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, p["code"], value if not isinstance(value, str) else None, value if isinstance(value, str) else None,
-        p.get("unit"), *_when(p["time"]), p["modality"], *_std(c, p["code"], p)[::3]))
+        p.get("unit"), *_when(p["time"]), p["modality"], *_std(c, p["code"], p)[::3], source, source_record_id,
+        overlay_id))
+
+
+def _source_record(conn, c, rid, p):
+    """What the current revision reads as, with your corrections over it."""
+    overlays = {e: (i, json.loads(f) if f else {}) for i, e, f in conn.execute(
+        "SELECT id, effect, fields FROM overlays WHERE target_kind = 'source_record' AND target_id = ?", (rid,))}
+    excluded = "exclude" in overlays
+    conn.execute("INSERT INTO source_records VALUES (?, ?, ?, ?, ?, ?, ?)", (
+        rid, p["source"], p["source_type"], p["source_id"], mappers.revised(p), int(excluded), _json(p["raw"])))
+
+    def related(source_type, source_id):
+        row = conn.execute("SELECT raw FROM source_records WHERE source = ? AND source_type = ? AND source_id = ?",
+                           (p["source"], source_type, source_id)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    read = mappers.read(p, related)
+    for source_type, source_id in read["related"]:
+        conn.execute("INSERT OR IGNORE INTO source_links VALUES (?, ?)",
+                     (rid, c.derived("source_record", [p["source"], source_type, source_id])))
+    if excluded:
+        return
+    oid, fix = overlays.get("correct", (None, {}))
+    fixed = {code: oid for code in fix.get("metrics", {})}
+    observations = read["observations"]
+    for n, o in enumerate(observations):
+        o = {**o, "modality": "sensed"}
+        mine = oid if o["code"] in fixed or ("value" in fix and len(observations) == 1) else None
+        if o["code"] in fixed:
+            o = {**o, **{k: v for k, v in fix["metrics"][o["code"]].items() if k in ("value", "unit")}}
+        elif mine:
+            o = {**o, **{k: fix[k] for k in ("value", "unit") if k in fix}}
+        _observation(conn, c, f"{rid}:{n}", o, p["source"], rid, mine)
+    session = read["session"]
+    if session:
+        time = fix.get("time") or session["time"]
+        conn.execute("INSERT INTO source_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+            rid, p["source"], fix.get("name", session.get("name")), *_when(time),
+            oid if {"time", "name"} & set(fix) else None))
+        _metrics(conn, c, "source_record", rid, {**session.get("metrics", {}), **fix.get("metrics", {})},
+                 corrected=fixed)
+
+
+def _overlay(conn, c, rid, p):
+    target, other = p["target"], p.get("with") or {}
+    arrangement = {k: p[k] for k in ("order", "swaps") if k in p}
+    conn.execute("INSERT INTO overlays VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+        rid, p["effect"], target["kind"], target["id"], other.get("kind"), other.get("id"),
+        _json(p.get("fields")), _json(arrangement or None)))
 
 
 REDUCERS: dict[str, Reducer] = {
     "activity": _activity, "location": _location, "setting": _setting, "plan": _plan,
     "planned_session": _planned_session, "session": _session, "effort": _effort, "observation": _observation,
+    "source_record": _source_record, "overlay": _overlay,
 }

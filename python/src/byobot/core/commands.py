@@ -100,6 +100,37 @@ def observe(store: Store, actor: dict, code: str, value: Any, unit: str | None =
     return log(store, actor, [{"kind": "observation", "payload": payload}])[0]
 
 
+def _overlay(store: Store, actor: dict, effect: str, target: str, body: dict) -> dict:
+    rid = store.contract.derived("overlay", [effect, "source_record", target])
+    payload = {"effect": effect, "target": {"kind": "source_record", "id": target}, **body}
+    refused = store.contract.refusals("overlay", payload)
+    if refused:
+        raise ValidationFailed("; ".join(refused))
+    return store.write(actor, [{"kind": "overlay", "id": rid, "op": "put", "payload": payload}])[0]
+
+
+def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
+    """Use your values over a source record's, whatever it later revises. `fields` merge into earlier corrections;
+    a null takes one back."""
+    found = store.get("overlay", store.contract.derived("overlay", ["correct", "source_record", target]))
+    fields = merge_patch(found["payload"]["fields"] if found else {}, fields)
+    if not fields:
+        raise ValidationFailed("nothing left to correct; remove the correction instead")
+    if "time" in fields:
+        fields = _timed(store, "session", fields)
+    return _overlay(store, actor, "correct", target, {"fields": fields})
+
+
+def exclude(store: Store, actor: dict, target: str, notes: str | None = None) -> dict:
+    """Leave a source record out of every read."""
+    return _overlay(store, actor, "exclude", target, {"notes": notes} if notes else {})
+
+
+def same_as(store: Store, actor: dict, target: str, kind: str, rid: str) -> dict:
+    """Say a source record is the same thing as another record, so reads count it once."""
+    return _overlay(store, actor, "same_as", target, {"with": {"kind": kind, "id": rid}})
+
+
 def _live(store: Store, kind: str, rid: str) -> dict:
     found = store.get(kind, rid)
     if found is None:
