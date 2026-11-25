@@ -50,6 +50,7 @@ Each delivered event gets one outcome:
 
 - `duplicate`: the id is already held. For a source record's event the id commits to its content, so differing `ts`, `hlc`, `device_id`, `actor` or `batch` don't matter; for any other event, the same id with different content is `rejected`.
 - `stored_unprojected`: a valid envelope of a kind, kind version or setting this replica doesn't know. It is kept, relayed and read after an upgrade.
+- `stored_unprojected` too: an event of a later `schema_version` whose `id`, `record`, `op`, `hlc`, `prev` and `payload` still parse (`$defs/later` in `event.schema.json`). It is kept and relayed exactly as received and never applied, except that an `erase` is honored. Its record can't be changed until an upgrade.
 - `rejected`: a malformed envelope, a payload that breaks its kind's schema, or a rule below. Never for arrival order: an event whose `prev`, `reverts` or links name something not yet here is accepted.
 - `accepted`: anything else.
 
