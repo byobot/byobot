@@ -20,6 +20,7 @@ from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
+EXPORT_VERSION = 1
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
@@ -471,6 +472,44 @@ class Store:
                   "observations", "source_records", "overlays", "occurrences")
         out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
         return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
+
+    # -- backup ----------------------------------------------------------------
+
+    def export(self) -> Iterable[str]:
+        """The whole logbook as JSON lines: a header with the store's id and key, then every event in arrival
+        order. Paired devices stay behind; they pair again with the restored store."""
+        yield jcs({"byobot_export": EXPORT_VERSION, "schema_version": 1, "store_id": self.store_id,
+                   "store_key": self._get("store_key"), "exported_at": stamp(self.wall()),
+                   "events": self.position()}) + "\n"
+        for event in self.events():
+            yield jcs(event) + "\n"
+
+    def restore(self, lines: Iterable[str]) -> dict:
+        """Become the store an export came from: its id, its key and every event. Only an empty store can."""
+        it = iter(lines)
+        try:
+            header = json.loads(next(it))
+        except (StopIteration, ValueError):
+            raise ValidationFailed("not a byobot export") from None
+        if not isinstance(header, dict) or header.get("byobot_export") != EXPORT_VERSION:
+            raise ValidationFailed("not a byobot export this version can read")
+        outcomes: dict[str, int] = {}
+        with self._tx():  # all or nothing
+            self.adopt(header["store_id"], header["store_key"])
+            for line in it:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    event = None
+                outcome, _ = self._accept(event)
+                outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            if sum(outcomes.values()) != header.get("events"):
+                raise ValidationFailed(f"the export is cut short: {sum(outcomes.values())} of {header.get('events')} "
+                                       "events")
+        self._compact()
+        return {"store_id": self.store_id, "events": outcomes}
 
     # -- paired devices: local to this store, never in the logbook -----------------
 
