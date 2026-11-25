@@ -27,19 +27,25 @@ CREATE TABLE IF NOT EXISTS planned_efforts (
   activity_id TEXT NOT NULL, side TEXT, PRIMARY KEY (planned_session_id, id));
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, plan_id TEXT, planned_session_id TEXT, name TEXT, location_id TEXT,
-  started_at TEXT NOT NULL, ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, zone TEXT, status TEXT,
-  modality TEXT NOT NULL);
+  started_at TEXT NOT NULL, ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL,
+  local_date TEXT NOT NULL, zone TEXT, status TEXT, modality TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS sessions_start ON sessions (start_ms);
+CREATE INDEX IF NOT EXISTS sessions_day ON sessions (local_date);
 CREATE TABLE IF NOT EXISTS efforts (
   id TEXT PRIMARY KEY, session_id TEXT, activity_id TEXT NOT NULL, planned_session_id TEXT,
-  planned_effort_id TEXT, round INTEGER, side TEXT, location_id TEXT, performed_at TEXT NOT NULL,
-  start_ms INTEGER NOT NULL, status TEXT, modality TEXT NOT NULL);
+  planned_effort_id TEXT, round INTEGER, side TEXT, location_id TEXT, performed_at TEXT NOT NULL, ended_at TEXT,
+  start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL, zone TEXT,
+  status TEXT, modality TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS efforts_start ON efforts (start_ms);
+CREATE INDEX IF NOT EXISTS efforts_day ON efforts (local_date);
 CREATE INDEX IF NOT EXISTS efforts_session ON efforts (session_id);
 CREATE INDEX IF NOT EXISTS efforts_planned ON efforts (planned_session_id, planned_effort_id);
 CREATE TABLE IF NOT EXISTS observations (
   id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, text TEXT, unit TEXT, started_at TEXT NOT NULL,
-  ended_at TEXT, start_ms INTEGER NOT NULL, modality TEXT NOT NULL);
+  ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL,
+  zone TEXT, modality TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS observations_code ON observations (code, start_ms);
+CREATE INDEX IF NOT EXISTS observations_day ON observations (local_date);
 CREATE TABLE IF NOT EXISTS metrics (
   owner_kind TEXT NOT NULL, owner_id TEXT NOT NULL, part_id TEXT NOT NULL DEFAULT '', code TEXT NOT NULL,
   value REAL, min REAL, max REAL, text TEXT, unit TEXT, PRIMARY KEY (owner_kind, owner_id, part_id, code));
@@ -74,6 +80,14 @@ def _json(value: Any) -> str | None:
 
 def _ms(ts: str | None) -> int | None:
     return None if ts is None else int(instant(ts).timestamp() * 1000)
+
+
+def _when(t: dict) -> tuple:
+    """start, end, start_ms, end_ms, offset_min, local_date, zone: the local date is the start's own, as written."""
+    start = instant(t["start"])
+    offset = int(start.utcoffset().total_seconds() // 60)
+    return (t["start"], t.get("end"), _ms(t["start"]), _ms(t.get("end")), offset, start.date().isoformat(),
+            t.get("zone"))
 
 
 def _link(p: dict, name: str) -> dict:
@@ -121,28 +135,27 @@ def _planned_session(conn, rid, p):
 
 
 def _session(conn, rid, p):
-    t = p["time"]
-    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, _link(p, "part_of").get("id"), _link(p, "answers").get("id"), p.get("name"), p.get("location_id"),
-        t["start"], t.get("end"), _ms(t["start"]), _ms(t.get("end")), t.get("zone"), p.get("status"),
-        p["modality"]))
+        *_when(p["time"]), p.get("status"), p["modality"]))
     _metrics(conn, "session", rid, p.get("metrics"))
 
 
 def _effort(conn, rid, p):
     answers = _link(p, "answers")
-    conn.execute("INSERT INTO efforts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    start, end, start_ms, end_ms, offset, day, zone = _when(p["time"])
+    conn.execute("INSERT INTO efforts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, _link(p, "part_of").get("id"), p["activity_id"], answers.get("id"), answers.get("part"), p.get("round"),
-        p.get("side"), p.get("location_id"), p["time"]["start"], _ms(p["time"]["start"]), p.get("status"),
+        p.get("side"), p.get("location_id"), start, end, start_ms, end_ms, offset, day, zone, p.get("status"),
         p["modality"]))
     _metrics(conn, "effort", rid, p.get("metrics"))
 
 
 def _observation(conn, rid, p):
-    value, t = p.get("value"), p["time"]
-    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    value = p.get("value")
+    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, p["code"], value if not isinstance(value, str) else None, value if isinstance(value, str) else None,
-        p.get("unit"), t["start"], t.get("end"), _ms(t["start"]), p["modality"]))
+        p.get("unit"), *_when(p["time"]), p["modality"]))
 
 
 REDUCERS: dict[str, Reducer] = {

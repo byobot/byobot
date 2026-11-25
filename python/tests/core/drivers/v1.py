@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from byobot.core import commands
-from byobot.core.contract import SLUG_KINDS, Contract, instant
+from byobot.core.contract import SLUG_KINDS, Contract
 from byobot.core.store import Store
 
 from ..driver import Unsupported, parse
@@ -248,9 +248,9 @@ class V1:
 
     def local_dates(self, rep: Replica) -> dict[str, str]:
         out = {}
-        for kind, column, table in (("session", "started_at", "sessions"), ("effort", "performed_at", "efforts")):
-            for rid, at in rep.store.conn.execute(f"SELECT id, {column} FROM {table}"):
-                out[key(kind, self.back(rid))] = instant(at).date().isoformat()
+        for kind, table in (("session", "sessions"), ("effort", "efforts")):
+            for rid, day in rep.store.conn.execute(f"SELECT id, local_date FROM {table}"):
+                out[key(kind, self.back(rid))] = day
         return out
 
     def read(self, rep: Replica, surface: str, command: str, args: dict) -> Any:
