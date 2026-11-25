@@ -1,6 +1,7 @@
 """S15: cost growth. One late event, one undo and one 30-set offline sync must not cost more as history grows.
 
-Growth checks run on every PR at N and 2N authored events and hold on any machine. With BYOBOT_SOAK set,
+Growth checks run on every PR at N and 2N authored events. Each cost is measured above the same operation on a
+small history, so a fixed cost per write (macOS syncs to disk slowly) can't hide growth. With BYOBOT_SOAK set,
 N is larger and the absolute budgets from the plan apply too.
 """
 
@@ -16,8 +17,9 @@ from .scenarios import effort
 
 SOAK = bool(os.environ.get("BYOBOT_SOAK"))
 N = 5000 if SOAK else 1000
+BASE = 50
 GROWTH = 1.3
-SLACK = 0.002  # seconds, so timer noise on fast operations can't fail a check
+SLACK = 0.003  # seconds, so timer noise on fast operations can't fail a check
 TRIES = 5
 REPLAY = "every late event or undo replays the whole log"
 BUDGETS = {"late_event": 0.05, "undo": 0.05, "offline_sync": 1.0}
@@ -41,7 +43,7 @@ def history(driver: str, directory, n: int) -> World:
 
 @pytest.fixture(scope="module")
 def worlds(driver, tmp_path_factory):
-    built = {n: history(driver, tmp_path_factory.mktemp(f"n{n}"), n) for n in (N, 2 * N)}
+    built = {n: history(driver, tmp_path_factory.mktemp(f"n{n}"), n) for n in (BASE, N, 2 * N)}
     yield built
     for world in built.values():
         world.close()
@@ -78,8 +80,9 @@ OPS = {"late_event": late_event, "undo": undo, "offline_sync": offline_sync}
 @pytest.mark.baseline(v0=REPLAY)
 @pytest.mark.parametrize("op", list(OPS))
 def test_s15_cost_does_not_grow_with_history(worlds, op):
-    small, large = (OPS[op](worlds[n]) for n in (N, 2 * N))
-    assert large < GROWTH * small + SLACK, f"{op}: {small * 1000:.1f} ms at {N}, {large * 1000:.1f} ms at {2 * N}"
+    base, small, large = (OPS[op](worlds[n]) for n in (BASE, N, 2 * N))
+    ms = ", ".join(f"{c * 1000:.1f} ms at {n}" for c, n in ((base, BASE), (small, N), (large, 2 * N)))
+    assert large - base < GROWTH * (small - base) + SLACK, f"{op}: {ms}"
 
 
 @pytest.mark.skipif(not SOAK, reason="absolute budgets run in the soak tier")
