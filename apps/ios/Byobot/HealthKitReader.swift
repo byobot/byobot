@@ -1,5 +1,6 @@
-// Reading Apple Health: body composition from your scale's app, heart rate variability, resting heart rate,
-// sleep and workouts from your watch, ring or band. byobot only reads, and never writes to Apple Health.
+// Reading Apple Health: body measurements from your scale's app; heart, activity, mobility, sleep and workouts
+// from your phone, watch, ring or band; and vitals such as blood pressure. byobot only reads, and never writes
+// to Apple Health. Nutrition and cycle tracking are left out.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -15,12 +16,44 @@ final class HealthKitReader: @unchecked Sendable {
         (.bodyMass, .bodyMass, .gramUnit(with: .kilo), 1),
         (.leanBodyMass, .leanBodyMass, .gramUnit(with: .kilo), 1),
         (.bodyFatPercentage, .bodyFatPercentage, .percent(), 100),
+        (.bodyMassIndex, .bodyMassIndex, .count(), 1),
+        (.height, .height, .meter(), 1),
+        (.waistCircumference, .waistCircumference, .meter(), 1),
         (.vo2Max, .vo2Max, HKUnit(from: "ml/kg*min"), 1),
         (.heartRateVariabilitySDNN, .heartRateVariabilitySDNN, .secondUnit(with: .milli), 1),
-        (.restingHeartRate, .restingHeartRate, .count().unitDivided(by: .minute()), 1),
-        (.respiratoryRate, .respiratoryRate, .count().unitDivided(by: .minute()), 1),
+        (.restingHeartRate, .restingHeartRate, HealthKitReader.bpm, 1),
+        (.walkingHeartRateAverage, .walkingHeartRateAverage, HealthKitReader.bpm, 1),
+        (.heartRateRecoveryOneMinute, .heartRateRecoveryOneMinute, HealthKitReader.bpm, 1),
+        (.respiratoryRate, .respiratoryRate, HealthKitReader.bpm, 1),
         (.oxygenSaturation, .oxygenSaturation, .percent(), 100),
+        (.walkingSpeed, .walkingSpeed, HealthKitReader.metersPerSecond, 1),
+        (.walkingStepLength, .walkingStepLength, .meter(), 1),
+        (.walkingDoubleSupportPercentage, .walkingDoubleSupportPercentage, .percent(), 100),
+        (.walkingAsymmetryPercentage, .walkingAsymmetryPercentage, .percent(), 100),
+        (.appleWalkingSteadiness, .appleWalkingSteadiness, .percent(), 100),
+        (.sixMinuteWalkTestDistance, .sixMinuteWalkTestDistance, .meter(), 1),
+        (.stairAscentSpeed, .stairAscentSpeed, HealthKitReader.metersPerSecond, 1),
+        (.stairDescentSpeed, .stairDescentSpeed, HealthKitReader.metersPerSecond, 1),
+        (.bloodPressureSystolic, .bloodPressureSystolic, .millimeterOfMercury(), 1),
+        (.bloodPressureDiastolic, .bloodPressureDiastolic, .millimeterOfMercury(), 1),
+        (.bloodGlucose, .bloodGlucose, HKUnit(from: "mg/dL"), 1),
+        (.bodyTemperature, .bodyTemperature, .degreeCelsius(), 1),
+        (.appleSleepingWristTemperature, .appleSleepingWristTemperature, .degreeCelsius(), 1),
     ]
+    /// Read as one total per day across every app and device, since the phone and watch both count steps.
+    private let totals: [(HKQuantityTypeIdentifier, TelemetryType, HKUnit)] = [
+        (.stepCount, .stepCount, .count()),
+        (.flightsClimbed, .flightsClimbed, .count()),
+        (.distanceWalkingRunning, .distanceWalkingRunning, .meter()),
+        (.distanceCycling, .distanceCycling, .meter()),
+        (.distanceSwimming, .distanceSwimming, .meter()),
+        (.activeEnergyBurned, .activeEnergyBurned, .kilocalorie()),
+        (.basalEnergyBurned, .basalEnergyBurned, .kilocalorie()),
+        (.appleExerciseTime, .appleExerciseTime, .second()),
+        (.appleStandTime, .appleStandTime, .second()),
+    ]
+    private static var bpm: HKUnit { .count().unitDivided(by: .minute()) }
+    private static var metersPerSecond: HKUnit { .meter().unitDivided(by: .second()) }
     private let sleep = HKCategoryType(.sleepAnalysis)
     private let limit = 50_000
 
@@ -30,6 +63,7 @@ final class HealthKitReader: @unchecked Sendable {
         var types: Set<HKObjectType> = [sleep, HKObjectType.workoutType(), HKQuantityType(.heartRate),
                                         HKQuantityType(.activeEnergyBurned)]
         for (id, _, _, _) in quantities { types.insert(HKQuantityType(id)) }
+        for (id, _, _) in totals { types.insert(HKQuantityType(id)) }
         for id in Self.distances { types.insert(HKQuantityType(id)) }
         return types
     }
@@ -61,7 +95,40 @@ final class HealthKitReader: @unchecked Sendable {
         let workouts = HKSampleQueryDescriptor(predicates: [.workout(window)],
                                                sortDescriptors: [SortDescriptor(\.startDate)], limit: limit)
         let sessions = try await workouts.result(for: store)
-        out += sessions.map { reading($0, .workout(Self.name($0.workoutActivityType), totals($0))) }
+        out += sessions.map { reading($0, .workout(Self.name($0.workoutActivityType), workoutTotals($0))) }
+        return out
+    }
+
+    /// Each day's totals, and its average, lowest and highest heart rate, from the start of the day `since` falls in.
+    func dailyTotals(since: Date) async throws -> [DailyTotal] {
+        let start = Calendar.current.startOfDay(for: since)
+        let window = HKQuery.predicateForSamples(withStart: start, end: nil)
+        let day = DateComponents(day: 1)
+        var out: [DailyTotal] = []
+        for (id, type, unit) in totals {
+            let query = HKStatisticsCollectionQueryDescriptor(
+                predicate: .quantitySample(type: HKQuantityType(id), predicate: window),
+                options: .cumulativeSum, anchorDate: start, intervalComponents: day)
+            let days = try await query.result(for: store)
+            for stats in days.statistics() {
+                if let sum = stats.sumQuantity() {
+                    out.append(DailyTotal(type: type, start: stats.startDate, end: stats.endDate,
+                                          value: sum.doubleValue(for: unit)))
+                }
+            }
+        }
+        let heart = HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(.heartRate), predicate: window),
+            options: [.discreteAverage, .discreteMin, .discreteMax], anchorDate: start, intervalComponents: day)
+        let days = try await heart.result(for: store)
+        for stats in days.statistics() {
+            if let average = stats.averageQuantity() {
+                out.append(DailyTotal(type: .heartRate, start: stats.startDate, end: stats.endDate,
+                                      value: average.doubleValue(for: Self.bpm),
+                                      lowest: stats.minimumQuantity()?.doubleValue(for: Self.bpm),
+                                      highest: stats.maximumQuantity()?.doubleValue(for: Self.bpm)))
+            }
+        }
         return out
     }
 
@@ -80,8 +147,8 @@ final class HealthKitReader: @unchecked Sendable {
         .distanceWalkingRunning, .distanceCycling, .distanceSwimming, .distanceDownhillSnowSports,
     ]
 
-    private func totals(_ workout: HKWorkout) -> WorkoutTotals {
-        let bpm = HKUnit.count().unitDivided(by: .minute())
+    private func workoutTotals(_ workout: HKWorkout) -> WorkoutTotals {
+        let bpm = Self.bpm
         let heart = workout.statistics(for: HKQuantityType(.heartRate))
         let distance = Self.distances.lazy
             .compactMap { workout.statistics(for: HKQuantityType($0))?.sumQuantity()?.doubleValue(for: .meter()) }

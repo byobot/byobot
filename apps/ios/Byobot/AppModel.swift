@@ -166,8 +166,10 @@ final class AppModel: ObservableObject {
         let current = UserDefaults.standard.integer(forKey: "healthReads") >= Self.healthReads
         let last = current ? state.lastHealthSyncAt.flatMap(Timestamp.date) : nil
         let since = last?.addingTimeInterval(-30 * 86_400)
-        let samples = try await health.readings(since: since ?? Date().addingTimeInterval(-365 * 86_400))
-            .compactMap(HealthMapping.sample)
+        let from = since ?? Date().addingTimeInterval(-365 * 86_400)
+        let readings = try await health.readings(since: from).compactMap { HealthMapping.sample($0) }
+        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0) }
+        let samples = readings + days
         for start in stride(from: 0, to: samples.count, by: 1000) {
             _ = try await client.push(samples: Array(samples[start..<min(start + 1000, samples.count)]))
         }

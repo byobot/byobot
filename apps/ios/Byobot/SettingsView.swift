@@ -53,7 +53,7 @@ struct SettingsView: View {
             } header: {
                 Text("Apple Health")
             } footer: {
-                Text("byobot reads weigh-ins and body composition, heart rate variability, resting heart rate, sleep and workouts, and sends them only to your laptop. Where your laptop connects to a source like WHOOP directly, that source wins over its copy in Apple Health.")
+                Text("byobot reads body measurements, heart, activity, mobility, vitals, sleep and workouts, and sends them only to your laptop. It never reads nutrition or cycle tracking. Where your laptop connects to a source like WHOOP directly, that source wins over its copy in Apple Health.")
             }
             Section {
                 Button("Forget this laptop", role: .destructive) { confirmForget = true }
