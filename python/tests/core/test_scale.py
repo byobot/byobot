@@ -21,7 +21,9 @@ BASE = 50
 GROWTH = 1.3
 SLACK = 0.003  # seconds, so timer noise on fast operations can't fail a check
 TRIES = 5
+ROUNDS = 3  # interleaved, so a runner slowing down mid-test hits every size alike
 REPLAY = "every late event or undo replays the whole log"
+UNDONE: dict[int, set] = {}  # each round undoes fresh creations
 BUDGETS = {"late_event": 0.05, "undo": 0.05, "offline_sync": 1.0}
 
 
@@ -61,7 +63,9 @@ def late_event(world: World) -> float:
 
 
 def undo(world: World) -> float:
-    creations = [c.id for c in list(world.changes.values())[: TRIES * 7 : 7]]
+    done = UNDONE.setdefault(id(world), set())
+    creations = [c.id for c in list(world.changes.values())[::7] if c.id not in done][:TRIES]
+    done.update(creations)
     return min(timed(lambda c=c: world.author("hub", {"intent": "undo", "change": c})) for c in creations)
 
 
@@ -80,7 +84,9 @@ OPS = {"late_event": late_event, "undo": undo, "offline_sync": offline_sync}
 @pytest.mark.baseline(v0=REPLAY)
 @pytest.mark.parametrize("op", list(OPS))
 def test_s15_cost_does_not_grow_with_history(worlds, op):
-    base, small, large = (OPS[op](worlds[n]) for n in (BASE, N, 2 * N))
+    sizes = (BASE, N, 2 * N)
+    rounds = [[OPS[op](worlds[n]) for n in sizes] for _ in range(ROUNDS)]
+    base, small, large = (min(r[i] for r in rounds) for i in range(len(sizes)))
     ms = ", ".join(f"{c * 1000:.1f} ms at {n}" for c, n in ((base, BASE), (small, N), (large, 2 * N)))
     assert large - base < GROWTH * (small - base) + SLACK, f"{op}: {ms}"
 
