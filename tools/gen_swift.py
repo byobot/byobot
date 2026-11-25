@@ -4,13 +4,9 @@
     python tools/gen_swift.py            # write apps/ios/ByobotKit/Sources/ByobotKit/Generated/Contract.swift
     python tools/gen_swift.py --check    # fail if the committed file is out of date (CI runs this)
 
-The schemas in schema/v0 are the source of truth; the Swift file is never edited
-by hand. The generator covers exactly the shapes the contract uses: objects with
-properties (structs), string enums, `$ref`s across the schema files, and the
-event envelope's payload-by-type (an enum). Metrics are a map of `Measure`,
-which lives in the hand-written support code beside the generated file, and the
-metric registry (names, units, bounds) is generated so the app can offer the
-right units without hard-coding them.
+schema/v1 is the source of truth; the Swift file is never edited by hand. Record kinds become payload
+structs (a header kind gets the header's fields it allows), the envelope and sync messages become structs,
+and registry.json becomes the code registry, kind versions and id namespaces.
 """
 
 from __future__ import annotations
@@ -22,32 +18,31 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "schema" / "v0"
+SCHEMA = ROOT / "schema" / "v1"
 OUT = ROOT / "apps" / "ios" / "ByobotKit" / "Sources" / "ByobotKit" / "Generated" / "Contract.swift"
 
-FILES = {"common": "common.schema.json", "event": "event.schema.json", "training": "training.schema.json",
-         "telemetry": "telemetry.schema.json", "sync": "sync.schema.json"}
+FILES = {"common": "common.schema.json", "records": "records.schema.json", "event": "event.schema.json",
+         "sync": "sync.schema.json"}
 BY_FILE = {v: k for k, v in FILES.items()}
 
-# Which definitions become Swift types, and their names. `None` is the schema's root object.
+# Definitions that become Swift types. `None` is a schema's root.
 TYPES: dict[tuple[str, str | None], str] = {
-    ("training", "activity"): "Activity",
-    ("training", "targets"): "Targets",
-    ("training", "resistance_curve"): "ResistanceCurve",
-    ("training", "location"): "Location",
-    ("training", "plan"): "Plan",
-    ("training", "side"): "Side",
-    ("training", "planned_effort"): "PlannedEffort",
-    ("training", "block"): "Block",
-    ("training", "planned_session"): "PlannedSession",
-    ("training", "performed_effort"): "PerformedEffort",
-    ("training", "inline_effort"): "InlineEffort",
-    ("training", "performed_session"): "PerformedSession",
+    ("common", "ref"): "Ref",
+    ("common", "time"): "RecordTime",
+    ("records", "side"): "Side",
+    ("records", "activity"): "ActivityPayload",
+    ("records", "location"): "LocationPayload",
+    ("records", "plan"): "PlanPayload",
+    ("records", "planned_effort"): "PlannedEffort",
+    ("records", "block"): "Block",
+    ("records", "planned_session"): "PlannedSessionPayload",
+    ("records", "session"): "SessionPayload",
+    ("records", "effort"): "EffortPayload",
+    ("records", "observation"): "ObservationPayload",
+    ("records", "overlay"): "OverlayPayload",
+    ("records", "setting"): "SettingPayload",
     ("event", None): "Event",
     ("event", "actor"): "Actor",
-    ("event", "undo"): "Undo",
-    ("telemetry", None): "TelemetrySample",
-    ("telemetry", "device"): "TelemetryDevice",
     ("sync", "server"): "SyncServer",
     ("sync", "device"): "SyncDevice",
     ("sync", "error"): "SyncError",
@@ -55,27 +50,37 @@ TYPES: dict[tuple[str, str | None], str] = {
     ("sync", "pair_request"): "PairRequest",
     ("sync", "pair_response"): "PairResponse",
     ("sync", "status"): "SyncStatus",
-    ("sync", "plan_window"): "PlanWindow",
     ("sync", "events_request"): "EventsRequest",
     ("sync", "event_result"): "EventResult",
     ("sync", "events_response"): "EventsResponse",
-    ("sync", "telemetry_request"): "TelemetryRequest",
-    ("sync", "telemetry_response"): "TelemetryResponse",
+    ("sync", "pull_response"): "PullResponse",
+    ("sync", "sample"): "Sample",
+    ("sync", "deletion"): "Deletion",
+    ("sync", "samples_request"): "SamplesRequest",
+    ("sync", "samples_response"): "SamplesResponse",
 }
 
-# Names for enums declared inline on a property: (file, definition, property) -> Swift name.
-INLINE_ENUMS = {
-    ("event", None, "type"): "EventType",
+# Enums and objects declared inline on a property: (file, definition, property) -> Swift name.
+INLINE = {
+    ("records", "header", "modality"): "Modality",
+    ("records", "header", "status"): "RecordStatus",
+    ("records", "header", "origin"): "Origin",
+    ("records", "header", "links"): "Links",
+    ("records", "activity", "targets"): "Targets",
+    ("records", "activity", "resistance_curve"): "ResistanceCurve",
+    ("records", "overlay", "effect"): "OverlayEffect",
+    ("records", "overlay", "fields"): "CorrectedFields",
+    ("records", "overlay", "swaps"): "Swap",
+    ("event", None, "record"): "RecordRef",
+    ("event", None, "op"): "Op",
     ("event", "actor", "kind"): "ActorKind",
-    ("telemetry", None, "type"): "TelemetryType",
     ("sync", "event_result", "status"): "EventStatus",
 }
 
-# Types whose `id` is not an identity (an actor's id names who, not which event).
-NOT_IDENTIFIABLE = {"Actor"}
+# Types whose `id` is not an identity (a reference's id names another record).
+NOT_IDENTIFIABLE = {"Actor", "Ref", "RecordRef"}
 
-# Shared scalar definitions that are plain strings in Swift (the contract checks their format).
-STRING_DEFS = {"id", "slug", "uuid", "timestamp", "date", "text", "metric_name", "custom_metric_name"}
+STRING_DEFS = {"id", "slug", "uuid", "kind", "timestamp", "date", "zone", "hlc", "text", "name", "code", "unit"}
 
 KEYWORDS = {
     "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "init", "inout",
@@ -85,12 +90,11 @@ KEYWORDS = {
     "self", "Self", "super", "throw", "throws", "true", "try", "Any", "some", "any",
 }
 
-PREFIXES = ("HKQuantityTypeIdentifier", "HKCategoryTypeIdentifier", "byobot.")
-NAMES = {"HKWorkoutTypeIdentifier": "workout", "HKQuantityTypeIdentifierVO2Max": "vo2Max"}
-
 
 def load() -> dict[str, dict]:
-    return {name: json.loads((SCHEMA / file).read_text(encoding="utf-8")) for name, file in FILES.items()}
+    schemas = {name: json.loads((SCHEMA / file).read_text(encoding="utf-8")) for name, file in FILES.items()}
+    schemas["registry"] = json.loads((SCHEMA / "registry.json").read_text(encoding="utf-8"))
+    return schemas
 
 
 def camel(text: str, upper: bool = False) -> str:
@@ -103,18 +107,7 @@ def ident(name: str) -> str:
     return f"`{name}`" if name in KEYWORDS else name
 
 
-def case_name(raw: str) -> str:
-    if raw in NAMES:
-        return NAMES[raw]
-    for prefix in PREFIXES:
-        if raw.startswith(prefix):
-            raw = raw[len(prefix):]
-            break
-    return ident(camel(raw))
-
-
 def swift_string(text: str) -> str:
-    """A Swift string literal."""
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
 
 
@@ -124,15 +117,17 @@ def doc(text: str | None, indent: str = "") -> list[str]:
     return [f"{indent}/// {line}".rstrip() for line in text.splitlines()]
 
 
+def number(x) -> str:
+    return "nil" if x is None else repr(float(x))
+
+
 class Generator:
     def __init__(self, schemas: dict[str, dict]):
         self.schemas = schemas
-        self.enums: dict[str, tuple[list[str], str | None]] = {}  # name -> (raw values, doc)
-
-    # -- references --------------------------------------------------------
+        self.enums: dict[str, tuple[list[str], str | None]] = {}
+        self.inline: dict[str, list[str]] = {}
 
     def resolve(self, ref: str, here: str) -> tuple[str, str | None]:
-        """A `$ref` as (file, definition); definition is None for a schema's root."""
         file, _, pointer = ref.partition("#")
         name = BY_FILE[file] if file else here
         if not pointer:
@@ -146,61 +141,58 @@ class Generator:
         schema = self.schemas[file]
         return schema if definition is None else schema["$defs"][definition]
 
-    def properties(self, file: str, definition: str | None) -> list[tuple[str, dict, str, bool]]:
-        """(name, schema, file it came from, required) for each property, following `allOf` composition."""
-        node = self.node(file, definition)
+    def properties(self, file: str, definition: str | None, node: dict) -> list[tuple[str, object, tuple, bool]]:
+        """(name, schema, (file, definition) it is declared in, required) for each property. A kind built on
+        the header gets the header's fields, typed as the header types them, minus those it rules out."""
+        refs = [self.resolve(p["$ref"], file) for p in node.get("allOf", []) if "$ref" in p]
+        header = ("records", "header") in refs and ("records", "no_header") not in refs
+        excluded = {r for part in node.get("not", {}).get("anyOf", []) for r in part.get("required", [])}
         required = set(node.get("required", []))
-        base: dict[str, tuple[dict, str]] = {}
-        for part in node.get("allOf", []):
-            if "$ref" in part:
-                bfile, bdef = self.resolve(part["$ref"], file)
-                bnode = self.node(bfile, bdef)
-                for name, prop in bnode.get("properties", {}).items():
-                    base[name] = (prop, bfile)
-                required |= set(bnode.get("required", []))
-        out = []
+        out: dict[str, tuple[object, tuple]] = {}
+        if header:
+            for name, prop in self.node("records", "header")["properties"].items():
+                out[name] = (prop, ("records", "header"))
         for name, prop in node.get("properties", {}).items():
-            source = file
-            if prop is True:
-                prop, source = base[name]
-            out.append((name, prop, source, name in required))
-        return out
+            if prop is False:
+                out.pop(name, None)
+            elif not (header and name in out):
+                out[name] = (prop, (file, definition))
+        return [(n, p, owner, n in required) for n, (p, owner) in out.items() if n not in excluded]
 
-    # -- types -------------------------------------------------------------
-
-    def swift_type(self, prop: dict, file: str, owner: tuple[str, str | None], name: str) -> tuple[str, bool]:
+    def swift_type(self, prop, owner: tuple, name: str) -> tuple[str, bool]:
         """(Swift type, nullable) for one property schema."""
+        file = owner[0]
+        if prop is True:
+            return "JSONValue", False
         if "$ref" in prop:
             rfile, rdef = self.resolve(prop["$ref"], file)
-            if rfile == "common":
-                if rdef in STRING_DEFS:
-                    return "String", False
-                if rdef == "metrics":
-                    return "Metrics", False
-                if rdef == "measure":
-                    return "Measure", False
-                raise ValueError(f"no Swift type for common#{rdef}")
+            if rfile == "common" and rdef in STRING_DEFS:
+                return "String", False
+            if (rfile, rdef) == ("common", "metrics"):
+                return "Metrics", False
+            if (rfile, rdef) == ("common", "measure"):
+                return "Measure", False
             if (rfile, rdef) not in TYPES:
                 raise ValueError(f"no Swift type for {rfile}#{rdef}")
             return TYPES[(rfile, rdef)], False
         if "const" in prop:
-            return ("Int" if isinstance(prop["const"], int) else "String"), False
+            c = prop["const"]
+            return ("Bool" if isinstance(c, bool) else "Int" if isinstance(c, int) else "String"), False
+        key = (*owner, name)
         if "enum" in prop:
-            key = (owner[0], owner[1], name)
-            if key not in INLINE_ENUMS:
-                raise ValueError(f"name the inline enum {key} in INLINE_ENUMS")
-            self.enums[INLINE_ENUMS[key]] = (prop["enum"], prop.get("description"))
-            return INLINE_ENUMS[key], False
+            if key not in INLINE:
+                raise ValueError(f"name the inline enum {key} in INLINE")
+            self.enums[INLINE[key]] = (prop["enum"], prop.get("description"))
+            return INLINE[key], False
         types = prop.get("type")
         if isinstance(types, list):
             nullable = "null" in types
             rest = sorted(t for t in types if t != "null")
             if len(rest) == 1:
-                inner, _ = self.swift_type({**prop, "type": rest[0]}, file, owner, name)
-                return inner, nullable
+                return self.swift_type({**prop, "type": rest[0]}, owner, name)[0], nullable
             if set(rest) <= {"number", "string", "boolean"}:
                 return "Scalar", nullable
-            raise ValueError(f"unsupported type list {types} for {owner}.{name}")
+            raise ValueError(f"unsupported type list {types} for {key}")
         if types == "string":
             return "String", False
         if types == "integer":
@@ -211,34 +203,39 @@ class Generator:
             return "Bool", False
         if types == "array":
             items = prop.get("items")
-            if items is None:
-                return "[JSONValue]", False
-            inner, _ = self.swift_type(items, file, owner, name)
-            return f"[{inner}]", False
+            return (f"[{self.swift_type(items, owner, name)[0]}]" if items is not None else "[JSONValue]"), False
         if types == "object":
             extra = prop.get("additionalProperties")
             if isinstance(extra, dict):
-                inner, _ = self.swift_type(extra, file, owner, name)
+                inner = self.inline_struct(extra, owner, name) if "properties" in extra else \
+                    self.swift_type(extra, owner, name)[0]
                 return f"[String: {inner}]", False
-            return "JSONValue", False
-        return "JSONValue", False  # anything goes (`{}` or a description only)
+            if "properties" in prop:
+                return self.inline_struct(prop, owner, name), False
+        return "JSONValue", False
 
-    # -- emitters ----------------------------------------------------------
+    def inline_struct(self, prop: dict, owner: tuple, name: str) -> str:
+        key = (*owner, name)
+        if key not in INLINE:
+            raise ValueError(f"name the inline object {key} in INLINE")
+        swift = INLINE[key]
+        if swift not in self.inline:
+            self.inline[swift] = []  # reserve before recursing
+            self.inline[swift] = self.struct(owner[0], owner[1], swift, prop)
+        return swift
 
-    def struct(self, file: str, definition: str | None, name: str) -> list[str]:
-        node = self.node(file, definition)
-        props = self.properties(file, definition)
+    def struct(self, file: str, definition: str | None, name: str, node: dict) -> list[str]:
         fields = []
-        for pname, prop, source, required in props:
-            swift, nullable = self.swift_type(prop, source, (file, definition), pname)
+        for pname, prop, owner, required in self.properties(file, definition, node):
+            swift, nullable = self.swift_type(prop, owner, pname)
             optional = nullable or not required
-            fields.append((pname, ident(camel(pname)), swift + ("?" if optional else ""), optional,
-                           prop.get("description")))
+            desc = prop.get("description") if isinstance(prop, dict) else None
+            fields.append((pname, ident(camel(pname)), swift + ("?" if optional else ""), optional, desc))
         has_id = name not in NOT_IDENTIFIABLE and any(p == "id" and t == "String" for p, _, t, _, _ in fields)
         conformances = "Codable, Equatable, Hashable, Sendable" + (", Identifiable" if has_id else "")
-        lines = doc(node.get("description") or node.get("title"))
+        lines = doc(node.get("description"))
         lines.append(f"public struct {name}: {conformances} {{")
-        for pname, sname, stype, _, desc in fields:
+        for _, sname, stype, _, desc in fields:
             lines += doc(desc, "    ")
             lines.append(f"    public var {sname}: {stype}")
         lines.append("")
@@ -246,131 +243,53 @@ class Generator:
         lines.append(f"    public init({params}) {{")
         for _, sname, _, _, _ in fields:
             lines.append(f"        self.{sname.strip('`')} = {sname}")
-        lines.append("    }")
-        lines.append("")
-        lines.append("    enum CodingKeys: String, CodingKey {")
+        lines += ["    }", "", "    enum CodingKeys: String, CodingKey {"]
         for pname, sname, _, _, _ in fields:
             lines.append(f"        case {sname}" + (f' = "{pname}"' if sname.strip("`") != pname else ""))
-        lines.append("    }")
-        lines.append("}")
+        lines += ["    }", "}"]
         return lines
 
     def enum(self, name: str, values: list[str], description: str | None) -> list[str]:
         lines = doc(description)
         lines.append(f"public enum {name}: String, Codable, CaseIterable, Hashable, Sendable {{")
         for raw in values:
-            case = case_name(raw)
+            case = ident(camel(raw))
             lines.append(f"    case {case}" + (f' = "{raw}"' if case.strip("`") != raw else ""))
         lines.append("}")
         return lines
 
-    def event(self) -> list[str]:
-        """The envelope: like any struct, but its payload's type depends on `type`."""
-        schema = self.schemas["event"]
-        mapping = []
-        for rule in schema["allOf"]:
-            kind = rule["if"]["properties"]["type"]["const"]
-            pfile, pdef = self.resolve(rule["then"]["properties"]["payload"]["$ref"], "event")
-            mapping.append((kind, TYPES[(pfile, pdef)]))
-        self.enums["EventType"] = (schema["properties"]["type"]["enum"], "What an event records.")
-        lines = ["/// What an event carries, by event type.",
-                 "public enum EventPayload: Equatable, Hashable, Sendable {"]
-        for kind, swift in mapping:
-            lines.append(f"    case {case_name(kind)}({swift})")
-        lines += ["", "    public var type: EventType {", "        switch self {"]
-        for kind, _ in mapping:
-            lines.append(f"        case .{case_name(kind)}: return .{case_name(kind)}")
-        lines += ["        }", "    }", "}", ""]
-        props = {name: (prop, required) for name, prop, _, required in self.properties("event", None)}
-        lines += doc(schema["description"])
-        lines += [
-            "public struct Event: Codable, Equatable, Hashable, Sendable, Identifiable {",
-            *doc(props["id"][0].get("description"), "    "),
-            "    public var id: String",
-            "    public var schemaVersion: Int",
-            *doc(props["ts"][0].get("description"), "    "),
-            "    public var ts: String",
-            *doc(props["device_id"][0].get("description"), "    "),
-            "    public var deviceId: String",
-            "    public var actor: Actor",
-            "    public var payload: EventPayload",
-            "",
-            "    public var type: EventType { payload.type }",
-            "",
-            "    public init(id: String, schemaVersion: Int = ContractVersion.schema, ts: String, deviceId: String,"
-            " actor: Actor, payload: EventPayload) {",
-            "        self.id = id",
-            "        self.schemaVersion = schemaVersion",
-            "        self.ts = ts",
-            "        self.deviceId = deviceId",
-            "        self.actor = actor",
-            "        self.payload = payload",
-            "    }",
-            "",
-            "    enum CodingKeys: String, CodingKey {",
-            '        case id, type, ts, actor, payload',
-            '        case schemaVersion = "schema_version"',
-            '        case deviceId = "device_id"',
-            "    }",
-            "",
-            "    public init(from decoder: Decoder) throws {",
-            "        let c = try decoder.container(keyedBy: CodingKeys.self)",
-            "        id = try c.decode(String.self, forKey: .id)",
-            "        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)",
-            "        ts = try c.decode(String.self, forKey: .ts)",
-            "        deviceId = try c.decode(String.self, forKey: .deviceId)",
-            "        actor = try c.decode(Actor.self, forKey: .actor)",
-            "        switch try c.decode(EventType.self, forKey: .type) {",
-        ]
-        for kind, swift in mapping:
-            lines.append(f"        case .{case_name(kind)}: payload = .{case_name(kind)}("
-                         f"try c.decode({swift}.self, forKey: .payload))")
-        lines += [
-            "        }",
-            "    }",
-            "",
-            "    public func encode(to encoder: Encoder) throws {",
-            "        var c = encoder.container(keyedBy: CodingKeys.self)",
-            "        try c.encode(id, forKey: .id)",
-            "        try c.encode(schemaVersion, forKey: .schemaVersion)",
-            "        try c.encode(type, forKey: .type)",
-            "        try c.encode(ts, forKey: .ts)",
-            "        try c.encode(deviceId, forKey: .deviceId)",
-            "        try c.encode(actor, forKey: .actor)",
-            "        switch payload {",
-        ]
-        for kind, _ in mapping:
-            lines.append(f"        case .{case_name(kind)}(let p): try c.encode(p, forKey: .payload)")
-        lines += ["        }", "    }", "}"]
-        return lines
-
     def registry(self) -> list[str]:
-        """The metric registry from common.schema.json, so the app offers the right units and bounds."""
-        common = self.schemas["common"]["$defs"]
-        metrics = common["metrics"]["properties"]
-        lines = [
-            "/// The registry metrics from the contract: what each measures, its units and bounds.",
-            "/// Anything else must be a custom metric named `x.something`.",
-            "public enum MetricRegistry {",
-            f'    public static let customNamePattern = {swift_string(common["custom_metric_name"]["pattern"])}',
-            "",
-            "    public static let all: [MetricSpec] = [",
-        ]
-        for name in common["metric_name"]["anyOf"][0]["enum"]:
-            spec = metrics[name]
-            props = spec.get("properties", {})
-            value = props.get("value", {})
-            units = props.get("unit", {}).get("enum", [])
-            kind = "text" if value.get("type") == "string" else ("integer" if value.get("type") == "integer" else "number")
-            minimum = value.get("minimum")
-            maximum = value.get("maximum")
-            pattern = value.get("pattern")
+        """Kind versions, id namespaces, settings and the code registry from registry.json."""
+        reg = self.schemas["registry"]
+        code = self.schemas["common"]["$defs"]["code"]["pattern"]
+        lines = ["/// The payload version each kind is written at.", "public enum KindVersion {",
+                 "    public static let all: [String: Int] = ["]
+        lines += [f"        {json.dumps(k)}: {v['version']}," for k, v in reg["kinds"].items()]
+        lines += ["    ]", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
+        lines += [f"    public static let {camel(k)} = {json.dumps(v)}" for k, v in reg["namespaces"].items()]
+        lines += ["}", "", "/// Settings this contract knows, by record id.",
+                  "public enum SettingId: String, CaseIterable, Sendable {"]
+        lines += [f"    case {camel(k)}" + (f' = "{k}"' if camel(k) != k else "") for k in reg["settings"]]
+        lines += ["}", "", "/// The registry's codes: what each measures, its units (the first is its own) and bounds.",
+                  "/// Anything else is your own code, prefixed `x.`.", "public enum MetricRegistry {",
+                  f"    public static let codePattern = {swift_string(code)}", "",
+                  "    public static let all: [MetricSpec] = ["]
+        for name, spec in reg["codes"].items():
+            value = spec["value"]
+            kind = {"quantity": "number", "category": "text"}.get(value, value)
+            units = ", ".join(swift_string(u) for u in spec.get("units", {}))
+            values = "nil" if "values" not in spec else "[" + ", ".join(swift_string(v) for v in spec["values"]) + "]"
+            minimum = spec.get("minimum", spec.get("exclusive_minimum"))
             lines.append(
                 f"        MetricSpec(name: {json.dumps(name)}, summary: {swift_string(spec.get('description', ''))}, "
-                f"units: [{', '.join(swift_string(u) for u in units)}], unitRequired: {'true' if 'unit' in spec.get('required', []) else 'false'}, "
-                f"kind: .{kind}, minimum: {'nil' if minimum is None else float(minimum)}, "
-                f"maximum: {'nil' if maximum is None else float(maximum)}, "
-                f"pattern: {'nil' if pattern is None else swift_string(pattern)}),")
+                f"units: [{units}], unitRequired: {'true' if value == 'quantity' else 'false'}, kind: .{kind}, "
+                f"minimum: {number(minimum)}, exclusiveMinimum: {'true' if 'exclusive_minimum' in spec else 'false'}, "
+                f"maximum: {number(spec.get('maximum'))}, "
+                f"pattern: {'nil' if 'pattern' not in spec else swift_string(spec['pattern'])}, values: {values}, "
+                f"on: [{', '.join(swift_string(k) for k in spec.get('on', []))}]),")
+        lines += ["    ]", "", "    /// The code each HealthKit type is read as.", "    public static let healthkit: [String: String] = ["]
+        lines += [f"        {json.dumps(spec['healthkit'])}: {json.dumps(name)}," for name, spec in reg["codes"].items()
+                  if "healthkit" in spec]
         lines += ["    ]", "}"]
         return lines
 
@@ -378,16 +297,15 @@ class Generator:
         blocks: list[list[str]] = []
         for (file, definition), name in TYPES.items():
             node = self.node(file, definition)
-            if file == "event" and definition is None:
-                blocks.append(self.event())
-            elif "enum" in node:
+            if "enum" in node:
                 self.enums[name] = (node["enum"], node.get("description"))
             else:
-                blocks.append(self.struct(file, definition, name))
+                blocks.append(self.struct(file, definition, name, node))
+        blocks += [self.inline[n] for n in sorted(self.inline)]
         blocks.append(self.registry())
         enums = [self.enum(n, v, d) for n, (v, d) in sorted(self.enums.items())]
         header = [
-            "// Generated by tools/gen_swift.py from schema/v0. Do not edit by hand:",
+            "// Generated by tools/gen_swift.py from schema/v1. Do not edit by hand:",
             "// change the schema and run `python tools/gen_swift.py`.",
             "//",
             "// Copyright The byobot Authors. Licensed under Apache-2.0.",
@@ -399,11 +317,10 @@ class Generator:
             f"    public static let sync = {self.schemas['sync']['$defs']['hello']['properties']['protocol']['const']}",
             "}",
             "",
-            "/// What is measured, by metric name (`reps`, `load`, ..., or your own `x.name`).",
+            "/// Measurements by code (`reps`, `load`, ..., or your own `x.name`).",
             "public typealias Metrics = [String: Measure]",
         ]
-        body = "\n\n".join("\n".join(b) for b in (header, *enums, *blocks))
-        return body + "\n"
+        return "\n\n".join("\n".join(b) for b in (header, *enums, *blocks)) + "\n"
 
 
 def main() -> int:
