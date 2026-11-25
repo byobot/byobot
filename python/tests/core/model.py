@@ -85,7 +85,7 @@ class ModelReplica:
     gone: set = field(default_factory=set)
     version: int = 1
 
-    # -- the log -----------------------------------------------------------
+    # -- the logbook --------------------------------------------------------
 
     def deliver(self, writes: list[Write]) -> list[tuple[str, str]]:
         out = []

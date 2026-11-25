@@ -1,4 +1,5 @@
-"""Schema 1's store: an append-only log of events, a record index over it and per-record projections.
+"""Schema 1's store: the byobot logbook (an append-only log of events), a record index over it and
+per-record projections.
 
 Each event writes one record. A record's heads are its put and retract events that no other event has seen
 (through `prev`); more than one distinct head is a conflict, shown until a write that names every head.
@@ -167,7 +168,7 @@ class Store:
     def store_key(self) -> bytes:
         return bytes.fromhex(self._get("store_key"))
 
-    # -- the log -------------------------------------------------------------
+    # -- the logbook ----------------------------------------------------------
 
     def event(self, event_id: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
@@ -365,7 +366,7 @@ class Store:
             return True
 
     def rebuild(self) -> None:
-        """Re-derive every record from the log. A repair tool: accepting never needs it."""
+        """Re-derive every record from the logbook. A repair tool: accepting never needs it."""
         with self._tx():
             self.conn.execute("DELETE FROM records")
             reducers.clear(self.conn)
@@ -428,7 +429,7 @@ class Store:
         out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
         return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
 
-    # -- paired devices: local to this store, never in the log --------------------
+    # -- paired devices: local to this store, never in the logbook -----------------
 
     def pair(self, device_id: str, name: str, token_sha256: str) -> dict:
         """Pair a device, or pair it again with a new token (which also lifts an earlier unpair)."""

@@ -13,7 +13,7 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public var prev: [String]
     /// Two writers changed it at once; this is the version reads show.
     public var conflict: Bool?
-    /// An activity that ships with byobot, not yet written to the log.
+    /// An activity that ships with byobot, not yet written to the logbook.
     public var library: Bool?
 
     public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil) {

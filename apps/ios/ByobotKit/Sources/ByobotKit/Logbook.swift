@@ -56,8 +56,8 @@ public struct RejectedEvent: Codable, Equatable, Hashable, Sendable, Identifiabl
     }
 }
 
-/// Writes events for what you do, and answers what has been logged. A value type over `AppState`,
-/// so it is easy to test and the app can save the state after each change.
+/// This phone's part of the byobot logbook: writes events for what you do, and answers what has been
+/// logged. A value type over `AppState`, so it is easy to test and the app can save the state after each change.
 public struct Logbook: Sendable {
     public var state: AppState
     public var actor: Actor

@@ -1,6 +1,6 @@
 # The byobot contract, v1
 
-Schema 1: one append-only log of events, each writing one record, written by people, agents and sources alike. Everything you read is computed from it.
+Schema 1: the byobot logbook, one append-only log of events, each writing one record, written by people, agents and sources alike. Everything you read is computed from it.
 
 | File | Defines |
 |---|---|
@@ -28,7 +28,7 @@ Derived ids are UUIDv5 over the [RFC 8785](https://www.rfc-editor.org/rfc/rfc878
 - Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`.
 - `overlay` record: `["<effect>", "<target kind>", "<target id>"]` in `overlay`, so there is one overlay per effect and target.
 
-The store key is 32 random bytes created with the store. It never enters the log; export and restore carry it, and paired devices receive it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
+The store key is 32 random bytes created with the store. It never enters the logbook; export and restore carry it, and paired devices receive it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
 
 ## Order and time
 
@@ -41,7 +41,7 @@ The store key is 32 random bytes created with the store. It never enters the log
 - `prev` lists the events of the record the author saw as current. A record's heads are its events no other event of it names in `prev`. Two or more heads with different content are a conflict: reads show the head with the highest `hlc` and `id`, flagged, counted once. A write naming every head resolves it.
 - `retract` removes a record and conflicts like any edit.
 - Undo is a command, not an op: it writes the record's previous content (or a `retract` if the undone event created it) with `reverts` set and `prev` filled as usual.
-- `erase` always wins and never conflicts. Every replica then blanks the payload of each event of that record, sets `redacted_by`, and keeps ids and order so the log still replays. An event of an erased record arriving later is stored blanked. Nothing derived from an erased payload's content may remain, except ids made with the store key.
+- `erase` always wins and never conflicts. Every replica then blanks the payload of each event of that record, sets `redacted_by`, and keeps ids and order so the logbook still replays. An event of an erased record arriving later is stored blanked. Nothing derived from an erased payload's content may remain, except ids made with the store key.
 - Source records never conflict. Only connectors `put` or `retract` them, with `prev` empty on a `put` and naming the deleted revision on a `retract`. The current revision is the latest by the time its mapper reads from `raw`, then event id; a `retract` hides the record only while the revision it names is current. Your changes to a source's record are overlays.
 
 ## Delivery

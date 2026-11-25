@@ -121,7 +121,7 @@ def _status(ctx: Context) -> dict:
             "device_id": store.device_id, "counts": store.counts()}
 
 
-@command("rebuild", "Rebuild every derived table from the event log.", read_only=False, mcp=False)
+@command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False)
 def _rebuild(ctx: Context) -> dict:
     ctx.store().rebuild()
     return {"counts": ctx.store().counts()}
