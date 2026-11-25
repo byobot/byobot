@@ -6,6 +6,7 @@ from datetime import datetime
 
 DIGITS = (13, 6)
 RUNAWAY_MS = 24 * 3600 * 1000  # a device more than a day ahead of this one is flagged
+CEILING_MS = 7258118400000  # 2200-01-01: refused, so the clock stays far from overflow whatever the walls say
 
 
 def parse(text: str) -> tuple[int, int]:
@@ -33,3 +34,7 @@ def tick(floor: tuple[int, int], wall_ms: int) -> tuple[int, int]:
 
 def runaway(seen: tuple[int, int], wall_ms: int) -> bool:
     return seen[0] - wall_ms > RUNAWAY_MS
+
+
+def out_of_range(seen: tuple[int, int]) -> bool:
+    return seen[0] >= CEILING_MS

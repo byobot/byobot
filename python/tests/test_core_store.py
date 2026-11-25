@@ -174,6 +174,24 @@ def test_a_device_a_day_ahead_is_flagged(pair):
     assert [w["device_id"] for w in b.clock_warnings()] == ["phone"]
 
 
+def test_an_event_from_far_in_the_future_is_refused(pair):
+    """One event stamped near the end of time used to stop every later write here."""
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    forged = {**e, "id": a.new_id(), "record": {**e["record"], "id": a.new_record_id("effort")},
+              "hlc": "9999999999999-000000"}
+    assert b.accept_many([forged])[0][0] == "rejected"
+    commands.log(b, ME, [{"kind": "effort", "payload": effort()}])
+
+
+def test_a_store_whose_clock_ran_away_writes_again(tmp_path):
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
+        s._set("hlc", "9999999999999-999999")
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
+
+
 def test_edit_and_remove_need_a_live_record(pair):
     a, _ = pair
     with pytest.raises(NotFound):
