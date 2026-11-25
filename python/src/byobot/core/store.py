@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from .. import library
 from ..util import Conflict, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
@@ -109,6 +110,9 @@ class Store:
             elif device_id is not None:
                 self._set("device_id", device_id)
             self._set("shape", reducers.SHAPE)
+            if self._get("library") != library.fingerprint():
+                reducers.seed_library(self.conn)
+                self._set("library", library.fingerprint())
         if reshaped:
             self.rebuild()
         if self._get("contract") != self.contract.fingerprint():

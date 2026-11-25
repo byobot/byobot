@@ -7,12 +7,14 @@ import json
 import sqlite3
 from typing import Any, Callable
 
+from .. import library
 from . import mappers, occurrences
 from .contract import Contract, instant
 
 DDL = """
 CREATE TABLE IF NOT EXISTS activities (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, movement_type TEXT, fatigue INTEGER, tags TEXT, equipment TEXT);
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, movement_type TEXT, fatigue INTEGER, tags TEXT, equipment TEXT,
+  targets TEXT, default_metrics TEXT, resistance_curve TEXT, source TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS plans (
@@ -93,11 +95,27 @@ def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload:
     conn.execute("DELETE FROM metrics WHERE owner_kind = ? AND owner_id = ?", (kind, rid))
     if payload is not None and kind in REDUCERS:
         REDUCERS[kind](conn, c, rid, payload)
+    elif kind == "activity" and rid in _library():
+        _activity_row(conn, rid, _library()[rid], "library")
 
 
 def clear(conn: sqlite3.Connection) -> None:
     for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
         conn.execute(f"DELETE FROM {table}")
+    seed_library(conn)
+
+
+def _library() -> dict[str, dict]:
+    return {a["id"]: {k: v for k, v in a.items() if k != "id"} for a in library.activities()}
+
+
+def seed_library(conn: sqlite3.Connection) -> None:
+    """Library activities ship with byobot; one you put replaces it, and retracting yours brings it back."""
+    conn.execute("DELETE FROM activities WHERE source = 'library'")
+    mine = {r[0] for r in conn.execute("SELECT id FROM activities")}
+    for rid, p in _library().items():
+        if rid not in mine:
+            _activity_row(conn, rid, p, "library")
 
 
 def drop(conn: sqlite3.Connection) -> None:
@@ -143,9 +161,14 @@ def _metrics(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, metrics
             value if isinstance(value, str) else None, m.get("unit"), *_std(c, code, m), (corrected or {}).get(code)))
 
 
+def _activity_row(conn, rid, p, source):
+    conn.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+        rid, p["name"], p.get("movement_type"), p.get("fatigue"), _json(p.get("tags")), _json(p.get("equipment")),
+        _json(p.get("targets")), _json(p.get("default_metrics")), _json(p.get("resistance_curve")), source))
+
+
 def _activity(conn, c, rid, p):
-    conn.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?)", (
-        rid, p["name"], p.get("movement_type"), p.get("fatigue"), _json(p.get("tags")), _json(p.get("equipment"))))
+    _activity_row(conn, rid, p, "store")
 
 
 def _location(conn, c, rid, p):

@@ -283,3 +283,17 @@ def test_derived_tables_rebuild_when_their_shape_changes(tmp_path):
         s.conn.commit()
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         assert tuple(s.conn.execute("SELECT std_value FROM observations").fetchone()) == (80,)
+
+
+def test_library_activities_ship_and_yours_replace_them(tmp_path, monkeypatch):
+    monkeypatch.delenv("BYOBOT_LIBRARY")
+    a = Store(tmp_path / "lib.db", device_id="phone", wall=Wall())
+    name = lambda: a.conn.execute("SELECT name, source FROM activities WHERE id = 'ab_wheel'").fetchone()  # noqa: E731
+    assert tuple(name()) == ("Ab Wheel", "library")
+    [e] = commands.log(a, ME, [{"kind": "activity", "id": "ab_wheel", "payload": {"name": "Wheel rollout"}}])
+    assert tuple(name()) == ("Wheel rollout", "store")
+    commands.remove(a, ME, "activity", "ab_wheel")
+    assert tuple(name()) == ("Ab Wheel", "library")
+    a.rebuild()
+    assert tuple(name()) == ("Ab Wheel", "library")
+    a.close()
