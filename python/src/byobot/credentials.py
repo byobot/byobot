@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from byobot.util import ByobotError, home
+from byobot.util import ByobotError, home, profile
 
 SERVICE = "byobot"
 
@@ -22,13 +22,19 @@ def _keychain() -> bool:
             and shutil.which("security") is not None)
 
 
+def _account(name: str) -> str:
+    """The Keychain account: ``whoop`` for the default profile, ``alex/whoop`` for profile ``alex``."""
+    who = profile()
+    return f"{who}/{name}" if who else name
+
+
 def _file(name: str) -> Path:
     return home() / "credentials" / f"{name}.json"
 
 
 def load(name: str) -> dict | None:
     if _keychain():
-        out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", name, "-w"],
+        out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", _account(name), "-w"],
                              capture_output=True, text=True)
         return json.loads(bytes.fromhex(out.stdout.strip())) if out.returncode == 0 else None
     path = _file(name)
@@ -40,7 +46,7 @@ def save(name: str, secret: dict) -> None:
     if _keychain():
         # Through stdin, so the secret never shows in the process list.
         out = subprocess.run(["security", "-i"], capture_output=True, text=True,
-                             input=f'add-generic-password -U -s {SERVICE} -a {name} -w {data.hex()}\n')
+                             input=f'add-generic-password -U -s {SERVICE} -a {_account(name)} -w {data.hex()}\n')
         if out.returncode != 0 or out.stderr.strip():
             raise ByobotError(f"couldn't save to the Keychain: {out.stderr.strip() or out.returncode}")
         return
@@ -55,7 +61,7 @@ def save(name: str, secret: dict) -> None:
 
 def delete(name: str) -> bool:
     if _keychain():
-        return subprocess.run(["security", "delete-generic-password", "-s", SERVICE, "-a", name],
+        return subprocess.run(["security", "delete-generic-password", "-s", SERVICE, "-a", _account(name)],
                               capture_output=True).returncode == 0
     path = _file(name)
     if path.exists():
