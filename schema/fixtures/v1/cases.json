@@ -1,0 +1,3387 @@
+{
+ "description": "Conformance cases for the v1 contract. Each `data` is one event delivered on its own to a replica with this registry; `outcome` is what it must report. Cases with a `rule` break a rule from schema/v1/README.md.",
+ "schema_version": 1,
+ "cases": [
+  {
+   "name": "activity/put",
+   "outcome": "accepted",
+   "description": "An activity with the muscles it works, its equipment and how it trains.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "barbell_back_squat"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "location/put",
+   "outcome": "accepted",
+   "description": "A place to train, named by a slug.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000008",
+    "schema_version": 1,
+    "record": {
+     "kind": "location",
+     "id": "example-gym"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Example Gym"
+    }
+   }
+  },
+  {
+   "name": "plan/put",
+   "outcome": "accepted",
+   "description": "A plan over a span of days.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000002",
+    "schema_version": 1,
+    "record": {
+     "kind": "plan",
+     "id": "019aa000-0000-7000-8000-000000000101"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Base block",
+     "goal": "Build a squat base.",
+     "starts_on": "2026-11-16",
+     "ends_on": "2027-01-10"
+    }
+   }
+  },
+  {
+   "name": "planned_session/put",
+   "outcome": "accepted",
+   "description": "An agent plans a session in a plan; it owns its blocks and planned efforts.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000003",
+    "schema_version": 1,
+    "record": {
+     "kind": "planned_session",
+     "id": "019aa000-0000-7000-8000-000000000102"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "agent",
+     "id": "coach",
+     "model": "example-model"
+    },
+    "prev": [],
+    "payload": {
+     "scheduled_on": "2026-11-21",
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "links": {
+      "part_of": {
+       "kind": "plan",
+       "id": "019aa000-0000-7000-8000-000000000101"
+      }
+     },
+     "blocks": [
+      {
+       "id": "b1",
+       "rounds": 3,
+       "metrics": {
+        "rest": {
+         "value": 3,
+         "unit": "min"
+        }
+       },
+       "efforts": [
+        {
+         "id": "pe1",
+         "activity_id": "barbell_back_squat",
+         "metrics": {
+          "reps": {
+           "value": 5
+          },
+          "load": {
+           "value": 100,
+           "unit": "kg"
+          },
+          "rpe": {
+           "min": 7,
+           "max": 8
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "session/put-in-progress",
+   "outcome": "accepted",
+   "description": "A session started on the phone, with its offset and zone, carrying out a planned session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000004",
+    "schema_version": 1,
+    "record": {
+     "kind": "session",
+     "id": "019aa000-0000-7000-8000-000000000103"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795130520000-000000",
+    "ts": "2026-11-21T07:02:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "time": {
+      "start": "2026-11-21T07:02:00-05:00",
+      "zone": "America/New_York"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "status": "in_progress",
+     "links": {
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/put",
+   "outcome": "accepted",
+   "description": "A set logged in pounds, part of a session and answering a planned effort.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/edit",
+   "outcome": "accepted",
+   "description": "An edit names the version it was made against.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000009",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131060000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000005"
+    ],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 4
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/skipped",
+   "outcome": "accepted",
+   "description": "A planned set marked skipped.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000000a",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000107"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 3,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     },
+     "status": "skipped"
+    }
+   }
+  },
+  {
+   "name": "effort/retract",
+   "outcome": "accepted",
+   "description": "Removing a set is a write like any edit.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000000b",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "retract",
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000009"
+    ],
+    "payload": {
+     "reason": "Logged twice."
+    }
+   }
+  },
+  {
+   "name": "effort/undo",
+   "outcome": "accepted",
+   "description": "Undo writes the previous content back, marked with the event it takes back.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000000c",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000009"
+    ],
+    "reverts": "019aa000-0000-7000-8000-000000000009",
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/resolve",
+   "outcome": "accepted",
+   "description": "Resolving a conflict names every head it saw.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000000d",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131200000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000009",
+     "019aa000-0000-7000-8000-00000000000e"
+    ],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "session/put-completed",
+   "outcome": "accepted",
+   "description": "The finished session, with totals, written with its last set in one batch.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000000f",
+    "schema_version": 1,
+    "record": {
+     "kind": "session",
+     "id": "019aa000-0000-7000-8000-000000000103"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795134300000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000004"
+    ],
+    "batch": "019aa000-0000-7000-8000-000000000900",
+    "payload": {
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "time": {
+      "start": "2026-11-21T07:02:00-05:00",
+      "zone": "America/New_York",
+      "end": "2026-11-21T08:05:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "status": "completed",
+     "links": {
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     },
+     "metrics": {
+      "duration": {
+       "value": 63,
+       "unit": "min"
+      },
+      "rpe": {
+       "value": 8
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "observation/body-mass",
+   "outcome": "accepted",
+   "description": "A weight typed on the phone.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_mass",
+     "value": 80.2,
+     "unit": "kg",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "self_reported"
+    }
+   }
+  },
+  {
+   "name": "observation/sleep-stage",
+   "outcome": "accepted",
+   "description": "A stretch of sleep in one stage.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000010",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000106"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "sleep_stage",
+     "value": "asleep_deep",
+     "time": {
+      "start": "2026-11-21T01:10:00-05:00",
+      "end": "2026-11-21T01:52:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/custom-code",
+   "outcome": "accepted",
+   "description": "Your own `x.` code.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000011",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000108"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "x.grip_strength",
+     "value": 52,
+     "unit": "kg",
+     "time": {
+      "start": "2026-11-21T07:00:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/unknown-code",
+   "outcome": "accepted",
+   "description": "A code this registry doesn't list is kept as written.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000012",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000109"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "example_new_measure",
+     "value": 3,
+     "unit": "1",
+     "time": {
+      "start": "2026-11-21T07:00:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "effort/unknown-unit",
+   "outcome": "accepted",
+   "description": "A unit the code's entry doesn't list is kept and not converted.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000013",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010a"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 100000,
+       "unit": "g"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "source_record/put",
+   "outcome": "accepted",
+   "description": "A WHOOP recovery revision, its record and event ids derived from what it holds.",
+   "data": {
+    "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795156000000-000000",
+    "ts": "2026-11-21T09:30:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {
+     "source": "whoop",
+     "source_type": "recovery",
+     "source_id": "93845",
+     "raw": {
+      "cycle_id": 93845,
+      "sleep_id": "00000000-0000-4000-8000-000000000001",
+      "score_state": "SCORED",
+      "created_at": "2026-11-21T11:25:44.774Z",
+      "updated_at": "2026-11-21T14:25:44.774Z",
+      "score": {
+       "recovery_score": 44,
+       "resting_heart_rate": 64,
+       "hrv_rmssd_milli": 31.8
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "source_record/retract",
+   "outcome": "accepted",
+   "description": "WHOOP deleted the record; the retract names the revision it deletes.",
+   "data": {
+    "id": "c4922a4b-df1f-50d2-a898-e67a4d540ba9",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "retract",
+    "hlc": "1795156100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [
+     "1cefa2cd-1024-56cf-94b6-9bd77f0b595c"
+    ],
+    "payload": {}
+   }
+  },
+  {
+   "name": "source_record/erase",
+   "outcome": "accepted",
+   "description": "You erase a source's record; erase is yours, not the connector's.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000015",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "erase",
+    "hlc": "1795156200000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "1cefa2cd-1024-56cf-94b6-9bd77f0b595c"
+    ],
+    "payload": {}
+   }
+  },
+  {
+   "name": "effort/redacted",
+   "outcome": "accepted",
+   "description": "An event of an erased record, blanked and pointing at the erase.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000016",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "redacted_by": "019aa000-0000-7000-8000-000000000017",
+    "payload": {}
+   }
+  },
+  {
+   "name": "overlay/correct",
+   "outcome": "accepted",
+   "description": "Your correction to a WHOOP workout's values.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000018",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "feb90373-7ad6-587c-86ce-9ca16f004667"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "correct",
+     "target": {
+      "kind": "source_record",
+      "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+     },
+     "fields": {
+      "name": "Easy run",
+      "metrics": {
+       "distance": {
+        "value": 9.1,
+        "unit": "km"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "overlay/exclude",
+   "outcome": "accepted",
+   "description": "Hide a source's record from every read.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000019",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "c0422d17-16e1-59ec-848d-dd625406cfa9"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "exclude",
+     "target": {
+      "kind": "source_record",
+      "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+     },
+     "notes": "The strap was on someone else."
+    }
+   }
+  },
+  {
+   "name": "overlay/same-as",
+   "outcome": "accepted",
+   "description": "This WHOOP workout is the session you logged.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001a",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "a2518174-ec83-5d08-be4d-f8d3dc76cb85"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "same_as",
+     "target": {
+      "kind": "source_record",
+      "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+     },
+     "with": {
+      "kind": "session",
+      "id": "019aa000-0000-7000-8000-000000000103"
+     }
+    }
+   }
+  },
+  {
+   "name": "overlay/rearrange",
+   "outcome": "accepted",
+   "description": "Your exercise order and a swap on an agent's planned session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001b",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "453d5c74-1e10-505f-8f8d-c8a44148345a"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "rearrange",
+     "target": {
+      "kind": "planned_session",
+      "id": "019aa000-0000-7000-8000-000000000102"
+     },
+     "order": [
+      "pe1"
+     ],
+     "swaps": {
+      "pe1": {
+       "activity_id": "dumbbell_goblet_squat",
+       "reason": "Rack taken."
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "setting/source-priority",
+   "outcome": "accepted",
+   "description": "WHOOP wins by default; the scale wins for weight.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001c",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "source_priority"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": {
+      "default": [
+       "whoop",
+       "apple_health"
+      ],
+      "codes": {
+       "body_mass": [
+        "hume",
+        "apple_health"
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "setting/home-zone",
+   "outcome": "accepted",
+   "description": "The zone for anything without an offset.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001d",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "home_zone"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": "America/New_York"
+    }
+   }
+  },
+  {
+   "name": "setting/equipment",
+   "outcome": "accepted",
+   "description": "Null means every piece of equipment.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001e",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "equipment"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": null
+    }
+   }
+  },
+  {
+   "name": "setting/current-location",
+   "outcome": "accepted",
+   "description": "Where the next session starts.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000001f",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "current_location"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": "example-gym"
+    }
+   }
+  },
+  {
+   "name": "unknown/kind",
+   "outcome": "stored_unprojected",
+   "description": "A kind from a newer byobot is kept and relayed, not read.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000020",
+    "schema_version": 1,
+    "record": {
+     "kind": "meal",
+     "id": "019aa000-0000-7000-8000-00000000010b"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Example meal",
+     "time": {
+      "start": "2026-11-21T12:30:00-05:00"
+     }
+    }
+   }
+  },
+  {
+   "name": "unknown/kind-version",
+   "outcome": "stored_unprojected",
+   "description": "A newer version of a known kind is kept, even with fields this version lacks.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000021",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010c"
+    },
+    "op": "put",
+    "kind_version": 2,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     },
+     "bar_speed": {
+      "value": 0.6
+     }
+    }
+   }
+  },
+  {
+   "name": "unknown/setting",
+   "outcome": "stored_unprojected",
+   "description": "A setting this replica doesn't know.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000022",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "units_preference"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": "imperial"
+    }
+   }
+  },
+  {
+   "name": "envelope/missing-prev",
+   "outcome": "rejected",
+   "description": "Every write says what it saw, even when that is nothing.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "envelope/unknown-op",
+   "outcome": "rejected",
+   "description": "The ops are closed; undo is a command, not an op.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "undo",
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "envelope/put-without-kind-version",
+   "outcome": "rejected",
+   "description": "A put says which version of its kind it carries.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "envelope/retract-with-kind-version",
+   "outcome": "rejected",
+   "description": "Only a put carries a kind version.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000023",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "retract",
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000005"
+    ],
+    "payload": {},
+    "kind_version": 1
+   }
+  },
+  {
+   "name": "envelope/bad-hlc",
+   "outcome": "rejected",
+   "description": "The clock reading is fixed width so it compares as text.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "envelope/extra-field",
+   "outcome": "rejected",
+   "description": "The envelope is closed.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    },
+    "type": "effort.put"
+   }
+  },
+  {
+   "name": "envelope/model-on-human",
+   "outcome": "rejected",
+   "description": "Only an agent has a model.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me",
+     "model": "example-model"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "envelope/plan-slug-id",
+   "outcome": "rejected",
+   "description": "Authored records other than activities, locations and settings have UUIDs.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000002",
+    "schema_version": 1,
+    "record": {
+     "kind": "plan",
+     "id": "base-block"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Base block",
+     "goal": "Build a squat base.",
+     "starts_on": "2026-11-16",
+     "ends_on": "2027-01-10"
+    }
+   }
+  },
+  {
+   "name": "envelope/activity-uppercase-id",
+   "outcome": "rejected",
+   "description": "Activities are named by lowercase slugs.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "Barbell_Back_Squat"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "payload/record-id-in-payload",
+   "outcome": "rejected",
+   "description": "The record id is in the envelope only.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     },
+     "id": "019aa000-0000-7000-8000-000000000104"
+    }
+   }
+  },
+  {
+   "name": "effort/no-time",
+   "outcome": "rejected",
+   "description": "An effort says when it happened.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/no-offset",
+   "outcome": "rejected",
+   "description": "Times keep the writer's offset.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/no-modality",
+   "outcome": "rejected",
+   "description": "An effort says how its values were obtained.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/answers-without-part",
+   "outcome": "rejected",
+   "description": "An effort answers a planned effort, named as a part of its planned session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/part-of-plan",
+   "outcome": "rejected",
+   "description": "An effort belongs to a session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "plan",
+       "id": "019aa000-0000-7000-8000-000000000101"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "session/inline-efforts",
+   "outcome": "rejected",
+   "description": "Efforts are their own records, never inline in a session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000004",
+    "schema_version": 1,
+    "record": {
+     "kind": "session",
+     "id": "019aa000-0000-7000-8000-000000000103"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795130520000-000000",
+    "ts": "2026-11-21T07:02:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "time": {
+      "start": "2026-11-21T07:02:00-05:00",
+      "zone": "America/New_York"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "status": "in_progress",
+     "links": {
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     },
+     "efforts": [
+      {
+       "activity_id": "barbell_back_squat"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "session/skipped",
+   "outcome": "rejected",
+   "description": "A session that happened is in progress or completed; skipping is for planned sessions.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000004",
+    "schema_version": 1,
+    "record": {
+     "kind": "session",
+     "id": "019aa000-0000-7000-8000-000000000103"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795130520000-000000",
+    "ts": "2026-11-21T07:02:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "time": {
+      "start": "2026-11-21T07:02:00-05:00",
+      "zone": "America/New_York"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "status": "skipped",
+     "links": {
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "activity/with-time",
+   "outcome": "rejected",
+   "description": "A definition carries no time or other header.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "barbell_back_squat"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     },
+     "time": {
+      "start": "2026-11-20T18:00:00-05:00"
+     }
+    }
+   }
+  },
+  {
+   "name": "observation/with-status",
+   "outcome": "rejected",
+   "description": "An observation has no status.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_mass",
+     "value": 80.2,
+     "unit": "kg",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "self_reported",
+     "status": "completed"
+    }
+   }
+  },
+  {
+   "name": "observation/bad-zone",
+   "outcome": "rejected",
+   "description": "Zones are IANA names.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_mass",
+     "value": 80.2,
+     "unit": "kg",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00",
+      "zone": "Eastern"
+     },
+     "modality": "self_reported"
+    }
+   }
+  },
+  {
+   "name": "source_record/by-human",
+   "outcome": "rejected",
+   "description": "Only a connector writes a source's records.",
+   "data": {
+    "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795156000000-000000",
+    "ts": "2026-11-21T09:30:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "source": "whoop",
+     "source_type": "recovery",
+     "source_id": "93845",
+     "raw": {
+      "cycle_id": 93845,
+      "sleep_id": "00000000-0000-4000-8000-000000000001",
+      "score_state": "SCORED",
+      "created_at": "2026-11-21T11:25:44.774Z",
+      "updated_at": "2026-11-21T14:25:44.774Z",
+      "score": {
+       "recovery_score": 44,
+       "resting_heart_rate": 64,
+       "hrv_rmssd_milli": 31.8
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "source_record/connector-writes-effort",
+   "outcome": "rejected",
+   "description": "A connector writes nothing but source records.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "source_record/put-with-prev",
+   "outcome": "rejected",
+   "description": "Source revisions never conflict, so a put names no prev.",
+   "data": {
+    "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795156000000-000000",
+    "ts": "2026-11-21T09:30:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-00000000010e"
+    ],
+    "payload": {
+     "source": "whoop",
+     "source_type": "recovery",
+     "source_id": "93845",
+     "raw": {
+      "cycle_id": 93845,
+      "sleep_id": "00000000-0000-4000-8000-000000000001",
+      "score_state": "SCORED",
+      "created_at": "2026-11-21T11:25:44.774Z",
+      "updated_at": "2026-11-21T14:25:44.774Z",
+      "score": {
+       "recovery_score": 44,
+       "resting_heart_rate": 64,
+       "hrv_rmssd_milli": 31.8
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "source_record/with-header",
+   "outcome": "rejected",
+   "description": "Everything read from a source's record is computed from raw.",
+   "data": {
+    "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795156000000-000000",
+    "ts": "2026-11-21T09:30:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {
+     "source": "whoop",
+     "source_type": "recovery",
+     "source_id": "93845",
+     "raw": {
+      "cycle_id": 93845,
+      "sleep_id": "00000000-0000-4000-8000-000000000001",
+      "score_state": "SCORED",
+      "created_at": "2026-11-21T11:25:44.774Z",
+      "updated_at": "2026-11-21T14:25:44.774Z",
+      "score": {
+       "recovery_score": 44,
+       "resting_heart_rate": 64,
+       "hrv_rmssd_milli": 31.8
+      }
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "source_record/retract-with-reason",
+   "outcome": "rejected",
+   "description": "A source's retract carries nothing, so two devices write the same event.",
+   "data": {
+    "id": "c4922a4b-df1f-50d2-a898-e67a4d540ba9",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "retract",
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [
+     "1cefa2cd-1024-56cf-94b6-9bd77f0b595c"
+    ],
+    "payload": {
+     "reason": "Deleted."
+    }
+   }
+  },
+  {
+   "name": "erase/with-payload",
+   "outcome": "rejected",
+   "description": "An erase carries nothing that could hold what it destroys.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000025",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "erase",
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000009"
+    ],
+    "payload": {
+     "reason": "Wrong weight"
+    }
+   }
+  },
+  {
+   "name": "redacted/with-payload",
+   "outcome": "rejected",
+   "description": "A blanked event keeps nothing of its payload.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    },
+    "redacted_by": "019aa000-0000-7000-8000-000000000017"
+   }
+  },
+  {
+   "name": "overlay/correct-a-session",
+   "outcome": "rejected",
+   "description": "Your own records are edited, not overlaid.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000026",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "014f792e-1fd3-565a-9372-62dc40539173"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "correct",
+     "target": {
+      "kind": "session",
+      "id": "019aa000-0000-7000-8000-000000000103"
+     },
+     "fields": {
+      "name": "Run"
+     }
+    }
+   }
+  },
+  {
+   "name": "overlay/same-as-without-with",
+   "outcome": "rejected",
+   "description": "`same_as` names the other record.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000027",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "a2518174-ec83-5d08-be4d-f8d3dc76cb85"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "same_as",
+     "target": {
+      "kind": "source_record",
+      "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+     }
+    }
+   }
+  },
+  {
+   "name": "setting/bad-home-zone",
+   "outcome": "rejected",
+   "description": "A known setting's value has its schema.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000028",
+    "schema_version": 1,
+    "record": {
+     "kind": "setting",
+     "id": "home_zone"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "value": "Eastern"
+    }
+   }
+  },
+  {
+   "name": "rule/time-order",
+   "outcome": "rejected",
+   "rule": "time-order",
+   "description": "An interval ends after it starts, compared as instants.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000004",
+    "schema_version": 1,
+    "record": {
+     "kind": "session",
+     "id": "019aa000-0000-7000-8000-000000000103"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795130520000-000000",
+    "ts": "2026-11-21T07:02:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "time": {
+      "start": "2026-11-21T08:00:00-05:00",
+      "zone": "America/New_York",
+      "end": "2026-11-21T12:30:00Z"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "status": "in_progress",
+     "links": {
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/date-order",
+   "outcome": "rejected",
+   "rule": "date-order",
+   "description": "A plan ends after it starts.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000002",
+    "schema_version": 1,
+    "record": {
+     "kind": "plan",
+     "id": "019aa000-0000-7000-8000-000000000101"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Base block",
+     "goal": "Build a squat base.",
+     "starts_on": "2026-11-16",
+     "ends_on": "2026-11-01"
+    }
+   }
+  },
+  {
+   "name": "rule/range-order",
+   "outcome": "rejected",
+   "rule": "range-order",
+   "description": "A range's min is at most its max.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000003",
+    "schema_version": 1,
+    "record": {
+     "kind": "planned_session",
+     "id": "019aa000-0000-7000-8000-000000000102"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "agent",
+     "id": "coach",
+     "model": "example-model"
+    },
+    "prev": [],
+    "payload": {
+     "scheduled_on": "2026-11-21",
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "links": {
+      "part_of": {
+       "kind": "plan",
+       "id": "019aa000-0000-7000-8000-000000000101"
+      }
+     },
+     "blocks": [
+      {
+       "id": "b1",
+       "rounds": 3,
+       "metrics": {
+        "rest": {
+         "value": 3,
+         "unit": "min"
+        }
+       },
+       "efforts": [
+        {
+         "id": "pe1",
+         "activity_id": "barbell_back_squat",
+         "metrics": {
+          "reps": {
+           "value": 5
+          },
+          "load": {
+           "value": 100,
+           "unit": "kg"
+          },
+          "rpe": {
+           "min": 9,
+           "max": 7
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-integer",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "Reps are whole.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5.5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-bounds",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "Heart rate is at most 300 per minute.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      },
+      "heart_rate": {
+       "value": 400,
+       "unit": "/min"
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-converted-bounds",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "Bounds apply after converting: 2000 lb is over 700 kg.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_mass",
+     "value": 2000,
+     "unit": "[lb_av]",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "self_reported"
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-missing-unit",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "A quantity carries its unit.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-unit-on-number",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "RPE has no unit.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 8,
+       "unit": "1"
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-pattern",
+   "outcome": "rejected",
+   "rule": "code-value",
+   "description": "Tempo is four digits or x.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      },
+      "tempo": {
+       "value": "3-0-1-0"
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/part-ids",
+   "outcome": "rejected",
+   "rule": "part-ids",
+   "description": "Part ids are unique within a planned session.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000003",
+    "schema_version": 1,
+    "record": {
+     "kind": "planned_session",
+     "id": "019aa000-0000-7000-8000-000000000102"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "agent",
+     "id": "coach",
+     "model": "example-model"
+    },
+    "prev": [],
+    "payload": {
+     "scheduled_on": "2026-11-21",
+     "name": "Lower A",
+     "location_id": "example-gym",
+     "links": {
+      "part_of": {
+       "kind": "plan",
+       "id": "019aa000-0000-7000-8000-000000000101"
+      }
+     },
+     "blocks": [
+      {
+       "id": "b1",
+       "rounds": 3,
+       "metrics": {
+        "rest": {
+         "value": 3,
+         "unit": "min"
+        }
+       },
+       "efforts": [
+        {
+         "id": "pe1",
+         "activity_id": "barbell_back_squat",
+         "metrics": {
+          "reps": {
+           "value": 5
+          },
+          "load": {
+           "value": 100,
+           "unit": "kg"
+          },
+          "rpe": {
+           "min": 7,
+           "max": 8
+          }
+         }
+        }
+       ]
+      },
+      {
+       "id": "b2",
+       "efforts": [
+        {
+         "id": "pe1",
+         "activity_id": "barbell_hip_thrust"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "rule/self-reference",
+   "outcome": "rejected",
+   "rule": "self-reference",
+   "description": "An event can't have seen itself.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000005",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [
+     "019aa000-0000-7000-8000-000000000005"
+    ],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 225,
+       "unit": "[lb_av]"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/derived-id-source-record",
+   "outcome": "rejected",
+   "rule": "derived-id",
+   "description": "A source record's id comes from its source, type and source id.",
+   "data": {
+    "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "019aa000-0000-7000-8000-00000000010f"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795156000000-000000",
+    "ts": "2026-11-21T09:30:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {
+     "source": "whoop",
+     "source_type": "recovery",
+     "source_id": "93845",
+     "raw": {
+      "cycle_id": 93845,
+      "sleep_id": "00000000-0000-4000-8000-000000000001",
+      "score_state": "SCORED",
+      "created_at": "2026-11-21T11:25:44.774Z",
+      "updated_at": "2026-11-21T14:25:44.774Z",
+      "score": {
+       "recovery_score": 44,
+       "resting_heart_rate": 64,
+       "hrv_rmssd_milli": 31.8
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/derived-id-overlay",
+   "outcome": "rejected",
+   "rule": "derived-id",
+   "description": "There is one overlay per effect and target.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000029",
+    "schema_version": 1,
+    "record": {
+     "kind": "overlay",
+     "id": "019aa000-0000-7000-8000-000000000110"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "effect": "exclude",
+     "target": {
+      "kind": "source_record",
+      "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+     }
+    }
+   }
+  }
+ ]
+}

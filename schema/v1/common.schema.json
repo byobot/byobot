@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/common.schema.json",
+  "title": "byobot common definitions, v1",
+  "description": "Shared building blocks for the byobot v1 contract. Dates and times are checked with patterns (not only `format`) so every implementation rejects the same strings.",
+  "$defs": {
+    "id": {
+      "description": "An id. New records get UUIDv7s; parts inside a record (blocks, planned efforts) may use any id unique within it.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "slug": {
+      "description": "A short lowercase name, such as a source (`whoop`), an activity (`barbell_back_squat`) or a location (`example-gym`).",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "uuid": {
+      "description": "A lowercase UUID: v7 for anything authored, v5 for ids derived from other ids.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "kind": {
+      "description": "A record kind. Kinds are open: a replica keeps events of kinds it doesn't know.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "timestamp": {
+      "description": "An RFC 3339 timestamp with the writer's local offset (`Z` only where the local time is UTC).",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "date": {
+      "description": "A calendar date, `YYYY-MM-DD`, in the user's local calendar.",
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "zone": {
+      "description": "An IANA time zone name, such as `America/New_York`.",
+      "type": "string",
+      "pattern": "^(UTC|[A-Z][A-Za-z_-]*(/[A-Za-z0-9_+-]+){1,2})$"
+    },
+    "hlc": {
+      "description": "A hybrid logical clock reading: 13 digits of Unix milliseconds, then a 6-digit counter. Compares as text.",
+      "type": "string",
+      "pattern": "^[0-9]{13}-[0-9]{6}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "code": {
+      "description": "A code from registry.json, or your own prefixed `x.`. A replica keeps codes it doesn't know without converting them.",
+      "type": "string",
+      "pattern": "^([a-z][a-z0-9_]{0,63}|x\\.[a-z0-9][a-z0-9_.-]{0,62})$"
+    },
+    "unit": {
+      "description": "A UCUM unit code, such as `kg`, `[lb_av]` or `/min`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "ref": {
+      "description": "A record, and optionally a part inside it (a planned effort inside a planned session).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/kind" },
+        "id": { "$ref": "#/$defs/id" },
+        "part": { "$ref": "#/$defs/id" }
+      }
+    },
+    "time": {
+      "description": "When the thing happened: an instant (`start` only) or an interval. Both keep the offset they were written in; `zone` is added when the writer knows it. Local dates come from these, never from the machine reading them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start"],
+      "properties": {
+        "start": { "$ref": "#/$defs/timestamp" },
+        "end": { "$ref": "#/$defs/timestamp" },
+        "zone": { "$ref": "#/$defs/zone" }
+      }
+    },
+    "measure": {
+      "description": "One measurement: an exact `value`, or a range with `min`, `max` or both (only `min` is 'at least', as in AMRAP). In a plan it is the target; in a log it is what happened. `unit` is one the code's registry entry accepts.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": ["number", "string", "boolean"] },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "unit": { "$ref": "#/$defs/unit" }
+      },
+      "oneOf": [
+        { "required": ["value"], "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] } },
+        { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }], "not": { "required": ["value"] } }
+      ]
+    },
+    "metrics": {
+      "description": "Measurements by code.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/code" },
+      "additionalProperties": { "$ref": "#/$defs/measure" },
+      "maxProperties": 64
+    }
+  }
+}

@@ -1,0 +1,922 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/event.schema.json",
+  "title": "byobot event, v1",
+  "description": "Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. Its event type is `<kind>.<op>`, such as `effort.put`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "record",
+    "op",
+    "hlc",
+    "ts",
+    "device_id",
+    "actor",
+    "prev",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/uuid",
+      "description": "UUIDv7, or for a source's events the id derived from what it holds (see README)."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "record": {
+      "description": "The one record this event writes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "op": {
+      "enum": [
+        "put",
+        "retract",
+        "erase"
+      ],
+      "description": "`put` writes the record's whole content; `retract` removes it, as any edit would; `erase` destroys its content everywhere."
+    },
+    "kind_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "The version of the kind's payload. Only on `put`."
+    },
+    "hlc": {
+      "$ref": "common.schema.json#/$defs/hlc",
+      "description": "Orders events: a write made after seeing another always has a higher one. Ties break on `id`."
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp",
+      "description": "The author's wall time, with its offset. For display only."
+    },
+    "device_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The byobot install that wrote it."
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "prev": {
+      "description": "The events of this record the author had seen as current: empty for a new record, every current version when resolving a conflict.",
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/uuid"
+      }
+    },
+    "batch": {
+      "$ref": "common.schema.json#/$defs/uuid",
+      "description": "Groups events written together, such as a session and its efforts."
+    },
+    "reverts": {
+      "$ref": "common.schema.json#/$defs/uuid",
+      "description": "Set by undo: the event this one takes back."
+    },
+    "redacted_by": {
+      "$ref": "common.schema.json#/$defs/uuid",
+      "description": "Set when the record was erased: the erase event. The payload is then empty."
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "kind_version"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "enum": [
+              "retract",
+              "erase"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "kind_version"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "retract"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "common.schema.json#/$defs/text"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "erase"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "maxProperties": 0
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reverts"
+              ]
+            },
+            {
+              "required": [
+                "redacted_by"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "redacted_by"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "maxProperties": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "activity",
+                  "location",
+                  "setting"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/$defs/slug"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "plan",
+                  "planned_session",
+                  "session",
+                  "effort",
+                  "observation",
+                  "source_record",
+                  "overlay"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "const": "connector"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "source_record"
+              }
+            }
+          },
+          "op": {
+            "enum": [
+              "put",
+              "retract"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "source_record"
+              }
+            }
+          },
+          "op": {
+            "enum": [
+              "put",
+              "retract"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "const": "connector"
+              }
+            }
+          }
+        },
+        "not": {
+          "required": [
+            "reverts"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "source_record"
+              }
+            }
+          },
+          "op": {
+            "const": "put"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "prev": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "source_record"
+              }
+            }
+          },
+          "op": {
+            "const": "retract"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "prev": {
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "payload": {
+            "maxProperties": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "activity"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/activity"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "location"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/location"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "plan"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/plan"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "planned_session"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/planned_session"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "session"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/session"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "effort"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/effort"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "observation"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/observation"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "source_record"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/source_record"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "overlay"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/overlay"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "setting"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "records.schema.json#/$defs/setting"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "setting"
+              },
+              "id": {
+                "const": "source_priority"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "value": {
+                "$ref": "records.schema.json#/$defs/source_priority"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "setting"
+              },
+              "id": {
+                "const": "home_zone"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "value": {
+                "$ref": "records.schema.json#/$defs/home_zone"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "setting"
+              },
+              "id": {
+                "const": "equipment"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "value": {
+                "$ref": "records.schema.json#/$defs/equipment"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "put"
+          },
+          "kind_version": {
+            "const": 1
+          },
+          "record": {
+            "properties": {
+              "kind": {
+                "const": "setting"
+              },
+              "id": {
+                "const": "current_location"
+              }
+            }
+          }
+        },
+        "required": [
+          "kind_version"
+        ],
+        "not": {
+          "required": [
+            "redacted_by"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "value": {
+                "$ref": "records.schema.json#/$defs/current_location"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "actor": {
+      "description": "Who wrote it: the person, an agent (with its model, if known) or a connector (only for a source's records).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "agent",
+            "connector"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "agent"
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "model"
+          ]
+        }
+      }
+    }
+  }
+}

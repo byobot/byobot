@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/records.schema.json",
+  "title": "byobot records, v1",
+  "description": "The payload a `put` carries for each record kind, at kind version 1. Every payload may carry the header fields (`time`, `modality`, `origin`, `status`, `links`); each kind says which it needs. The record's id is in the event, never in the payload.",
+  "$defs": {
+    "header": {
+      "description": "What every kind can say about the thing written.",
+      "type": "object",
+      "properties": {
+        "time": { "$ref": "common.schema.json#/$defs/time" },
+        "modality": {
+          "description": "How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.",
+          "enum": ["sensed", "self_reported", "estimated", "derived"]
+        },
+        "origin": {
+          "description": "The app and device that captured it, which may differ from the actor that wrote it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app"],
+          "properties": {
+            "app": { "$ref": "common.schema.json#/$defs/name" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "device": { "$ref": "common.schema.json#/$defs/name" }
+          }
+        },
+        "status": { "enum": ["planned", "in_progress", "completed", "skipped", "cancelled"] },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "part_of": { "$ref": "common.schema.json#/$defs/ref", "description": "The record this one belongs to." },
+            "answers": { "$ref": "common.schema.json#/$defs/ref", "description": "The planned record (or planned part) this one carries out." },
+            "derived_from": {
+              "description": "The records this one was computed from.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": { "$ref": "common.schema.json#/$defs/ref" }
+            }
+          }
+        }
+      }
+    },
+    "no_header": {
+      "not": {
+        "anyOf": [
+          { "required": ["time"] },
+          { "required": ["modality"] },
+          { "required": ["origin"] },
+          { "required": ["status"] },
+          { "required": ["links"] }
+        ]
+      }
+    },
+    "activity": {
+      "description": "What you do: a squat, a run, a stretch, tennis. Library activities ship with byobot; a put with a library id replaces it for this store, and retracting that put restores the library's.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }, { "$ref": "#/$defs/no_header" }],
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "tags": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+        "default_metrics": {
+          "description": "What to ask for when logging it.",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/code" },
+          "uniqueItems": true
+        },
+        "targets": {
+          "description": "Muscles it works, named as in library/vocabulary.json where they fit.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "main": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+            "synergists": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }
+          }
+        },
+        "equipment": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+        "movement_type": { "$ref": "common.schema.json#/$defs/slug", "description": "`compound` or `isolation` in the library." },
+        "fatigue": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "resistance_curve": {
+          "description": "How hard it is with the muscle long (`stretch`), in the `middle` and short (`contract`), from 1 to 3.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stretch", "middle", "contract"],
+          "properties": {
+            "stretch": { "type": "integer", "minimum": 1, "maximum": 3 },
+            "middle": { "type": "integer", "minimum": 1, "maximum": 3 },
+            "contract": { "type": "integer", "minimum": 1, "maximum": 3 }
+          }
+        },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      },
+      "unevaluatedProperties": false
+    },
+    "location": {
+      "description": "Where you train. Loads compare within one location.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }, { "$ref": "#/$defs/no_header" }],
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      },
+      "unevaluatedProperties": false
+    },
+    "plan": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }, { "$ref": "#/$defs/no_header" }],
+      "required": ["name", "starts_on"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "goal": { "$ref": "common.schema.json#/$defs/text" },
+        "starts_on": { "$ref": "common.schema.json#/$defs/date" },
+        "ends_on": { "$ref": "common.schema.json#/$defs/date" },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      },
+      "unevaluatedProperties": false
+    },
+    "side": { "enum": ["left", "right", "both"] },
+    "planned_effort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "activity_id"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "side": { "$ref": "#/$defs/side" },
+        "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Targets." },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      }
+    },
+    "block": {
+      "description": "Efforts done in order, repeated for `rounds`: straight sets, a superset, an EMOM.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "efforts"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "rounds": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1 },
+        "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Per-round targets, such as `duration` for an EMOM or `rest` between rounds." },
+        "efforts": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/planned_effort" } },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      }
+    },
+    "planned_session": {
+      "description": "A session to do on a day. It owns its blocks and planned efforts, which are edited with it. `links.part_of` names its plan.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }],
+      "required": ["scheduled_on", "name", "blocks"],
+      "properties": {
+        "scheduled_on": { "$ref": "common.schema.json#/$defs/date" },
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "location_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Targets for the whole session." },
+        "blocks": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/block" } },
+        "notes": { "$ref": "common.schema.json#/$defs/text" },
+        "status": { "enum": ["planned", "skipped", "cancelled"] },
+        "links": {
+          "properties": { "part_of": { "properties": { "kind": { "const": "plan" } }, "not": { "required": ["part"] } } },
+          "not": { "anyOf": [{ "required": ["answers"] }, { "required": ["derived_from"] }] }
+        }
+      },
+      "not": { "anyOf": [{ "required": ["time"] }, { "required": ["modality"] }] },
+      "unevaluatedProperties": false
+    },
+    "session": {
+      "description": "A session that happened, or is happening (`in_progress`). Its efforts are their own records pointing at it. `links.answers` names the planned session it carries out; `links.part_of` its plan.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }],
+      "required": ["time", "modality"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "location_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Totals, such as duration, distance or session RPE." },
+        "notes": { "$ref": "common.schema.json#/$defs/text" },
+        "status": { "enum": ["in_progress", "completed"] },
+        "links": {
+          "properties": {
+            "part_of": { "properties": { "kind": { "const": "plan" } }, "not": { "required": ["part"] } },
+            "answers": { "properties": { "kind": { "const": "planned_session" } }, "not": { "required": ["part"] } }
+          },
+          "not": { "required": ["derived_from"] }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "effort": {
+      "description": "One effort done, such as one set. `time.start` is when it started. `links.part_of` names its session; without one it stands alone, as a tennis match can. `links.answers` names the planned effort it carries out, as a part of its planned session.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }],
+      "required": ["activity_id", "time", "modality"],
+      "properties": {
+        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "round": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Which round of the planned block." },
+        "side": { "$ref": "#/$defs/side" },
+        "location_id": { "$ref": "common.schema.json#/$defs/slug", "description": "Omit to take the session's." },
+        "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "What happened." },
+        "notes": { "$ref": "common.schema.json#/$defs/text" },
+        "status": { "enum": ["completed", "skipped"] },
+        "links": {
+          "properties": {
+            "part_of": { "properties": { "kind": { "const": "session" } }, "not": { "required": ["part"] } },
+            "answers": { "properties": { "kind": { "const": "planned_session" } }, "required": ["part"] }
+          },
+          "not": { "required": ["derived_from"] }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "observation": {
+      "description": "One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/header" }],
+      "required": ["code", "value", "time", "modality"],
+      "properties": {
+        "code": { "$ref": "common.schema.json#/$defs/code" },
+        "value": { "type": ["number", "string", "boolean"] },
+        "unit": { "$ref": "common.schema.json#/$defs/unit" },
+        "notes": { "$ref": "common.schema.json#/$defs/text" },
+        "status": false,
+        "links": {
+          "not": { "anyOf": [{ "required": ["part_of"] }, { "required": ["answers"] }] }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "source_record": {
+      "description": "One revision of a record from a source (a WHOOP sleep, an Apple Health sample), exactly as the source gave it. Everything read from it is computed, so the payload holds only what identifies it and the raw record.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/no_header" }],
+      "additionalProperties": false,
+      "required": ["source", "source_type", "source_id", "raw"],
+      "properties": {
+        "source": { "$ref": "common.schema.json#/$defs/slug", "description": "For example `whoop`, `apple_health`." },
+        "source_type": { "$ref": "common.schema.json#/$defs/slug", "description": "The source's record type, for example `sleep`, `recovery`, `workout`, `quantity_sample`." },
+        "source_id": { "type": "string", "minLength": 1, "maxLength": 256, "description": "The source's own id, stable across re-imports." },
+        "raw": { "type": "object", "description": "The source's record, unchanged." }
+      }
+    },
+    "overlay": {
+      "description": "Your intent about a record that isn't yours: correct a source's values, exclude one, say it is the same as another record, or rearrange a planned session (exercise order and swaps). It survives re-imports and re-plans and never conflicts with its target.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/no_header" }],
+      "additionalProperties": false,
+      "required": ["effect", "target"],
+      "properties": {
+        "effect": { "enum": ["correct", "exclude", "same_as", "rearrange"] },
+        "target": { "$ref": "common.schema.json#/$defs/ref" },
+        "fields": {
+          "description": "For `correct`: the values to use instead of the source's.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "name": { "$ref": "common.schema.json#/$defs/name" },
+            "time": { "$ref": "common.schema.json#/$defs/time" },
+            "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+            "location_id": { "$ref": "common.schema.json#/$defs/slug" },
+            "metrics": { "$ref": "common.schema.json#/$defs/metrics" },
+            "value": { "type": ["number", "string", "boolean"] },
+            "unit": { "$ref": "common.schema.json#/$defs/unit" },
+            "notes": { "$ref": "common.schema.json#/$defs/text" }
+          }
+        },
+        "with": { "$ref": "common.schema.json#/$defs/ref", "description": "For `same_as`: the record the target is the same as." },
+        "order": {
+          "description": "For `rearrange`: planned effort ids in the order you want them.",
+          "type": "array",
+          "maxItems": 2000,
+          "uniqueItems": true,
+          "items": { "$ref": "common.schema.json#/$defs/id" }
+        },
+        "swaps": {
+          "description": "For `rearrange`: planned effort id to the activity done instead.",
+          "type": "object",
+          "propertyNames": { "$ref": "common.schema.json#/$defs/id" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["activity_id"],
+            "properties": {
+              "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+              "reason": { "$ref": "common.schema.json#/$defs/text" }
+            }
+          }
+        },
+        "notes": { "$ref": "common.schema.json#/$defs/text" }
+      },
+      "oneOf": [
+        {
+          "properties": { "effect": { "const": "correct" }, "target": { "properties": { "kind": { "const": "source_record" } } } },
+          "required": ["fields"],
+          "not": { "anyOf": [{ "required": ["with"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
+        },
+        {
+          "properties": { "effect": { "const": "exclude" }, "target": { "properties": { "kind": { "const": "source_record" } } } },
+          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["with"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
+        },
+        {
+          "properties": {
+            "effect": { "const": "same_as" },
+            "target": { "properties": { "kind": { "const": "source_record" } } },
+            "with": { "properties": { "kind": { "enum": ["session", "observation", "source_record"] } } }
+          },
+          "required": ["with"],
+          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
+        },
+        {
+          "properties": { "effect": { "const": "rearrange" }, "target": { "properties": { "kind": { "const": "planned_session" } } } },
+          "anyOf": [{ "required": ["order"] }, { "required": ["swaps"] }],
+          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["with"] }] }
+        }
+      ]
+    },
+    "setting": {
+      "description": "One setting, named by its record id. Known settings and their values are in registry.json; a replica keeps a setting it doesn't know.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/no_header" }],
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": true
+      }
+    },
+    "source_priority": {
+      "description": "Which source wins where several saw the same thing, highest first. `codes` overrides `default` for those codes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {
+        "default": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+        "codes": {
+          "type": "object",
+          "propertyNames": { "$ref": "common.schema.json#/$defs/code" },
+          "additionalProperties": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }
+        }
+      }
+    },
+    "home_zone": {
+      "$ref": "common.schema.json#/$defs/zone",
+      "description": "The zone for anything that has no offset of its own."
+    },
+    "equipment": {
+      "description": "Equipment you have, for ranking swaps. Null means everything.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }
+      ]
+    },
+    "current_location": {
+      "description": "Where the next session starts, by location id.",
+      "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/slug" }]
+    }
+  }
+}

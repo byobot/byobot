@@ -1,0 +1,911 @@
+{
+  "schema_version": 1,
+  "namespaces": {
+    "source_record": "1d610e03-3b03-5178-b9ee-a682d8d5dc43",
+    "source_revision": "bc6a6c97-4808-5d9f-9df0-e3bc8d1616c4",
+    "source_deletion": "818dab31-91e9-5c49-b125-32c1cefcdc2a",
+    "overlay": "b340c142-95b9-5d46-a277-c318ba55d2f7"
+  },
+  "kinds": {
+    "activity": {
+      "category": "definition",
+      "version": 1,
+      "description": "What you do: an exercise, a run, a stretch, a sport."
+    },
+    "location": {
+      "category": "definition",
+      "version": 1,
+      "description": "Where you train."
+    },
+    "setting": {
+      "category": "definition",
+      "version": 1,
+      "description": "One setting, named by its id."
+    },
+    "plan": {
+      "category": "plan",
+      "version": 1,
+      "description": "A training plan over a span of days."
+    },
+    "planned_session": {
+      "category": "plan",
+      "version": 1,
+      "description": "A session to do on a day, with its blocks and planned efforts."
+    },
+    "session": {
+      "category": "act",
+      "version": 1,
+      "description": "A session that happened."
+    },
+    "effort": {
+      "category": "act",
+      "version": 1,
+      "description": "One effort done, such as a set."
+    },
+    "observation": {
+      "category": "observation",
+      "version": 1,
+      "description": "One measured value."
+    },
+    "source_record": {
+      "category": "observation",
+      "version": 1,
+      "description": "One revision of a source's record, as the source gave it."
+    },
+    "overlay": {
+      "category": "note",
+      "version": 1,
+      "description": "Your intent about a record that isn't yours."
+    }
+  },
+  "settings": {
+    "source_priority": "Which source wins where several saw the same thing.",
+    "home_zone": "The zone for anything without an offset of its own.",
+    "equipment": "Equipment you have, for ranking swaps.",
+    "current_location": "Where the next session starts."
+  },
+  "codes": {
+    "reps": {
+      "description": "Repetitions.",
+      "value": "integer",
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "load": {
+      "description": "Weight moved, or a share of your one-rep max.",
+      "value": "quantity",
+      "unit": "kg",
+      "units": {
+        "kg": 1,
+        "[lb_av]": 0.45359237,
+        "%{1RM}": null
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "duration": {
+      "description": "How long. On a block, how long each round lasts (an EMOM is 60 s).",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "distance": {
+      "description": "How far.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1,
+        "km": 1000,
+        "[mi_i]": 1609.344,
+        "[yd_i]": 0.9144,
+        "[ft_i]": 0.3048
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "pace": {
+      "description": "Time per distance.",
+      "value": "quantity",
+      "unit": "s/km",
+      "units": {
+        "s/km": 1,
+        "s/[mi_i]": 0.621371192237334,
+        "s/(100.m)": 10,
+        "s/(500.m)": 2
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "heart_rate": {
+      "description": "Heart rate: during an effort or session, its average.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 300,
+      "on": [
+        "planned_session",
+        "session",
+        "effort",
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierHeartRate",
+      "loinc": "8867-4"
+    },
+    "heart_rate_max": {
+      "description": "Highest heart rate during an effort or session.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 300,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "power": {
+      "description": "Power output.",
+      "value": "quantity",
+      "unit": "W",
+      "units": {
+        "W": 1
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "rpe": {
+      "description": "Rate of perceived exertion, 0 to 10.",
+      "value": "number",
+      "minimum": 0,
+      "maximum": 10,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "rir": {
+      "description": "Reps in reserve.",
+      "value": "number",
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "rest": {
+      "description": "Rest after this effort (or, on a block, between rounds).",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60
+      },
+      "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "tempo": {
+      "description": "Lifting tempo: eccentric, bottom, concentric, top, such as 3010.",
+      "value": "text",
+      "pattern": "^[0-9xX]{4}$",
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "incline": {
+      "description": "Treadmill or ramp incline; negative is a decline.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1,
+        "deg": null
+      },
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "active_energy": {
+      "description": "Energy burned by activity.",
+      "value": "quantity",
+      "unit": "kcal",
+      "units": {
+        "kcal": 1,
+        "kJ": 0.2390057361376673
+      },
+      "minimum": 0,
+      "maximum": 50000,
+      "on": [
+        "session",
+        "effort",
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierActiveEnergyBurned"
+    },
+    "basal_energy": {
+      "description": "Energy burned at rest.",
+      "value": "quantity",
+      "unit": "kcal",
+      "units": {
+        "kcal": 1,
+        "kJ": 0.2390057361376673
+      },
+      "minimum": 0,
+      "maximum": 50000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBasalEnergyBurned"
+    },
+    "strain": {
+      "description": "The source's strain score, 0 to 21.",
+      "value": "number",
+      "minimum": 0,
+      "maximum": 21,
+      "on": [
+        "session",
+        "observation"
+      ],
+      "scope": "source"
+    },
+    "body_mass": {
+      "description": "Body weight.",
+      "value": "quantity",
+      "unit": "kg",
+      "units": {
+        "kg": 1,
+        "[lb_av]": 0.45359237
+      },
+      "exclusive_minimum": 0,
+      "maximum": 700,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBodyMass",
+      "loinc": "29463-7"
+    },
+    "lean_body_mass": {
+      "description": "Lean body mass.",
+      "value": "quantity",
+      "unit": "kg",
+      "units": {
+        "kg": 1,
+        "[lb_av]": 0.45359237
+      },
+      "exclusive_minimum": 0,
+      "maximum": 700,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierLeanBodyMass"
+    },
+    "body_fat_percentage": {
+      "description": "Body fat.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBodyFatPercentage",
+      "loinc": "41982-0"
+    },
+    "body_mass_index": {
+      "description": "Body mass index.",
+      "value": "quantity",
+      "unit": "kg/m2",
+      "units": {
+        "kg/m2": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 200,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBodyMassIndex",
+      "loinc": "39156-5"
+    },
+    "height": {
+      "description": "Height.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 5,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierHeight",
+      "loinc": "8302-2"
+    },
+    "waist_circumference": {
+      "description": "Waist circumference.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 5,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWaistCircumference"
+    },
+    "vo2_max": {
+      "description": "Estimated maximal oxygen uptake.",
+      "value": "quantity",
+      "unit": "mL/(kg.min)",
+      "units": {
+        "mL/(kg.min)": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierVO2Max"
+    },
+    "hrv_sdnn": {
+      "description": "Heart rate variability, SDNN.",
+      "value": "quantity",
+      "unit": "ms",
+      "units": {
+        "ms": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 1000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+      "loinc": "80404-7"
+    },
+    "hrv_rmssd": {
+      "description": "Heart rate variability, RMSSD.",
+      "value": "quantity",
+      "unit": "ms",
+      "units": {
+        "ms": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 1000,
+      "on": [
+        "observation"
+      ]
+    },
+    "resting_heart_rate": {
+      "description": "Resting heart rate.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 300,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierRestingHeartRate",
+      "loinc": "40443-4"
+    },
+    "walking_heart_rate_average": {
+      "description": "Average heart rate while walking.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 300,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWalkingHeartRateAverage"
+    },
+    "heart_rate_recovery_one_minute": {
+      "description": "Heart rate drop one minute after exercise.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 300,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute"
+    },
+    "respiratory_rate": {
+      "description": "Breaths per minute.",
+      "value": "quantity",
+      "unit": "/min",
+      "units": {
+        "/min": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierRespiratoryRate",
+      "loinc": "9279-1"
+    },
+    "oxygen_saturation": {
+      "description": "Blood oxygen saturation.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierOxygenSaturation",
+      "loinc": "59408-5"
+    },
+    "skin_temperature": {
+      "description": "Skin temperature.",
+      "value": "quantity",
+      "unit": "Cel",
+      "units": {
+        "Cel": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 50,
+      "on": [
+        "observation"
+      ]
+    },
+    "body_temperature": {
+      "description": "Body temperature.",
+      "value": "quantity",
+      "unit": "Cel",
+      "units": {
+        "Cel": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 50,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBodyTemperature",
+      "loinc": "8310-5"
+    },
+    "sleeping_wrist_temperature": {
+      "description": "Wrist temperature during sleep.",
+      "value": "quantity",
+      "unit": "Cel",
+      "units": {
+        "Cel": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 50,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierAppleSleepingWristTemperature"
+    },
+    "sleep_stage": {
+      "description": "One stretch of sleep in one stage; `time` is the stretch.",
+      "value": "category",
+      "values": [
+        "in_bed",
+        "asleep_unspecified",
+        "awake",
+        "asleep_core",
+        "asleep_deep",
+        "asleep_rem"
+      ],
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKCategoryTypeIdentifierSleepAnalysis"
+    },
+    "sleep_light_duration": {
+      "description": "Total light sleep in one sleep, for sources with no stage timeline.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ]
+    },
+    "sleep_deep_duration": {
+      "description": "Total deep sleep in one sleep.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ]
+    },
+    "sleep_rem_duration": {
+      "description": "Total REM sleep in one sleep.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ]
+    },
+    "sleep_awake_duration": {
+      "description": "Total time awake in one sleep.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ]
+    },
+    "sleep_performance": {
+      "description": "The source's sleep score.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "scope": "source"
+    },
+    "recovery_score": {
+      "description": "The source's recovery score.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "scope": "source"
+    },
+    "step_count": {
+      "description": "Steps.",
+      "value": "integer",
+      "minimum": 0,
+      "maximum": 200000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierStepCount",
+      "loinc": "55423-8"
+    },
+    "flights_climbed": {
+      "description": "Flights of stairs climbed.",
+      "value": "integer",
+      "minimum": 0,
+      "maximum": 200000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierFlightsClimbed"
+    },
+    "distance_walking_running": {
+      "description": "Distance walked or run.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1,
+        "km": 1000,
+        "[mi_i]": 1609.344,
+        "[yd_i]": 0.9144,
+        "[ft_i]": 0.3048
+      },
+      "minimum": 0,
+      "maximum": 1000000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierDistanceWalkingRunning"
+    },
+    "distance_cycling": {
+      "description": "Distance cycled.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1,
+        "km": 1000,
+        "[mi_i]": 1609.344,
+        "[yd_i]": 0.9144,
+        "[ft_i]": 0.3048
+      },
+      "minimum": 0,
+      "maximum": 1000000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierDistanceCycling"
+    },
+    "distance_swimming": {
+      "description": "Distance swum.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1,
+        "km": 1000,
+        "[mi_i]": 1609.344,
+        "[yd_i]": 0.9144,
+        "[ft_i]": 0.3048
+      },
+      "minimum": 0,
+      "maximum": 1000000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierDistanceSwimming"
+    },
+    "exercise_time": {
+      "description": "Time spent exercising.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierAppleExerciseTime"
+    },
+    "stand_time": {
+      "description": "Time spent standing.",
+      "value": "quantity",
+      "unit": "s",
+      "units": {
+        "s": 1,
+        "min": 60,
+        "h": 3600
+      },
+      "minimum": 0,
+      "maximum": 86400,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierAppleStandTime"
+    },
+    "walking_speed": {
+      "description": "Walking speed.",
+      "value": "quantity",
+      "unit": "m/s",
+      "units": {
+        "m/s": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 20,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWalkingSpeed"
+    },
+    "walking_step_length": {
+      "description": "Step length while walking.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 5,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWalkingStepLength"
+    },
+    "walking_double_support_percentage": {
+      "description": "Share of walking time with both feet down.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage"
+    },
+    "walking_asymmetry_percentage": {
+      "description": "Share of steps with uneven timing.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierWalkingAsymmetryPercentage"
+    },
+    "walking_steadiness": {
+      "description": "Walking steadiness.",
+      "value": "quantity",
+      "unit": "%",
+      "units": {
+        "%": 1
+      },
+      "minimum": 0,
+      "maximum": 100,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierAppleWalkingSteadiness"
+    },
+    "six_minute_walk_test_distance": {
+      "description": "Distance in a six-minute walk.",
+      "value": "quantity",
+      "unit": "m",
+      "units": {
+        "m": 1
+      },
+      "minimum": 0,
+      "maximum": 1000000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierSixMinuteWalkTestDistance"
+    },
+    "stair_ascent_speed": {
+      "description": "Speed going up stairs.",
+      "value": "quantity",
+      "unit": "m/s",
+      "units": {
+        "m/s": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 20,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierStairAscentSpeed"
+    },
+    "stair_descent_speed": {
+      "description": "Speed going down stairs.",
+      "value": "quantity",
+      "unit": "m/s",
+      "units": {
+        "m/s": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 20,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierStairDescentSpeed"
+    },
+    "blood_pressure_systolic": {
+      "description": "Systolic blood pressure.",
+      "value": "quantity",
+      "unit": "mm[Hg]",
+      "units": {
+        "mm[Hg]": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 400,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBloodPressureSystolic",
+      "loinc": "8480-6"
+    },
+    "blood_pressure_diastolic": {
+      "description": "Diastolic blood pressure.",
+      "value": "quantity",
+      "unit": "mm[Hg]",
+      "units": {
+        "mm[Hg]": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 400,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+      "loinc": "8462-4"
+    },
+    "blood_glucose": {
+      "description": "Blood glucose.",
+      "value": "quantity",
+      "unit": "mg/dL",
+      "units": {
+        "mg/dL": 1
+      },
+      "exclusive_minimum": 0,
+      "maximum": 2000,
+      "on": [
+        "observation"
+      ],
+      "healthkit": "HKQuantityTypeIdentifierBloodGlucose",
+      "loinc": "2339-0"
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+ "description": "Derived ids, computed with an example store key. Implementations must produce exactly these.",
+ "store_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+ "source_records": [
+  {
+   "payload": {
+    "source": "whoop",
+    "source_type": "recovery",
+    "source_id": "93845",
+    "raw": {
+     "cycle_id": 93845,
+     "sleep_id": "00000000-0000-4000-8000-000000000001",
+     "score_state": "SCORED",
+     "created_at": "2026-11-21T11:25:44.774Z",
+     "updated_at": "2026-11-21T14:25:44.774Z",
+     "score": {
+      "recovery_score": 44,
+      "resting_heart_rate": 64,
+      "hrv_rmssd_milli": 31.8
+     }
+    }
+   },
+   "record_id": "8e79b667-e455-583a-88e3-61d76b1d1978",
+   "mac": "2263ade95696e887ad1766ab47013c777ac259a5f6e3c1fb2ee2e3b87e76e182",
+   "put_event_id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
+   "retract_event_id": "c4922a4b-df1f-50d2-a898-e67a4d540ba9"
+  },
+  {
+   "payload": {
+    "source": "whoop",
+    "source_type": "workout",
+    "source_id": "00000000-0000-4000-8000-000000000002",
+    "raw": {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "sport_name": "running",
+     "start": "2026-11-20T12:00:00.000Z",
+     "end": "2026-11-20T12:58:00.000Z",
+     "timezone_offset": "-05:00",
+     "score_state": "SCORED",
+     "score": {
+      "strain": 11.2,
+      "average_heart_rate": 148,
+      "max_heart_rate": 176
+     }
+    }
+   },
+   "record_id": "19b72b33-6dd0-5622-9580-9a410a1132f0",
+   "mac": "fb041b6cb04e265f87b9c6856d12710d784d736f2d61cf6ed563774d99a3e3dd",
+   "put_event_id": "4304e0dd-04d5-5ae6-84e6-5233339ba457",
+   "retract_event_id": "a8277182-a93f-5d0d-a8ed-63767168ddf6"
+  }
+ ],
+ "overlays": [
+  {
+   "effect": "correct",
+   "target": {
+    "kind": "source_record",
+    "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+   },
+   "record_id": "feb90373-7ad6-587c-86ce-9ca16f004667"
+  },
+  {
+   "effect": "exclude",
+   "target": {
+    "kind": "source_record",
+    "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+   },
+   "record_id": "c0422d17-16e1-59ec-848d-dd625406cfa9"
+  },
+  {
+   "effect": "same_as",
+   "target": {
+    "kind": "source_record",
+    "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
+   },
+   "record_id": "a2518174-ec83-5d08-be4d-f8d3dc76cb85"
+  },
+  {
+   "effect": "rearrange",
+   "target": {
+    "kind": "planned_session",
+    "id": "019aa000-0000-7000-8000-000000000102"
+   },
+   "record_id": "453d5c74-1e10-505f-8f8d-c8a44148345a"
+  }
+ ]
+}
