@@ -33,7 +33,8 @@ def schema_dir() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _documents() -> tuple[dict[str, dict], dict]:
+def documents() -> tuple[dict[str, dict], dict]:
+    """The shipped schemas by name, and the shipped registry."""
     docs = {n: json.loads((schema_dir() / f"{n}.schema.json").read_text(encoding="utf-8")) for n in SCHEMA_NAMES}
     return docs, json.loads((schema_dir() / "registry.json").read_text(encoding="utf-8"))
 
@@ -68,7 +69,7 @@ class Contract:
     """The schemas and registry one install knows. `registry` may be newer than the shipped one."""
 
     registry: dict
-    schemas: dict[str, dict] = field(default_factory=lambda: _documents()[0])
+    schemas: dict[str, dict] = field(default_factory=lambda: documents()[0])
 
     @classmethod
     def shipped(cls) -> Contract:
@@ -251,7 +252,7 @@ def _measures(kind: str, p: dict):
 
 @lru_cache(maxsize=1)
 def _shipped() -> Contract:
-    return Contract(_documents()[1])
+    return Contract(documents()[1])
 
 
 def mac(key: bytes, payload: Any) -> str:

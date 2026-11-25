@@ -57,6 +57,8 @@ def _timed(store: Store, kind: str, payload: Any) -> Any:
     """Times keep the offset they were written in: now, if none was given, and the local one if it was left off."""
     if kind not in TIMED or not isinstance(payload, dict):
         return payload
+    if "modality" not in payload:
+        payload = {**payload, "modality": "self_reported"}
     t = payload.get("time")
     if t is None:
         return {**payload, "time": {"start": stamp(store.wall())}}
@@ -84,7 +86,10 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
         found = store.record(r["kind"], rid)
         if found and (found["live"] or found["erased"]):
             raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
-        payload = _written(store, r["kind"], r["payload"])
+        payload = r["payload"]
+        if r["kind"] == "planned_session" and isinstance(payload, dict):
+            payload = _parts(rid, payload, [])
+        payload = _written(store, r["kind"], payload)
         changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
@@ -149,15 +154,24 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
     """Write a planned session's new version. Blocks and planned efforts given without ids keep the ids at
     their positions, so efforts already logged against them stay linked."""
     current = store.get("planned_session", rid)
-    old = current["payload"]["blocks"] if current else []
+    payload = _parts(rid, payload, current["payload"]["blocks"] if current else [])
+    return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
+                                "payload": _written(store, "planned_session", payload)}])[0]
+
+
+def _parts(rid: str, payload: dict, old: list) -> dict:
+    """Ids for blocks and planned efforts given without them: the ones at their positions in `old`, else new."""
+    if not isinstance(payload.get("blocks"), list):
+        return payload
     blocks = []
-    for bi, block in enumerate(payload.get("blocks", [])):
+    for bi, block in enumerate(payload["blocks"]):
+        if not isinstance(block, dict) or not isinstance(block.get("efforts", []), list):
+            return payload
         was = old[bi] if bi < len(old) else {"efforts": []}
         efforts = [{"id": was["efforts"][ei]["id"] if ei < len(was["efforts"]) else f"{rid}.{bi}.{ei}", **e}
-                   for ei, e in enumerate(block.get("efforts", []))]
+                   if isinstance(e, dict) else e for ei, e in enumerate(block.get("efforts", []))]
         blocks.append({"id": was.get("id", f"{rid}.{bi}"), **block, "efforts": efforts})
-    return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
-                                "payload": _written(store, "planned_session", {**payload, "blocks": blocks})}])[0]
+    return {**payload, "blocks": blocks}
 
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:

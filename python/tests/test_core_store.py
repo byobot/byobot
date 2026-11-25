@@ -308,3 +308,53 @@ def test_paired_devices_stay_out_of_the_log(pair):
     assert a.events() == []
     with pytest.raises(NotFound):
         a.unpair("nobody")
+
+
+def test_queries_read_and_refuse_writes_the_key_and_token_hashes(tmp_path):
+    from byobot.core.store import query
+
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
+        s.pair("example-phone", "Example iPhone", "ab" * 32)
+    found = query(tmp_path / "s.db", "SELECT count(*) AS n FROM efforts")
+    assert found["rows"] == [{"n": 1}]
+    assert query(tmp_path / "s.db", "SELECT device_id FROM peers")["rows"] == [{"device_id": "example-phone"}]
+    for sql in ("SELECT * FROM meta", "SELECT token_sha256 FROM peers", "DELETE FROM efforts",
+                "PRAGMA user_version", "ATTACH 'x.db' AS x"):
+        with pytest.raises(ValidationFailed):
+            query(tmp_path / "s.db", sql)
+
+
+def test_an_older_store_is_refused_with_what_to_do(tmp_path):
+    from byobot.util import ByobotError
+
+    old = sqlite3.connect(tmp_path / "old.db")
+    old.execute("PRAGMA user_version = 4")
+    old.close()
+    with pytest.raises(ByobotError, match="move it aside"):
+        Store(tmp_path / "old.db")
+
+
+def test_logged_parts_get_ids_and_timed_records_a_modality(tmp_path):
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        [e] = commands.log(s, ME, [{"kind": "planned_session", "payload": {
+            "scheduled_on": "2026-03-03", "name": "Legs", "blocks": [{"efforts": [{"activity_id": "row"}]}]}}])
+        block = e["payload"]["blocks"][0]
+        assert block["id"] == f"{e['record']['id']}.0" and block["efforts"][0]["id"] == f"{e['record']['id']}.0.0"
+        [e] = commands.log(s, ME, [{"kind": "effort", "payload": {"activity_id": "row"}}])
+        assert e["payload"]["modality"] == "self_reported" and "start" in e["payload"]["time"]
+
+
+def test_samples_deleted_by_id_alone_are_found_by_their_source(tmp_path):
+    from byobot.core import sources
+
+    sample = {"source": "apple-health", "source_id": "h1", "type": "HKQuantityTypeIdentifierBodyMass",
+              "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": 80, "unit": "kg"}
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        assert {k: len(v) for k, v in sources.ingest_samples(s, [sample]).items()} == {"apple_health": 1}
+        assert s.counts()["observations"] == 1
+        written = sources.ingest_samples(s, [], [{"source": "apple_health", "source_id": "h1"}])
+        assert [e["op"] for e in written["apple_health"]] == ["retract"]
+        assert s.counts()["observations"] == 0
+        with pytest.raises(ValidationFailed):
+            sources.ingest_samples(s, [{"source": "apple_health"}])

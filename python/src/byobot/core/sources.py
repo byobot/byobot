@@ -48,6 +48,34 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         raise ValidationFailed(f"{source}: {exc}") from None
 
 
+SAMPLE_SOURCES = {"apple-health": "apple_health"}  # v0's spelling, still sent by older phones
+
+
+def sample_type(hk_type: str) -> str:
+    if hk_type == "HKWorkoutTypeIdentifier":
+        return "workout"
+    return "category_sample" if hk_type.startswith("HKCategoryType") else "quantity_sample"
+
+
+def ingest_samples(store: Store, samples: list[dict], deleted: Iterable[dict] = ()) -> dict[str, list[dict]]:
+    """Samples as a phone reads them from a health store, each its own source's record, and the samples it says
+    were deleted ({source, source_id}, with `type` when known). Each source is written all or none."""
+    by_source: dict[str, tuple[list, list]] = {}
+    for s in samples:
+        if not isinstance(s, dict) or not all(isinstance(s.get(k), str) for k in ("source", "source_id", "type")):
+            raise ValidationFailed("each sample needs a source, a source_id and a type")
+        source = SAMPLE_SOURCES.get(s["source"], s["source"])
+        by_source.setdefault(source, ([], []))[0].append((sample_type(s["type"]), s["source_id"], s))
+    for d in deleted:
+        if not isinstance(d, dict) or not all(isinstance(d.get(k), str) for k in ("source", "source_id")):
+            raise ValidationFailed("each deletion needs a source and a source_id")
+        source = SAMPLE_SOURCES.get(d["source"], d["source"])
+        types = [sample_type(d["type"])] if isinstance(d.get("type"), str) else [r[0] for r in store.conn.execute(
+            "SELECT source_type FROM source_records WHERE source = ? AND source_id = ?", (source, d["source_id"]))]
+        by_source.setdefault(source, ([], []))[1].extend((t, d["source_id"]) for t in types)
+    return {source: ingest(store, source, records, gone) for source, (records, gone) in by_source.items()}
+
+
 def _restamped(store: Store, rid: str, raw: dict) -> bool:
     """The current revision sent again with only a newer revision time, as a day's running total is."""
     found = store.get("source_record", rid)

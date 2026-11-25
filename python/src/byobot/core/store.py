@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .. import library
-from ..util import Conflict, NotFound, ValidationFailed, uuid7
+from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
@@ -96,7 +96,11 @@ class Store:
     def _migrate(self, device_id: str | None) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
-            raise RuntimeError(f"{self.path} is store version {version}; this byobot reads {STORE_VERSION}")
+            self.conn.close()
+            if version < STORE_VERSION:
+                raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
+                                  "aside to start a new store, and import your sources again")
+            raise ByobotError(f"{self.path} was written by a newer byobot (store version {version}); upgrade byobot")
         reshaped = version != 0 and self._get("shape") != reducers.SHAPE
         with self._tx():
             if reshaped:
@@ -152,6 +156,10 @@ class Store:
                           (key, value))
 
     @property
+    def store_id(self) -> str:
+        return self._get("store_id")
+
+    @property
     def device_id(self) -> str:
         return self._get("device_id")
 
@@ -165,9 +173,10 @@ class Store:
         row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return row and _envelope(row)
 
-    def events(self, since: int = 0) -> list[dict]:
-        """Every event after arrival position `since`, in arrival order."""
-        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq", (since,))]
+    def events(self, since: int = 0, limit: int = -1) -> list[dict]:
+        """Every event after arrival position `since`, in arrival order: at most `limit` (-1 for all)."""
+        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
+                                                        (since, limit))]
 
     def history(self, kind: str, rid: str) -> list[dict]:
         """One record's events, in arrival order."""
@@ -403,6 +412,9 @@ class Store:
             out.append({"kind": k, "id": i, "versions": [self.event(h) for h in json.loads(heads)]})
         return out
 
+    def rows(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(sql, tuple(params))]
+
     def erased(self) -> list[tuple[str, str]]:
         return [tuple(r) for r in self.conn.execute("SELECT kind, id FROM records WHERE erased = 1 ORDER BY kind, id")]
 
@@ -497,6 +509,40 @@ class Store:
         if kind in SLUG_KINDS:
             raise ValidationFailed(f"a {kind} needs an id")
         return self.new_id()
+
+
+def ddl() -> str:
+    """The store's SQL tables, for people and agents writing queries."""
+    return "\n".join(s.strip() for s in _statements(DDL + reducers.DDL)) + "\n"
+
+
+_READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+# The store's own key and the paired devices' token hashes stay out of queries.
+_UNREADABLE = {("meta", None), ("peers", "token_sha256")}
+
+
+def _authorize(action: int, table: Any, column: Any, *_: Any) -> int:
+    if action == sqlite3.SQLITE_READ and ((table, None) in _UNREADABLE or (table, column) in _UNREADABLE):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
+
+
+def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000) -> dict:
+    """Run one read-only SQL statement. Writes, ATTACH and PRAGMA are refused."""
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        conn.set_authorizer(_authorize)
+        try:
+            cur = conn.execute(sql, tuple(params))
+            columns = [d[0] for d in cur.description or []]
+            fetched = cur.fetchmany(limit + 1)
+        except (sqlite3.DatabaseError, sqlite3.Warning) as exc:
+            raise ValidationFailed(f"query refused: {exc}") from None
+        return {"columns": columns, "rows": [dict(zip(columns, r)) for r in fetched[:limit]],
+                "truncated": len(fetched) > limit}
+    finally:
+        conn.close()
 
 
 def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
