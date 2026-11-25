@@ -372,3 +372,19 @@ def test_remote_ports_differ_per_profile(monkeypatch, byobot_home):
     assert remote.choose_port("127.0.0.1") == remote.DEFAULT_PORT
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
     assert remote.choose_port("127.0.0.1") > remote.DEFAULT_PORT
+
+
+# -- API keys -------------------------------------------------------------------
+
+def test_an_api_key_names_its_holder_until_revoked(auth):
+    key = auth.create_key("example_assistant")
+    assert key.startswith("byobot_") and key not in auth.path.read_text()
+    assert auth.client_for_token(key)["client_name"] == "example_assistant"
+    assert auth.client_for_token(key + "x") is None
+    assert Auth(auth.path).revoke_all() == 1
+    assert auth.client_for_token(key) is None
+
+
+def test_api_key_names_are_checked(auth):
+    with pytest.raises(remote.ValidationFailed):
+        auth.create_key("Not OK")

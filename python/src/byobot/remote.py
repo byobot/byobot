@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 from byobot import mcp, serve
 from byobot.commands import Context
 from byobot.serve import Pairing
-from byobot.util import ByobotError, ValidationFailed, db_path, home, profile
+from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
 
 SCOPE = "byobot"
 ACCESS_TTL_S = 3600
@@ -114,7 +114,8 @@ class Auth:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             data = {}
-        return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {})}
+        return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {}),
+                "keys": data.get("keys", {})}
 
     def _save(self, data: dict) -> None:
         now = time.time()
@@ -231,20 +232,37 @@ class Auth:
                 "refresh_token": refresh, "scope": SCOPE}
 
     def client_for_token(self, token: str) -> dict | None:
+        """The client an access token or API key belongs to."""
+        if not token:
+            return None
         with self.lock:
             data = self._load()
-        held = data["access"].get(_hash(token)) if token else None
+        h = _hash(token)
+        if h in data["keys"]:
+            return {"client_id": "key:" + h[:16], "client_name": data["keys"][h]["name"]}
+        held = data["access"].get(h)
         if held is None or held["expires_at"] < time.time():
             return None
         return data["clients"].get(held["client_id"])
 
+    def create_key(self, name: str) -> str:
+        """A long-lived API key, for assistants that call an API with a fixed key instead of signing in."""
+        if not PROFILE_NAME.fullmatch(name):
+            raise ValidationFailed(f"API key names are lowercase letters, digits and _, not {name!r}")
+        key = "byobot_" + secrets.token_urlsafe(32)
+        with self.lock:
+            data = self._load()
+            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time())}
+            self._save(data)
+        return key
+
     def revoke_all(self) -> int:
         with self.lock:
             data = self._load()
-            count = len(data["clients"])
+            count = len(data["clients"]) + len(data["keys"])
             self.pending.clear()
             self.grants.clear()
-            self._save({"clients": {}, "access": {}, "refresh": {}})
+            self._save({"clients": {}, "access": {}, "refresh": {}, "keys": {}})
         return count
 
 
