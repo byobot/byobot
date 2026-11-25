@@ -337,4 +337,25 @@ final class ClockAndHealthTests: XCTestCase {
                                              "heart_rate_avg_bpm": .number(141)]))
         XCTAssertNil(HealthMapping.sample(reading(.workout("Running", totals))))
     }
+
+    func testDailyTotalsAreKeyedOnTheirLocalDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 20)))
+        let end = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start))
+        let steps = try XCTUnwrap(HealthMapping.sample(
+            DailyTotal(type: .stepCount, start: start, end: end, value: 9412), calendar: calendar))
+        XCTAssertEqual(steps.sourceId, "daily:HKQuantityTypeIdentifierStepCount:2026-11-20")
+        XCTAssertEqual(steps.value, .number(9412))
+        XCTAssertEqual(steps.unit, "count")
+        XCTAssertNil(steps.device)
+        XCTAssertNil(steps.raw)
+        let heart = try XCTUnwrap(HealthMapping.sample(
+            DailyTotal(type: .heartRate, start: start, end: end, value: 71.44, lowest: 48.2, highest: 162),
+            calendar: calendar))
+        XCTAssertEqual(heart.raw, .object(["min_bpm": .number(48), "max_bpm": .number(162)]))
+        XCTAssertNil(HealthMapping.sample(DailyTotal(type: .stepCount, start: start, end: end, value: 0)))
+        XCTAssertNil(HealthMapping.sample(DailyTotal(type: .bodyMass, start: start, end: end, value: 80)),
+                     "weigh-ins are read one by one")
+    }
 }

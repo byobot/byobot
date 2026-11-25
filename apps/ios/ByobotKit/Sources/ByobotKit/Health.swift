@@ -1,5 +1,5 @@
-// Apple Health readings as byobot telemetry: body composition, heart rate variability, resting heart rate,
-// sleep and workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
+// Apple Health readings as byobot telemetry: body measurements, heart, activity, mobility, vitals, sleep and
+// workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
 // reads them there and sends them to the laptop, which decides which source wins for each metric.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
@@ -71,6 +71,26 @@ public struct HealthReading: Equatable, Sendable {
     }
 }
 
+/// A day's total, or for heart rate its average, as HealthKit's statistics give it across every app and device.
+public struct DailyTotal: Equatable, Sendable {
+    public var type: TelemetryType
+    public var start: Date
+    public var end: Date
+    public var value: Double
+    public var lowest: Double?
+    public var highest: Double?
+
+    public init(type: TelemetryType, start: Date, end: Date, value: Double, lowest: Double? = nil,
+                highest: Double? = nil) {
+        self.type = type
+        self.start = start
+        self.end = end
+        self.value = value
+        self.lowest = lowest
+        self.highest = highest
+    }
+}
+
 public enum HealthMapping {
     /// The telemetry source for anything read from Apple Health. The device that measured it is kept on the sample.
     public static let source = "apple-health"
@@ -78,8 +98,24 @@ public enum HealthMapping {
     /// The quantity types the app reads, with the contract's unit and the largest value it accepts.
     public static let units: [TelemetryType: (unit: String, max: Double)] = [
         .bodyMass: ("kg", 700), .leanBodyMass: ("kg", 700), .bodyFatPercentage: ("%", 100),
+        .bodyMassIndex: ("kg/m2", 200), .height: ("m", 5), .waistCircumference: ("m", 5),
         .vo2Max: ("ml/kg*min", 100), .heartRateVariabilitySDNN: ("ms", 1000), .restingHeartRate: ("count/min", 300),
+        .walkingHeartRateAverage: ("count/min", 300), .heartRateRecoveryOneMinute: ("count/min", 300),
         .respiratoryRate: ("count/min", 100), .oxygenSaturation: ("%", 100),
+        .walkingSpeed: ("m/s", 20), .walkingStepLength: ("m", 5), .walkingDoubleSupportPercentage: ("%", 100),
+        .walkingAsymmetryPercentage: ("%", 100), .appleWalkingSteadiness: ("%", 100),
+        .sixMinuteWalkTestDistance: ("m", 1_000_000), .stairAscentSpeed: ("m/s", 20), .stairDescentSpeed: ("m/s", 20),
+        .bloodPressureSystolic: ("mmHg", 400), .bloodPressureDiastolic: ("mmHg", 400),
+        .bloodGlucose: ("mg/dL", 2000), .bodyTemperature: ("degC", 50), .appleSleepingWristTemperature: ("degC", 50),
+    ]
+
+    /// Types read as one total per day, or for heart rate one average, with their unit and largest value.
+    public static let dailyUnits: [TelemetryType: (unit: String, max: Double)] = [
+        .stepCount: ("count", 200_000), .flightsClimbed: ("count", 200_000),
+        .distanceWalkingRunning: ("m", 1_000_000), .distanceCycling: ("m", 1_000_000),
+        .distanceSwimming: ("m", 1_000_000), .activeEnergyBurned: ("kcal", 50000),
+        .basalEnergyBurned: ("kcal", 50000), .appleExerciseTime: ("s", 86400), .appleStandTime: ("s", 86400),
+        .heartRate: ("count/min", 300),
     ]
 
     /// HealthKit's sleep analysis values by raw number, as the contract names them.
@@ -111,6 +147,22 @@ public enum HealthMapping {
         return TelemetrySample(source: source, sourceId: r.uuid.uuidString.lowercased(), type: telemetryType(r.value),
                                start: Timestamp.string(r.start), end: Timestamp.string(r.end), value: value,
                                unit: unit, device: device(r.origin), raw: raw)
+    }
+
+    /// A day's total keyed on its type and local date, so a later sync of a day still under way replaces it.
+    public static func sample(_ d: DailyTotal, calendar: Calendar = .current) -> TelemetrySample? {
+        guard let spec = dailyUnits[d.type], d.value.isFinite, d.value > 0, d.value <= spec.max,
+              d.end > d.start else { return nil }
+        let day = calendar.dateComponents([.year, .month, .day], from: d.start)
+        let key = String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+        var range: [String: JSONValue] = [:]
+        for (name, value) in [("min_bpm", d.lowest), ("max_bpm", d.highest)] {
+            if let value, value.isFinite, value > 0, value <= spec.max { range[name] = .number(value.rounded()) }
+        }
+        return TelemetrySample(source: source, sourceId: "daily:\(d.type.rawValue):\(key)", type: d.type,
+                               start: Timestamp.string(d.start), end: Timestamp.string(d.end),
+                               value: .number((d.value * 1000).rounded() / 1000), unit: spec.unit,
+                               raw: range.isEmpty ? nil : .object(range))
     }
 
     static func telemetryType(_ value: HealthValue) -> TelemetryType {
