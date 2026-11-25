@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -637,17 +638,21 @@ def _authorize(action: int, table: Any, column: Any, *_: Any) -> int:
     return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
 
 
-def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000) -> dict:
-    """Run one read-only SQL statement. Writes, ATTACH and PRAGMA are refused."""
+def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000, seconds: float = 10) -> dict:
+    """Run one read-only SQL statement, stopped after `seconds`. Writes, ATTACH and PRAGMA are refused."""
     conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         conn.execute("PRAGMA query_only=ON")
         conn.set_authorizer(_authorize)
+        deadline = time.monotonic() + seconds
+        conn.set_progress_handler(lambda: time.monotonic() > deadline, 10_000)
         try:
             cur = conn.execute(sql, tuple(params))
             columns = [d[0] for d in cur.description or []]
             fetched = cur.fetchmany(limit + 1)
         except (sqlite3.DatabaseError, sqlite3.Warning) as exc:
+            if time.monotonic() > deadline:
+                raise ValidationFailed(f"query stopped after {seconds:g} s; narrow it or add a LIMIT") from None
             raise ValidationFailed(f"query refused: {exc}") from None
         return {"columns": columns, "rows": [dict(zip(columns, r)) for r in fetched[:limit]],
                 "truncated": len(fetched) > limit}
