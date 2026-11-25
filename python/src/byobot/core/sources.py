@@ -19,14 +19,15 @@ def record_id(store: Store, source: str, source_type: str, source_id: str) -> st
 def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
            deleted: Iterable[tuple[str, str]] = ()) -> list[dict]:
     """Write what a source gave, all or none: (source_type, source_id, raw) revisions, and the (source_type,
-    source_id) it says it deleted. A revision already held, or a deletion of a record not held, writes nothing."""
+    source_id) it says it deleted. A revision already held, the current one with only a newer revision time, or a
+    deletion of a record not held, writes nothing."""
     key = store.store_key
     changes, seen = [], set()
     for source_type, source_id, raw in records:
         payload = {"source": source, "source_type": source_type, "source_id": str(source_id), "raw": raw}
         rid = record_id(store, source, source_type, source_id)
         event_id = store.contract.derived("source_revision", [rid, mac(key, payload)])
-        if event_id in seen or store.event(event_id) is not None:
+        if event_id in seen or store.event(event_id) is not None or _restamped(store, rid, raw):
             continue
         seen.add(event_id)
         changes.append({"kind": "source_record", "id": rid, "op": "put", "payload": payload, "prev": [],
@@ -45,6 +46,12 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         return store.write({"kind": ACTOR_KIND, "id": source}, changes)
     except ValidationFailed as exc:
         raise ValidationFailed(f"{source}: {exc}") from None
+
+
+def _restamped(store: Store, rid: str, raw: dict) -> bool:
+    """The current revision sent again with only a newer revision time, as a day's running total is."""
+    found = store.get("source_record", rid)
+    return found is not None and mappers.unstamped(found["payload"]["raw"]) == mappers.unstamped(raw)
 
 
 def history(store: Store, rid: str) -> list[dict]:
