@@ -297,3 +297,14 @@ def test_library_activities_ship_and_yours_replace_them(tmp_path, monkeypatch):
     a.rebuild()
     assert tuple(name()) == ("Ab Wheel", "library")
     a.close()
+
+
+def test_paired_devices_stay_out_of_the_log(pair):
+    a, _ = pair
+    a.pair("iphone-1", "Example iPhone", "ab" * 32)
+    assert a.peer_for_token("ab" * 32)["device_id"] == "iphone-1" and a.peer_for_token("cd" * 32) is None
+    a.unpair("iphone-1")
+    assert a.peer_for_token("ab" * 32) is None and a.peers()[0]["revoked_at"]
+    assert a.events() == []
+    with pytest.raises(NotFound):
+        a.unpair("nobody")

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .. import library
-from ..util import Conflict, ValidationFailed, uuid7
+from ..util import Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
@@ -45,7 +45,11 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS records_conflict ON records (conflict) WHERE conflict = 1;
 CREATE TABLE IF NOT EXISTS unprojected (event_id TEXT PRIMARY KEY, kind TEXT NOT NULL, record_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL, seen_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS peers (
+  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
+  last_seen_at TEXT, revoked_at TEXT);
 """
+PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
 
 
 def _local_now() -> datetime:
@@ -405,6 +409,54 @@ class Store:
     def clock_warnings(self) -> list[dict]:
         """Devices whose clocks run far ahead of this one's."""
         return [dict(r) for r in self.conn.execute("SELECT * FROM clocks ORDER BY device_id")]
+
+    def counts(self) -> dict:
+        tables = ("events", "records", "activities", "locations", "plans", "planned_sessions", "sessions", "efforts",
+                  "observations", "source_records", "overlays", "occurrences")
+        out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
+        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
+
+    # -- paired devices: local to this store, never in the log --------------------
+
+    def pair(self, device_id: str, name: str, token_sha256: str) -> dict:
+        """Pair a device, or pair it again with a new token (which also lifts an earlier unpair)."""
+        at = stamp(self.wall())
+        with self._tx():
+            self.conn.execute(
+                "INSERT INTO peers VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT (device_id) DO UPDATE SET "
+                "name = excluded.name, token_sha256 = excluded.token_sha256, paired_at = excluded.paired_at, "
+                "last_seen_at = excluded.last_seen_at, revoked_at = NULL", (device_id, name, token_sha256, at, at))
+        return self.peer(device_id)
+
+    def peer(self, device_id: str) -> dict | None:
+        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers WHERE device_id = ?", (device_id,)).fetchone()
+        return dict(row) if row else None
+
+    def peer_for_token(self, token_sha256: Any) -> dict | None:
+        """The paired device a token belongs to, if it is still paired, marked as seen. Every live hash is compared
+        in constant time, so the check doesn't stop at the first byte that differs or the first peer that fits."""
+        offered = token_sha256 if isinstance(token_sha256, str) else ""
+        found = None
+        for device_id, stored in self.conn.execute(
+                "SELECT device_id, token_sha256 FROM peers WHERE revoked_at IS NULL").fetchall():
+            if len(stored) == len(offered) and secrets.compare_digest(stored, offered):
+                found = device_id
+        if found is None:
+            return None
+        with self._tx():
+            self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+        return self.peer(found)
+
+    def peers(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers ORDER BY paired_at DESC")]
+
+    def unpair(self, device_id: str) -> dict:
+        if not self.peer(device_id):
+            raise NotFound(f"no paired device {device_id}")
+        with self._tx():
+            self.conn.execute("UPDATE peers SET revoked_at = coalesce(revoked_at, ?) WHERE device_id = ?",
+                              (stamp(self.wall()), device_id))
+        return self.peer(device_id)
 
     # -- writing ---------------------------------------------------------------
 
