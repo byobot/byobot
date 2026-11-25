@@ -83,6 +83,9 @@ class Store:
         # Windows costs more as the file grows.
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
+        # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
+        self.conn.execute("PRAGMA secure_delete=ON")
+        self._erasing = False
         self._migrate(device_id)
 
     def close(self) -> None:
@@ -201,7 +204,19 @@ class Store:
             for event in events:
                 with self._tx():
                     out.append(self._accept(event))
+        self._compact()
         return out
+
+    def _compact(self) -> None:
+        """After an erase: rewrite the file and empty the WAL, so no page still holds what was erased."""
+        if not self._erasing or self.conn.in_transaction:
+            return
+        self._erasing = False
+        try:
+            self.conn.execute("VACUUM")
+        except sqlite3.OperationalError:  # another connection is reading; secure_delete already zeroed the rows
+            pass
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def _accept(self, event: Any) -> tuple[str, str]:
         if not isinstance(event, dict) or not isinstance(event.get("id"), str):
@@ -211,8 +226,12 @@ class Store:
             return "rejected", "not JSON"
         held = self.event(event["id"])
         if held is not None:
-            same = _content(held) == _content(event) if held["record"]["kind"] == "source_record" else \
-                jcs(held) == canonical
+            if "redacted_by" in held or "redacted_by" in event:
+                same = _header(held) == _header(event)
+            elif held["record"]["kind"] == "source_record":
+                same = _content(held) == _content(event)
+            else:
+                same = jcs(held) == canonical
             return ("duplicate", "") if same else ("rejected", "id reused with other content")
         try:
             self.contract.check(event)
@@ -221,13 +240,30 @@ class Store:
         if event["record"]["kind"] == "source_record" and "redacted_by" not in event and \
                 event["id"] != self._source_event_id(event):
             return "rejected", "broken rule: derived-id"
+        kind, rid = event["record"]["kind"], event["record"]["id"]
         self._insert(event)
+        erase = self._erase_of(kind, rid)
+        if erase:
+            self._redact(kind, rid, erase)
         understood = self.contract.understands(event)
         if not understood:
             self.conn.execute("INSERT INTO unprojected VALUES (?, ?, ?)",
                               (event["id"], event["record"]["kind"], event["record"]["id"]))
         self._reindex(event["record"]["kind"], event["record"]["id"])
         return ("accepted", "") if understood else ("stored_unprojected", "")
+
+    def _erase_of(self, kind: str, rid: str) -> str | None:
+        """The record's erase event, the earliest if several replicas erased it, so every replica names the same."""
+        row = self.conn.execute("SELECT id FROM events WHERE kind = ? AND record_id = ? AND op = 'erase' "
+                                "ORDER BY hlc, id LIMIT 1", (kind, rid)).fetchone()
+        return row and row[0]
+
+    def _redact(self, kind: str, rid: str, erase: str) -> None:
+        """Blank every other event of an erased record, keeping ids and order so the logbook still replays."""
+        changed = self.conn.execute(
+            "UPDATE events SET payload = '{}', redacted_by = ? WHERE kind = ? AND record_id = ? AND op != 'erase' "
+            "AND (redacted_by IS NULL OR redacted_by != ?)", (erase, kind, rid, erase)).rowcount
+        self._erasing = self._erasing or changed > 0
 
     def _source_event_id(self, event: dict) -> str | None:
         """A source event's id: derived from its content with the store key, so two devices importing the same
@@ -484,6 +520,7 @@ class Store:
                 if outcome != "accepted":
                     raise ValidationFailed(f"{change['kind']} {change['id']}: {reason or outcome}")
                 written.append(event)
+        self._compact()
         return written
 
     def _event(self, actor: dict, change: dict, batch: str | None) -> dict:
@@ -569,6 +606,11 @@ def _source_current(versions: dict[str, dict]) -> tuple:
                                          for e in versions.values())
     shown = [current] if current else []
     return current, current is not None and not hidden, False, shown, shown
+
+
+def _header(event: dict) -> str:
+    """An event without what erase blanks."""
+    return jcs({k: v for k, v in event.items() if k not in ("payload", "redacted_by")})
 
 
 def _content(event: dict) -> str:
