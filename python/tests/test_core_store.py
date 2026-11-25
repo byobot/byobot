@@ -140,8 +140,7 @@ def test_unknown_kinds_and_versions_are_kept_then_projected_after_an_upgrade(pai
     meal = {**e, "id": "019aa000-0000-7000-8000-0000000000bb", "record": {"kind": "meal", "id": e["record"]["id"]}}
     assert [o for o, _ in b.accept_many([newer, meal])] == ["stored_unprojected"] * 2
     assert b.get("effort", e["record"]["id"]) is None
-    b.contract = Contract.shipped().newer(2, {"meal": {"category": "act", "version": 2, "description": "A meal."}})
-    assert b.reproject() == 2
+    b.use(Contract.shipped().newer(2, {"meal": {"category": "act", "version": 2, "description": "A meal."}}))
     assert b.get("effort", e["record"]["id"])["payload"]["bar_speed"] == {"value": 0.6}
     assert b.get("meal", e["record"]["id"]) is not None
 
@@ -182,3 +181,26 @@ def test_edit_and_remove_need_a_live_record(pair):
     commands.remove(a, ME, "effort", e["record"]["id"])
     with pytest.raises(NotFound):
         commands.remove(a, ME, "effort", e["record"]["id"])
+
+
+def test_reopening_with_an_older_contract_stops_projecting_what_it_can_not_read(pair, tmp_path):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    newer = {**e, "id": "019aa000-0000-7000-8000-0000000000aa", "kind_version": 2}
+    b.use(Contract.shipped().newer(2))
+    assert b.accept(newer) == ("accepted", "")
+    b.close()
+    reopened = Store(tmp_path / "b.db")
+    assert reopened.get("effort", e["record"]["id"]) is None
+    reopened.close()
+
+
+def test_a_newer_payload_this_install_can_not_check_is_still_kept(pair):
+    _, b = pair
+    odd = {"id": "019aa000-0000-7000-8000-0000000000cc", "schema_version": 1,
+           "record": {"kind": "plan", "id": "019aa000-0000-7000-8000-000000000101"}, "op": "put", "kind_version": 3,
+           "hlc": "1795100000000-000000", "ts": "2026-11-20T18:00:00-05:00", "device_id": "example-laptop",
+           "actor": {"kind": "human", "id": "me"}, "prev": [], "payload": {"time": "soon"}}
+    assert b.accept(odd) == ("stored_unprojected", "")
+    assert b.accept({**odd, "id": "019aa000-0000-7000-8000-0000000000cd", "payload": {"x": float("nan")}})[0] \
+        == "rejected"

@@ -85,7 +85,12 @@ class Contract:
         if error is not None:
             where = "/".join(str(p) for p in error.absolute_path) or "event"
             raise Rejected(f"{where}: {error.message}")
-        broken = self.broken_rules(event)
+        try:
+            broken = self.broken_rules(event)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            if self.understands(event):
+                raise Rejected("payload can't be read") from None
+            broken = set()  # a newer payload: its own install checked it, and this one checks it on upgrade
         if broken:
             raise Rejected("broken rule: " + ", ".join(sorted(broken)))
 
@@ -151,6 +156,10 @@ class Contract:
             if x < spec.get("minimum", x) or x > spec.get("maximum", x) or x <= spec.get("exclusive_minimum", x - 1):
                 return False
         return True
+
+    def fingerprint(self) -> str:
+        """What decides which events this contract projects."""
+        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"])])
 
     def newer(self, version: int, kinds: dict[str, dict] | None = None) -> "Contract":
         """A contract as an install `version` would know it: every kind at that version, plus `kinds`.

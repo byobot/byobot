@@ -60,7 +60,7 @@ def _order(event: dict) -> tuple[str, str]:
 
 
 def _version(event: dict) -> str:
-    return jcs([event["op"], event.get("kind_version"), event["payload"] if event["op"] == "put" else None])
+    return jcs([event["op"], event["payload"] if event["op"] == "put" else None])
 
 
 class Store:
@@ -98,9 +98,12 @@ class Store:
                 self._set("store_key", secrets.token_hex(32))
                 self._set("device_id", device_id or f"device-{secrets.token_hex(4)}")
                 self._set("hlc", hlc.format((0, 0)))
+                self._set("contract", self.contract.fingerprint())
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
+        if self._get("contract") != self.contract.fingerprint():
+            self.use(self.contract)
 
     def _tx(self):
         conn = self.conn
@@ -171,9 +174,12 @@ class Store:
     def _accept(self, event: Any) -> tuple[str, str]:
         if not isinstance(event, dict) or not isinstance(event.get("id"), str):
             return "rejected", "not an event"
+        canonical = _canonical(event)
+        if not canonical:
+            return "rejected", "not JSON"
         held = self.event(event["id"])
         if held is not None:
-            return ("duplicate", "") if jcs(held) == _canonical(event) else ("rejected", "id reused with other content")
+            return ("duplicate", "") if jcs(held) == canonical else ("rejected", "id reused with other content")
         try:
             self.contract.check(event)
         except Rejected as exc:
@@ -207,11 +213,9 @@ class Store:
     def _reindex(self, kind: str, rid: str) -> None:
         rows = self.conn.execute("SELECT * FROM events WHERE kind = ? AND record_id = ?", (kind, rid)).fetchall()
         events = {r["id"]: _envelope(r) for r in rows}
-        unknown = {r[0] for r in self.conn.execute(
-            "SELECT event_id FROM unprojected WHERE kind = ? AND record_id = ?", (kind, rid))}
         erased = any(e["op"] == "erase" for e in events.values())
         versions = {i: e for i, e in events.items() if e["op"] in ("put", "retract") and not erased}
-        understood = {i: e for i, e in versions.items() if i not in unknown}
+        understood = {i: e for i, e in versions.items() if self.contract.understands(e)}
         tips = sorted((e for i, e in versions.items() if i not in _ancestors(versions.values(), events)), key=_order)
         heads = sorted((e for i, e in understood.items() if i not in _ancestors(understood.values(), events)),
                        key=_order)
@@ -228,21 +232,25 @@ class Store:
             try:
                 with self._tx():
                     reducers.project(self.conn, kind, rid, current["payload"] if live else None)
-            except (KeyError, TypeError):  # a newer kind version this install's reducer can't read
+            except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
                 reducers.project(self.conn, kind, rid, None)
 
-    def reproject(self) -> int:
-        """Project events this install has since learned to read (after an upgrade). Returns how many."""
-        learned = [r for r in self.conn.execute("SELECT u.event_id, u.kind, u.record_id, e.op, e.kind_version "
-                                                "FROM unprojected u JOIN events e ON e.id = u.event_id")
-                   if self.contract.understands({"record": {"kind": r[1], "id": r[2]}, "op": r[3],
-                                                 "kind_version": r[4]})]
+    def use(self, contract: Contract) -> None:
+        """Switch to another contract (an upgrade or a downgrade) and re-derive every record it reads differently."""
+        self.contract = contract
         with self._tx():
-            for event_id, *_ in learned:
-                self.conn.execute("DELETE FROM unprojected WHERE event_id = ?", (event_id,))
-            for kind, rid in {(r[1], r[2]) for r in learned}:
+            unread = {r[0]: (r[1], r[2]) for r in self.conn.execute("SELECT * FROM unprojected")}
+            now = {}
+            for row in self.conn.execute("SELECT id, kind, record_id, op, kind_version FROM events"):
+                probe = {"record": {"kind": row[1], "id": row[2]}, "op": row[3], "kind_version": row[4]}
+                if not contract.understands(probe):
+                    now[row[0]] = (row[1], row[2])
+            changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
+            self.conn.execute("DELETE FROM unprojected")
+            self.conn.executemany("INSERT INTO unprojected VALUES (?, ?, ?)", [(i, *r) for i, r in now.items()])
+            for kind, rid in sorted(changed):
                 self._reindex(kind, rid)
-        return len(learned)
+            self._set("contract", contract.fingerprint())
 
     def rebuild(self) -> None:
         """Re-derive every record from the log. A repair tool: accepting never needs it."""
