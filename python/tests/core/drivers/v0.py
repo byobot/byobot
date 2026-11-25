@@ -141,6 +141,8 @@ class V0:
                 if found["samples"]:
                     store.ingest(found["samples"])
                 whoop.save_sessions(store, found["sessions"])
+            elif isinstance(batch, dict) and batch.get("deleted"):
+                raise Unsupported("source deletions")
             elif source == "apple-health":
                 store.ingest(batch)
                 apple_health.save_sessions(store)
