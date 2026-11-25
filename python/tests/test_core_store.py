@@ -236,3 +236,10 @@ def test_log_writes_the_offset_in_force(pair, monkeypatch):
         time.tzset()
     assert now["payload"]["time"]["start"].endswith("-05:00")
     assert summer["payload"]["time"]["start"] == "2026-07-01T07:00:00.000-04:00"
+
+
+def test_a_home_zone_dates_times_written_without_an_offset(pair):
+    a, _ = pair
+    commands.log(a, ME, [{"kind": "setting", "id": "home_zone", "payload": {"value": "Asia/Tokyo"}}])
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": {**effort(), "time": {"start": "2026-03-02T07:00:00"}}}])
+    assert e["payload"]["time"]["start"] == "2026-03-02T07:00:00.000+09:00"

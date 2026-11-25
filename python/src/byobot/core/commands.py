@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..util import Conflict, NotFound, ValidationFailed
 from .store import Store, stamp
@@ -30,15 +31,26 @@ def _authored(kind: str) -> None:
         raise ValidationFailed(f"{kind} records aren't written by hand")
 
 
-def _local(ts: Any) -> Any:
-    """A time without an offset is this machine's local time then; the offset in force is written with it."""
+def _home_zone(store: Store) -> tzinfo | None:
+    found = store.get("setting", "home_zone")
+    try:
+        return ZoneInfo(found["payload"]["value"]) if found else None
+    except (ZoneInfoNotFoundError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _local(ts: Any, zone: tzinfo | None) -> Any:
+    """A time without an offset is local: in the home zone if one is set, else this machine's; the offset in
+    force then is written with it."""
     if not isinstance(ts, str):
         return ts
     try:
         at = datetime.fromisoformat(ts)
     except ValueError:
         return ts
-    return ts if at.tzinfo else stamp(at.astimezone())
+    if at.tzinfo:
+        return ts
+    return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
 
 
 def _timed(store: Store, kind: str, payload: Any) -> Any:
@@ -49,7 +61,8 @@ def _timed(store: Store, kind: str, payload: Any) -> Any:
     if t is None:
         return {**payload, "time": {"start": stamp(store.wall())}}
     if isinstance(t, dict):
-        return {**payload, "time": {k: _local(v) if k in ("start", "end") else v for k, v in t.items()}}
+        zone = _home_zone(store)
+        return {**payload, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
     return payload
 
 
