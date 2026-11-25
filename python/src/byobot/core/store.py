@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..util import Conflict, ValidationFailed, uuid7
-from . import hlc, reducers
-from .contract import SLUG_KINDS, Contract, Rejected, jcs
+from . import hlc, mappers, occurrences, reducers
+from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
@@ -161,6 +161,11 @@ class Store:
         """Every event after arrival position `since`, in arrival order."""
         return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq", (since,))]
 
+    def history(self, kind: str, rid: str) -> list[dict]:
+        """One record's events, in arrival order."""
+        return [_envelope(r) for r in self.conn.execute(
+            "SELECT * FROM events WHERE kind = ? AND record_id = ? ORDER BY seq", (kind, rid))]
+
     def batch(self, batch_id: str) -> list[dict]:
         return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE batch = ? ORDER BY seq",
                                                         (batch_id,))]
@@ -188,11 +193,16 @@ class Store:
             return "rejected", "not JSON"
         held = self.event(event["id"])
         if held is not None:
-            return ("duplicate", "") if jcs(held) == canonical else ("rejected", "id reused with other content")
+            same = _content(held) == _content(event) if held["record"]["kind"] == "source_record" else \
+                jcs(held) == canonical
+            return ("duplicate", "") if same else ("rejected", "id reused with other content")
         try:
             self.contract.check(event)
         except Rejected as exc:
             return "rejected", exc.reason
+        if event["record"]["kind"] == "source_record" and "redacted_by" not in event and \
+                event["id"] != self._source_event_id(event):
+            return "rejected", "broken rule: derived-id"
         self._insert(event)
         understood = self.contract.understands(event)
         if not understood:
@@ -200,6 +210,16 @@ class Store:
                               (event["id"], event["record"]["kind"], event["record"]["id"]))
         self._reindex(event["record"]["kind"], event["record"]["id"])
         return ("accepted", "") if understood else ("stored_unprojected", "")
+
+    def _source_event_id(self, event: dict) -> str | None:
+        """A source event's id: derived from its content with the store key, so two devices importing the same
+        revision write one event, and nothing else can pass for it."""
+        rid, prev = event["record"]["id"], event["prev"]
+        if event["op"] == "put" and not prev:
+            return self.contract.derived("source_revision", [rid, mac(self.store_key, event["payload"])])
+        if event["op"] == "retract" and len(prev) == 1:
+            return self.contract.derived("source_deletion", [rid, prev[0]])
+        return None
 
     def _insert(self, e: dict) -> None:
         actor = e["actor"]
@@ -225,12 +245,16 @@ class Store:
         erased = any(e["op"] == "erase" for e in events.values())
         versions = {i: e for i, e in events.items() if e["op"] in ("put", "retract") and not erased}
         understood = {i: e for i, e in versions.items() if self.contract.understands(e)}
-        tips = sorted((e for i, e in versions.items() if i not in _ancestors(versions.values(), events)), key=_order)
-        heads = sorted((e for i, e in understood.items() if i not in _ancestors(understood.values(), events)),
-                       key=_order)
-        current = heads[-1] if heads else None
-        live = current is not None and current["op"] == "put"
-        conflict = len({_version(h) for h in heads}) > 1
+        if kind == "source_record":
+            current, live, conflict, heads, tips = _source_current(understood)
+        else:
+            tips = sorted((e for i, e in versions.items() if i not in _ancestors(versions.values(), events)),
+                          key=_order)
+            heads = sorted((e for i, e in understood.items() if i not in _ancestors(understood.values(), events)),
+                           key=_order)
+            current = heads[-1] if heads else None
+            live = current is not None and current["op"] == "put"
+            conflict = len({_version(h) for h in heads}) > 1
         self.conn.execute(
             "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (kind, id) DO UPDATE SET "
             "current = excluded.current, live = excluded.live, conflict = excluded.conflict, "
@@ -238,11 +262,63 @@ class Store:
             (kind, rid, current and current["id"], int(live), int(conflict), int(erased),
              jcs([h["id"] for h in heads]), jcs([t["id"] for t in tips])))
         if self.contract.version(kind) is not None:
-            try:
-                with self._tx():
-                    reducers.project(self.conn, self.contract, kind, rid, current["payload"] if live else None)
-            except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
-                reducers.project(self.conn, self.contract, kind, rid, None)
+            self._project(kind, rid, current["payload"] if live else None)
+
+    def _project(self, kind: str, rid: str, payload: dict | None) -> None:
+        """Rewrite one record's rows, then what reads it: the source records it feeds and the merged workouts
+        around it."""
+        conn = self.conn
+        touched = {(kind, rid)} | occurrences.links(conn, kind, rid)
+        before = self._overlay_targets(kind, rid)
+        spans = [s for k, i in touched | before if (s := occurrences.span(conn, k, i))]
+        try:
+            with self._tx():
+                reducers.project(conn, self.contract, kind, rid, payload)
+        except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
+            reducers.project(conn, self.contract, kind, rid, None)
+        after = self._overlay_targets(kind, rid)
+        for k, i in sorted((before | after) - {(kind, rid)}):
+            if k == "source_record" and (kind, rid) != (k, i):
+                self._reproject(i)
+        if kind == "source_record":
+            for (dependent,) in conn.execute("SELECT id FROM source_links WHERE related_id = ?", (rid,)).fetchall():
+                if dependent != rid:
+                    self._reproject(dependent)
+        touched |= before | after | occurrences.links(conn, kind, rid)
+        spans += [s for k, i in touched if (s := occurrences.span(conn, k, i))]
+        if kind in ("session", "source_record", "overlay"):
+            occurrences.resolve(conn, touched, spans)
+        elif kind == "setting" and rid == "source_priority":
+            self._resolve_all()
+
+    def _overlay_targets(self, kind: str, rid: str) -> set[tuple[str, str]]:
+        if kind != "overlay":
+            return set()
+        row = self.conn.execute("SELECT target_kind, target_id, with_kind, with_id FROM overlays WHERE id = ?",
+                                (rid,)).fetchone()
+        if row is None:
+            return set()
+        return {(row[0], row[1])} | ({(row[2], row[3])} if row[3] else set())
+
+    def _reproject(self, rid: str) -> None:
+        found = self.record("source_record", rid)
+        if found and found["live"]:
+            self._project("source_record", rid, self.event(found["current"])["payload"])
+
+    def _resolve_all(self) -> None:
+        occurrences.clear(self.conn)
+        everything = [(k, r[0]) for k, (table, _) in occurrences.ITEMS.items()
+                      for r in self.conn.execute(f"SELECT id FROM {table}")]
+        occurrences.resolve(self.conn, everything, [])
+
+    def adopt(self, store_id: str, store_key: str) -> None:
+        """Become a replica of another store: take its id and key. Only an empty store can, since events made with
+        the old key no longer verify."""
+        if self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+            raise Conflict("only an empty store can join another")
+        with self._tx():
+            self._set("store_id", store_id)
+            self._set("store_key", store_key)
 
     def use(self, contract: Contract) -> None:
         """Switch to another contract (an upgrade or a downgrade) and re-derive every record it reads differently."""
@@ -278,6 +354,7 @@ class Store:
             reducers.clear(self.conn)
             for kind, rid in self.conn.execute("SELECT DISTINCT kind, record_id FROM events").fetchall():
                 self._reindex(kind, rid)
+            self._resolve_all()
 
     # -- reads ---------------------------------------------------------------
 
@@ -348,7 +425,7 @@ class Store:
             raise Conflict(f"{kind} {rid} has more than {MAX_PREV} current versions; resolve some first")
         wall = self.wall()
         reading = hlc.tick(hlc.parse(self._get("hlc")), hlc.millis(wall))
-        event = {"id": self.new_id(), "schema_version": 1, "record": {"kind": kind, "id": rid}, "op": op,
+        event = {"id": change.get("event_id") or self.new_id(), "schema_version": 1, "record": {"kind": kind, "id": rid}, "op": op,
                  "hlc": hlc.format(reading), "ts": stamp(wall), "device_id": self.device_id,
                  "actor": {k: v for k, v in actor.items() if k in ("kind", "id", "model")},
                  "prev": prev, "payload": change.get("payload", {}) if op != "erase" else {}}
@@ -378,6 +455,21 @@ def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
         if i in events:
             stack.extend(events[i]["prev"])
     return seen
+
+
+def _source_current(versions: dict[str, dict]) -> tuple:
+    """A source record's current revision: the latest by the source's own account, then event id. A deletion
+    hides the record while the revision it names is current. Source records never conflict."""
+    puts = [e for e in versions.values() if e["op"] == "put"]
+    current = max(puts, key=lambda e: (mappers.revised(e["payload"]), e["id"])) if puts else None
+    hidden = current is not None and any(e["op"] == "retract" and e["prev"] == [current["id"]]
+                                         for e in versions.values())
+    shown = [current] if current else []
+    return current, current is not None and not hidden, False, shown, shown
+
+
+def _content(event: dict) -> str:
+    return jcs([event["record"], event["op"], event.get("kind_version"), event["prev"], event["payload"]])
 
 
 def _envelope(row: sqlite3.Row) -> dict:

@@ -178,7 +178,7 @@ class Contract:
                     if not code.startswith("x."):
                         out.append(f"unknown code {code}; use a registry code or your own x. one")
                     continue
-                if kind not in spec["on"]:
+                if kind != "overlay" and kind not in spec["on"]:
                     out.append(f"{code} isn't used on {kind}")
                 if "unit" in m and m["unit"] not in spec.get("units", {}):
                     units = ", ".join(spec.get("units", {})) or "none"
