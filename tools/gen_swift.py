@@ -86,6 +86,7 @@ KEYWORDS = {
 }
 
 PREFIXES = ("HKQuantityTypeIdentifier", "HKCategoryTypeIdentifier", "byobot.")
+NAMES = {"HKWorkoutTypeIdentifier": "workout", "HKQuantityTypeIdentifierVO2Max": "vo2Max"}
 
 
 def load() -> dict[str, dict]:
@@ -103,6 +104,8 @@ def ident(name: str) -> str:
 
 
 def case_name(raw: str) -> str:
+    if raw in NAMES:
+        return NAMES[raw]
     for prefix in PREFIXES:
         if raw.startswith(prefix):
             raw = raw[len(prefix):]

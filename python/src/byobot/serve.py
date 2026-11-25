@@ -20,7 +20,7 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
   ``GET /v0/plan``         activities, plans, planned sessions in a date window, and efforts already logged
                            against them, all in contract shape
   ``POST /v0/events``      push events authored on the phone; each is accepted, a duplicate, or rejected
-  ``POST /v0/telemetry``   push telemetry samples (body mass from HealthKit)
+  ``POST /v0/telemetry``   push telemetry samples read from Apple Health; workouts become sessions
 
   Pushed events must carry the paired device's id as their ``device_id`` and
   that device's user as their ``actor`` (``human`` / ``me``). Anything else is
@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
-from byobot import __version__, contract
+from byobot import __version__, apple_health, contract
 from byobot.store import Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
@@ -365,6 +365,8 @@ def accept_samples(store: Store, samples: list) -> dict:
         else:
             good.append(sample)
     counts = store.ingest(good) if good else {"inserted": 0, "updated": 0, "unchanged": 0}
+    if any(s["source"] == apple_health.NAME and s["type"] == apple_health.WORKOUT for s in good):
+        apple_health.save_sessions(store)
     return {**counts, "rejected": rejected}
 
 

@@ -2764,6 +2764,499 @@
       }
     },
     {
+      "name": "telemetry/body-fat",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A scale's body fat reading, as a percentage 0 to 100.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0001",
+        "type": "HKQuantityTypeIdentifierBodyFatPercentage",
+        "start": "2026-11-20T07:12:00-05:00",
+        "end": "2026-11-20T07:12:00-05:00",
+        "value": 18.4,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/lean-body-mass",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Lean body mass in kg.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0002",
+        "type": "HKQuantityTypeIdentifierLeanBodyMass",
+        "start": "2026-11-20T07:12:00-05:00",
+        "end": "2026-11-20T07:12:00-05:00",
+        "value": 67.2,
+        "unit": "kg"
+      }
+    },
+    {
+      "name": "telemetry/vo2max",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "VO2 max in HealthKit's unit string, ml/kg*min.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0003",
+        "type": "HKQuantityTypeIdentifierVO2Max",
+        "start": "2026-11-20T18:30:00Z",
+        "end": "2026-11-20T18:30:00Z",
+        "value": 48.1,
+        "unit": "ml/kg*min"
+      }
+    },
+    {
+      "name": "telemetry/workout",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A workout from Apple Health: the activity type is the value and the totals are in raw.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0004",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "traditionalStrengthTraining",
+        "device": {
+          "id": "example-watch",
+          "name": "Example Watch"
+        },
+        "raw": {
+          "duration_s": 2700,
+          "energy_kcal": 310.5,
+          "heart_rate_avg_bpm": 112,
+          "heart_rate_max_bpm": 158
+        }
+      }
+    },
+    {
+      "name": "telemetry/steps-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's step count from Apple Health, one sample from the day's start to its end.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierStepCount:2026-11-20",
+        "type": "HKQuantityTypeIdentifierStepCount",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 9412,
+        "unit": "count"
+      }
+    },
+    {
+      "name": "telemetry/heart-rate-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's average heart rate, with its lowest and highest in raw.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierHeartRate:2026-11-20",
+        "type": "HKQuantityTypeIdentifierHeartRate",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 71.4,
+        "unit": "count/min",
+        "raw": {
+          "min_bpm": 48,
+          "max_bpm": 162
+        }
+      }
+    },
+    {
+      "name": "telemetry/walking-steadiness",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Walking steadiness as a percentage.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0005",
+        "type": "HKQuantityTypeIdentifierAppleWalkingSteadiness",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 92.5,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/blood-pressure-systolic",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Blood pressure in mmHg, one sample per reading.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0006",
+        "type": "HKQuantityTypeIdentifierBloodPressureSystolic",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 118,
+        "unit": "mmHg"
+      }
+    },
+    {
+      "name": "telemetry/flights-climbed-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's flights climbed from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierFlightsClimbed:2026-11-20",
+        "type": "HKQuantityTypeIdentifierFlightsClimbed",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 12,
+        "unit": "count"
+      }
+    },
+    {
+      "name": "telemetry/distance-walking-running-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's walking and running distance from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierDistanceWalkingRunning:2026-11-20",
+        "type": "HKQuantityTypeIdentifierDistanceWalkingRunning",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 7210.5,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/distance-cycling-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's cycling distance from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierDistanceCycling:2026-11-20",
+        "type": "HKQuantityTypeIdentifierDistanceCycling",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 15400,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/distance-swimming-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's swimming distance from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierDistanceSwimming:2026-11-20",
+        "type": "HKQuantityTypeIdentifierDistanceSwimming",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 1500,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/active-energy-burned-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's active energy from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierActiveEnergyBurned:2026-11-20",
+        "type": "HKQuantityTypeIdentifierActiveEnergyBurned",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 612.3,
+        "unit": "kcal"
+      }
+    },
+    {
+      "name": "telemetry/basal-energy-burned-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's resting energy from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierBasalEnergyBurned:2026-11-20",
+        "type": "HKQuantityTypeIdentifierBasalEnergyBurned",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 1702.8,
+        "unit": "kcal"
+      }
+    },
+    {
+      "name": "telemetry/apple-exercise-time-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's exercise time, in seconds from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierAppleExerciseTime:2026-11-20",
+        "type": "HKQuantityTypeIdentifierAppleExerciseTime",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 2520,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/apple-stand-time-for-a-day",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "A day's stand time, in seconds from Apple Health.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "daily:HKQuantityTypeIdentifierAppleStandTime:2026-11-20",
+        "type": "HKQuantityTypeIdentifierAppleStandTime",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 14400,
+        "unit": "s"
+      }
+    },
+    {
+      "name": "telemetry/walking-heart-rate-average",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Walking heart rate average.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0007",
+        "type": "HKQuantityTypeIdentifierWalkingHeartRateAverage",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 98,
+        "unit": "count/min"
+      }
+    },
+    {
+      "name": "telemetry/heart-rate-recovery-one-minute",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "How far heart rate fell in the minute after a workout.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0008",
+        "type": "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 31,
+        "unit": "count/min"
+      }
+    },
+    {
+      "name": "telemetry/walking-speed",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Walking speed in m/s.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0009",
+        "type": "HKQuantityTypeIdentifierWalkingSpeed",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 1.42,
+        "unit": "m/s"
+      }
+    },
+    {
+      "name": "telemetry/walking-step-length",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Walking step length in m.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0010",
+        "type": "HKQuantityTypeIdentifierWalkingStepLength",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0.74,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/walking-double-support-percentage",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Share of a step with both feet on the ground.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0011",
+        "type": "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 27.1,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/walking-asymmetry-percentage",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Walking asymmetry; zero is a valid percentage.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0012",
+        "type": "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/six-minute-walk-test-distance",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Estimated six-minute walk distance.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0013",
+        "type": "HKQuantityTypeIdentifierSixMinuteWalkTestDistance",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 610,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/stair-ascent-speed",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Stair climbing speed.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0014",
+        "type": "HKQuantityTypeIdentifierStairAscentSpeed",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0.42,
+        "unit": "m/s"
+      }
+    },
+    {
+      "name": "telemetry/stair-descent-speed",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Stair descent speed.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0015",
+        "type": "HKQuantityTypeIdentifierStairDescentSpeed",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0.48,
+        "unit": "m/s"
+      }
+    },
+    {
+      "name": "telemetry/blood-pressure-diastolic",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Diastolic blood pressure.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0016",
+        "type": "HKQuantityTypeIdentifierBloodPressureDiastolic",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 76,
+        "unit": "mmHg"
+      }
+    },
+    {
+      "name": "telemetry/blood-glucose",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Blood glucose in mg/dL.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0017",
+        "type": "HKQuantityTypeIdentifierBloodGlucose",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 92,
+        "unit": "mg/dL"
+      }
+    },
+    {
+      "name": "telemetry/body-temperature",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Body temperature in degC.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0018",
+        "type": "HKQuantityTypeIdentifierBodyTemperature",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 36.8,
+        "unit": "degC"
+      }
+    },
+    {
+      "name": "telemetry/apple-sleeping-wrist-temperature",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Wrist temperature measured during sleep.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0019",
+        "type": "HKQuantityTypeIdentifierAppleSleepingWristTemperature",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 34.9,
+        "unit": "degC"
+      }
+    },
+    {
+      "name": "telemetry/height",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Height in m.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0020",
+        "type": "HKQuantityTypeIdentifierHeight",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 1.8,
+        "unit": "m"
+      }
+    },
+    {
+      "name": "telemetry/body-mass-index",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Body mass index in kg/m2.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0021",
+        "type": "HKQuantityTypeIdentifierBodyMassIndex",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 22.6,
+        "unit": "kg/m2"
+      }
+    },
+    {
+      "name": "telemetry/waist-circumference",
+      "schema": "telemetry",
+      "valid": true,
+      "description": "Waist circumference in m.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "5B0F2C1E-0022",
+        "type": "HKQuantityTypeIdentifierWaistCircumference",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0.82,
+        "unit": "m"
+      }
+    },
+    {
       "name": "telemetry/body-mass-in-lb",
       "schema": "telemetry",
       "valid": false,
@@ -2953,6 +3446,130 @@
         "start": "2026-11-20T03:00:00Z",
         "end": "2026-11-20T11:00:00Z",
         "value": 22
+      }
+    },
+    {
+      "name": "telemetry/body-fat-over-100",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Body fat is a percentage, 0 to 100, not HealthKit's fraction scaled twice.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierBodyFatPercentage",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 1840,
+        "unit": "%"
+      }
+    },
+    {
+      "name": "telemetry/vo2max-wrong-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "VO2 max is in ml/kg*min.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierVO2Max",
+        "start": "2026-11-20T18:30:00Z",
+        "end": "2026-11-20T18:30:00Z",
+        "value": 48.1,
+        "unit": "ml/min"
+      }
+    },
+    {
+      "name": "telemetry/workout-without-totals",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout carries its totals in raw.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "running"
+      }
+    },
+    {
+      "name": "telemetry/workout-with-unit",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout's value is an activity type, with no unit.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": "running",
+        "unit": "min",
+        "raw": {
+          "duration_s": 2700
+        }
+      }
+    },
+    {
+      "name": "telemetry/workout-number",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A workout's value is its activity type, not a duration.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKWorkoutTypeIdentifier",
+        "start": "2026-11-20T17:00:00Z",
+        "end": "2026-11-20T17:45:00Z",
+        "value": 45,
+        "raw": {
+          "duration_s": 2700
+        }
+      }
+    },
+    {
+      "name": "telemetry/steps-in-thousands",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Steps are a count.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierStepCount",
+        "start": "2026-11-20T00:00:00-05:00",
+        "end": "2026-11-21T00:00:00-05:00",
+        "value": 9.4,
+        "unit": "kcount"
+      }
+    },
+    {
+      "name": "telemetry/glucose-in-mmol",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "Blood glucose is in mg/dL.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierBloodGlucose",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 5.4,
+        "unit": "mmol/L"
+      }
+    },
+    {
+      "name": "telemetry/walking-speed-zero",
+      "schema": "telemetry",
+      "valid": false,
+      "description": "A walking speed is above zero.",
+      "data": {
+        "source": "apple-health",
+        "source_id": "x",
+        "type": "HKQuantityTypeIdentifierWalkingSpeed",
+        "start": "2026-11-20T07:12:00Z",
+        "end": "2026-11-20T07:12:00Z",
+        "value": 0,
+        "unit": "m/s"
       }
     },
     {

@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
     /// An interval block or a hold running on the clock.
     @Published var clock: RunningClock?
     private var clockPhase: Int?
+    /// Apple Health has types byobot reads that you haven't been asked about yet.
+    @Published var healthNeedsAccess = false
     @Published var healthEnabled: Bool {
         didSet { UserDefaults.standard.set(healthEnabled, forKey: "healthEnabled") }
     }
@@ -153,16 +155,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
+    private static let healthReads = 2
+
     private func syncHealth(_ client: SyncClient) async throws {
         guard health.available else { return }
-        // Look back a month past the last send, so readings a scale app wrote late still arrive.
+        healthNeedsAccess = await health.needsAccess()
+        // Look back a month past the last send, so readings an app wrote late still arrive.
         // Sending a reading twice changes nothing on the laptop.
-        let since = state.lastHealthSyncAt.flatMap(Timestamp.date).map { $0.addingTimeInterval(-30 * 86_400) }
-            ?? Date().addingTimeInterval(-365 * 86_400)
-        let samples = try await health.bodyMass(since: since).compactMap(HealthMapping.sample)
+        let current = UserDefaults.standard.integer(forKey: "healthReads") >= Self.healthReads
+        let last = current ? state.lastHealthSyncAt.flatMap(Timestamp.date) : nil
+        let since = last?.addingTimeInterval(-30 * 86_400)
+        let from = since ?? Date().addingTimeInterval(-365 * 86_400)
+        let readings = try await health.readings(since: from).compactMap { HealthMapping.sample($0) }
+        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0) }
+        let samples = readings + days
         for start in stride(from: 0, to: samples.count, by: 1000) {
             _ = try await client.push(samples: Array(samples[start..<min(start + 1000, samples.count)]))
         }
+        UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
         change { $0.state.lastHealthSyncAt = Timestamp.now() }
     }
 
@@ -170,6 +181,7 @@ final class AppModel: ObservableObject {
         do {
             try await health.requestAccess()
             healthEnabled = true
+            healthNeedsAccess = false
             await sync()
         } catch {
             message = error.localizedDescription

@@ -289,22 +289,73 @@ final class ClockAndHealthTests: XCTestCase {
     }
 
     func testBodyMassBecomesTelemetry() throws {
-        let reading = BodyMassReading(uuid: UUID(uuidString: "6F1D0C8E-3A1B-4C2D-9E8F-7A6B5C4D3E2F")!,
-                                      start: Date(timeIntervalSince1970: 1_795_000_000),
-                                      end: Date(timeIntervalSince1970: 1_795_000_000), kilograms: 82.40000001,
-                                      sourceName: "Hume Health", sourceBundleId: "com.example.hume",
-                                      deviceManufacturer: "Hume")
+        let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale",
+                                  deviceManufacturer: "Example")
+        let reading = HealthReading(uuid: UUID(uuidString: "6F1D0C8E-3A1B-4C2D-9E8F-7A6B5C4D3E2F")!,
+                                    start: Date(timeIntervalSince1970: 1_795_000_000),
+                                    end: Date(timeIntervalSince1970: 1_795_000_000),
+                                    value: .quantity(.bodyMass, 82.40000001), origin: origin)
         let sample = try XCTUnwrap(HealthMapping.sample(reading))
         XCTAssertEqual(sample.source, "apple-health")
         XCTAssertEqual(sample.sourceId, "6f1d0c8e-3a1b-4c2d-9e8f-7a6b5c4d3e2f")
         XCTAssertEqual(sample.type, .bodyMass)
         XCTAssertEqual(sample.value, .number(82.4))
         XCTAssertEqual(sample.unit, "kg")
-        XCTAssertEqual(sample.device, TelemetryDevice(id: "com.example.hume", name: "Hume Health", manufacturer: "Hume"))
+        XCTAssertEqual(sample.device, TelemetryDevice(id: "com.example.scale", name: "Example Scale",
+                                                      manufacturer: "Example"))
         let ts = try Fixtures.pattern("timestamp")
         XCTAssertTrue(matches(sample.start, ts))
         var bad = reading
-        bad.kilograms = 0
+        bad.value = .quantity(.bodyMass, 0)
         XCTAssertNil(HealthMapping.sample(bad))
+    }
+
+    func testHealthReadingsTakeTheContractsUnits() throws {
+        let origin = HealthOrigin(sourceName: "Example Watch", sourceBundleId: "com.example.watch")
+        func reading(_ value: HealthValue) -> HealthReading {
+            HealthReading(uuid: UUID(), start: Date(timeIntervalSince1970: 1_795_000_000),
+                          end: Date(timeIntervalSince1970: 1_795_002_700), value: value, origin: origin)
+        }
+        let fat = try XCTUnwrap(HealthMapping.sample(reading(.quantity(.bodyFatPercentage, 18.4))))
+        XCTAssertEqual(fat.unit, "%")
+        XCTAssertNil(HealthMapping.sample(reading(.quantity(.bodyFatPercentage, 1840))))
+        XCTAssertEqual(HealthMapping.sample(reading(.quantity(.vo2Max, 48.1)))?.unit, "ml/kg*min")
+        XCTAssertNil(HealthMapping.sample(reading(.quantity(.strain, 10))), "not read from Apple Health")
+
+        let sleep = try XCTUnwrap(HealthMapping.sample(reading(.sleep(4))))
+        XCTAssertEqual(sleep.type, .sleepAnalysis)
+        XCTAssertEqual(sleep.value, .string("asleepDeep"))
+        XCTAssertNil(sleep.unit)
+        XCTAssertNil(HealthMapping.sample(reading(.sleep(99))))
+
+        let totals = WorkoutTotals(durationS: 2700, energyKcal: 480.25, heartRateAvgBpm: 141, heartRateMaxBpm: 0)
+        let workout = try XCTUnwrap(HealthMapping.sample(reading(.workout("traditionalStrengthTraining", totals))))
+        XCTAssertEqual(workout.type, .workout)
+        XCTAssertEqual(workout.value, .string("traditionalStrengthTraining"))
+        XCTAssertNil(workout.unit)
+        XCTAssertEqual(workout.raw, .object(["duration_s": .number(2700), "energy_kcal": .number(480.3),
+                                             "heart_rate_avg_bpm": .number(141)]))
+        XCTAssertNil(HealthMapping.sample(reading(.workout("Running", totals))))
+    }
+
+    func testDailyTotalsAreKeyedOnTheirLocalDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 20)))
+        let end = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start))
+        let steps = try XCTUnwrap(HealthMapping.sample(
+            DailyTotal(type: .stepCount, start: start, end: end, value: 9412), calendar: calendar))
+        XCTAssertEqual(steps.sourceId, "daily:HKQuantityTypeIdentifierStepCount:2026-11-20")
+        XCTAssertEqual(steps.value, .number(9412))
+        XCTAssertEqual(steps.unit, "count")
+        XCTAssertNil(steps.device)
+        XCTAssertNil(steps.raw)
+        let heart = try XCTUnwrap(HealthMapping.sample(
+            DailyTotal(type: .heartRate, start: start, end: end, value: 71.44, lowest: 48.2, highest: 162),
+            calendar: calendar))
+        XCTAssertEqual(heart.raw, .object(["min_bpm": .number(48), "max_bpm": .number(162)]))
+        XCTAssertNil(HealthMapping.sample(DailyTotal(type: .stepCount, start: start, end: end, value: 0)))
+        XCTAssertNil(HealthMapping.sample(DailyTotal(type: .bodyMass, start: start, end: end, value: 80)),
+                     "weigh-ins are read one by one")
     }
 }
