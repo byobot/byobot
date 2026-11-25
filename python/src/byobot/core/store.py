@@ -485,22 +485,34 @@ class Store:
                 "heads": json.loads(row["heads"]), "tips": json.loads(row["tips"])}
 
     def get(self, kind: str, rid: str) -> dict | None:
-        """The live record's content and who wrote it, or None."""
+        """The live record's content and who wrote it, or None. `newer` says the record also holds a version
+        written by a newer byobot, which this one can't read."""
         found = self.record(kind, rid)
         if not found or not found["live"]:
             return None
         event = self.event(found["current"])
-        return {"kind": kind, "id": rid, "payload": self._read(event), "event": event, "conflict": found["conflict"]}
+        return {"kind": kind, "id": rid, "payload": self._read(event), "event": event, "conflict": found["conflict"],
+                "newer": found["tips"] != found["heads"]}
 
     def _read(self, event: dict) -> dict:
         return reducers.upcast(self.contract, event["record"]["kind"], event.get("kind_version"), event["payload"])
 
+    def newer(self, kind: str | None = None) -> set[tuple[str, str]]:
+        """Records that also hold a version written by a newer byobot."""
+        sql = "SELECT kind, id FROM records WHERE tips != heads" + (" AND kind = ?" if kind else "")
+        return {tuple(r) for r in self.conn.execute(sql, (kind,) if kind else ())}
+
     def records(self, kind: str | None = None) -> list[dict]:
         """Every live record, current version, in kind then id order."""
-        sql = ("SELECT r.kind, r.id, r.conflict, e.*, NULL AS later FROM records r JOIN events e ON e.id = r.current "
-               "WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") + " ORDER BY r.kind, r.id")
-        return [{"kind": r[0], "id": r[1], "conflict": bool(r[2]), "payload": json.loads(r["payload"]),
-                 "event": _envelope(r)} for r in self.conn.execute(sql, (kind,) if kind else ())]
+        sql = ("SELECT e.*, NULL AS later, r.conflict AS r_conflict, r.tips != r.heads AS r_newer FROM records r "
+               "JOIN events e ON e.id = r.current WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") +
+               " ORDER BY r.kind, r.id")
+        out = []
+        for r in self.conn.execute(sql, (kind,) if kind else ()):
+            event = _envelope(r)
+            out.append({"kind": r["kind"], "id": r["record_id"], "conflict": bool(r["r_conflict"]),
+                        "newer": bool(r["r_newer"]), "payload": self._read(event), "event": event})
+        return out
 
     def conflicts(self, kind: str | None = None, rid: str | None = None) -> list[dict]:
         """Records with more than one current version, each version with its author, device and time."""
@@ -529,7 +541,8 @@ class Store:
         tables = ("events", "records", "activities", "locations", "plans", "planned_sessions", "sessions", "efforts",
                   "observations", "source_records", "overlays", "occurrences")
         out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
-        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
+        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0],
+                "newer": self.conn.execute("SELECT count(*) FROM records WHERE tips != heads").fetchone()[0]}
 
     # -- backup ----------------------------------------------------------------
 
