@@ -127,16 +127,14 @@ def test_byobot_mcp_subprocess(byobot_home):
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": LATEST, "clientInfo": {"name": "e2e"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-         "params": {"name": "ingest", "arguments": {"samples": {
-             "source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
-             "start": "2026-11-20T07:12:00Z", "end": "2026-11-20T07:12:00Z", "value": 82.4, "unit": "kg"}}}},
+         "params": {"name": "observe", "arguments": {"code": "body_mass", "value": 82.4, "unit": "kg"}}},
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
          "params": {"name": "list", "arguments": {"kind": "observations"}}},
     ]
     proc = subprocess.run([sys.executable, "-m", "byobot", "mcp"], input="\n".join(json.dumps(m) for m in messages) + "\n",
                           capture_output=True, text=True, timeout=60, check=True)
     replies = {r["id"]: r for r in map(json.loads, proc.stdout.splitlines())}
-    assert replies[2]["result"]["structuredContent"] == {"written": {"hume": 1}, "unchanged": 0}
+    assert replies[2]["result"]["structuredContent"]["event"]["record"]["kind"] == "observation"
     assert replies[3]["result"]["structuredContent"]["items"][0]["value"] == 82.4
     assert (byobot_home / "byobot.db").exists()
 
@@ -150,3 +148,13 @@ def test_weekly_plan_prompt():
     assert "My goal: strength" in text and "`review`" in text and "{" in text
     assert call(server, 4, "prompts/get", {"name": "nope"})["error"]["code"] == -32602
     server.close()
+
+
+def test_agents_cannot_write_source_data(byobot_home):
+    """An agent writing samples would sign them as any connector; `ingest` is the person's alone."""
+    server = initialized()
+    assert "ingest" not in {t["name"] for t in call(server, 2, "tools/list")["result"]["tools"]}
+    got = call(server, 3, "tools/call", {"name": "ingest", "arguments": {"samples": {
+        "source": "whoop", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+        "start": "2026-11-20T07:12:00Z", "end": "2026-11-20T07:12:00Z", "value": 82.4, "unit": "kg"}}})
+    assert got["error"]["code"] == -32602

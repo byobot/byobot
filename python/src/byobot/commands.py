@@ -507,6 +507,7 @@ def _disconnect_whoop(ctx: Context) -> dict:
           "object {samples, deleted} where deleted lists {source, source_id} the health store removed.",
           required=True, positional=True, schema={"type": ["object", "array"]}),
     read_only=False,
+    mcp=False,  # it writes as any source, so only the person runs it
 )
 def _ingest(ctx: Context, samples: Any) -> dict:
     deleted: list = []
