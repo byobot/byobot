@@ -149,8 +149,20 @@ LEFT JOIN efforts ON efforts.date = dates.date;
 """
 
 
-ANALYSIS_DDL = _daily_sql()
-ANALYSIS_OBJECTS = [("view", "daily")]
+EXERCISE_PROGRESS = """-- One row per exercise, location and local date: how much was done and the best of it.
+-- Loads compare only within one location_id. best_e1rm_kg is Epley's estimate from sets of 1 to 12 reps.
+CREATE VIEW exercise_progress AS
+SELECT date(s.performed_at, 'localtime') AS date, s.activity_id, a.name AS activity_name, s.location_id,
+  count(*) AS sets, sum(s.reps) AS total_reps, max(s.reps) AS max_reps, max(s.load_kg) AS top_load_kg,
+  coalesce(sum(s.reps * s.load_kg), 0) AS volume_kg,
+  max(CASE WHEN s.reps BETWEEN 1 AND 12 THEN s.load_kg * (1 + s.reps / 30.0) END) AS best_e1rm_kg,
+  avg(s.rpe) AS avg_rpe
+FROM strength_sets s LEFT JOIN activities a ON a.id = s.activity_id
+GROUP BY 1, s.activity_id, s.location_id;
+"""
+
+ANALYSIS_DDL = _daily_sql() + EXERCISE_PROGRESS
+ANALYSIS_OBJECTS = [("view", "daily"), ("view", "exercise_progress")]
 
 
 def fingerprint() -> str:

@@ -46,3 +46,13 @@ def test_views_reach_stores_made_before_them(byobot_home):
         s.conn.execute("UPDATE meta SET value = 'old' WHERE key = 'views'")
     with Store(path) as s:
         assert s.rows("SELECT count(*) AS n FROM daily") == [{"n": 0}]
+
+
+def test_exercise_progress_per_exercise_location_and_day(store):
+    lift(store)
+    rows = store.rows("SELECT date, activity_id, activity_name, location_id, sets, total_reps, max_reps,"
+                      " round(top_load_kg, 1) AS top, round(volume_kg, 1) AS volume, round(best_e1rm_kg, 1) AS e1rm"
+                      " FROM exercise_progress ORDER BY activity_id")
+    assert rows == [{"date": "2026-11-16", "activity_id": "squat", "activity_name": "Squat",
+                     "location_id": "example-gym", "sets": 2, "total_reps": 8, "max_reps": 5,
+                     "top": 102.1, "volume": 806.2, "e1rm": 116.7}]
