@@ -2,6 +2,7 @@
 
 import random
 import tempfile
+from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
@@ -24,6 +25,8 @@ step = st.one_of(
     st.tuples(st.just("skew"), st.integers(0, 2), st.integers(-48, 48)),
 )
 programs = st.lists(step, min_size=1, max_size=14)
+resolve = st.tuples(st.just("resolve"), st.integers(0, 2), st.sampled_from(IDS), st.integers(0, 3))
+with_resolves = st.lists(st.one_of(step, resolve, resolve), min_size=1, max_size=16)
 
 # An undo synced before the event it undoes: v0 rejects it for good.
 UNDO_FIRST = [("log", 0, "e1", 5), ("sync", 0, 1), ("edit", 1, "e1", 9), ("undo", 1, 1), ("sync", 1, 2)]
@@ -62,6 +65,11 @@ def run(world: World, program: list) -> None:
                 world.author(name, {"intent": "undo", "change": held[args[0] % len(held)].id})
         elif op == "sync":
             world.sync(name, REPLICAS[args[0]])
+        elif op == "resolve":
+            versions = world.expected(name)["conflicts"].get(f"effort/{args[0]}", [])
+            if versions:
+                choice = "remove" if args[1] == len(versions) or args[1] > 2 else args[1] % len(versions)
+                world.author(name, {"intent": "resolve", "record": ["effort", args[0]], "choice": choice})
         elif op == "skew":
             world.clock(name).skew = timedelta(hours=args[0])
 
@@ -81,12 +89,15 @@ def settle(world: World, seed: int) -> list:
     return outcomes
 
 
+@contextmanager
 def history(driver: str, program: list, seed: int):
-    directory = tempfile.TemporaryDirectory()
-    world = World(DRIVERS[driver](), directory.name)
-    run(world, program)
-    outcomes = settle(world, seed)
-    return world, outcomes, directory
+    with tempfile.TemporaryDirectory() as directory:
+        world = World(DRIVERS[driver](), directory)
+        try:
+            run(world, program)
+            yield world, settle(world, seed)
+        finally:
+            world.close()
 
 
 def snapshots(world: World) -> dict:
@@ -97,10 +108,8 @@ def snapshots(world: World) -> dict:
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=UNDO_FIRST, seed=1)
 def test_i1_replicas_converge_whatever_the_delivery_order(driver, program, seed):
-    world, _, directory = history(driver, program, seed)
-    with directory:
+    with history(driver, program, seed) as (world, _):
         snaps = snapshots(world)
-        world.close()
     first = snaps[REPLICAS[0]]
     for name in REPLICAS[1:]:
         assert equal(first, snaps[name]), diff(first, snaps[name])
@@ -108,13 +117,11 @@ def test_i1_replicas_converge_whatever_the_delivery_order(driver, program, seed)
 
 @given(program=programs, seed=st.integers(0, 2**16))
 def test_i2_rebuild_equals_incremental_state(driver, program, seed):
-    world, _, directory = history(driver, program, seed)
-    with directory:
+    with history(driver, program, seed) as (world, _):
         for name in REPLICAS:
             before = world.snapshot(name)
             world.rebuild(name)
             assert equal(before, world.snapshot(name)), diff(before, world.snapshot(name))
-        world.close()
 
 
 @pytest.mark.baseline(v0="I3, I4, I17: one edit silently wins, by wall clock, with no conflict shown")
@@ -122,23 +129,29 @@ def test_i2_rebuild_equals_incremental_state(driver, program, seed):
 @example(program=APART, seed=1)
 @example(program=FAST_CLOCK, seed=1)
 def test_i3_i4_i17_every_replica_matches_the_reference_model(driver, program, seed):
-    world, _, directory = history(driver, program, seed)
-    with directory:
+    with history(driver, program, seed) as (world, _):
         for name in REPLICAS:
             got, want = world.snapshot(name), world.expected(name)
             assert equal(got, want), diff(got, want)
-        world.close()
 
 
 @pytest.mark.baseline(v0="I5: an undo that arrives before its target is rejected")
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=UNDO_FIRST, seed=1)
 def test_i5_delivery_is_total_and_idempotent(driver, program, seed):
-    world, outcomes, directory = history(driver, program, seed)
-    with directory:
+    with history(driver, program, seed) as (world, outcomes):
         assert [o for o in outcomes if o[0] == "rejected"] == []
         before = snapshots(world)
         again = [o for name in REPLICAS for o in world.deliver(name, world.ordered(set(world.changes)))]
         assert {o for o, _ in again} <= {"duplicate"}
         assert snapshots(world) == before
-        world.close()
+
+
+@given(program=with_resolves, seed=st.integers(0, 2**16))
+@example(program=APART + [("sync", 0, 1), ("sync", 1, 0), ("resolve", 0, "e1", 1), ("resolve", 1, "e1", 0)], seed=1)
+def test_i17_resolutions_converge_and_match_the_reference_model(driver, program, seed):
+    with history(driver, program, seed) as (world, outcomes):
+        assert [o for o in outcomes if o[0] == "rejected"] == []
+        for name in REPLICAS:
+            got, want = world.snapshot(name), world.expected(name)
+            assert equal(got, want), diff(got, want)

@@ -7,10 +7,11 @@ from hypothesis import HealthCheck, settings
 
 from .driver import Unsupported
 from .drivers.v0 import V0
+from .drivers.v1 import V1
 from .harness import World
 from .model import Reference
 
-DRIVERS = {"model": Reference, "v0": V0}
+DRIVERS = {"model": Reference, "v0": V0, "v1": V1}
 
 _quiet = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow, HealthCheck.data_too_large]
 settings.register_profile("ci", max_examples=60, derandomize=True, deadline=None, suppress_health_check=_quiet)

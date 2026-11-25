@@ -20,7 +20,18 @@ SECTIONS = ("records", "conflicts", "erased")
 
 
 def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """JSON with sorted keys, where 5 and 5.0 are the same number, as they are in JSON."""
+    return json.dumps(_numbers(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _numbers(value: Any) -> Any:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _numbers(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_numbers(v) for v in value]
+    return value
 
 
 def key(kind: str, rid: str) -> str:
