@@ -308,7 +308,11 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
                 "and exports made before now still hold it.",
 )
 def _erase(ctx: Context, kind: str, id: str) -> dict:
-    return {"events": core.erase(ctx.store(), ctx.actor, kind, id),
+    store = ctx.store()
+    events = core.erase(store, ctx.actor, kind, id)
+    cleanup = {"cleanup": "pending: another program has the store open; it finishes on a later write"} \
+        if store.compact_pending() else {}
+    return {"events": events, **cleanup,
             "note": "The iPhone app keeps its own copy until the app is deleted from the phone, and exports made before "
                     "now still hold this record."}
 
