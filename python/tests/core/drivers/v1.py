@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from byobot.core import commands
+from byobot.core import commands, sources
 from byobot.core.contract import SLUG_KINDS, Contract
 from byobot.core.store import Store
 
 from ..driver import Unsupported, parse
 from ..model import AUTHORED, NEW_IN
-from ..snapshot import canonical, empty, key
+from ..snapshot import canonical, empty, key, occurrence
 
 NAMESPACE = uuid.UUID("6f1d3c52-8a27-4f0e-9b61-2d7c0e5a9f14")
 LOGS = {
@@ -28,6 +28,15 @@ LOGS = {
 }
 READ_AS = {"meal": "effort"}  # a newer install's kind, written by this driver from an effort
 SELF = "self_reported"
+SOURCES = {"apple-health": "apple_health"}
+SOURCE_TYPES = ("sleep", "recovery", "cycle", "workout", "quantity_sample", "category_sample")
+FIELDS = {"duration_s": ("duration", "s"), "distance_m": ("distance", "m"), "heart_rate": ("heart_rate", "/min")}
+
+
+def _sample_type(hk_type: str) -> str:
+    if hk_type == "HKWorkoutTypeIdentifier":
+        return "workout"
+    return "category_sample" if hk_type.startswith("HKCategoryType") else "quantity_sample"
 
 
 @dataclass
@@ -41,6 +50,7 @@ class V1:
     name = "v1"
 
     def __init__(self):
+        self.identity: tuple[str, str] | None = None  # every replica of a world is one store
         self.intent_ids: dict[str, str] = {}  # stored id -> intent id
         self.part_owner: dict[str, str] = {}  # planned effort id -> planned session intent id
 
@@ -73,6 +83,10 @@ class V1:
         rep = Replica(name, None)
         rep.store = Store(Path(directory) / f"{name}.v1.db", device_id=name, new_id=new_id,
                           wall=lambda: parse(rep.at[0]) if rep.at[0] else parse("2026-03-02T09:00:00Z"))
+        if self.identity is None:
+            self.identity = (rep.store._get("store_id"), rep.store._get("store_key"))
+        elif not rep.store.events():
+            rep.store.adopt(*self.identity)
         return rep
 
     def close(self, rep: Replica) -> None:
@@ -166,7 +180,17 @@ class V1:
             return commands.undo(store, actor, intent["event"]["id"])
         if name == "resolve":
             return [self._resolve(store, actor, *intent["record"], intent["choice"])]
+        if name == "correct_import":
+            metrics = {FIELDS[k][0]: None if v is None else {"value": v, "unit": FIELDS[k][1]}
+                       for k, v in intent["fields"].items()}
+            return [commands.correct(store, actor, self._workout(store, intent), {"metrics": metrics})]
+        if name == "same_as":
+            return [commands.same_as(store, actor, self._workout(store, intent), "session",
+                                     self.rid("session", intent["session"]))]
         raise Unsupported(f"{name} comes with a later core step")
+
+    def _workout(self, store: Store, intent: dict) -> str:
+        return sources.record_id(store, SOURCES.get(intent["source"], intent["source"]), "workout", intent["source_id"])
 
     def _records(self, kind: str, record: dict) -> list[dict]:
         rid = self.rid(kind, record["id"])
@@ -206,7 +230,16 @@ class V1:
         return rep.store.accept_many(events)
 
     def ingest(self, rep: Replica, source: str, batch: Any, at: str) -> list[dict]:
-        raise Unsupported("source records come with C4")
+        rep.at[0] = at
+        records, deleted = [], []
+        if source == "whoop":
+            for t in ("sleep", "recovery", "cycle", "workout"):
+                records += [(t, str(r["cycle_id"] if t == "recovery" else r["id"]), r) for r in batch.get(t, [])]
+        else:
+            samples = batch.get("samples", []) if isinstance(batch, dict) else batch
+            records = [(_sample_type(s["type"]), s["source_id"], s) for s in samples]
+            deleted = [(_sample_type(t), i) for t, i in (batch.get("deleted", []) if isinstance(batch, dict) else [])]
+        return sources.ingest(rep.store, SOURCES.get(source, source), records, deleted)
 
     def log_events(self, rep: Replica) -> list[dict]:
         return rep.store.events()
@@ -236,10 +269,17 @@ class V1:
         return out
 
     def occurrences(self, rep: Replica) -> list[dict]:
-        raise Unsupported("merged workouts come with C4")
+        conn, out = rep.store.conn, []
+        for oid, start, end in conn.execute("SELECT id, started_at, ended_at FROM occurrences"):
+            got = {code: v for code, v in conn.execute(
+                "SELECT code, std_value FROM occurrence_metrics WHERE occurrence_id = ?", (oid,))}
+            out.append(occurrence(start, end or start, {k: got.get(code) for k, (code, _) in FIELDS.items()}))
+        return sorted(out, key=canonical)
 
     def source_history(self, rep: Replica, source: str, source_id: str) -> list[dict]:
-        raise Unsupported("source records come with C4")
+        name = SOURCES.get(source, source)
+        return [e["payload"]["raw"] for t in SOURCE_TYPES
+                for e in sources.history(rep.store, sources.record_id(rep.store, name, t, source_id))]
 
     def log_digest(self, rep: Replica) -> list[str]:
         return sorted(canonical([e["record"]["kind"], self.back(e["record"]["id"]), e["op"],
