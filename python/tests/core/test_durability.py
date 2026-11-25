@@ -1,5 +1,6 @@
 """S19 and S20: restoring from an export, and erasing."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from byobot.core.store import Store
 
 from .scenarios import both_ways, edit, effort, reps, whoop_workout
 from .snapshot import diff
+from .synth import persona, play
 
 MARK = "zq-erase-mark-{}".format
 
@@ -194,3 +196,30 @@ def test_s20_an_erased_source_record_and_its_correction_leave_nothing(world, dri
         assert world.occurrences(name) == []
         assert world.source_history(name, "whoop", wid) == []
         gone(world, name, MARK(7), "4321.5")
+
+
+# -- S21. a year with a restored laptop and an erase -----------------------------------------------------
+
+SOAK = bool(os.environ.get("BYOBOT_SOAK"))
+
+
+def test_s21_a_year_with_a_restored_laptop_and_an_erase(world):
+    p = persona(4, 365 if SOAK else 42)
+    weeks = sorted({(s.at - p.steps[0].at).days // 7 for s in p.steps})
+    bounds = [next(i for i, s in enumerate(p.steps) if (s.at - p.steps[0].at).days // 7 == w) for w in weeks]
+    bounds.append(len(p.steps))
+    for n, (since, until) in enumerate(zip(bounds, bounds[1:])):
+        play(world, p, until, since)
+        if n == len(weeks) // 2:
+            world.restore("laptop", world.export("laptop"))
+        if n == 3 * len(weeks) // 4:
+            efforts = sorted(k for k in world.snapshot("laptop")["records"] if k.startswith("effort/"))
+            world.author("laptop", {"intent": "erase", "record": ["effort", efforts[0].split("/", 1)[1]]})
+        for name in world.replicas:
+            same(world, name)
+    live = [n for n in world.replicas if n != "phone"]
+    both_ways(world, *live)
+    for name in live:
+        same(world, name)
+    world.rebuild("laptop")
+    same(world, "laptop")
