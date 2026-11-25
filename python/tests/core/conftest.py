@@ -1,4 +1,6 @@
 import os
+import re
+from collections import defaultdict
 
 import pytest
 from hypothesis import HealthCheck, settings
@@ -46,3 +48,30 @@ def world(driver, tmp_path):
     w = World(DRIVERS[driver](), tmp_path)
     yield w
     w.close()
+
+
+_matrix: dict[str, dict[str, str]] = defaultdict(dict)
+
+
+def pytest_runtest_logreport(report):
+    found = re.search(r"\[(" + "|".join(DRIVERS) + r")[\]-]", report.nodeid)
+    if not found or "tests/core/" not in report.nodeid.replace("\\", "/"):
+        return
+    if report.when != "call" and not report.skipped:
+        return
+    if hasattr(report, "wasxfail"):
+        outcome = "xfail" if report.skipped else "XPASS"
+    else:
+        outcome = "no equivalent" if report.skipped else report.outcome
+    row = re.sub(r"\[(" + "|".join(DRIVERS) + r")(-|\])", lambda m: "[" if m[2] == "-" else "", report.nodeid)
+    _matrix[row.split("::", 1)[1]][found[1]] = outcome
+
+
+def pytest_sessionfinish(session):
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary or not _matrix:
+        return
+    lines = ["| scenario | " + " | ".join(DRIVERS) + " |", "|---" * (len(DRIVERS) + 1) + "|"]
+    lines += [f"| {name} | " + " | ".join(row.get(d, "") for d in DRIVERS) + " |" for name, row in sorted(_matrix.items())]
+    with open(summary, "a", encoding="utf-8") as out:
+        out.write("\n".join(["### Core scenarios by driver", "", *lines, ""]))
