@@ -388,3 +388,42 @@ def test_an_api_key_names_its_holder_until_revoked(auth):
 def test_api_key_names_are_checked(auth):
     with pytest.raises(remote.ValidationFailed):
         auth.create_key("Not OK")
+
+
+# -- the plain JSON API -----------------------------------------------------------
+
+def test_openapi_describes_every_tool(running):
+    resp, raw = request(running, "GET", "/api/openapi.json")
+    spec = json.loads(raw)
+    assert resp.status == 200 and spec["openapi"] == "3.1.0" and spec["servers"] == [{"url": BASE}]
+    assert {p.rsplit("/", 1)[1] for p in spec["paths"]} == {t["name"] for t in remote.mcp.tools()}
+    assert spec["paths"]["/api/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
+        "required"] == ["sql"]
+
+
+def test_the_api_needs_a_key(running):
+    assert request(running, "GET", "/api/tools")[0].status == 401
+    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"},
+                   {"Authorization": "Bearer byobot_wrong"})[0].status == 401
+
+
+@pytest.mark.parametrize("header", ["Authorization", "X-API-Key"])
+def test_an_api_key_calls_tools(running, header):
+    key = running.auth.create_key("example_assistant")
+    auth = {header: f"Bearer {key}" if header == "Authorization" else key}
+    resp, raw = request(running, "GET", "/api/tools", headers=auth)
+    assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
+    resp, raw = request(running, "POST", "/api/tools/log", {"type": "activity.defined",
+                                                            "payload": {"id": "plank", "name": "Plank"}}, auth)
+    assert resp.status == 200, raw
+    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM activities"}, auth)
+    assert json.loads(raw)["rows"] == [{"actor_id": "example_assistant"}]
+    resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
+    assert resp.status == 400 and json.loads(raw)["error"] == "invalid"
+    assert request(running, "POST", "/api/tools/nope", {}, auth)[0].status == 404
+
+
+def test_an_api_key_also_works_for_mcp(running):
+    key = running.auth.create_key("example_assistant")
+    resp, raw = rpc(running, key, "tools/list")
+    assert resp.status == 200 and json.loads(raw)["result"]["tools"]
