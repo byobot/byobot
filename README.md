@@ -34,6 +34,18 @@ Other MCP clients: `{"mcpServers": {"byobot": {"command": "byobot", "args": ["mc
 
 To have it plan your week, run its `weekly_plan` prompt (`/mcp__byobot__weekly_plan` in Claude Code).
 
+## More than one person on a computer
+
+Each person uses their own profile, with its own store, WHOOP sign-in, phone pairing and agent:
+
+```bash
+byobot --profile alex init
+byobot --profile alex serve
+claude mcp add byobot-alex -- byobot --profile alex mcp
+```
+
+Or set `BYOBOT_PROFILE=alex`. Without a profile, byobot uses the default one.
+
 ## Pair the iPhone app
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).

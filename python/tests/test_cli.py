@@ -35,6 +35,26 @@ def test_home_flag_overrides_env(capsys, tmp_path):
     assert out["db"] == str(other / "byobot.db")
 
 
+def test_profiles_keep_separate_stores(capsys, byobot_home):
+    _, default, _ = cli(capsys, "init")
+    _, alex, _ = cli(capsys, "--profile", "alex", "init")
+    assert default["profile"] is None and alex["profile"] == "alex"
+    assert alex["db"] == str(byobot_home / "profiles" / "alex" / "byobot.db")
+    assert alex["device_id"] != default["device_id"]
+
+
+def test_profile_comes_from_the_environment(capsys, byobot_home, monkeypatch):
+    monkeypatch.setenv("BYOBOT_PROFILE", "sam")
+    _, out, _ = cli(capsys, "init")
+    assert out["db"] == str(byobot_home / "profiles" / "sam" / "byobot.db")
+
+
+@pytest.mark.parametrize("name", ["Alex", "../x", "a b"])
+def test_bad_profile_names_are_refused(capsys, name):
+    code, _, err = cli(capsys, "--profile", name, "init")
+    assert code == 1 and "invalid" in err
+
+
 def test_log_list_and_query(capsys):
     cli(capsys, "log", "activity.defined", json.dumps({"id": "plank", "name": "Plank", "default_metrics": ["duration"]}))
     code, out, _ = cli(capsys, "log", "effort.performed",

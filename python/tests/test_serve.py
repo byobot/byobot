@@ -714,3 +714,20 @@ def test_plan_window_brings_the_last_two_times_at_each_location(store):
     assert [(e["id"], e["location_id"]) for e in window["efforts"]] == [
         ("s-1-1", "home"), ("s-1-2", "home"), ("s-2-1", "home"), ("s-2-2", "home"),
         ("s-3-1", "hotel-gym"), ("s-3-2", "hotel-gym")]
+
+
+def test_default_profile_keeps_8765_and_profiles_get_their_own_port(byobot_home, monkeypatch):
+    assert serve.choose_port("127.0.0.1") == serve.DEFAULT_PORT
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    port = serve.choose_port("127.0.0.1")
+    assert port > serve.DEFAULT_PORT + 1
+    serve.serve_dir().mkdir(parents=True)
+    (serve.serve_dir() / "port").write_text("9001\n")
+    assert serve.choose_port("127.0.0.1") == 9001
+
+
+def test_profile_shows_in_the_server_name(monkeypatch):
+    monkeypatch.setattr(serve.socket, "gethostname", lambda: "example-laptop")
+    assert serve.server_name() == "example-laptop"
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    assert serve.server_name() == "example-laptop (alex)"

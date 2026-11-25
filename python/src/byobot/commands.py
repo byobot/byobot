@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from byobot import __version__, contract, library, whoop
 from byobot.store import Store, full_ddl, query
-from byobot.util import ValidationFailed, db_path, home, now, uuid7
+from byobot.util import ValidationFailed, db_path, home, now, profile, uuid7
 
 
 @dataclass(frozen=True)
@@ -99,7 +99,7 @@ def run(name: str, ctx: Context, args: dict) -> Any:
 def _init(ctx: Context) -> dict:
     existed = ctx.path.exists()
     store = ctx.store()
-    return {"home": str(home()), "db": str(ctx.path), "device_id": store.device_id, "created": not existed}
+    return {"home": str(home()), "profile": profile(), "db": str(ctx.path), "device_id": store.device_id, "created": not existed}
 
 
 LOGGABLE = tuple(t for t in contract.EVENT_TYPES if t != "event.undone")
