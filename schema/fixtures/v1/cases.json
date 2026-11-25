@@ -2427,6 +2427,230 @@
    }
   },
   {
+   "name": "observation/estimate",
+   "outcome": "accepted",
+   "description": "An estimate from a photo: a value with the bounds it likely lies within, and a reference to the photo.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000031",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-00000000010d"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_fat_percentage",
+     "value": 18,
+     "min": 16,
+     "max": 21,
+     "unit": "%",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "estimated",
+     "attachments": [
+      {
+       "id": "019aa000-0000-7000-8000-00000000020a",
+       "media_type": "image/jpeg",
+       "bytes": 482113
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "effort/estimated-load",
+   "outcome": "accepted",
+   "description": "A metric may be an estimate too.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000032",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "load": {
+       "value": 100,
+       "min": 95,
+       "max": 105,
+       "unit": "kg"
+      },
+      "rpe": {
+       "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/estimate-outside-bounds",
+   "outcome": "rejected",
+   "rule": "range-order",
+   "description": "An estimate's value lies within its bounds.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000031",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-00000000010d"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_fat_percentage",
+     "value": 25,
+     "min": 16,
+     "max": 21,
+     "unit": "%",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "estimated",
+     "attachments": [
+      {
+       "id": "019aa000-0000-7000-8000-00000000020a",
+       "media_type": "image/jpeg",
+       "bytes": 482113
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "measure/text-estimate",
+   "outcome": "rejected",
+   "description": "Only a number has bounds.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000031",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-00000000010d"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "x.mood",
+     "value": "good",
+     "min": 16,
+     "max": 21,
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "estimated",
+     "attachments": [
+      {
+       "id": "019aa000-0000-7000-8000-00000000020a",
+       "media_type": "image/jpeg",
+       "bytes": 482113
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "header/attachment-without-size",
+   "outcome": "rejected",
+   "description": "An attachment says its media type and size.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000031",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-00000000010d"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_fat_percentage",
+     "value": 18,
+     "min": 16,
+     "max": 21,
+     "unit": "%",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "estimated",
+     "attachments": [
+      {
+       "id": "photo",
+       "media_type": "image/jpeg"
+      }
+     ]
+    }
+   }
+  },
+  {
    "name": "source_record/by-human",
    "outcome": "rejected",
    "description": "Only a connector writes a source's records.",
