@@ -14,7 +14,7 @@ from typing import Any
 from byobot.util import ByobotError
 
 from .driver import Clock, Replica, Unsupported, parse
-from .model import ModelReplica, Refused, Write
+from .model import ModelReplica, Reference, Refused, Write
 
 HUMAN = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-agent"}
@@ -95,6 +95,16 @@ class World:
         events = self.driver.ingest(rep.state, source, batch, at)
         return self._change(name, events, writes)
 
+    def newer(self, cid: str, variant: str) -> Change:
+        """The change as an install one version newer would have written it."""
+        c = self.changes[cid]
+        return self._change(c.replica, self.driver.newer(list(c.events), variant),
+                            Reference().newer(list(c.writes), variant))
+
+    def upgrade(self, name: str, version: int) -> None:
+        self.driver.upgrade(self.replicas[name].state, version)
+        self.shadows[name].version = version
+
     # -- sync ----------------------------------------------------------------
 
     def deliver(self, name: str, changes: list[Change]) -> list[tuple[str, str]]:
@@ -121,6 +131,21 @@ class World:
 
     def expected(self, name: str) -> dict:
         return self.shadows[name].snapshot()
+
+    def occurrences(self, name: str) -> list[dict]:
+        return self.driver.occurrences(self.replicas[name].state)
+
+    def expected_occurrences(self, name: str) -> list[dict]:
+        return Reference().occurrences(self.shadows[name])
+
+    def source_history(self, name: str, source: str, source_id: str) -> list[dict]:
+        return self.driver.source_history(self.replicas[name].state, source, source_id)
+
+    def log_digest(self, name: str) -> list[str]:
+        return self.driver.log_digest(self.replicas[name].state)
+
+    def local_dates(self, name: str) -> dict[str, str]:
+        return self.driver.local_dates(self.replicas[name].state)
 
     def rebuild(self, name: str) -> None:
         self.driver.rebuild(self.replicas[name].state)

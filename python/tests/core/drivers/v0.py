@@ -238,6 +238,20 @@ class V0:
     def upgrade(self, store: Store, version: int) -> None:
         raise Unsupported("upgrade")
 
+    def newer(self, events: list[dict], variant: str) -> list[dict]:
+        out = []
+        for e in events:
+            e = json.loads(json.dumps(e))
+            if variant == "unknown_kind":
+                e.update(id=f"{e['id'][:-4]}aaaa", type="meal.eaten", schema_version=1)
+            elif variant == "newer_version":
+                e.update(id=f"{e['id'][:-4]}bbbb", schema_version=1)
+            else:
+                e["id"] = f"{e['id'][:-4]}cccc"
+                e["payload"]["x_new_field"] = 1
+            out.append(e)
+        return out
+
 
 def _record(fields: dict, row: dict) -> dict:
     return {"fields": fields, "by": f"{row['actor_kind']}:{row['actor_id']}", "on": row["device_id"]}

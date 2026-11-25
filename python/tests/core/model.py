@@ -21,7 +21,7 @@ writes and computes everything an agent can read from them:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -29,6 +29,7 @@ from .driver import Unsupported
 from .snapshot import canonical, empty, key, num, occurrence
 
 AUTHORED = ("activity", "location", "plan", "planned_session", "session", "effort")
+NEW_IN = {"meal": 2}  # kinds a newer install writes, by the version that introduced them
 LOGS = {
     "define_activity": "activity", "define_location": "location", "define_plan": "plan",
     "plan_session": "planned_session", "log_session": "session", "log_effort": "effort",
@@ -56,6 +57,7 @@ class Write:
     prior: frozenset = frozenset()  # writes to this record the author held
     hlc: tuple = (0, 0)
     reverts: str | None = None
+    version: int = 1
 
     @property
     def record(self) -> str:
@@ -81,6 +83,7 @@ class ModelReplica:
     floor: tuple = (0, 0)
     authored: int = 0
     gone: set = field(default_factory=set)
+    version: int = 1
 
     # -- the log -----------------------------------------------------------
 
@@ -88,15 +91,19 @@ class ModelReplica:
         out = []
         for w in writes:
             if w.id in self.writes:
-                out.append(("duplicate", ""))
+                same = _body(self.writes[w.id]) == _body(w)
+                out.append(("duplicate", "") if same else ("rejected", "id reused with other content"))
                 continue
             self.writes[w.id] = w
             self.by_record.setdefault(w.record, []).append(w.id)
             self.floor = max(self.floor, w.hlc)
             if w.op == "erase":
                 self.gone.add(w.record)
-            out.append(("accepted", ""))
+            out.append(("accepted", "") if self.understands(w) else ("stored_unprojected", ""))
         return out
+
+    def understands(self, w: Write) -> bool:
+        return w.version <= self.version and NEW_IN.get(w.kind, 1) <= self.version
 
     def _clock(self, at: str) -> tuple:
         wall = millis(at)
@@ -118,7 +125,7 @@ class ModelReplica:
         if record in self.gone:
             return []
         ids = [i for i in self.by_record.get(record, ()) if among is None or i in among]
-        versions = [self.writes[i] for i in ids if self.writes[i].op in ("put", "retract")]
+        versions = [self.writes[i] for i in ids if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
         superseded = set().union(*(v.prior for v in versions)) if versions else set()
         return sorted((v for v in versions if v.id not in superseded), key=Write.order)
 
@@ -134,7 +141,7 @@ class ModelReplica:
         out = empty()
         out["erased"] = sorted(r for r in self.gone if r.split("/")[0] in AUTHORED)
         for record in self.by_record:
-            if record.split("/")[0] not in AUTHORED:
+            if record.split("/")[0] not in AUTHORED and NEW_IN.get(record.split("/")[0], 99) > self.version:
                 continue
             heads = self.heads(record)
             if not heads:
@@ -313,6 +320,10 @@ class ModelReplica:
         return sorted(canonical([w.kind, w.rid, w.op, w.actor, w.content]) for w in self.writes.values())
 
 
+def _body(w: Write) -> tuple:
+    return (w.kind, w.rid, w.op, canonical(w.content), w.version)
+
+
 def _version(w: Write) -> dict:
     return w.content if w.op == "put" else {"_removed": True}
 
@@ -434,5 +445,17 @@ class Reference:
         return replica
 
     def upgrade(self, replica: ModelReplica, version: int) -> None:
-        pass
+        replica.version = version
 
+    def newer(self, events: list[Write], variant: str) -> list[Write]:
+        return [newer(w, variant) for w in events]
+
+
+
+def newer(w: Write, variant: str) -> Write:
+    """The write as an install one version newer would have made it."""
+    if variant == "unknown_kind":
+        return replace(w, id=f"{w.id}~meal", kind="meal", version=2)
+    if variant == "newer_version":
+        return replace(w, id=f"{w.id}~v2", version=2)
+    return replace(w, id=f"{w.id}~extra", content={**w.content, "x_new_field": 1})
