@@ -7,7 +7,7 @@ from byobot.cli import build_parser
 from byobot.commands import REGISTRY
 
 # Setup and device admin, which belong to the person at the computer.
-CLI_ONLY = {"init", "connect whoop", "disconnect whoop", "rebuild", "unpair"}
+CLI_ONLY = {"init", "connect whoop", "disconnect whoop", "rebuild", "unpair", "erase", "export", "restore"}
 
 
 def cli_commands():
