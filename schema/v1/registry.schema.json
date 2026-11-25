@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/registry.schema.json",
+  "title": "byobot registry, v1",
+  "description": "The format of registry.json: the record kinds a replica understands, the namespaces for derived ids, the settings, and the codes for everything measured. Entries are only ever added; a code, kind or setting never changes meaning or goes away.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "namespaces", "kinds", "settings", "codes"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "namespaces": {
+      "description": "UUIDv5 namespaces for ids derived from other ids (see README).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_record", "source_revision", "source_deletion", "overlay"],
+      "properties": {
+        "source_record": { "$ref": "common.schema.json#/$defs/uuid" },
+        "source_revision": { "$ref": "common.schema.json#/$defs/uuid" },
+        "source_deletion": { "$ref": "common.schema.json#/$defs/uuid" },
+        "overlay": { "$ref": "common.schema.json#/$defs/uuid" }
+      }
+    },
+    "kinds": {
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/kind" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "version", "description"],
+        "properties": {
+          "category": { "enum": ["definition", "plan", "act", "observation", "note"] },
+          "version": { "type": "integer", "minimum": 1, "description": "The newest kind version this registry describes." },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "settings": {
+      "description": "Known setting ids; each value's schema is the definition of the same name in records.schema.json.",
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/slug" },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "codes": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+      "additionalProperties": { "$ref": "#/$defs/code" }
+    }
+  },
+  "$defs": {
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "value", "on"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "value": {
+          "description": "What a value is: a `quantity` (a number in a unit), an `integer` or a `number` with no unit, `text`, or one of `values`.",
+          "enum": ["quantity", "integer", "number", "text", "category"]
+        },
+        "unit": { "$ref": "common.schema.json#/$defs/unit", "description": "The canonical UCUM unit; reads convert to it." },
+        "units": {
+          "description": "Units a writer may use, each with the factor that converts it to `unit`, or null where it doesn't convert (a share of a one-rep max, degrees of incline). Values are kept as written.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+        },
+        "values": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "pattern": "^[a-z][a-z0-9_]{0,63}$" } },
+        "pattern": { "type": "string", "description": "For `text`: what a value must match." },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "exclusive_minimum": { "type": "number" },
+        "on": {
+          "description": "Where the code may appear: metrics of these kinds, or as an observation's code.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["planned_session", "session", "effort", "observation"] }
+        },
+        "scope": {
+          "description": "`source`: the value is the source's own score; values from different sources never merge or compare.",
+          "enum": ["source"]
+        },
+        "healthkit": { "type": "string", "pattern": "^HK[A-Za-z0-9]+$" },
+        "loinc": { "type": "string", "pattern": "^[0-9]{1,7}-[0-9]$" }
+      },
+      "allOf": [
+        { "if": { "properties": { "value": { "const": "quantity" } } }, "then": { "required": ["unit", "units"] }, "else": { "not": { "anyOf": [{ "required": ["unit"] }, { "required": ["units"] }] } } },
+        { "if": { "properties": { "value": { "const": "category" } } }, "then": { "required": ["values"] }, "else": { "not": { "required": ["values"] } } }
+      ]
+    }
+  }
+}
