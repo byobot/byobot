@@ -1,0 +1,69 @@
+"""The canonical snapshot: what an agent could learn from a store, normalized so comparisons are exact.
+
+Shape, shared by every driver and the reference model:
+
+    records    {"kind/id": {"fields": {...}, "by": "actor_kind:actor_id", "on": replica}}
+    conflicts  {"kind/id": [version fields, ...]}  sorted, one entry per distinct concurrent version
+    erased     ["kind/id", ...]
+
+Arrival order, internal row ids and event ids never appear.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from byobot.contract import instant_key
+
+SECTIONS = ("records", "conflicts", "erased")
+
+
+def canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def key(kind: str, rid: str) -> str:
+    return f"{kind}/{rid}"
+
+
+def empty() -> dict:
+    return {"records": {}, "conflicts": {}, "erased": []}
+
+
+def normalize(snapshot: dict) -> dict:
+    out = {s: snapshot.get(s, empty()[s]) for s in SECTIONS}
+    out["conflicts"] = {k: sorted(v, key=canonical) for k, v in out["conflicts"].items()}
+    out["erased"] = sorted(out["erased"])
+    return json.loads(canonical(out))
+
+
+def equal(a: dict, b: dict) -> bool:
+    return canonical(normalize(a)) == canonical(normalize(b))
+
+
+def diff(a: dict, b: dict) -> list[str]:
+    """Readable differences, for assertion messages."""
+    a, b = normalize(a), normalize(b)
+    out = []
+    for section in SECTIONS:
+        x, y = a[section], b[section]
+        if isinstance(x, dict):
+            for k in sorted(set(x) | set(y)):
+                if x.get(k) != y.get(k):
+                    out.append(f"{section} {k}: {canonical(x.get(k))} != {canonical(y.get(k))}")
+        elif x != y:
+            out.append(f"{section}: {x} != {y}")
+    return out
+
+
+def num(value: float | int) -> str:
+    """A number as an exact decimal string, so 9000 and 9000.0 compare equal."""
+    text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
+
+
+def occurrence(start: str, end: str, metrics: dict) -> dict:
+    """One workout as reads see it: instants in UTC, metrics as exact decimals."""
+    return {"start": instant_key(start), "end": instant_key(end),
+            "metrics": {k: num(v) for k, v in metrics.items() if v is not None}}
