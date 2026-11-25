@@ -18,7 +18,7 @@ git clone https://github.com/byobot/byobot.git
 pip install ./byobot/python
 
 byobot init    # creates ~/.byobot/byobot.db
-byobot log effort.performed '{"activity_id": "barbell_back_squat", "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}'
+byobot log effort '{"activity_id": "barbell_back_squat", "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}'
 byobot query "SELECT activity_id, reps, load_kg FROM strength_sets"
 ```
 

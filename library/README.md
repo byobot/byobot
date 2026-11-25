@@ -4,7 +4,7 @@ The exercises byobot ships. Every store sees them as activities; an activity a u
 
 ## Adding or fixing an exercise
 
-One file per activity in `activities/`, named `<id>.json`, holding an `activity.defined` payload (see `schema/v0/training.schema.json`):
+One file per activity in `activities/`, named `<id>.json`, holding its `id` and an activity payload (see `schema/v1/records.schema.json`):
 
 ```json
 {
