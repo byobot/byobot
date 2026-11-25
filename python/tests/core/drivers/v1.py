@@ -178,6 +178,11 @@ class V1:
             return [commands.remove(store, actor, kind, self.rid(kind, intent_id))]
         if name == "undo":
             return commands.undo(store, actor, intent["event"]["id"])
+        if name == "erase":
+            if "source" in intent:
+                return commands.erase(store, actor, "source_record", self._workout(store, intent))
+            kind, intent_id = intent["record"]
+            return commands.erase(store, actor, kind, self.rid(kind, intent_id))
         if name == "resolve":
             return [self._resolve(store, actor, *intent["record"], intent["choice"])]
         if name == "correct_import":
@@ -296,11 +301,13 @@ class V1:
     def read(self, rep: Replica, surface: str, command: str, args: dict) -> Any:
         raise Unsupported("surfaces move to schema 1 with the cutover")
 
-    def export_log(self, rep: Replica) -> Any:
-        raise Unsupported("export comes with C7")
+    def export_log(self, rep: Replica) -> list[str]:
+        return list(rep.store.export())
 
-    def restore(self, name: str, directory: Any, log: Any) -> Any:
-        raise Unsupported("restore comes with C7")
+    def restore(self, name: str, directory: Any, log: list[str]) -> Replica:
+        rep = self.open(name, directory)
+        rep.store.restore(log)
+        return rep
 
     def upgrade(self, rep: Replica, version: int) -> None:
         rep.store.use(Contract.shipped().newer(
