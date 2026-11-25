@@ -325,12 +325,12 @@ def persona(seed: int = 1, days: int = 365) -> Persona:
     return _Gen(seed, days).run()
 
 
-def play(world: World, p: Persona, until: int | None = None) -> None:
+def play(world: World, p: Persona, until: int | None = None, since: int = 0) -> None:
     """Drive a world through the persona's steps, true time following each step."""
     for name in ("laptop", "phone"):
         if name not in world.replicas:
             world.replica(name)
-    for step in p.steps[:until]:
+    for step in p.steps[since:until]:
         world.now = max(world.now, step.at)
         if step.op == "author":
             world.author(step.replica, *step.args)

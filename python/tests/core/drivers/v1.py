@@ -44,6 +44,7 @@ class Replica:
     name: str
     store: Store
     at: list = field(default_factory=lambda: [None])
+    counter: list = field(default_factory=lambda: [0])
 
 
 class V1:
@@ -75,12 +76,14 @@ class V1:
         prefix = name.encode().ljust(10, b"\0")
         if len(prefix) > 10:
             raise ValueError(f"replica name too long for the id scheme: {name}")
-        counter = iter(range(1, 1 << 48))
+        counter = [0]
 
         def new_id() -> str:
-            return str(uuid.UUID(bytes=prefix + next(counter).to_bytes(6, "big")))
+            counter[0] += 1
+            return str(uuid.UUID(bytes=prefix + counter[0].to_bytes(6, "big")))
 
         rep = Replica(name, None)
+        rep.counter = counter
         rep.store = Store(Path(directory) / f"{name}.v1.db", device_id=name, new_id=new_id,
                           wall=lambda: parse(rep.at[0]) if rep.at[0] else parse("2026-03-02T09:00:00Z"))
         if self.identity is None:
@@ -178,6 +181,11 @@ class V1:
             return [commands.remove(store, actor, kind, self.rid(kind, intent_id))]
         if name == "undo":
             return commands.undo(store, actor, intent["event"]["id"])
+        if name == "erase":
+            if "source" in intent:
+                return commands.erase(store, actor, "source_record", self._workout(store, intent))
+            kind, intent_id = intent["record"]
+            return commands.erase(store, actor, kind, self.rid(kind, intent_id))
         if name == "resolve":
             return [self._resolve(store, actor, *intent["record"], intent["choice"])]
         if name == "correct_import":
@@ -296,11 +304,16 @@ class V1:
     def read(self, rep: Replica, surface: str, command: str, args: dict) -> Any:
         raise Unsupported("surfaces move to schema 1 with the cutover")
 
-    def export_log(self, rep: Replica) -> Any:
-        raise Unsupported("export comes with C7")
+    def export_log(self, rep: Replica) -> list[str]:
+        return list(rep.store.export())
 
-    def restore(self, name: str, directory: Any, log: Any) -> Any:
-        raise Unsupported("restore comes with C7")
+    def restore(self, name: str, directory: Any, log: list[str]) -> Replica:
+        rep = self.open(name, directory)
+        rep.store.restore(log)
+        prefix = name.encode().ljust(10, b"\0")
+        ours = [uuid.UUID(e["id"]).bytes for e in rep.store.events() if uuid.UUID(e["id"]).bytes[:10] == prefix]
+        rep.counter[0] = max((int.from_bytes(b[10:], "big") for b in ours), default=0)  # the same device, restored
+        return rep
 
     def upgrade(self, rep: Replica, version: int) -> None:
         rep.store.use(Contract.shipped().newer(

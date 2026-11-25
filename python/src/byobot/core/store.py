@@ -20,6 +20,7 @@ from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
 
+EXPORT_VERSION = 1
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
@@ -35,8 +36,15 @@ CREATE TABLE IF NOT EXISTS events (
   reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_record ON events (kind, record_id);
 CREATE INDEX IF NOT EXISTS events_batch ON events (batch) WHERE batch IS NOT NULL;
-CREATE TRIGGER IF NOT EXISTS events_append_only_update BEFORE UPDATE ON events
-  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+DROP TRIGGER IF EXISTS events_append_only_update;
+CREATE TRIGGER IF NOT EXISTS events_redact_only BEFORE UPDATE ON events
+  WHEN OLD.op = 'erase' OR NEW.payload != '{}' OR NEW.redacted_by IS NULL OR NEW.seq IS NOT OLD.seq
+    OR NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind OR NEW.record_id IS NOT OLD.record_id OR NEW.op IS NOT OLD.op
+    OR NEW.kind_version IS NOT OLD.kind_version OR NEW.hlc IS NOT OLD.hlc OR NEW.ts IS NOT OLD.ts
+    OR NEW.device_id IS NOT OLD.device_id OR NEW.actor_kind IS NOT OLD.actor_kind OR NEW.actor_id IS NOT OLD.actor_id
+    OR NEW.actor_model IS NOT OLD.actor_model OR NEW.prev IS NOT OLD.prev OR NEW.batch IS NOT OLD.batch
+    OR NEW.reverts IS NOT OLD.reverts
+  BEGIN SELECT RAISE(ABORT, 'events are append-only; erase only blanks payloads'); END;
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete BEFORE DELETE ON events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TABLE IF NOT EXISTS records (
@@ -83,6 +91,9 @@ class Store:
         # Windows costs more as the file grows.
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
+        # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
+        self.conn.execute("PRAGMA secure_delete=ON")
+        self._erasing = False
         self._migrate(device_id)
 
     def close(self) -> None:
@@ -201,7 +212,19 @@ class Store:
             for event in events:
                 with self._tx():
                     out.append(self._accept(event))
+        self._compact()
         return out
+
+    def _compact(self) -> None:
+        """After an erase: rewrite the file and empty the WAL, so no page still holds what was erased."""
+        if not self._erasing or self.conn.in_transaction:
+            return
+        self._erasing = False
+        try:
+            self.conn.execute("VACUUM")
+        except sqlite3.OperationalError:  # another connection is reading; secure_delete already zeroed the rows
+            pass
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def _accept(self, event: Any) -> tuple[str, str]:
         if not isinstance(event, dict) or not isinstance(event.get("id"), str):
@@ -211,23 +234,44 @@ class Store:
             return "rejected", "not JSON"
         held = self.event(event["id"])
         if held is not None:
-            same = _content(held) == _content(event) if held["record"]["kind"] == "source_record" else \
-                jcs(held) == canonical
+            if "redacted_by" in held or "redacted_by" in event:
+                same = _header(held) == _header(event)
+            elif held["record"]["kind"] == "source_record":
+                same = _content(held) == _content(event)
+            else:
+                same = jcs(held) == canonical
             return ("duplicate", "") if same else ("rejected", "id reused with other content")
         try:
             self.contract.check(event)
         except Rejected as exc:
             return "rejected", exc.reason
-        if event["record"]["kind"] == "source_record" and "redacted_by" not in event and \
+        if event["record"]["kind"] == "source_record" and event["op"] != "erase" and "redacted_by" not in event and \
                 event["id"] != self._source_event_id(event):
             return "rejected", "broken rule: derived-id"
+        kind, rid = event["record"]["kind"], event["record"]["id"]
         self._insert(event)
+        erase = self._erase_of(kind, rid)
+        if erase:
+            self._redact(kind, rid, erase)
         understood = self.contract.understands(event)
         if not understood:
             self.conn.execute("INSERT INTO unprojected VALUES (?, ?, ?)",
                               (event["id"], event["record"]["kind"], event["record"]["id"]))
         self._reindex(event["record"]["kind"], event["record"]["id"])
         return ("accepted", "") if understood else ("stored_unprojected", "")
+
+    def _erase_of(self, kind: str, rid: str) -> str | None:
+        """The record's erase event, the earliest if several replicas erased it, so every replica names the same."""
+        row = self.conn.execute("SELECT id FROM events WHERE kind = ? AND record_id = ? AND op = 'erase' "
+                                "ORDER BY hlc, id LIMIT 1", (kind, rid)).fetchone()
+        return row and row[0]
+
+    def _redact(self, kind: str, rid: str, erase: str) -> None:
+        """Blank every other event of an erased record, keeping ids and order so the logbook still replays."""
+        changed = self.conn.execute(
+            "UPDATE events SET payload = '{}', redacted_by = ? WHERE kind = ? AND record_id = ? AND op != 'erase' "
+            "AND (redacted_by IS NULL OR redacted_by != ?)", (erase, kind, rid, erase)).rowcount
+        self._erasing = self._erasing or changed > 0
 
     def _source_event_id(self, event: dict) -> str | None:
         """A source event's id: derived from its content with the store key, so two devices importing the same
@@ -429,6 +473,44 @@ class Store:
         out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
         return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
 
+    # -- backup ----------------------------------------------------------------
+
+    def export(self) -> Iterable[str]:
+        """The whole logbook as JSON lines: a header with the store's id and key, then every event in arrival
+        order. Paired devices stay behind; they pair again with the restored store."""
+        yield jcs({"byobot_export": EXPORT_VERSION, "schema_version": 1, "store_id": self.store_id,
+                   "store_key": self._get("store_key"), "exported_at": stamp(self.wall()),
+                   "events": self.position()}) + "\n"
+        for event in self.events():
+            yield jcs(event) + "\n"
+
+    def restore(self, lines: Iterable[str]) -> dict:
+        """Become the store an export came from: its id, its key and every event. Only an empty store can."""
+        it = iter(lines)
+        try:
+            header = json.loads(next(it))
+        except (StopIteration, ValueError):
+            raise ValidationFailed("not a byobot export") from None
+        if not isinstance(header, dict) or header.get("byobot_export") != EXPORT_VERSION:
+            raise ValidationFailed("not a byobot export this version can read")
+        outcomes: dict[str, int] = {}
+        with self._tx():  # all or nothing
+            self.adopt(header["store_id"], header["store_key"])
+            for line in it:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    event = None
+                outcome, _ = self._accept(event)
+                outcomes[outcome] = outcomes.get(outcome, 0) + 1
+            if sum(outcomes.values()) != header.get("events"):
+                raise ValidationFailed(f"the export is cut short: {sum(outcomes.values())} of {header.get('events')} "
+                                       "events")
+        self._compact()
+        return {"store_id": self.store_id, "events": outcomes}
+
     # -- paired devices: local to this store, never in the logbook -----------------
 
     def pair(self, device_id: str, name: str, token_sha256: str) -> dict:
@@ -484,6 +566,7 @@ class Store:
                 if outcome != "accepted":
                     raise ValidationFailed(f"{change['kind']} {change['id']}: {reason or outcome}")
                 written.append(event)
+        self._compact()
         return written
 
     def _event(self, actor: dict, change: dict, batch: str | None) -> dict:
@@ -569,6 +652,11 @@ def _source_current(versions: dict[str, dict]) -> tuple:
                                          for e in versions.values())
     shown = [current] if current else []
     return current, current is not None and not hidden, False, shown, shown
+
+
+def _header(event: dict) -> str:
+    """An event without what erase blanks."""
+    return jcs({k: v for k, v in event.items() if k not in ("payload", "redacted_by")})
 
 
 def _content(event: dict) -> str:

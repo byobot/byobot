@@ -7,6 +7,7 @@ from __future__ import annotations
 import difflib
 import getpass
 import json
+import os
 import sys
 import webbrowser
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, ddl, query
-from byobot.util import NotFound, ValidationFailed, db_path, home, profile
+from byobot.util import Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,49 @@ def _status(ctx: Context) -> dict:
 def _rebuild(ctx: Context) -> dict:
     ctx.store().rebuild()
     return {"counts": ctx.store().counts()}
+
+
+@command(
+    "export",
+    "Write the whole byobot logbook to a file, to back it up or move it to a new computer.",
+    Param("path", "string", "Where to write it, such as byobot-export.jsonl.", required=True, positional=True),
+    mcp=False,
+    description="The file holds everything, including the store's key; keep it private. Erasing a record later "
+                "doesn't reach copies already exported.",
+)
+def _export(ctx: Context, path: str) -> dict:
+    target = Path(path).expanduser()
+    if target.exists():
+        raise ValidationFailed(f"{target} already exists")
+    partial = target.with_name(target.name + ".partial")
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.writelines(ctx.store().export())
+        os.replace(partial, target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    return {"path": str(target), "events": ctx.store().position()}
+
+
+@command(
+    "restore",
+    "Restore the byobot logbook from an export into a new store.",
+    Param("path", "string", "The export file.", required=True, positional=True),
+    read_only=False,
+    mcp=False,
+    description="Only a store with nothing in it can be restored into. Phones pair again afterwards.",
+)
+def _restore(ctx: Context, path: str) -> dict:
+    source = Path(path).expanduser()
+    if not source.is_file():
+        raise NotFound(f"no file {source}")
+    store = ctx.store()
+    if store.position():
+        raise Conflict(f"{ctx.path} already holds a logbook; restore into a new profile or move it aside")
+    with source.open(encoding="utf-8") as f:
+        return {"db": str(ctx.path), **store.restore(f)}
 
 
 # -- writing --------------------------------------------------------------------
@@ -249,6 +293,21 @@ def _replan(ctx: Context, id: str, payload: Any) -> dict:
 )
 def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict:
     return {"event": core.remove(ctx.store(), ctx.actor, kind, id, reason)}
+
+
+@command(
+    "erase",
+    "Destroy a record's content for good, here and on every synced device. Can't be undone.",
+    Param("kind", "string", "The record's kind.", required=True, choices=(*core.AUTHORED, "source_record"),
+          positional=True),
+    Param("id", "string", "The record's id.", required=True, positional=True),
+    read_only=False,
+    mcp=False,
+    description="Overlays on the record go with it. Exports made before now still hold it.",
+)
+def _erase(ctx: Context, kind: str, id: str) -> dict:
+    return {"events": core.erase(ctx.store(), ctx.actor, kind, id),
+            "note": "Exports made before now still hold this record."}
 
 
 @command(
