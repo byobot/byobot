@@ -1,0 +1,30 @@
+name: Push probe
+
+on:
+  pull_request:
+    paths:
+      - "experiments/push-probe/ios/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the push probe for the simulator, unsigned
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: experiments/push-probe/ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen && xcodegen generate
+      - run: >
+          xcodebuild build
+          -project PushProbe.xcodeproj
+          -scheme PushProbe
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO
