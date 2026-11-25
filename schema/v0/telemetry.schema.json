@@ -12,6 +12,9 @@
     "type": {
       "enum": [
         "HKQuantityTypeIdentifierBodyMass",
+        "HKQuantityTypeIdentifierBodyFatPercentage",
+        "HKQuantityTypeIdentifierLeanBodyMass",
+        "HKQuantityTypeIdentifierVO2Max",
         "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
         "byobot.HeartRateVariabilityRMSSD",
         "HKQuantityTypeIdentifierRestingHeartRate",
@@ -25,9 +28,38 @@
         "byobot.SleepAwakeDuration",
         "byobot.SleepPerformance",
         "byobot.RecoveryScore",
-        "byobot.Strain"
+        "byobot.Strain",
+        "HKQuantityTypeIdentifierStepCount",
+        "HKQuantityTypeIdentifierDistanceWalkingRunning",
+        "HKQuantityTypeIdentifierDistanceCycling",
+        "HKQuantityTypeIdentifierDistanceSwimming",
+        "HKQuantityTypeIdentifierFlightsClimbed",
+        "HKQuantityTypeIdentifierActiveEnergyBurned",
+        "HKQuantityTypeIdentifierBasalEnergyBurned",
+        "HKQuantityTypeIdentifierAppleExerciseTime",
+        "HKQuantityTypeIdentifierAppleStandTime",
+        "HKQuantityTypeIdentifierHeartRate",
+        "HKQuantityTypeIdentifierWalkingHeartRateAverage",
+        "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute",
+        "HKQuantityTypeIdentifierWalkingSpeed",
+        "HKQuantityTypeIdentifierWalkingStepLength",
+        "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",
+        "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",
+        "HKQuantityTypeIdentifierAppleWalkingSteadiness",
+        "HKQuantityTypeIdentifierSixMinuteWalkTestDistance",
+        "HKQuantityTypeIdentifierStairAscentSpeed",
+        "HKQuantityTypeIdentifierStairDescentSpeed",
+        "HKQuantityTypeIdentifierBloodPressureSystolic",
+        "HKQuantityTypeIdentifierBloodPressureDiastolic",
+        "HKQuantityTypeIdentifierBloodGlucose",
+        "HKQuantityTypeIdentifierBodyTemperature",
+        "HKQuantityTypeIdentifierAppleSleepingWristTemperature",
+        "HKQuantityTypeIdentifierHeight",
+        "HKQuantityTypeIdentifierBodyMassIndex",
+        "HKQuantityTypeIdentifierWaistCircumference",
+        "HKWorkoutTypeIdentifier"
       ],
-      "description": "Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it."
+      "description": "Sleep stage durations are totals for one sleep, for sources with no stage-by-stage timeline. Scores are the source's own and stay tied to it. A workout's value is its HealthKit activity type, such as `traditionalStrengthTraining`, and its totals are in `raw`. Apple Health's activity totals and heart rate arrive one sample per day, from the day's start to its end: a sum, or for heart rate the day's average with `min_bpm` and `max_bpm` in `raw`."
     },
     "start": { "$ref": "common.schema.json#/$defs/timestamp" },
     "end": { "$ref": "common.schema.json#/$defs/timestamp" },
@@ -38,7 +70,7 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierBodyMass" } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierBodyMass", "HKQuantityTypeIdentifierLeanBodyMass"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 700 }, "unit": { "const": "kg" } }
@@ -52,7 +84,7 @@
       }
     },
     {
-      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierRestingHeartRate" } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierRestingHeartRate", "HKQuantityTypeIdentifierHeartRate", "HKQuantityTypeIdentifierWalkingHeartRateAverage", "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }, "unit": { "const": "count/min" } }
@@ -66,7 +98,7 @@
       }
     },
     {
-      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierOxygenSaturation", "byobot.SleepPerformance", "byobot.RecoveryScore"] } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierOxygenSaturation", "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage", "HKQuantityTypeIdentifierWalkingAsymmetryPercentage", "HKQuantityTypeIdentifierAppleWalkingSteadiness", "HKQuantityTypeIdentifierBodyFatPercentage", "byobot.SleepPerformance", "byobot.RecoveryScore"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "minimum": 0, "maximum": 100 }, "unit": { "const": "%" } }
@@ -80,7 +112,7 @@
       }
     },
     {
-      "if": { "properties": { "type": { "const": "byobot.SkinTemperature" } }, "required": ["type"] },
+      "if": { "properties": { "type": { "enum": ["byobot.SkinTemperature", "HKQuantityTypeIdentifierBodyTemperature", "HKQuantityTypeIdentifierAppleSleepingWristTemperature"] } }, "required": ["type"] },
       "then": {
         "required": ["unit"],
         "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 50 }, "unit": { "const": "degC" } }
@@ -99,9 +131,101 @@
         "not": { "required": ["unit"] },
         "properties": { "value": { "type": "number", "minimum": 0, "maximum": 21 } }
       }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierVO2Max" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 }, "unit": { "const": "ml/kg*min" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierStepCount", "HKQuantityTypeIdentifierFlightsClimbed"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 200000 }, "unit": { "const": "count" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierDistanceWalkingRunning", "HKQuantityTypeIdentifierDistanceCycling", "HKQuantityTypeIdentifierDistanceSwimming", "HKQuantityTypeIdentifierSixMinuteWalkTestDistance"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 1000000 }, "unit": { "const": "m" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierActiveEnergyBurned", "HKQuantityTypeIdentifierBasalEnergyBurned"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 50000 }, "unit": { "const": "kcal" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierAppleExerciseTime", "HKQuantityTypeIdentifierAppleStandTime"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "minimum": 0, "maximum": 86400 }, "unit": { "const": "s" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierWalkingSpeed", "HKQuantityTypeIdentifierStairAscentSpeed", "HKQuantityTypeIdentifierStairDescentSpeed"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 }, "unit": { "const": "m/s" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierWalkingStepLength", "HKQuantityTypeIdentifierHeight", "HKQuantityTypeIdentifierWaistCircumference"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 5 }, "unit": { "const": "m" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["HKQuantityTypeIdentifierBloodPressureSystolic", "HKQuantityTypeIdentifierBloodPressureDiastolic"] } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 400 }, "unit": { "const": "mmHg" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierBloodGlucose" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 2000 }, "unit": { "const": "mg/dL" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKQuantityTypeIdentifierBodyMassIndex" } }, "required": ["type"] },
+      "then": {
+        "required": ["unit"],
+        "properties": { "value": { "type": "number", "exclusiveMinimum": 0, "maximum": 200 }, "unit": { "const": "kg/m2" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "HKWorkoutTypeIdentifier" } }, "required": ["type"] },
+      "then": {
+        "not": { "required": ["unit"] },
+        "required": ["raw"],
+        "properties": {
+          "value": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$" },
+          "raw": { "$ref": "#/$defs/workout_totals" }
+        }
+      }
     }
   ],
   "$defs": {
+    "workout_totals": {
+      "description": "A workout's totals as the source reports them. Anything else the source gives may ride along.",
+      "type": "object",
+      "properties": {
+        "duration_s": { "type": "number", "minimum": 0 },
+        "energy_kcal": { "type": "number", "minimum": 0 },
+        "distance_m": { "type": "number", "minimum": 0 },
+        "heart_rate_avg_bpm": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 },
+        "heart_rate_max_bpm": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }
+      }
+    },
     "device": {
       "description": "The physical device that took the measurement, so baselines can be kept per device.",
       "type": "object",
