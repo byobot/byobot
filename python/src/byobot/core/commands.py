@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..util import Conflict, NotFound, ValidationFailed
-from .store import Store
+from .store import Store, stamp
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
+TIMED = ("session", "effort", "observation")
 
 
 def merge_patch(target: Any, patch: Any) -> Any:
@@ -28,6 +31,41 @@ def _authored(kind: str) -> None:
         raise ValidationFailed(f"{kind} records aren't written by hand")
 
 
+def _home_zone(store: Store) -> tzinfo | None:
+    found = store.get("setting", "home_zone")
+    try:
+        return ZoneInfo(found["payload"]["value"]) if found else None
+    except (ZoneInfoNotFoundError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _local(ts: Any, zone: tzinfo | None) -> Any:
+    """A time without an offset is local: in the home zone if one is set, else this machine's; the offset in
+    force then is written with it."""
+    if not isinstance(ts, str):
+        return ts
+    try:
+        at = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts
+    if at.tzinfo:
+        return ts
+    return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
+
+
+def _timed(store: Store, kind: str, payload: Any) -> Any:
+    """Times keep the offset they were written in: now, if none was given, and the local one if it was left off."""
+    if kind not in TIMED or not isinstance(payload, dict):
+        return payload
+    t = payload.get("time")
+    if t is None:
+        return {**payload, "time": {"start": stamp(store.wall())}}
+    if isinstance(t, dict):
+        zone = _home_zone(store)
+        return {**payload, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
+    return payload
+
+
 def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     """Create records, all or none: [{kind, id?, payload}]. An id already in use is refused, never overwritten."""
     changes = []
@@ -37,7 +75,8 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
         found = store.record(r["kind"], rid)
         if found and (found["live"] or found["erased"]):
             raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
-        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": r["payload"]})
+        payload = _timed(store, r["kind"], r["payload"])
+        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
     return store.write(actor, changes)
@@ -53,7 +92,7 @@ def _live(store: Store, kind: str, rid: str) -> dict:
 def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     """Change a live record by a JSON merge patch over its current version."""
     _authored(kind)
-    payload = merge_patch(_live(store, kind, rid)["payload"], patch)
+    payload = _timed(store, kind, merge_patch(_live(store, kind, rid)["payload"], patch))
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload}])[0]
 
 
@@ -117,7 +156,7 @@ def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict) 
         raise NotFound(f"{kind} {rid} has no conflict")
     versions = {v["id"]: v for v in found[0]["versions"]}
     if isinstance(choice, dict):
-        change = {"op": "put", "payload": choice}
+        change = {"op": "put", "payload": _timed(store, kind, choice)}
     elif choice == "remove":
         change = {"op": "retract", "payload": {}}
     elif choice in versions:
