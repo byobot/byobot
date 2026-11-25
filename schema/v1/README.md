@@ -1,0 +1,69 @@
+# The byobot contract, v1
+
+Schema 1: one append-only log of events, each writing one record, written by people, agents and sources alike. Everything you read is computed from it.
+
+| File | Defines |
+|---|---|
+| `event.schema.json` | The envelope, its three ops, and which payload each known kind carries |
+| `records.schema.json` | The header and each kind's payload at kind version 1 |
+| `common.schema.json` | Ids, times, refs, measures |
+| `registry.schema.json`, `registry.json` | Kinds, settings, derived-id namespaces and codes |
+| `../fixtures/v1/` | Conformance cases every implementation must pass |
+
+`SCHEMA_VERSION` in code stays `0` until the store moves to v1.
+
+## Records and ids
+
+A record is `kind` + `id`. Each event writes exactly one; its type is `<kind>.<op>`, such as `effort.put`.
+
+| Kinds | Record id |
+|---|---|
+| `activity`, `location`, `setting` | A slug. Library activity ids never change. |
+| `plan`, `planned_session`, `session`, `effort`, `observation` | A UUIDv7, minted when the record is created. |
+| `source_record`, `overlay` | A UUIDv5 derived as below, so two devices produce the same id. |
+
+Derived ids are UUIDv5 over the [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON of an array, with the namespace from `registry.json`:
+
+- `source_record` record: `["<source>", "<source_type>", "<source_id>"]` in `source_record`.
+- Its `put` event: `["<record id>", "<mac>"]` in `source_revision`, where `mac` is the lowercase hex HMAC-SHA256 of the canonical JSON of the payload, keyed by the store key.
+- Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`.
+- `overlay` record: `["<effect>", "<target kind>", "<target id>"]` in `overlay`, so there is one overlay per effect and target.
+
+The store key is 32 random bytes created with the store. It never enters the log; export and restore carry it, and paired devices receive it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
+
+## Order and time
+
+- Events order by `hlc`, then `id`. A writer sets `hlc` to the larger of its wall clock in ms and the highest `hlc` it has seen, raising the counter when the milliseconds don't move. Receiving an event raises the highest seen.
+- `ts` is the author's wall time, for display. Neither `ts` nor arrival order decides anything.
+- Instants compare as instants, never as text. A record's local date comes from its own offset (or its `zone`); anything without one uses the `home_zone` setting, never the reading machine's zone.
+
+## Writes and conflicts
+
+- `prev` lists the events of the record the author saw as current. A record's heads are its events no other event of it names in `prev`. Two or more heads with different content are a conflict: reads show the head with the highest `hlc` and `id`, flagged, counted once. A write naming every head resolves it.
+- `retract` removes a record and conflicts like any edit.
+- Undo is a command, not an op: it writes the record's previous content (or a `retract` if the undone event created it) with `reverts` set and `prev` filled as usual.
+- `erase` always wins and never conflicts. Every replica then blanks the payload of each event of that record, sets `redacted_by`, and keeps ids and order so the log still replays. An event of an erased record arriving later is stored blanked. Nothing derived from an erased payload's content may remain, except ids made with the store key.
+- Source records never conflict. Only connectors `put` or `retract` them, with `prev` empty on a `put` and naming the deleted revision on a `retract`. The current revision is the latest by the time its mapper reads from `raw`, then event id; a `retract` hides the record only while the revision it names is current. Your changes to a source's record are overlays.
+
+## Delivery
+
+Each delivered event gets one outcome:
+
+- `duplicate`: the id is already held. For a source record's event the id commits to its content, so differing `ts`, `hlc`, `device_id`, `actor` or `batch` don't matter; for any other event, the same id with different content is `rejected`.
+- `stored_unprojected`: a valid envelope of a kind, kind version or setting this replica doesn't know. It is kept, relayed and read after an upgrade.
+- `rejected`: a malformed envelope, a payload that breaks its kind's schema, or a rule below. Never for arrival order: an event whose `prev`, `reverts` or links name something not yet here is accepted.
+- `accepted`: anything else.
+
+Codes are open too. A code, unit or category value this replica's registry doesn't list is kept as written and not converted. Commands refuse them when writing; writers use registry codes or their own `x.` ones.
+
+## Rules beyond the schemas
+
+Fixture cases that break one of these name it in `rule`, and must be rejected:
+
+- `time-order`: `time.start <= time.end`, as instants.
+- `date-order`: a plan's `starts_on <= ends_on`.
+- `range-order`: in a measure, `min <= max`.
+- `code-value`: a known code's value has its type (a quantity carries a unit, others don't), matches its `pattern`, and lies within its bounds once converted to its unit.
+- `part-ids`: block and planned effort ids are unique within a planned session.
+- `self-reference`: an event's `prev` and `reverts` don't name the event itself.
+- `derived-id`: a source record's or overlay's record id is the one derived above.
