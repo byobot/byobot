@@ -298,17 +298,19 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
 
 @command(
     "erase",
-    "Destroy a record's content for good, here and on every synced device. Can't be undone.",
+    "Destroy a record's content in this store for good. Can't be undone.",
     Param("kind", "string", "The record's kind.", required=True, choices=(*core.AUTHORED, "source_record"),
           positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
     read_only=False,
     mcp=False,
-    description="Overlays on the record go with it. Exports made before now still hold it.",
+    description="Overlays on the record go with it. The iPhone app keeps its own copy until the app is deleted, "
+                "and exports made before now still hold it.",
 )
 def _erase(ctx: Context, kind: str, id: str) -> dict:
     return {"events": core.erase(ctx.store(), ctx.actor, kind, id),
-            "note": "Exports made before now still hold this record."}
+            "note": "The iPhone app keeps its own copy until the app is deleted from the phone, and exports made before "
+                    "now still hold this record."}
 
 
 @command(
