@@ -104,3 +104,15 @@ def test_a_device_s_refusals_stay_bounded_and_go_when_it_is_unpaired(store, monk
     assert len(store.rejections(PHONE, limit=10)) == 3
     store.unpair(PHONE)
     assert store.rejections(PHONE) == []
+
+
+def test_a_setting_is_never_erased_so_it_can_always_be_set_again(store):
+    [put] = commands.log(store, ME, [{"kind": "setting", "id": "equipment", "payload": {"value": ["barbell"]}}])
+    with pytest.raises(ValidationFailed, match="remove it instead"):
+        commands.erase(store, ME, "setting", "equipment")
+    commands.remove(store, ME, "setting", "equipment")
+    later = {**event(kind="setting"), "record": {"kind": "setting", "id": "equipment"}, "payload": {"value": ["rack"]},
+             "hlc": hlc.format((1795000000000, 0)), "prev": store.record("setting", "equipment")["heads"]}
+    assert relay.accept_events(store, PHONE, [later])[0]["status"] == "accepted"
+    assert store.get("setting", "equipment")["payload"] == {"value": ["rack"]}
+    assert relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)["erased"] == []
