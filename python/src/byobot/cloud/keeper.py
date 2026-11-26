@@ -25,6 +25,7 @@ from .folder import Exists, Folder, checksum
 JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
+MISSING_S = 30  # past Drive's change-feed lag
 
 DDL = """
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -205,8 +206,10 @@ class Keeper:
     def start_epoch(self) -> int:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
-        n = self.epoch + 1
-        key = new_key()
+        n = int(self._get("starting") or self.epoch + 1)
+        with self.store._tx():
+            self._set("starting", n)
+        key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
         listing = self.folder.list()
         self._seq_floor(listing)
@@ -214,8 +217,7 @@ class Keeper:
             if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
                 self.folder.delete(path)
         with self.store._tx():
-            self.store.conn.execute("INSERT INTO cloud_keys VALUES (?, ?) ON CONFLICT (epoch) DO UPDATE SET "
-                                    "key = excluded.key", (n, b64(key)))
+            self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
         devices = [{k: d[k] for k in ("id", "class", "box", "sign")} for d in self.devices()]
         for d in devices:
             if d["id"] != self.device_id:
@@ -236,9 +238,12 @@ class Keeper:
             self.store.conn.execute("DELETE FROM cloud_shown")
             self._unset("plan_digest")
             self._unset("epoch_pending")
+            self._unset("missing_since")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts)))
+        with self.store._tx():
+            self._unset("starting")
         return n
 
     # -- joining -------------------------------------------------------------------
@@ -449,9 +454,15 @@ class Keeper:
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
-        if files.epoch_path(self.epoch) not in listing:  # the folder was deleted, or a start was cut short
-            report["reseeded"] = self.start_epoch()
+        there = files.epoch_path(self.epoch) in listing
+        starting = self._get("starting")
+        if starting and (starting != str(self.epoch) or not there) or not there and self._gone():
+            report["reseeded"] = self.start_epoch()  # a start was cut short, or the folder was deleted
             listing = self.folder.list()
+        elif there and (starting or self._get("missing_since")):
+            with self.store._tx():
+                self._unset("missing_since")
+                self._unset("starting")
         report.update(self._admit(listing))
         report.update(self._read(listing))
         report.update(self._cleanup())
@@ -463,6 +474,24 @@ class Keeper:
         report["published"] = self.publish_events()
         report["plan"] = self.publish_plan()
         return {"epoch": self.epoch, **report}
+
+    def _gone(self) -> bool:
+        """Whether the current epoch's file is really gone, not just missing from a listing that lags behind
+        another process: still missing on a fresh listing a while after it was first missed."""
+        since = self._get("missing_since")
+        if since is None:
+            with self.store._tx():
+                self._set("missing_since", self.clock())
+            return False
+        if self.clock() - float(since) < MISSING_S:
+            return False
+        if hasattr(self.folder, "refresh"):
+            self.folder.refresh()
+        if files.epoch_path(self.epoch) in self.folder.list():
+            with self.store._tx():
+                self._unset("missing_since")
+            return False
+        return True
 
     def compact(self) -> int:
         """Rewrite the folder into a new epoch now; the old one is deleted once every device has moved."""
@@ -477,6 +506,7 @@ class Keeper:
             raise ByobotError("the keeper can't remove itself")
         with self.store._tx():
             self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
 
