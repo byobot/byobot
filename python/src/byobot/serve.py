@@ -361,7 +361,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict) -> li
             reason = "events must be authored by the paired device that pushes them"
         elif event.get("actor") != actor:
             reason = "events must be authored by the paired device's user"
-        elif record.get("kind") not in PHONE_KINDS or event.get("op") not in ("put", "retract"):
+        elif record.get("kind") not in PHONE_KINDS or event.get("op") not in ("put", "retract") or \
+                "redacted_by" in event:
             reason = "a phone writes only what a person writes"
         else:
             outcome, reason = store.accept(event)

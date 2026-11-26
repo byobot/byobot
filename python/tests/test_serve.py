@@ -396,6 +396,15 @@ def test_push_events_round_trip(server, byobot_home):
         assert s.rows("SELECT * FROM efforts WHERE id = ?", (eid,)) == []
 
 
+def test_a_phone_cannot_push_an_erased_event(server, byobot_home):
+    _, info, client, _ = server
+    _pair(client, info)
+    eid = uuid7()
+    blank = {**_event("effort", eid, {}), "redacted_by": uuid7()}
+    status, body = client.call("POST", "/v1/events", {"events": [blank]})
+    assert body["results"][0]["status"] == "rejected"
+
+
 def test_push_rejects_bad_requests(server):
     _, info, client, _ = server
     _pair(client, info)
