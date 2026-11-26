@@ -173,7 +173,7 @@
       "name": "plan",
       "path": "plan/0001-0000000002.seg",
       "def": "header",
-      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqoRsyaqmvZJZYFoiu9AOAXlad5Gdym80OhOfnMmhQBz3oG8Tb25CGi+lZsbUxOy9uzCTkfcwhR+ewOy7tWILk4BB+wZ+C3lsC+gpjiyRuvislKeyOGlmgY7zxf1OGSv4w65hM0KBvlBa9QX0Gge7bLmuRhVgoAMDW9csJIcCdRucwj3utsZmcWomOr0fGtG6xDATl8o0h4Ermu4Fe9dvvesQ9OjmyBJIL34992dAEnkHCi6dKVbi9U3EFrYGSapU/w/G+HoPoNWrUnilXSxIenS1wI/A8uBuniGCp/DpPIOG/JJNRdJGdofh7F5RylrGiUqQZjIL0yhnENmLhR7l0wMYXaWZiagDSyv9OIqHKneJvBKmJRbKkLGEDw==",
+      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmRt086nrZKZeFqsCYCNVUkWfvCibOQ1+M0jkWcR6g6TqXx5eMTigjXKO8rt4V01VjZ5NJ2M7wJAnjp6Jd6BPI/KTPboUKgFP7VNmOoQv6QuYErgM1W5MbDSjgd7LmEQbFi5mnPYM99ml+AbtWfxvjh2/cnFcn2f4YX6yu035xrvgptiqIQd5pSf6tIHF0vENzyLQjejQ/LTk+xR+qYjvMYRIHc3X9tWIjsFhlFQlJSno4DK7nQvAcVaMdHSH3gVuyo7f5kfK/xACm702N/ckTtWzYV0VN9r8rFIhrCeeI5Xp7NdfNe19+VFlyX08szX3RHAZIDsM+puFGi2y2JYF8rdnJSGn5xBEirHuSIFK/HgdwO6fuZvSHW4HZ0wvAkFDEVR3UUh2iAdTNTZEQI=",
       "expect": {
         "header": {
           "device_id": "0193a0b0-0000-7000-8000-00000000d001",
@@ -207,6 +207,15 @@
                 "0193a0b0-0000-7000-8000-00000000d002": "1795131000000-000000"
               },
               "rejected": []
+            }
+          },
+          {
+            "receipts": {
+              "0193a0b0-0000-7000-8000-00000000d002": {
+                "read": [
+                  1
+                ]
+              }
             }
           }
         ]
@@ -320,7 +329,7 @@
     {
       "name": "signed by another device",
       "path": "plan/0001-0000000002.seg",
-      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqoRsyaqmvZJZYFoiu9AOAXlad5Gdym80OhOfnMmhQBz3oG8Tb25CGi+lZsbUxOy9uzCTkfcwhR+ewOy7tWILk4BB+wZ+C3lsC+gpjiyRuvislKeyOGlmgY7zxf1OGSv4w65hM0KBvlBa9QX0Gge7bLmuRhVgoAMDW9csJIcCdRucwj3utsZmcWomOr0fGtG6xDATl8o0h4Ermu4Fe9dvvesQ9OjmyBJIL34992dAEnkHCi6dKVbi9U3EFrYGSapU/w/G+HoPoNWrUnilXSxIenS1wI/A8uBuniGCp/DpPIOG/JJNRdJGdofh7F5RylrGiUqQZjIL0yhnENmLhR7l0wMYXaWZiagDSyv9OIqHKneJvBKmJRbKkLGEDw==",
+      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmRt086nrZKZeFqsCYCNVUkWfvCibOQ1+M0jkWcR6g6TqXx5eMTigjXKO8rt4V01VjZ5NJ2M7wJAnjp6Jd6BPI/KTPboUKgFP7VNmOoQv6QuYErgM1W5MbDSjgd7LmEQbFi5mnPYM99ml+AbtWfxvjh2/cnFcn2f4YX6yu035xrvgptiqIQd5pSf6tIHF0vENzyLQjejQ/LTk+xR+qYjvMYRIHc3X9tWIjsFhlFQlJSno4DK7nQvAcVaMdHSH3gVuyo7f5kfK/xACm702N/ckTtWzYV0VN9r8rFIhrCeeI5Xp7NdfNe19+VFlyX08szX3RHAZIDsM+puFGi2y2JYF8rdnJSGn5xBEirHuSIFK/HgdwO6fuZvSHW4HZ0wvAkFDEVR3UUh2iAdTNTZEQI=",
       "signer": "pNTMV/cE/MF2g03mQouPlMj+hJg5cad+HuWWCCViYiA=",
       "error": "signed"
     },
