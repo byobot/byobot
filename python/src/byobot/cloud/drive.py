@@ -38,6 +38,7 @@ FIELDS = "id,name,sha256Checksum,appProperties,trashed"
 RELIST = 600  # seconds between full listings, so a change feed that lags or misses a file never hides it for long
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)"}
 TRIES = 6
+TIMEOUT = 60
 RETRY = {429, 500, 502, 503, 504}
 RATE = {"rateLimitExceeded", "userRateLimitExceeded"}
 
@@ -183,9 +184,10 @@ class Drive:
     is busy or the network drops."""
 
     def __init__(self, opener: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
-                 stored: dict | None = None):
-        self.opener = opener or urllib.request.urlopen
+                 stored: dict | None = None, tries: int = TRIES, timeout: float = TIMEOUT):
+        self.opener = opener or (lambda req: urllib.request.urlopen(req, timeout=timeout))
         self.sleep = sleep
+        self.tries = tries
         self.stored = stored or credentials.load(NAME)
         if self.stored is None:
             raise NotConnected("byobot isn't signed in to Google Drive; run `byobot cloud setup` in a terminal")
@@ -203,7 +205,7 @@ class Drive:
         if params:
             url += "?" + urllib.parse.urlencode(params)
         refreshed = False
-        for attempt in range(TRIES):
+        for attempt in range(self.tries):
             if self.stored["expires_at"] - 60 < time.time():
                 self._refresh()
             req = urllib.request.Request(url, data=data, method=method, headers={
@@ -223,13 +225,13 @@ class Drive:
                     raise Conflict(url) from None
                 if e.code == 403 and reason == "storageQuotaExceeded":
                     raise UpstreamError("your Google Drive is full, so byobot can't upload; free some space") from None
-                if not (e.code in RETRY or (e.code == 403 and reason in RATE)) or attempt == TRIES - 1:
+                if not (e.code in RETRY or (e.code == 403 and reason in RATE)) or attempt == self.tries - 1:
                     raise UpstreamError(f"Google Drive answered {e.code}{': ' + message if message else ''}") from None
             except (urllib.error.URLError, OSError) as e:
-                if attempt == TRIES - 1:
+                if attempt == self.tries - 1:
                     raise UpstreamError(f"can't reach Google Drive: {getattr(e, 'reason', e)}") from None
             self.sleep(min(2 ** attempt, 32) + random.random())
-        raise AssertionError("unreachable")
+        raise UpstreamError("Google Drive didn't answer; try again")
 
     def json(self, method: str, path: str, params: dict | None = None) -> dict:
         return json.loads(self.call(method, API + path, params) or b"{}")
