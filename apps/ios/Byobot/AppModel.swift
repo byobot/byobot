@@ -114,6 +114,10 @@ final class AppModel: ObservableObject {
                 Keychain.deleteToken(for: old.deviceId)
             }
             change {
+                // The same laptop's store keeps its device id through a backup restore: what it lacks goes again.
+                if $0.state.storeId == nil, old?.deviceId == response.server.deviceId {
+                    $0.state.storeId = response.server.storeId
+                }
                 $0.paired(storeId: response.server.storeId)
                 $0.state.server = PairedServer(hosts: hosts, port: port, fingerprint: fingerprint,
                                                deviceId: response.server.deviceId, name: response.server.name,
