@@ -789,13 +789,10 @@ def lock_path(store: Store) -> Path:
 
 @contextmanager
 def _lock(store: Store, wait: bool = True) -> Iterator[bool]:
-    from byobot.cloud.lock import Busy, held
+    from byobot.cloud.lock import held
 
-    try:
-        with held(lock_path(store), wait) as mine:
-            yield mine
-    except Busy:
-        raise ByobotError("another byobot is syncing with Drive; try again") from None
+    with held(lock_path(store), wait) as mine:
+        yield mine
 
 
 def _keeper(ctx: Context, off_ok: bool = False) -> Any:

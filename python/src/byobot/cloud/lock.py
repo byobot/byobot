@@ -4,13 +4,10 @@ first. The system drops it if a process dies."""
 from __future__ import annotations
 
 import os
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
-
-
-class Busy(Exception):
-    """Another process held the lock too long."""
 
 
 @contextmanager
@@ -31,14 +28,15 @@ if os.name == "nt":  # pragma: no cover - Windows
     import msvcrt
 
     def _take(f, wait: bool) -> bool:
-        f.seek(0)
-        try:
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
-        except OSError:
-            if wait:
-                raise Busy() from None
-            return False
-        return True
+        while True:  # LK_LOCK gives up after 10 s, and a long sync holds the lock longer
+            f.seek(0)
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                return True
+            except OSError:
+                if not wait:
+                    return False
+                time.sleep(0.2)
 
     def _drop(f) -> None:
         f.seek(0)
