@@ -259,6 +259,7 @@ class Keeper:
         expires = self.clock() + JOIN_TTL_S
         with self.store._tx():
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
+            self._unset("last_join")
         code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper": self.identity.public()["sign"],
                 "expires": expires}
         return {**code, "link": "byobot://cloud-join?" + urlencode(
@@ -269,9 +270,7 @@ class Keeper:
         if not join:
             return {}
         if self.clock() > join["expires"]:
-            with self.store._tx():
-                self._unset("join")
-            return {"join": "expired"}
+            return self._joined({"join": "expired"})
         secret = unb64(join["secret"])
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
         valid = []
@@ -292,16 +291,35 @@ class Keeper:
                 valid.append(found)
         if not valid:
             return {}
-        with self.store._tx():
-            self._unset("join")
         if len(valid) > 1:
-            return {"join": "refused: two devices answered one code; show a new code"}
+            return self._joined({"join": "refused: two devices answered one code; show a new code"})
         device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
-        self._write(files.key_path(self.epoch, device["id"]),
-                    files.key_file(self.identity, self.store.store_id, self.epoch, device, self.key(self.epoch)))
+        path = files.key_path(self.epoch, device["id"])
+        try:  # the code stays good until the phone's key is in the folder
+            self._write(path, files.key_file(self.identity, self.store.store_id, self.epoch, device,
+                                             self.key(self.epoch)))
+        except ByobotError:  # an earlier try landed and its answer was lost
+            try:
+                landed = files.key_device(self.folder.read(path) or b"", self.identity.public()["sign"],
+                                          self.store.store_id, self.epoch)
+            except CloudError:
+                landed = None
+            if landed != device:
+                raise
+        return self._joined({"join": "admitted", "device": device["id"]}, device)
+
+    def _joined(self, outcome: dict, device: dict | None = None) -> dict:
+        """End the join: enrol the device if one was admitted, and keep the outcome for `cloud join`."""
         with self.store._tx():
-            self._enrol(device, self.epoch)
-        return {"join": "admitted", "device": device["id"]}
+            if device:
+                self._enrol(device, self.epoch)
+            self._unset("join")
+            self._set("last_join", json.dumps(outcome))
+        return outcome
+
+    def last_join(self) -> dict | None:
+        """How the last join ended, once it has."""
+        return None if self._get("join") else json.loads(self._get("last_join") or "null")
 
     # -- reading -------------------------------------------------------------------
 
