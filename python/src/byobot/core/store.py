@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS events (
   reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_record ON events (kind, record_id);
 CREATE INDEX IF NOT EXISTS events_batch ON events (batch) WHERE batch IS NOT NULL;
+CREATE INDEX IF NOT EXISTS events_device ON events (device_id, hlc);
 DROP TRIGGER IF EXISTS events_append_only_update;
 CREATE TRIGGER IF NOT EXISTS events_redact_only BEFORE UPDATE ON events
   WHEN OLD.op = 'erase' OR NEW.payload != '{}' OR NEW.redacted_by IS NULL OR NEW.seq IS NOT OLD.seq
@@ -66,6 +67,9 @@ CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS peers (
   device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
   last_seen_at TEXT, revoked_at TEXT);
+CREATE TABLE IF NOT EXISTS rejections (
+  device_id TEXT NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (device_id, event_id));
 """
 PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
 
@@ -199,6 +203,11 @@ class Store:
     @property
     def store_key(self) -> bytes:
         return bytes.fromhex(self._get("store_key"))
+
+    @property
+    def hlc(self) -> str:
+        """The highest clock reading this store has written or seen."""
+        return self._get("hlc")
 
     # -- the logbook ----------------------------------------------------------
 
@@ -629,6 +638,29 @@ class Store:
 
     def peers(self) -> list[dict]:
         return [dict(r) for r in self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers ORDER BY paired_at DESC")]
+
+    def received(self, device_id: str) -> str | None:
+        """The clock reading of the latest event this store holds from a device."""
+        return self.conn.execute("SELECT max(hlc) FROM events WHERE device_id = ?", (device_id,)).fetchone()[0]
+
+    def note_rejections(self, device_id: str, results: list[tuple[str, str | None]]) -> None:
+        """Keep what a device sent and was refused ((event id, reason), reason None once accepted), so a device
+        that can't hear a push's answer still learns of it."""
+        at = stamp(self.wall())
+        with self._tx():
+            for event_id, reason in results:
+                if reason is None:
+                    self.conn.execute("DELETE FROM rejections WHERE device_id = ? AND event_id = ?",
+                                      (device_id, event_id))
+                else:
+                    self.conn.execute("INSERT INTO rejections VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET "
+                                      "reason = excluded.reason, at = excluded.at", (device_id, event_id, reason, at))
+
+    def rejections(self, device_id: str, limit: int = 1000) -> list[dict]:
+        """A device's refused events, newest first."""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT event_id AS id, reason FROM rejections WHERE device_id = ? ORDER BY at DESC, event_id LIMIT ?",
+            (device_id, limit))]
 
     def unpair(self, device_id: str) -> dict:
         if not self.peer(device_id):
