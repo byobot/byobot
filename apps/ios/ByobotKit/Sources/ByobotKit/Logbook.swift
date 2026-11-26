@@ -381,7 +381,7 @@ public struct Logbook: Sendable {
         if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
             state.hlc = hlc  // what's written here next comes after what the laptop has seen
         }
-        for record in window.erased ?? [] { drop(record.kind, record.id) }
+        drop(window.erased ?? [])
         setAside(window.rejected ?? [])
         let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
         state.plan = window
@@ -444,19 +444,26 @@ public struct Logbook: Sendable {
         state.pending.removeAll { ids.contains($0) }
     }
 
-    /// Forget everything this phone holds of a record that was erased.
-    mutating func drop(_ kind: String, _ id: String) {
-        let gone = Set(state.events.filter { $0.record.kind == kind && $0.record.id == id }.map(\.id))
-        state.events.removeAll { gone.contains($0.id) }
-        state.pending.removeAll { gone.contains($0) }
-        state.rejected.removeAll { gone.contains($0.eventId) }
-        state.heads?[Self.key(kind, id)] = nil
-        switch kind {
-        case "effort": state.remoteOriginals?[id] = nil
-        case "session" where state.activeSessionId == id: state.activeSessionId = nil
-        case "location" where state.locationId == id: state.locationId = nil
-        case "planned_session": state.workouts?[id] = nil
-        default: break
+    /// Forget everything this phone holds of records that were erased, in one pass over its events.
+    mutating func drop(_ erased: [ErasedRecord]) {
+        guard !erased.isEmpty else { return }
+        let records = Set(erased.map { RecordRef(kind: $0.kind, id: $0.id) })
+        let gone = Set(state.events.lazy.filter { records.contains($0.record) }.map(\.id))
+        if !gone.isEmpty {
+            state.events.removeAll { gone.contains($0.id) }
+            state.pending.removeAll { gone.contains($0) }
+            state.rejected.removeAll { gone.contains($0.eventId) }
+        }
+        for record in records {
+            let (kind, id) = (record.kind, record.id)
+            state.heads?[Self.key(kind, id)] = nil
+            switch kind {
+            case "effort": state.remoteOriginals?[id] = nil
+            case "session" where state.activeSessionId == id: state.activeSessionId = nil
+            case "location" where state.locationId == id: state.locationId = nil
+            case "planned_session": state.workouts?[id] = nil
+            default: break
+            }
         }
     }
 
