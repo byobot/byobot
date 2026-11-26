@@ -141,7 +141,11 @@ final class AppModel: ObservableObject {
         do {
             if book.state.storeId == nil {  // paired before the app kept it
                 let storeId = try await transport.storeId()
-                change { $0.state.storeId = storeId }
+                change { $0.paired(storeId: storeId) }
+            }
+            if book.state.pullFirst == true {
+                let window = try await transport.plan()
+                change { $0.applyPlan(window) }
             }
             // A plan can ask for events again (the laptop was restored); those go out before this sync ends.
             for _ in 0..<2 {
