@@ -347,7 +347,7 @@
           "items": {
             "$ref": "#/$defs/erased_record"
           },
-          "description": "Records a person writes that were erased. The app drops what it holds of them."
+          "description": "Records a person writes that were erased: those this device wrote, and those whose id a person picks (activities, locations, settings). The app drops what it holds of them."
         },
         "kind_versions": {
           "$ref": "#/$defs/kinds",
