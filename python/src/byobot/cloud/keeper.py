@@ -195,10 +195,11 @@ class Keeper:
         self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, 'written') ON CONFLICT (path) DO UPDATE SET "
                                 "checksum = excluded.checksum, outcome = excluded.outcome", (path, checksum(data)))
 
-    def _segment(self, kind: str, seq: int, messages: list[dict]) -> str:
-        path = segment.name(kind, self.epoch, seq, self.device_id)
-        self._write(path, segment.write(kind, self.store.store_id, self.device_id, self.epoch, seq, messages,
-                                        self.key(self.epoch), self.identity))
+    def _segment(self, kind: str, seq: int, messages: list[dict], epoch: int | None = None) -> str:
+        epoch = self.epoch if epoch is None else epoch
+        path = segment.name(kind, epoch, seq, self.device_id)
+        self._write(path, segment.write(kind, self.store.store_id, self.device_id, epoch, seq, messages,
+                                        self.key(epoch), self.identity))
         return path
 
     # -- epochs ------------------------------------------------------------------
@@ -227,13 +228,17 @@ class Keeper:
                        "keeper": self.identity.private()}
             self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
                                                                     content))
-        with self.store._tx():  # the checkpoint and its position from one snapshot, so no event falls between
+        self.store.conn.execute("BEGIN")  # the checkpoint and its position from one snapshot
+        try:
             events = self.store.events()
             position = self.store.position()
-            parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
+        finally:
+            self.store.conn.execute("COMMIT")
+        parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
+        for i, part in enumerate(parts):  # uploads hold no write lock, so the hub and other writers go on
+            self._segment("checkpoint", i, [{"events": {"events": part}}], n)
+        with self.store._tx():
             self._set("epoch", n)
-            for i, part in enumerate(parts):
-                self._segment("checkpoint", i, [{"events": {"events": part}}])
             self._set("checkpoint_position", position)
             self.store.conn.execute("DELETE FROM cloud_shown")
             self._unset("plan_digest")
@@ -384,8 +389,9 @@ class Keeper:
         for i in range(0, len(events), rules.MAX_BATCH):
             part = events[i:i + rules.MAX_BATCH]
             with self.store._tx():
-                self._segment("segment", self._next_seq(), [{"events": {"events": part}}])
-                self._shown([e["id"] for e in part])
+                seq = self._next_seq()
+            self._segment("segment", seq, [{"events": {"events": part}}])
+            self._shown([e["id"] for e in part])
         return len(events)
 
     def plan(self) -> dict:
@@ -423,7 +429,9 @@ class Keeper:
             return False
         old = [p for p in self.folder.list() if p.startswith("plan/")]
         with self.store._tx():
-            path = self._segment("plan", self._next_seq(), messages)
+            seq = self._next_seq()
+        path = self._segment("plan", seq, messages)
+        with self.store._tx():
             self._set("plan_digest", digest)
         for p in old:
             if p != path:
