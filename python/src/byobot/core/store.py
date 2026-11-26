@@ -25,6 +25,7 @@ from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
 EXPORT_VERSION = 1
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
+TOO_BIG = "a number too large to store"
 COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
            "actor_model", "prev", "batch", "reverts", "redacted_by", "payload")
 OPTIONAL = ("kind_version", "batch", "reverts", "redacted_by")
@@ -230,8 +231,11 @@ class Store:
         out = []
         with self._tx():
             for event in events:
-                with self._tx():
-                    out.append(self._accept(event))
+                try:
+                    with self._tx():
+                        out.append(self._accept(event))
+                except OverflowError:
+                    out.append(("rejected", TOO_BIG))
         self._compact()
         return out
 
@@ -263,10 +267,11 @@ class Store:
             return "rejected", "not JSON"
         held = self.event(event["id"])
         if held is not None:
-            if "redacted_by" in held or "redacted_by" in event:
+            blank = "redacted_by" in held or "redacted_by" in event
+            if held["record"]["kind"] == "source_record":
+                same = _content(held, blank) == _content(event, blank)
+            elif blank:
                 same = _header(held) == _header(event)
-            elif held["record"]["kind"] == "source_record":
-                same = _content(held) == _content(event)
             else:
                 same = jcs(held) == canonical
             return ("duplicate", "") if same else ("rejected", "id reused with other content")
@@ -642,7 +647,12 @@ class Store:
         with self._tx():
             for change in changes:
                 event = self._event(actor, change, batch)
-                outcome, reason = self._accept(event)
+                try:
+                    outcome, reason = self._accept(event)
+                except OverflowError:
+                    outcome, reason = "rejected", TOO_BIG
+                if outcome == "duplicate" and change["kind"] == "source_record" and change.get("event_id"):
+                    continue  # another import wrote the same revision first
                 if outcome != "accepted":
                     raise ValidationFailed(f"{change['kind']} {change['id']}: {reason or outcome}")
                 written.append(event)
@@ -747,8 +757,10 @@ def _header(event: dict) -> str:
     return jcs({k: v for k, v in event.items() if k not in ("payload", "redacted_by")})
 
 
-def _content(event: dict) -> str:
-    return jcs([event["record"], event["op"], event.get("kind_version"), event["prev"], event["payload"]])
+def _content(event: dict, blank: bool = False) -> str:
+    """What makes two deliveries of a source event the same; `blank` leaves out what erase blanks."""
+    return jcs([event["record"], event["op"], event.get("kind_version"), event["prev"],
+                {} if blank else event["payload"]])
 
 
 def _envelope(row: sqlite3.Row) -> dict:

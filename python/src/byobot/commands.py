@@ -45,6 +45,7 @@ class Command:
     cli: bool = True
     mcp: bool = True
     description: str = ""
+    destructive: bool = False
 
     @property
     def tool(self) -> str:
@@ -75,9 +76,9 @@ REGISTRY: dict[str, Command] = {}
 
 
 def command(name: str, summary: str, *params: Param, read_only: bool = True, cli: bool = True,
-            mcp: bool = True, description: str = "") -> Callable:
+            mcp: bool = True, description: str = "", destructive: bool = False) -> Callable:
     def register(fn: Callable) -> Callable:
-        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description)
+        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive)
         return fn
 
     return register
@@ -290,7 +291,7 @@ def _replan(ctx: Context, id: str, payload: Any) -> dict:
     Param("kind", "string", "The record's kind.", required=True, choices=core.TAKEN_BACK, positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
     Param("reason", "string", "Why, in a few words."),
-    read_only=False,
+    read_only=False, destructive=True,
 )
 def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict:
     return {"event": core.remove(ctx.store(), ctx.actor, kind, id, reason)}
@@ -303,7 +304,7 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
           positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
     Param("with", "string", "Erase these with it: a session's efforts.", choices=("efforts",)),
-    read_only=False,
+    read_only=False, destructive=True,
     mcp=False,
     description="Overlays on the record go with it. The iPhone app keeps its own copy until the app is deleted, "
                 "and exports made before now still hold it.",
@@ -323,7 +324,7 @@ def _erase(ctx: Context, kind: str, id: str, **also: Any) -> dict:
     "undo",
     "Take back a write: its record goes back to the version before it. The undo is a write too.",
     Param("event_id", "string", "The id of the event to undo.", required=True, positional=True),
-    read_only=False,
+    read_only=False, destructive=True,
     description="An event written in a batch is undone with the rest of its batch.",
 )
 def _undo(ctx: Context, event_id: str) -> dict:
@@ -351,7 +352,7 @@ def _conflicts(ctx: Context, kind: str | None = None, id: str | None = None) -> 
     Param("seen", "json", "The event ids of the versions you were shown (from `conflicts`). A version that "
           "arrived since stays a conflict. Leave it out to end every current version.",
           schema={"type": "array", "items": {"type": "string"}}),
-    read_only=False,
+    read_only=False, destructive=True,
 )
 def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) -> dict:
     if not isinstance(choice, (str, dict)):
@@ -757,7 +758,7 @@ def _devices(ctx: Context) -> dict:
     "unpair",
     "Stop syncing with a paired device. Its token stops working at once; pairing again starts fresh.",
     Param("device_id", "string", "The device to unpair (see `byobot devices`).", required=True, positional=True),
-    read_only=False,
+    read_only=False, destructive=True,
     mcp=False,
 )
 def _unpair(ctx: Context, device_id: str) -> dict:

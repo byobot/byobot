@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from byobot.core import commands
+from byobot.core import commands, sources
 from byobot.core.contract import Contract
 from byobot.core.store import Store, query
 from byobot.util import Conflict, NotFound, ValidationFailed
@@ -520,3 +520,43 @@ def test_erasing_a_session_can_take_its_sets(pair):
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": {**effort(), "links": {"part_of": {"kind": "session", "id": sid}}}}])
     commands.erase(a, ME, "session", sid, with_efforts=True)
     assert a.record("effort", e["record"]["id"])["erased"] and commands.linked(a, "session", sid) == []
+
+
+SLEEP = {"id": "s1", "start": "2026-03-02T04:00:00.000Z", "end": "2026-03-02T12:30:00.000Z",
+         "timezone_offset": "-05:00", "updated_at": "2026-03-02T12:00:00.000Z", "score_state": "SCORED",
+         "score": {"respiratory_rate": 15.0}}
+
+
+def test_a_source_event_redelivered_after_erase_is_a_duplicate(pair):
+    a, b = pair
+    b.adopt(a.store_id, a._get("store_key"))
+    [src] = sources.ingest(a, "whoop", [("sleep", "s1", SLEEP)])
+    [mine] = sources.ingest(b, "whoop", [("sleep", "s1", SLEEP)])
+    assert mine["id"] == src["id"]
+    commands.erase(a, ME, "source_record", src["record"]["id"])
+    assert a.accept_many(b.events())[0][0] == "duplicate"
+
+
+def test_a_revision_another_import_just_wrote_writes_nothing(pair):
+    a, _ = pair
+    [e] = sources.ingest(a, "whoop", [("sleep", "s1", SLEEP)])
+    change = {"kind": "source_record", "id": e["record"]["id"], "op": "put", "payload": e["payload"], "prev": [],
+              "event_id": e["id"]}
+    assert a.write({"kind": "connector", "id": "whoop"}, [change]) == []
+
+
+def test_an_erased_source_record_is_not_imported_again(pair):
+    a, _ = pair
+    [e] = sources.ingest(a, "whoop", [("sleep", "s1", SLEEP)])
+    commands.erase(a, ME, "source_record", e["record"]["id"])
+    assert sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "updated_at": "2026-03-03T00:00:00.000Z"})]) == []
+
+
+def test_accept_never_raises_on_a_huge_number(pair):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    big = {**e, "id": "0190f000-0000-7000-8000-00000000eeee", "prev": [e["id"]],
+           "payload": {**effort(), "metrics": {"reps": {"value": 5}, "x.count": {"value": 10**20}}}}
+    assert b.accept(big) == ("rejected", "a number too large to store")
+    with pytest.raises(ValidationFailed):
+        sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
