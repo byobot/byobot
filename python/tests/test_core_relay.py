@@ -94,3 +94,13 @@ def test_a_hub_restored_from_an_older_backup_ends_complete(store, tmp_path):
         again = [e for e in sent if e["hlc"] > marker]  # what the phone sends again
         assert [r["status"] for r in relay.accept_events(restored, PHONE, again)] == ["accepted"]
         assert {e["id"] for e in restored.events()} == {e["id"] for e in store.events()}
+
+
+def test_a_device_s_refusals_stay_bounded_and_go_when_it_is_unpaired(store, monkeypatch):
+    monkeypatch.setattr("byobot.core.store.MAX_REJECTIONS", 3)
+    store.pair(PHONE, "Example iPhone", "ab" * 32)
+    for _ in range(2):
+        relay.accept_events(store, PHONE, [event(device_id="another-device") for _ in range(2)])
+    assert len(store.rejections(PHONE, limit=10)) == 3
+    store.unpair(PHONE)
+    assert store.rejections(PHONE) == []
