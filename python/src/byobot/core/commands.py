@@ -257,7 +257,7 @@ def linked(store: Store, kind: str, rid: str, link: str | None = None) -> list[t
 
 def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
     """Take an event back by writing its record's previous version (a retract if it had none). Only the
-    current version can be undone, so a later edit is never thrown away.
+    record's one current version can be undone, so a later edit is never thrown away.
 
     An event written in a batch is undone with the rest of its batch.
     """
@@ -273,7 +273,7 @@ def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
         if kind not in TAKEN_BACK:
             raise ValidationFailed(f"{kind} records aren't undone by hand")
         found = store.record(kind, rid)
-        if found["current"] != e["id"] or found["conflict"]:
+        if found["heads"] != [e["id"]]:
             raise Conflict(f"{kind} {rid} changed after {e['id']}; edit it instead")
         before = [store.event(p) for p in e["prev"]]
         if any(b is None for b in before):
