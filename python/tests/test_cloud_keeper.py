@@ -322,3 +322,24 @@ def test_another_process_admitting_the_phone_ends_the_join(store):
     Relay.join(folder, cli.join_code()["link"], PHONE)
     serve.sync()
     assert cli.last_join() == {"join": "admitted", "device": PHONE}
+
+
+def test_an_older_keeper_keeps_a_newer_phone_s_segment_until_it_is_upgraded(store, folder, keeper, monkeypatch):
+    from byobot.cloud import keeper as keeper_module
+
+    relay = joined(keeper, folder)
+    sent = event()
+    relay.log([sent])
+    monkeypatch.setattr(segment, "FORMAT", segment.FORMAT + 1)  # the phone runs a newer byobot
+    relay.sync()
+    monkeypatch.undo()
+    path = next(p for p in folder.list() if p.startswith("segments/"))
+    assert "newer byobot" in keeper.sync()["skipped"][0]["reason"]
+    assert path in folder.list() and "upgrade" in keeper.local_status()
+    keeper.start_epoch()
+    relay.sync()  # the phone moves to the new epoch, so only the newer segment holds the old one back
+    assert keeper.sync().get("cleanup_waits_on") == ["an upgrade of byobot on this Mac"] and path in folder.list()
+    monkeypatch.setattr(segment, "FORMAT", segment.FORMAT + 1)  # this Mac is upgraded
+    monkeypatch.setattr(keeper_module, "__version__", "next")
+    keeper.sync()
+    assert store.event(sent["id"]) and "upgrade" not in keeper.local_status()
