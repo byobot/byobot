@@ -140,7 +140,6 @@ class Relay:
             except CloudError:
                 continue
             first = self.epoch is None
-            self._requeue()
             self.epoch, self.key = n, key
             self.plan = self.plan_path = None
             self.receipts = {}
@@ -198,11 +197,6 @@ class Relay:
             elif path not in listing:
                 self.samples[:0] = list(carried["samples"].values())
                 del self.sent[path]
-
-    def _requeue(self) -> None:
-        """Moving to a new epoch: send again whatever no receipt covered."""
-        self.samples[:0] = [b for carried in self.sent.values() for b in carried["samples"].values()]
-        self.sent = {}
 
     def _send(self, listing: dict[str, str], force: bool) -> int:
         in_folder = {i for carried in self.sent.values() for i in carried["events"]}
