@@ -64,8 +64,9 @@ class Phone:
                       "start": f"{date}T06:30:00-05:00", "end": f"{date}T06:30:00-05:00", "value": 80 + day / 10, "unit": "kg"}
             weights.append(weight)
             out.append(("samples", {"samples": [weight]}))
-            if day == 5:
-                out.append(("samples", {"deleted": [{"source": "apple_health", "source_id": "W3"}]}))
+            if day in (5, 6):  # an older weigh-in, then one deleted right after it was logged
+                gone = "W3" if day == 5 else "W6"
+                out.append(("samples", {"deleted": [{"source": "apple_health", "source_id": gone}]}))
         return out
 
 
@@ -102,54 +103,112 @@ def hub(byobot_home):
     srv.server_close()
 
 
+class Routes:
+    """The phone with both routes. A deletion of a sample the keeper hasn't read yet goes by the cloud relay, which
+    drops a sample not yet sent and holds the deletion of one in flight; anything else may go either way."""
+
+    def __init__(self, hub, store, tmp_path):
+        self.hub, self.store = hub, store
+        self.folder = LocalFolder(tmp_path / "cloud", store.store_id)
+        self.keeper = Keeper.setup(store, self.folder, Clock())
+        self.relay = Relay.join(self.folder, self.keeper.join_code()["link"], PHONE)
+        self.keeper.sync()
+        self.relay.sync()
+
+    def by_hub(self, what, body):
+        if what == "samples" and self.relay.unread() & {d["source_id"] for d in body.get("deleted", [])}:
+            return self.by_cloud(what, body)
+        status, answer = self.hub.call("POST", f"/v1/{what}", {"events": body} if what == "events" else body)
+        assert status == 200, answer
+
+    def by_cloud(self, what, body):
+        self.relay.log(body) if what == "events" else self.relay.send_samples(body)
+
+    def lose_a_file(self, rng):
+        unread = [p for p in self.relay.sent if p in self.folder.list()]
+        if unread:
+            self.folder.delete(rng.choice(unread))
+
+    def settle(self):
+        for _ in range(3):
+            self.relay.sync()
+            self.keeper.sync()
+        self.relay.sync()
+        r = self.relay
+        assert r.events == {} and r.samples == [] and r.sent == {} and r.held == []
+
+
+def weighed(source_id="W1"):
+    return {"source": "apple_health", "source_id": source_id, "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-23T06:30:00-05:00", "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}
+
+
+def deletion(source_id="W1"):
+    return {"deleted": [{"source": "apple_health", "source_id": source_id}]}
+
+
+def samples(store):
+    return sorted(r["payload"]["source_id"] for r in store.records("source_record"))
+
+
 @pytest.mark.parametrize("seed", range(12))
 def test_a_week_through_both_routes_lands_as_through_the_hub(hub, store, tmp_path, seed):
     rng = random.Random(seed)
     week = Phone(rng).week()
     wanted = hub_alone(tmp_path / "hub-alone.db", week)
-
-    folder = LocalFolder(tmp_path / "cloud", store.store_id)
-    keeper = Keeper.setup(store, folder, Clock())
-    phone = Relay.join(folder, keeper.join_code()["link"], PHONE)
-    keeper.sync()
-    phone.sync()
-
-    def by_hub(what, body):
-        status, answer = hub.call("POST", f"/v1/{what}", {"events": body} if what == "events" else body)
-        assert status == 200, answer
-
-    def by_cloud(what, body):
-        phone.log(body) if what == "events" else phone.send_samples(body)
-
+    phone = Routes(hub, store, tmp_path)
     for what, body in week:
         route = rng.choice(["hub", "cloud", "both", "both"])
         if route in ("hub", "both"):
-            by_hub(what, body)
+            phone.by_hub(what, body)
         if route in ("cloud", "both"):
-            by_cloud(what, body)
+            phone.by_cloud(what, body)
         if rng.random() < 0.5:
-            phone.sync()
+            phone.relay.sync()
+        if rng.random() < 0.15:
+            phone.lose_a_file(rng)
         if rng.random() < 0.4:
-            keeper.sync()
-    for _ in range(3):
-        phone.sync()
-        keeper.sync()
-    phone.sync()
-    assert phone.events == {} and phone.samples == [] and phone.sent == {}
+            phone.keeper.sync()
+    phone.settle()
     assert held(store) == wanted
 
 
-@pytest.mark.xfail(strict=True, reason="a deletion that lands before its sample is dropped, so the sample stays")
-def test_a_deletion_by_one_route_before_its_sample_by_the_other(hub, store, tmp_path):
-    folder = LocalFolder(tmp_path / "cloud", store.store_id)
-    keeper = Keeper.setup(store, folder, Clock())
-    phone = Relay.join(folder, keeper.join_code()["link"], PHONE)
-    keeper.sync()
-    phone.sync()
-    weight = {"source": "apple_health", "source_id": "W1", "type": "HKQuantityTypeIdentifierBodyMass",
-              "start": "2026-11-23T06:30:00-05:00", "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}
-    phone.send_samples({"samples": [weight]})
-    phone.sync()
-    hub.call("POST", "/v1/samples", {"deleted": [{"source": "apple_health", "source_id": "W1"}]})
-    keeper.sync()
-    assert store.records("source_record") == [] and store.rows("SELECT code FROM observations") == []
+def test_a_deletion_waits_for_its_sample_sent_the_other_way(hub, store, tmp_path):
+    phone = Routes(hub, store, tmp_path)
+    phone.by_cloud("samples", {"samples": [weighed()]})
+    phone.relay.sync()
+    phone.by_hub("samples", deletion())
+    assert phone.relay.held and phone.relay.sync()["written"] == 0  # not sent before the keeper reads the sample
+    phone.settle()
+    assert samples(store) == [] and store.rows("SELECT code FROM observations") == []
+
+
+def test_a_lost_file_is_not_sent_again_once_its_sample_is_deleted(hub, store, tmp_path):
+    phone = Routes(hub, store, tmp_path)
+    phone.by_cloud("samples", {"samples": [weighed()]})
+    phone.relay.sync()
+    phone.by_cloud("samples", deletion())
+    phone.lose_a_file(random.Random(0))
+    phone.keeper.sync()
+    phone.settle()
+    assert samples(store) == [] and store.rows("SELECT code FROM observations") == []
+
+
+def test_a_sample_deleted_before_it_was_sent_never_goes(hub, store, tmp_path):
+    phone = Routes(hub, store, tmp_path)
+    phone.by_cloud("samples", {"samples": [weighed("W1"), weighed("W2")]})
+    phone.by_cloud("samples", deletion("W1"))
+    phone.settle()
+    assert samples(store) == ["W2"]
+
+
+def test_a_sample_sent_again_after_its_deletion_landed_stays_deleted(hub, store, tmp_path):
+    phone = Routes(hub, store, tmp_path)
+    phone.by_cloud("samples", {"samples": [weighed()]})
+    phone.settle()
+    phone.by_hub("samples", deletion())
+    assert samples(store) == []
+    phone.by_hub("samples", {"samples": [weighed()]})
+    phone.by_cloud("samples", {"samples": [weighed()]})
+    phone.settle()
+    assert samples(store) == [] and store.rows("SELECT code FROM observations") == []
