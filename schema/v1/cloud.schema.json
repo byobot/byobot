@@ -34,11 +34,17 @@
       ]
     },
     "receipts": {
-      "description": "Beside the plan: each relay's segments in the plan's epoch that the keeper has read, by seq. A relay drops what it sent only once its segment is here; a segment gone from the folder and not here is sent again.",
+      "description": "Beside the plan: each relay's segments in the plan's epoch that the keeper has read, by seq, and the samples messages in them it refused, by line. A relay drops what it sent only once its segment is here; a segment gone from the folder and not here is sent again.",
       "type": "object",
       "additionalProperties": {
         "type": "object", "required": ["read"],
-        "properties": {"read": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 9999999999}}},
+        "properties": {
+          "read": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 9999999999}},
+          "refused": {"type": "array", "items": {
+            "type": "object", "required": ["seq", "line", "reason"],
+            "properties": {"seq": {"type": "integer", "minimum": 0, "maximum": 9999999999}, "line": {"type": "integer", "minimum": 0}, "reason": {"type": "string"}},
+            "additionalProperties": false}}
+        },
         "additionalProperties": false
       }
     },
