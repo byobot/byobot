@@ -101,6 +101,13 @@ final class AppModel: ObservableObject {
     func pair(hosts: [String], port: Int, code: String, fingerprint: String) async throws {
         let client = SyncClient(hosts: hosts, port: port, fingerprint: fingerprint)
         let response = try await client.pair(code: code, deviceId: state.deviceId, name: UIDevice.current.name)
+        if let old = server, book.state.storeId != response.server.storeId, !book.pendingEvents.isEmpty,
+           let token = Keychain.token(for: old.deviceId) {
+            // What the old laptop took before its answer was lost stays there, if it can still say so.
+            let previous = SyncClient(hosts: old.hosts, port: old.port, fingerprint: old.fingerprint, token: token,
+                                      timeout: 4)
+            if let window = try? await previous.plan(), self.server == old { change { $0.settle(with: window) } }
+        }
         try Keychain.setToken(response.token, for: response.server.deviceId)
         if let old = server, old.deviceId != response.server.deviceId {
             Keychain.deleteToken(for: old.deviceId)
