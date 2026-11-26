@@ -34,6 +34,10 @@ FAST_CLOCK = [("log", 0, "e1", 5), ("sync", 0, 1), ("skew", 1, 3), ("edit", 1, "
               ("edit", 0, "e1", 9)]
 # Two devices edit one set while apart.
 APART = [("log", 0, "e1", 5), ("sync", 0, 1), ("edit", 0, "e1", 6), ("edit", 1, "e1", 9)]
+# Two devices log the same set alike, then one undoes its own: the other's still stands.
+SAME_LOG_UNDONE = [("log", 0, "e1", 2), ("log", 2, "e1", 2), ("sync", 2, 0), ("undo", 0, 1)]
+# A set logged again while its removal is in conflict keeps the conflict.
+RELOG_OVER_CONFLICT = [("log", 0, "e1", 1), ("log", 2, "e1", 2), ("undo", 0, 0), ("sync", 2, 0), ("log", 0, "e1", 1)]
 
 
 def effort(rid: str, reps: int) -> dict:
@@ -125,6 +129,8 @@ def test_i2_rebuild_equals_incremental_state(driver, program, seed):
 @given(program=programs, seed=st.integers(0, 2**16))
 @example(program=APART, seed=1)
 @example(program=FAST_CLOCK, seed=1)
+@example(program=SAME_LOG_UNDONE, seed=0)
+@example(program=RELOG_OVER_CONFLICT, seed=0)
 def test_i3_i4_i17_every_replica_matches_the_reference_model(driver, program, seed):
     with history(driver, program, seed) as (world, _):
         for name in REPLICAS:
