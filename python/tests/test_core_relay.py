@@ -2,7 +2,9 @@
 
 import pytest
 
-from byobot.core import hlc, relay
+from byobot.core import commands, hlc, relay
+from byobot.core.contract import sync_errors
+from byobot.core.store import Store
 from byobot.util import ValidationFailed, uuid7
 
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
@@ -47,3 +49,48 @@ def test_a_device_sends_only_apple_health_samples(store):
         relay.accept_samples(store, {"samples": [{**sample, "source": "whoop"}]})
     with pytest.raises(ValidationFailed):
         relay.accept_samples(store, {"samples": [sample] * (relay.MAX_BATCH + 1)})
+
+
+def logged(n, start=1764000000000):
+    """n sets as a phone logs them, one a second."""
+    return [{**event(), "hlc": hlc.format((start + 1000 * i, 0))} for i in range(n)]
+
+
+def test_the_plan_carries_the_hub_clock_and_kind_versions(store):
+    relay.accept_events(store, PHONE, logged(1, start=1795000000000))
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
+    assert sync_errors("plan_window", window) == []
+    assert window["hlc"] == store.hlc == hlc.format((1795000000000, 0))
+    assert window["kind_versions"]["effort"] == store.contract.version("effort")
+
+
+def test_the_plan_names_what_was_erased(store):
+    [sent] = logged(1)
+    relay.accept_events(store, PHONE, [sent])
+    commands.erase(store, ME, "effort", sent["record"]["id"])
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
+    assert window["erased"] == [{"kind": "effort", "id": sent["record"]["id"]}]
+
+
+def test_the_plan_tells_a_device_what_the_hub_holds_and_refused(store):
+    sent = logged(2) + [{**event(device_id="another-device")}]
+    relay.accept_events(store, PHONE, sent)
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
+    assert window["received"] == {PHONE: sent[1]["hlc"]}
+    assert window["rejected"] == [{"id": sent[2]["id"], "reason": relay.accept_events(store, PHONE, sent[2:])[0]
+                                   ["reason"]}]
+    assert relay.plan_window(store, "2026-11-22", "2026-12-05", "a-new-phone")["received"] == {}
+    assert relay.plan_window(store, "2026-11-22", "2026-12-05", "a-new-phone")["rejected"] == []
+
+
+def test_a_hub_restored_from_an_older_backup_ends_complete(store, tmp_path):
+    sent = logged(3)
+    relay.accept_events(store, PHONE, sent[:2])
+    backup = list(store.export())
+    relay.accept_events(store, PHONE, sent[2:])
+    with Store(tmp_path / "restored.db") as restored:
+        restored.restore(backup)
+        marker = relay.plan_window(restored, "2026-11-22", "2026-12-05", PHONE)["received"][PHONE]
+        again = [e for e in sent if e["hlc"] > marker]  # what the phone sends again
+        assert [r["status"] for r in relay.accept_events(restored, PHONE, again)] == ["accepted"]
+        assert {e["id"] for e in restored.events()} == {e["id"] for e in store.events()}

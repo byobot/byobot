@@ -556,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not DATE.fullmatch(value):
                     raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"{label} must be a YYYY-MM-DD date")
             try:
-                return plan_window(store, start, end)
+                return plan_window(store, start, end, self.peer["device_id"])
             except sqlite3.OperationalError as exc:
                 _query_interrupted(exc)
 

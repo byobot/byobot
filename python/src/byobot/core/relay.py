@@ -4,6 +4,7 @@ transport (the hub, later Drive) uses these, so the two can't drift apart."""
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ..util import ValidationFailed
@@ -16,6 +17,7 @@ MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
 KINDS = (*AUTHORED, "overlay")
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
+EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 
 def _needs(store: Store, event: dict) -> float:
@@ -66,6 +68,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
             results.append({**result, "status": outcome, **({"reason": reason} if reason else {})})
             continue
         results.append({**result, "status": "rejected", "reason": reason})
+    store.note_rejections(device_id, [(r["id"], r.get("reason", "") if r["status"] == "rejected" else None)
+                                      for r in results if isinstance(r["id"], str) and EVENT_ID.fullmatch(r["id"])])
     return results
 
 
@@ -114,12 +118,15 @@ def _entries(store: Store, kind: str, ids) -> list[dict]:
     return [e for rid in ids if (e := _entry(store, kind, rid))]
 
 
-def plan_window(store: Store, start: str, end: str) -> dict:
+def plan_window(store: Store, start: str, end: str, device_id: str | None = None) -> dict:
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
     Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
     planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
     efforts of the last two times each planned activity was done at each location.
+
+    Beside them: this store's clock, the records a person writes that were erased, its kind versions, and for
+    ``device_id`` the latest of its events held and the ones refused.
     """
     ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
     activities = []
@@ -150,7 +157,15 @@ def plan_window(store: Store, start: str, end: str) -> dict:
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
             "overlays": _entries(store, "overlay", overlays), "sessions": _entries(store, "session", sessions),
-            "efforts": _entries(store, "effort", efforts)}
+            "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
+
+
+def _device_state(store: Store, device_id: str | None) -> dict:
+    received = store.received(device_id) if device_id else None
+    return {"hlc": store.hlc, "erased": [{"kind": k, "id": i} for k, i in store.erased() if k in KINDS],
+            "kind_versions": {k: v["version"] for k, v in store.contract.registry["kinds"].items()},
+            "received": {device_id: received} if received else {},
+            "rejected": store.rejections(device_id) if device_id else []}
 
 
 _ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
