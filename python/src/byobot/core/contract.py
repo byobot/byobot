@@ -204,7 +204,7 @@ class Contract:
         if factor is None or kind in ("text", "category"):
             return True
         for x in (n * factor for n in numbers):
-            if x < spec.get("minimum", x) or x > spec.get("maximum", x) or x <= spec.get("exclusive_minimum", x - 1):
+            if x < spec.get("minimum", x) or x > spec.get("maximum", x) or ("exclusive_minimum" in spec and x <= spec["exclusive_minimum"]):
                 return False
         return True
 
