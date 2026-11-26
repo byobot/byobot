@@ -1,7 +1,8 @@
 """Segment files: a plain header line, the encrypted body, and the writer's signature.
 
 The body is gzip of JSON lines, each one message (``events``, ``samples`` or ``plan``, exactly as the hub's
-``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer), then ``{"end": {"lines": n}}``. The header
+``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer, or the keeper's ``receipts``), then
+``{"end": {"lines": n}}``. The header
 is the associated data, so a file can't be renamed, moved or replayed into another store.
 """
 
@@ -18,7 +19,7 @@ from .crypto import FORMAT, CloudError, Identity, b64, decrypt, dumps, encrypt, 
 
 MAGIC = "byobot-segment"
 KINDS = ("segment", "checkpoint", "plan")
-MESSAGES = ("events", "samples", "plan")
+MESSAGES = ("events", "samples", "plan", "receipts")
 DOMAIN = b"byobot-cloud segment 1\n"
 MAX_HEADER = 1024
 MAX_BODY = 32 * 1024 * 1024
