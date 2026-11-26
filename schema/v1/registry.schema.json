@@ -30,7 +30,12 @@
         "properties": {
           "category": { "enum": ["definition", "plan", "act", "observation", "note"] },
           "version": { "type": "integer", "minimum": 1, "description": "The newest kind version this registry describes." },
-          "description": { "type": "string", "minLength": 1 }
+          "description": { "type": "string", "minLength": 1 },
+          "since": {
+            "type": "object",
+            "description": "The kind version that added each payload field added after version 1. A writer writes the lowest version that holds its payload, so older installs still read it.",
+            "additionalProperties": { "type": "integer", "minimum": 2 }
+          }
         }
       }
     },

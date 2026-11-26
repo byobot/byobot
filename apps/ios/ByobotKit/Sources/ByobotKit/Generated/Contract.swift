@@ -17,6 +17,14 @@ public enum ActorKind: String, Codable, CaseIterable, Hashable, Sendable {
     case human
     case agent
     case connector
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [ActorKind] = [.human, .agent, .connector]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// All but `rejected` mean the server has it, so the app can forget it. `rejected` will not change on retry.
@@ -25,6 +33,14 @@ public enum EventStatus: String, Codable, CaseIterable, Hashable, Sendable {
     case duplicate
     case storedUnprojected = "stored_unprojected"
     case rejected
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [EventStatus] = [.accepted, .duplicate, .storedUnprojected, .rejected]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -33,6 +49,14 @@ public enum Modality: String, Codable, CaseIterable, Hashable, Sendable {
     case selfReported = "self_reported"
     case estimated
     case derived
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Modality] = [.sensed, .selfReported, .estimated, .derived]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// `put` writes the record's whole content; `retract` removes it, as any edit would; `erase` destroys its content everywhere.
@@ -40,6 +64,14 @@ public enum Op: String, Codable, CaseIterable, Hashable, Sendable {
     case put
     case retract
     case erase
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Op] = [.put, .retract, .erase]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
@@ -47,6 +79,14 @@ public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
     case exclude
     case sameAs = "same_as"
     case rearrange
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs, .rearrange]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum RecordStatus: String, Codable, CaseIterable, Hashable, Sendable {
@@ -55,12 +95,28 @@ public enum RecordStatus: String, Codable, CaseIterable, Hashable, Sendable {
     case completed
     case skipped
     case cancelled
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [RecordStatus] = [.planned, .inProgress, .completed, .skipped, .cancelled]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
     case left
     case right
     case both
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Side] = [.left, .right, .both]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// A record, and optionally a part inside it (a planned effort inside a planned session).
@@ -624,13 +680,16 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
     public var schemaVersion: Int
     public var server: SyncServer
     public var pairingOpen: Bool
+    /// The server's kind versions.
+    public var kinds: [String: Int]?
 
-    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool) {
+    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kinds: [String: Int]? = nil) {
         self.byobot = byobot
         self.protocol = `protocol`
         self.schemaVersion = schemaVersion
         self.server = server
         self.pairingOpen = pairingOpen
+        self.kinds = kinds
     }
 
     enum CodingKeys: String, CodingKey {
@@ -639,6 +698,7 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
         case schemaVersion = "schema_version"
         case server
         case pairingOpen = "pairing_open"
+        case kinds
     }
 }
 
@@ -708,13 +768,17 @@ public struct SyncStatus: Codable, Equatable, Hashable, Sendable {
 /// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.
 public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     public var events: [Event]
+    /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.
+    public var kinds: [String: Int]?
 
-    public init(events: [Event]) {
+    public init(events: [Event], kinds: [String: Int]? = nil) {
         self.events = events
+        self.kinds = kinds
     }
 
     enum CodingKeys: String, CodingKey {
         case events
+        case kinds
     }
 }
 
@@ -1049,6 +1113,9 @@ public enum KindVersion {
         "source_record": 1,
         "overlay": 1,
     ]
+
+    /// The kind version that added each payload field added after version 1.
+    public static let since: [String: [String: Int]] = [:]
 }
 
 /// Namespaces for ids derived from other ids (UUIDv5).
