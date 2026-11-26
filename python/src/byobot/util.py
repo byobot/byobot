@@ -41,6 +41,25 @@ def db_path() -> Path:
     return home() / "byobot.db"
 
 
+SYNC_FOLDERS = (("Library", "CloudStorage"), ("Library", "Mobile Documents"), ("Dropbox",), ("Google Drive",),
+                ("My Drive",), ("OneDrive",), ("iCloud Drive",), ("iCloudDrive",))
+
+
+def sync_folder_warning(path: Path) -> str | None:
+    """A warning when ``path`` sits inside a folder another app syncs, where a SQLite database can be corrupted."""
+    given = Path(path).expanduser().absolute()
+    try:
+        seen = [given, given.resolve()]  # a home linked into a synced folder counts too
+    except OSError:
+        seen = [given]
+    for match in SYNC_FOLDERS:
+        n, want = len(match), tuple(m.lower() for m in match)
+        if any(tuple(x.lower() for x in p.parts[i:i + n]) == want for p in seen for i in range(len(p.parts) - n + 1)):
+            return (f"{path} is inside a folder another app syncs ({'/'.join(match)}); move byobot's home out of it "
+                    "(set BYOBOT_HOME), since syncing the database can corrupt it")
+    return None
+
+
 _uuid7_lock = threading.Lock()
 _uuid7_last = [0, 0]  # last (milliseconds, counter) handed out
 

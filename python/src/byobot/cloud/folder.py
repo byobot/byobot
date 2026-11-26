@@ -49,6 +49,9 @@ class MemoryFolder:
     def list(self) -> dict[str, str]:
         return {p: checksum(d) for p, d in sorted(self.files.items())}
 
+    def size(self) -> int:
+        return sum(len(d) for d in self.files.values())
+
     def read(self, path: str) -> bytes | None:
         return self.files.get(path)
 
@@ -73,6 +76,9 @@ class LocalFolder:
             if p.is_file() and not p.name.startswith(".tmp-"):
                 out[p.relative_to(self.root).as_posix()] = checksum(p.read_bytes())
         return out
+
+    def size(self) -> int:
+        return sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file()) if self.root.is_dir() else 0
 
     def read(self, path: str) -> bytes | None:
         try:
