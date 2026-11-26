@@ -110,6 +110,14 @@ class Keeper:
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
         top = opened[n]
+        devices = {d["id"]: d for d in epoch_body["devices"]}
+        for path in listing:  # admitted since the epoch file was written: only a key file names them
+            if path.startswith(f"keys/{n:04d}/") and not path.endswith("/recovery.key"):
+                try:
+                    d = files.key_device(folder.read(path) or b"", identity.public()["sign"], store_id, n)
+                except CloudError:
+                    continue
+                devices.setdefault(d["id"], d)
         if store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             if store.store_id != store_id or store.store_key.hex() != top["store_key"]:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
@@ -124,7 +132,7 @@ class Keeper:
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
             store.conn.executemany(
                 "INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?)",
-                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in epoch_body["devices"]])
+                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
         keeper.start_epoch()
