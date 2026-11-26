@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Iterator
 
 
+class Busy(Exception):
+    """Another process held the lock too long."""
+
+
 @contextmanager
 def held(path: Path, wait: bool = True) -> Iterator[bool]:
     """Yields True once the lock is held, or False at once when ``wait`` is off and another process holds it."""
@@ -32,7 +36,7 @@ if os.name == "nt":  # pragma: no cover - Windows
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
         except OSError:
             if wait:
-                raise
+                raise Busy() from None
             return False
         return True
 
