@@ -47,10 +47,14 @@ SYNC_FOLDERS = (("Library", "CloudStorage"), ("Library", "Mobile Documents"), ("
 
 def sync_folder_warning(path: Path) -> str | None:
     """A warning when ``path`` sits inside a folder another app syncs, where a SQLite database can be corrupted."""
-    parts = Path(path).expanduser().resolve().parts
+    given = Path(path).expanduser().absolute()
+    try:
+        seen = [given, given.resolve()]  # a home linked into a synced folder counts too
+    except OSError:
+        seen = [given]
     for match in SYNC_FOLDERS:
-        n = len(match)
-        if any(parts[i:i + n] == match for i in range(len(parts) - n + 1)):
+        n, want = len(match), tuple(m.lower() for m in match)
+        if any(tuple(x.lower() for x in p.parts[i:i + n]) == want for p in seen for i in range(len(p.parts) - n + 1)):
             return (f"{path} is inside a folder another app syncs ({'/'.join(match)}); move byobot's home out of it "
                     "(set BYOBOT_HOME), since syncing the database can corrupt it")
     return None

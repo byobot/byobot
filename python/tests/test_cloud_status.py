@@ -47,9 +47,10 @@ def test_status_when_off(phone):  # noqa: F811
 
 
 def test_a_home_inside_a_sync_folder_is_warned_about(tmp_path):
-    assert sync_folder_warning(tmp_path / "Library" / "CloudStorage" / "GoogleDrive-x" / "byobot")
-    assert sync_folder_warning(tmp_path / "Library" / "Mobile Documents" / "com~apple~CloudDocs")
-    assert sync_folder_warning(tmp_path / "Dropbox" / "byobot")
+    for synced in (("Library", "CloudStorage", "GoogleDrive-x", "byobot"),
+                   ("Library", "Mobile Documents", "com~apple~CloudDocs"), ("Dropbox", "byobot")):
+        path = Path(tmp_path, *synced)
+        assert sync_folder_warning(path), path.absolute().parts
     assert sync_folder_warning(Path(tmp_path) / ".byobot") is None
 
 
