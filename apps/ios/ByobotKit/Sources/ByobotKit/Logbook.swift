@@ -34,6 +34,10 @@ public struct AppState: Codable, Equatable, Sendable {
     public var equipment: [String]?
     /// Where the next session starts.
     public var locationId: String?
+    /// The store that holds what this phone sent.
+    public var storeId: String?
+    /// What was sent up to this clock reading went to another store, and is never sent again.
+    public var resendAfter: String?
 
     public init(deviceId: String = UUID7.make()) {
         self.deviceId = deviceId
@@ -370,13 +374,16 @@ public struct Logbook: Sendable {
     }
 
     /// Take a pulled plan. For records the laptop now has, its versions replace what this phone kept, unless
-    /// this phone has changes to them still to send.
-    public mutating func applyPlan(_ window: PlanWindow) {
+    /// this phone has changes to them still to send. Returns how many events go out again, because the laptop
+    /// no longer holds them (it was restored from an older backup).
+    @discardableResult
+    public mutating func applyPlan(_ window: PlanWindow) -> Int {
         if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
             state.hlc = hlc  // what's written here next comes after what the laptop has seen
         }
         for record in window.erased ?? [] { drop(record.kind, record.id) }
         setAside(window.rejected ?? [])
+        let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
         let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
@@ -397,6 +404,34 @@ public struct Logbook: Sendable {
         if !waiting.contains(Self.key("setting", SettingId.currentLocation.rawValue)), activeSession == nil {
             if case .string(let id)? = setting(.currentLocation) { state.locationId = id } else { state.locationId = nil }
         }
+        return resent
+    }
+
+    /// Queue again what the laptop no longer holds: this phone's events after `marker`, the latest it holds.
+    mutating func resend(after marker: String?) -> Int {
+        let floor = Swift.max(marker ?? "", state.resendAfter ?? "")
+        let skip = Set(state.pending).union(state.rejected.map(\.eventId))
+        let again = state.events.filter { !skip.contains($0.id) && $0.hlc > floor }
+        guard !again.isEmpty else { return 0 }
+        let queued = Set(state.pending).union(again.map(\.id))
+        state.pending = state.events.map(\.id).filter { queued.contains($0) }
+        var heads = state.heads ?? [:]
+        for event in again {
+            heads[Self.key(event.record.kind, event.record.id)] = lastEvent(event.record.kind, event.record.id).map { [$0.id] }
+        }
+        state.heads = heads
+        return again.count
+    }
+
+    /// Note the store this phone now sends to. Another store keeps what it took; this one gets what is
+    /// still waiting and what's logged from now on.
+    public mutating func paired(storeId: String) {
+        let pending = Set(state.pending)
+        if state.storeId != storeId, let last = state.events.last(where: { !pending.contains($0.id) })?.hlc,
+           last > (state.resendAfter ?? "") {
+            state.resendAfter = last
+        }
+        state.storeId = storeId
     }
 
     /// The laptop's record of events it refused, for when its answer to a push never arrived.
