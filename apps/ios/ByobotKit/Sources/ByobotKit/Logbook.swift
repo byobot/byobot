@@ -38,9 +38,6 @@ public struct AppState: Codable, Equatable, Sendable {
     public var storeId: String?
     /// What was sent up to this clock reading went to another store, and is never sent again.
     public var resendAfter: String?
-    /// Read the plan before pushing: after a re-pair the laptop may have been restored, and what it says it
-    /// holds only shows what it lost until this phone pushes something newer.
-    public var pullFirst: Bool?
 
     public init(deviceId: String = UUID7.make()) {
         self.deviceId = deviceId
@@ -387,7 +384,6 @@ public struct Logbook: Sendable {
         for record in window.erased ?? [] { drop(record.kind, record.id) }
         setAside(window.rejected ?? [])
         let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
-        state.pullFirst = nil
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
         let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
@@ -436,7 +432,6 @@ public struct Logbook: Sendable {
             state.resendAfter = last
         }
         state.storeId = storeId
-        state.pullFirst = true
     }
 
     /// The laptop's record of events it refused, for when its answer to a push never arrived.

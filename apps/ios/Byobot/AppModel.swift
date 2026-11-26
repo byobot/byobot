@@ -128,49 +128,67 @@ final class AppModel: ObservableObject {
 
     // MARK: Sync
 
-    /// Push what this phone logged, then pull the plan, then send new body-mass readings.
+    /// Pull the plan, push what this phone logged, pull again if it pushed, then send Apple Health readings.
+    /// The plan comes first: what the laptop says it holds shows what it lost (it was restored) only until
+    /// this phone pushes something newer.
     func sync() async {
-        guard !syncing, let server else { return }
+        guard !syncing else {
+            syncAgain = true
+            return
+        }
+        guard let server else { return }
         guard let token = Keychain.token(for: server.deviceId) else {
             message = SyncClientError.unauthorized.localizedDescription
             return
         }
         syncing = true
-        defer { syncing = false }
         let transport: any SyncTransport = SyncClient(server: server, token: token)
         do {
             if book.state.storeId == nil {  // paired before the app kept it
                 let storeId = try await transport.storeId()
+                guard self.server == server else { throw SyncStopped() }
                 change { $0.paired(storeId: storeId) }
             }
-            if book.state.pullFirst == true {
-                let window = try await transport.plan()
-                change { $0.applyPlan(window) }
+            try await pullPlan(transport, from: server)
+            if !book.pendingEvents.isEmpty {
+                try await pushPending(transport, to: server)
+                try await pullPlan(transport, from: server)
             }
-            // A plan can ask for events again (the laptop was restored); those go out before this sync ends.
-            for _ in 0..<2 {
-                try await pushPending(transport)
-                let window = try await transport.plan()
-                var resent = 0
-                change {
-                    resent = $0.applyPlan(window)
-                    $0.state.lastSyncAt = Timestamp.now()
-                }
-                if resent == 0 { break }
-            }
-            if healthEnabled { try await syncHealth(transport) }
+            if healthEnabled { try await syncHealth(transport, to: server) }
             message = nil
+        } catch is SyncStopped {
+            syncAgain = true
         } catch {
             message = error.localizedDescription
         }
+        syncing = false
+        if syncAgain {
+            syncAgain = false
+            await sync()
+        }
     }
 
-    private func pushPending(_ transport: any SyncTransport) async throws {
+    /// The paired laptop changed while a sync was talking to the old one.
+    private struct SyncStopped: Error {}
+    private var syncAgain = false
+
+    private func pullPlan(_ transport: any SyncTransport, from server: PairedServer) async throws {
+        let window = try await transport.plan()
+        guard self.server == server else { throw SyncStopped() }
+        change {
+            $0.applyPlan(window)
+            $0.state.lastSyncAt = Timestamp.now()
+        }
+    }
+
+    private func pushPending(_ transport: any SyncTransport, to server: PairedServer) async throws {
         while true {
             let batch = Array(book.pendingEvents.prefix(500))
             if batch.isEmpty { break }
+            guard self.server == server else { throw SyncStopped() }
             let before = book.state.pending.count
             let response = try await transport.push(events: batch)
+            guard self.server == server else { throw SyncStopped() }
             change { $0.applyPush(response, sent: batch) }
             if book.state.pending.count >= before { break }  // no progress; try again next sync
         }
@@ -179,7 +197,7 @@ final class AppModel: ObservableObject {
     /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
     private static let healthReads = 3
 
-    private func syncHealth(_ transport: any SyncTransport) async throws {
+    private func syncHealth(_ transport: any SyncTransport, to server: PairedServer) async throws {
         guard health.available else { return }
         healthNeedsAccess = await health.needsAccess()
         // Look back a month past the last send, so readings an app wrote late still arrive.
@@ -196,11 +214,14 @@ final class AppModel: ObservableObject {
         let samples = changes.readings.compactMap { HealthMapping.sample($0) } + days
         let deleted = changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) }
         for start in stride(from: 0, to: samples.count, by: 1000) {
+            guard self.server == server else { throw SyncStopped() }
             _ = try await transport.push(samples: Array(samples[start..<min(start + 1000, samples.count)]), deleted: [])
         }
         for start in stride(from: 0, to: deleted.count, by: 1000) {
+            guard self.server == server else { throw SyncStopped() }
             _ = try await transport.push(samples: [], deleted: Array(deleted[start..<min(start + 1000, deleted.count)]))
         }
+        guard self.server == server else { throw SyncStopped() }
         UserDefaults.standard.set(changes.anchors, forKey: "healthAnchors")
         UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
         change { $0.state.lastHealthSyncAt = Timestamp.now() }
