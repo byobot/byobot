@@ -373,13 +373,13 @@ public actor DriveFolder: CloudFolder {
 
     public func list() async throws -> [String: String] {
         _ = try await changed()
-        return (index ?? [:]).compactMapValues { $0.first?.sum }
+        return (index ?? [:]).compactMapValues { $0.last?.sum }
     }
 
     public func read(_ path: String) async throws -> Data? {
         let key = try Self.safe(path)
         if index == nil { try await load() }
-        for entry in index?[key] ?? [] {
+        for entry in (index?[key] ?? []).reversed() {  // a keeper that retried wrote the newest
             do {
                 return try await drive.call("GET", "\(Google.api)/files/\(entry.id)", [("alt", "media")])
             } catch Drive.Answer.notFound {
