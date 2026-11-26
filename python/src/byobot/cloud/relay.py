@@ -1,7 +1,7 @@
 """A relay: a device that sends what it logged through the cloud folder and reads the keeper's plan.
 
-This is the reference the phone's relay follows. It keeps every event it wrote until the plan shows the keeper
-holds it, and sends again whatever isn't held and isn't in a segment still in the folder.
+This is the reference the phone's relay follows. It keeps what it sent until the keeper's receipts list the segment
+that carried it, and sends again whatever was in a segment that left the folder unread.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from ..core import hlc as clocks
 from ..core.relay import MAX_BATCH
 from ..util import ByobotError
 from . import files, segment
@@ -37,10 +36,11 @@ class Relay:
     epoch: int | None = None
     key: bytes | None = None
     seq: int = 0
-    events: dict[str, dict] = field(default_factory=dict)  # every event it wrote and the keeper doesn't hold yet
+    events: dict[str, dict] = field(default_factory=dict)  # every event it wrote and the keeper hasn't read yet
     samples: list[dict] = field(default_factory=list)  # sample batches not yet in a segment
-    sent: dict[str, list[str]] = field(default_factory=dict)  # its segments in the folder -> event ids in them
+    sent: dict[str, dict] = field(default_factory=dict)  # its unread segments -> {"events": ids, "samples": batches}
     plan: dict | None = None
+    receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
     kinds: dict = field(default_factory=dict)
     removed: bool = False
@@ -76,10 +76,10 @@ class Relay:
         moved = self._adopt(listing)
         if self.removed or self.key is None:
             return {"removed": self.removed, "joined": False}
-        self.sent = {p: ids for p, ids in self.sent.items() if p in listing}
         self._read_plan(listing)
         if self.plan is not None:
             self._apply_plan(self.plan)
+        self._settle(listing)
         written = self._send(listing, force=moved)
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
@@ -103,8 +103,10 @@ class Relay:
             except CloudError:
                 continue
             first = self.epoch is None
-            self.epoch, self.key, self.sent = n, key, {}
+            self._requeue()
+            self.epoch, self.key = n, key
             self.plan = self.plan_path = None
+            self.receipts = {}
             return not first
         if self.epoch is None:  # admitted mid-epoch: no epoch file lists it yet, its key file does
             for n in epochs:
@@ -134,22 +136,34 @@ class Relay:
             if plan is None:
                 continue
             self.plan, self.plan_path = plan, path
+            self.receipts = next((m["receipts"] for m in messages if "receipts" in m), {})
             return
 
     def _apply_plan(self, plan: dict) -> None:
-        """Drop erased records, and what the keeper holds. An event whose segment vanished stays to be sent again,
-        since the keeper may have held a later one without reading it."""
         erased = {(r["kind"], r["id"]) for r in plan.get("erased", [])}
-        held = plan.get("received", {}).get(self.device_id)
-        in_folder = {i for ids in self.sent.values() for i in ids}
         for eid, e in list(self.events.items()):
-            if (e["record"]["kind"], e["record"]["id"]) in erased or \
-                    (held is not None and eid in in_folder and clocks.parse(e["hlc"]) <= clocks.parse(held)):
+            if (e["record"]["kind"], e["record"]["id"]) in erased:
                 del self.events[eid]
 
+    def _settle(self, listing: dict[str, str]) -> None:
+        """Drop what a read segment carried; queue again the samples of one that left the folder unread."""
+        read = set((self.receipts.get(self.device_id) or {}).get("read", []))
+        for path, carried in list(self.sent.items()):
+            if segment.parse_name(path)["seq"] in read:
+                for eid in carried["events"]:
+                    self.events.pop(eid, None)
+                del self.sent[path]
+            elif path not in listing:
+                self.samples[:0] = carried["samples"]
+                del self.sent[path]
+
+    def _requeue(self) -> None:
+        """Moving to a new epoch: send again whatever no receipt covered."""
+        self.samples[:0] = [b for carried in self.sent.values() for b in carried["samples"]]
+        self.sent = {}
+
     def _send(self, listing: dict[str, str], force: bool) -> int:
-        self.sent = {p: ids for p, ids in self.sent.items() if p in listing}
-        in_folder = {i for ids in self.sent.values() for i in ids}
+        in_folder = {i for carried in self.sent.values() for i in carried["events"]}
         todo = sorted((e for i, e in self.events.items() if i not in in_folder), key=lambda e: (e["hlc"], e["id"]))
         if not todo and not self.samples and not force:
             return 0
@@ -159,16 +173,18 @@ class Relay:
             messages = [{"events": {"events": batch, **({"kinds": self.kinds} if self.kinds else {})}}] \
                 if batch else []
             room = MAX_BATCH - len(batch)
+            batches = []
             while self.samples and room >= segment.size([{"samples": self.samples[0]}]):
                 room -= segment.size([{"samples": self.samples[0]}])
-                messages.append({"samples": self.samples.pop(0)})
+                batches.append(self.samples.pop(0))
+            messages += [{"samples": b} for b in batches]
             if not messages and not force:
                 break
             self.seq += 1
             path = segment.name("segment", self.epoch, self.seq, self.device_id)
             self.folder.create(path, segment.write("segment", self.store_id, self.device_id, self.epoch, self.seq,
                                                    messages, self.key, self.identity))
-            self.sent[path] = [e["id"] for e in batch]
+            self.sent[path] = {"events": [e["id"] for e in batch], "samples": batches}
             written, force = written + 1, False
         return written
 
