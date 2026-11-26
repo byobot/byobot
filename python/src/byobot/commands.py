@@ -1008,8 +1008,10 @@ def _cloud_status(ctx: Context) -> dict:
     keeper = Keeper(store, None)
     if keeper.is_off:
         return {"on": False, **keeper.local_status(), **warning}
+    if keeper.local_status().get("error"):  # the sync just before this failed; don't wait on Drive again
+        return {"on": True, **keeper.local_status(), **warning}
     try:
-        keeper.folder = _drive_folder(store)
+        keeper.folder = _drive_folder(store, quick=True)
         return {"on": True, **keeper.status(), **warning}
     except ByobotError as exc:
         return {"on": True, **keeper.local_status(), "error": exc.message, **warning}
