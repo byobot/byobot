@@ -130,8 +130,9 @@ def upcast(c: Contract, kind: str, version: int | None, payload: dict) -> dict:
 def lowest(c: Contract, kind: str, payload: dict) -> int:
     """The lowest version of `kind` that holds `payload`: after its last reshape, and at least the version that
     added each field it uses. Writers write this, so installs that know only older versions still read it."""
-    since = c.registry["kinds"].get(kind, {}).get("since", {})
-    floor = max((v + 1 for k, v in UPCASTS if k == kind), default=1)
+    spec = c.registry["kinds"].get(kind, {})
+    since = spec.get("since", {})
+    floor = max((v + 1 for k, v in UPCASTS if k == kind), default=spec.get("reshaped", 1))
     return min(max([floor, *(since.get(f, 1) for f in payload)]), c.version(kind) or 1)
 
 

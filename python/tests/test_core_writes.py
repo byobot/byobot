@@ -124,6 +124,9 @@ def test_a_writer_writes_the_lowest_version_that_holds_the_payload(tmp_path):
     [plain, fast] = commands.log(new, ME, [{"kind": "effort", "payload": effort(5)},
                                            {"kind": "effort", "payload": {**effort(6), "tempo": "fast"}}])
     assert (plain["kind_version"], fast["kind_version"]) == (1, 2)
+    reshaped = adds("tempo").newer(3, {"effort": {**adds("tempo").registry["kinds"]["effort"], "version": 3,
+                                                  "reshaped": 3}})
+    assert reducers.lowest(reshaped, "effort", effort(5)) == 3
     old.accept_many(new.events())
     assert reps(old, plain["record"]["id"]) == 5 and old.get("effort", fast["record"]["id"]) is None
 

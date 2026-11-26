@@ -1116,6 +1116,9 @@ public enum KindVersion {
 
     /// The kind version that added each payload field added after version 1.
     public static let since: [String: [String: Int]] = [:]
+
+    /// The latest kind version that changed the shape of earlier payloads.
+    public static let reshaped: [String: Int] = [:]
 }
 
 /// Namespaces for ids derived from other ids (UUIDv5).

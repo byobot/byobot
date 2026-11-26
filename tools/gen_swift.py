@@ -280,8 +280,11 @@ class Generator:
                  "    public static let all: [String: Int] = ["]
         lines += [f"        {json.dumps(k)}: {v['version']}," for k, v in reg["kinds"].items()]
         since = {k: v["since"] for k, v in reg["kinds"].items() if v.get("since")}
+        reshaped = {k: v["reshaped"] for k, v in reg["kinds"].items() if "reshaped" in v}
         lines += ["    ]", "", "    /// The kind version that added each payload field added after version 1.",
-                  f"    public static let since: [String: [String: Int]] = {swift_dict(since)}", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
+                  f"    public static let since: [String: [String: Int]] = {swift_dict(since)}", "",
+                  "    /// The latest kind version that changed the shape of earlier payloads.",
+                  f"    public static let reshaped: [String: Int] = {swift_dict(reshaped)}", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
         lines += [f"    public static let {camel(k)} = {json.dumps(v)}" for k, v in reg["namespaces"].items()]
         lines += ["}", "", "/// Settings this contract knows, by record id.",
                   "public enum SettingId: String, CaseIterable, Sendable {"]
