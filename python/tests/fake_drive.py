@@ -47,7 +47,7 @@ class FakeDrive:
 
     def _meta(self, f: dict) -> dict:
         return {"id": f["id"], "name": f["name"], "appProperties": f["appProperties"], "trashed": False,
-                "sha256Checksum": checksum(f["data"])}
+                "size": str(len(f["data"])), "sha256Checksum": checksum(f["data"])}
 
     def _id(self) -> str:
         self.counter += 1

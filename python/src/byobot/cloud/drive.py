@@ -34,7 +34,7 @@ UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 SCOPE = "https://www.googleapis.com/auth/drive.appdata"
 NAME = "google"
 STORE = "byobot_store"  # the appProperties key that marks a file as one store's
-FIELDS = "id,name,sha256Checksum,appProperties,trashed"
+FIELDS = "id,name,size,sha256Checksum,appProperties,trashed"
 RELIST = 600  # seconds between full listings, so a change feed that lags or misses a file never hides it for long
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)"}
 TRIES = 6
@@ -266,6 +266,7 @@ class DriveFolder:
         self._index: dict[str, list[tuple[str, str]]] | None = None  # path -> [(file id, checksum)], oldest first
         self._token: str | None = None
         self._loaded_at = 0.0
+        self._sizes: dict[str, int] = {}
 
     # The journal: path -> the id asked for before its upload.
 
@@ -299,8 +300,10 @@ class DriveFolder:
         path = self._path(f)
         if path is not None:
             self._index.setdefault(path, []).append((f["id"], f.get("sha256Checksum") or f"id:{f['id']}"))
+            self._sizes[f["id"]] = int(f.get("size") or 0)
 
     def _drop_id(self, file_id: str) -> None:
+        self._sizes.pop(file_id, None)
         for path, entries in list(self._index.items()):
             kept = [e for e in entries if e[0] != file_id]
             if kept != entries:
@@ -311,7 +314,7 @@ class DriveFolder:
 
     def _load(self) -> None:
         self._token = self.drive.json("GET", "/changes/startPageToken")["startPageToken"]
-        self._index, self._loaded_at = {}, time.monotonic()
+        self._index, self._sizes, self._loaded_at = {}, {}, time.monotonic()
         params = {"spaces": "appDataFolder", "pageSize": 1000, "orderBy": "createdTime",
                   "q": f"appProperties has {{ key='{STORE}' and value='{self.store_id}' }}",
                   "fields": f"nextPageToken,files({FIELDS})"}
@@ -350,6 +353,12 @@ class DriveFolder:
     def list(self) -> dict[str, str]:
         self.changed()
         return {p: entries[0][1] for p, entries in sorted(self._index.items())}
+
+    def size(self) -> int:
+        """Bytes the folder takes in Drive, as of the last listing."""
+        if self._index is None:
+            self._load()
+        return sum(self._sizes.get(e[0], 0) for entries in self._index.values() for e in entries)
 
     def read(self, path: str) -> bytes | None:
         if self._index is None:
@@ -409,6 +418,7 @@ class DriveFolder:
         if self._index is None:
             self._load()
         for file_id, _ in self._index.pop(_safe(path), []):
+            self._sizes.pop(file_id, None)
             try:
                 self.drive.call("DELETE", f"{API}/files/{file_id}")
             except NotFound:
