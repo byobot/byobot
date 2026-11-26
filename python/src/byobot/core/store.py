@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -88,9 +89,11 @@ class Store:
         self.conn = sqlite3.connect(self.path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
-        # WAL's recommended level: no corruption on power loss, and no flush on every commit, which on
-        # Windows costs more as the file grows.
-        self.conn.execute("PRAGMA synchronous=NORMAL")
+        # A write acknowledged to a phone must survive power loss, so every commit is flushed; on macOS only
+        # fullfsync reaches the disk itself.
+        self.conn.execute("PRAGMA synchronous=FULL")
+        if sys.platform == "darwin":
+            self.conn.execute("PRAGMA fullfsync=ON")
         self.conn.execute("PRAGMA busy_timeout=5000")
         # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
         self.conn.execute("PRAGMA secure_delete=ON")

@@ -455,3 +455,9 @@ def test_restore_refuses_an_export_with_a_bad_event(tmp_path):
         with pytest.raises(ValidationFailed, match="refused"):
             b.restore(lines)
         assert b.position() == 0
+
+
+def test_every_commit_is_flushed(pair):
+    a, _ = pair
+    assert a.conn.execute("PRAGMA synchronous").fetchone()[0] == 2
+
