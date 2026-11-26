@@ -40,6 +40,7 @@ class Relay:
     samples: list[dict] = field(default_factory=list)  # sample batches not yet in a segment
     sent: dict[str, dict] = field(default_factory=dict)  # unread segments -> {"events": ids, "samples": {line: batch}}
     refused: list[dict] = field(default_factory=list)  # sample batches the keeper refused, with why
+    held: list[dict] = field(default_factory=list)  # deletions waiting until the keeper reads what they delete
     plan: dict | None = None
     receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
@@ -61,8 +62,42 @@ class Relay:
             self.events[e["id"]] = e
 
     def send_samples(self, body: dict) -> None:
+        """Queue samples and deletions. A deletion of a sample not yet sent drops it; one of a sample in a segment
+        the keeper hasn't read waits for it, so the keeper never sees a deletion before its sample."""
+        deleted = body.get("deleted", [])
+        self._drop({d["source_id"] for d in deleted})
+        flying = self.in_flight()
+        self.held += [d for d in deleted if d["source_id"] in flying]
+        self._queue({**body, "deleted": [d for d in deleted if d["source_id"] not in flying]})
+
+    def in_flight(self) -> set[str]:
+        """The source ids of samples in segments the keeper hasn't read yet."""
+        return {s["source_id"] for c in self.sent.values() for b in c["samples"].values() for s in b["samples"]}
+
+    def unread(self) -> set[str]:
+        """The source ids of samples the keeper hasn't read yet, queued or sent. A phone with another route sends a
+        deletion of one of these here, not there."""
+        return self.in_flight() | {s["source_id"] for b in self.samples for s in b["samples"]}
+
+    def _drop(self, gone: set[str]) -> None:
+        for b in self.samples:
+            b["samples"] = [s for s in b["samples"] if s["source_id"] not in gone]
+        self.samples = [b for b in self.samples if b["samples"] or b["deleted"]]
+
+    def _release(self) -> None:
+        """Queue the held deletions whose samples the keeper has read, or that will never reach it."""
+        self._drop({d["source_id"] for d in self.held})
+        flying = self.in_flight()
+        ready = [d for d in self.held if d["source_id"] not in flying]
+        self.held = [d for d in self.held if d["source_id"] in flying]
+        if ready:
+            self._queue({"samples": [], "deleted": ready})
+
+    def _queue(self, body: dict) -> None:
         items = [("samples", s) for s in body.get("samples", [])] + [("deleted", d) for d in body.get("deleted", [])]
-        for i in range(0, max(len(items), 1), MAX_BATCH):
+        if not items:
+            return
+        for i in range(0, len(items), MAX_BATCH):
             part = items[i:i + MAX_BATCH]
             self.samples.append({**body, "samples": [v for k, v in part if k == "samples"],
                                  "deleted": [v for k, v in part if k == "deleted"]})
@@ -81,6 +116,7 @@ class Relay:
         if self.plan is not None:
             self._apply_plan(self.plan)
         self._settle(listing)
+        self._release()
         written = self._send(listing, force=moved)
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
