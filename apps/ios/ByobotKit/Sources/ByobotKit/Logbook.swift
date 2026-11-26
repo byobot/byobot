@@ -375,6 +375,7 @@ public struct Logbook: Sendable {
         if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
             state.hlc = hlc  // what's written here next comes after what the laptop has seen
         }
+        for record in window.erased ?? [] { drop(record.kind, record.id) }
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
         let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
@@ -394,6 +395,22 @@ public struct Logbook: Sendable {
         }
         if !waiting.contains(Self.key("setting", SettingId.currentLocation.rawValue)), activeSession == nil {
             if case .string(let id)? = setting(.currentLocation) { state.locationId = id } else { state.locationId = nil }
+        }
+    }
+
+    /// Forget everything this phone holds of a record that was erased.
+    mutating func drop(_ kind: String, _ id: String) {
+        let gone = Set(state.events.filter { $0.record.kind == kind && $0.record.id == id }.map(\.id))
+        state.events.removeAll { gone.contains($0.id) }
+        state.pending.removeAll { gone.contains($0) }
+        state.rejected.removeAll { gone.contains($0.eventId) }
+        state.heads?[Self.key(kind, id)] = nil
+        switch kind {
+        case "effort": state.remoteOriginals?[id] = nil
+        case "session" where state.activeSessionId == id: state.activeSessionId = nil
+        case "location" where state.locationId == id: state.locationId = nil
+        case "planned_session": state.workouts?[id] = nil
+        default: break
         }
     }
 

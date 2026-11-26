@@ -168,6 +168,21 @@ final class LogbookTests: XCTestCase {
         XCTAssertLessThan(book.state.hlc ?? "", HLC.ceiling, "a reading past 2200 is ignored")
     }
 
+    func testWhatWasErasedLeavesThePhone() throws {
+        var book = makeLogbook()
+        let session = book.startSession(name: "Easy run")
+        let kept = book.logEffort(activityId: "run", metrics: [:])
+        let erased = book.logEffort(activityId: "run", metrics: ["distance": .exact(5, unit: "km")])
+        var window = try Fixtures.window()
+        window.erased = [ErasedRecord(kind: "effort", id: erased.id), ErasedRecord(kind: "session", id: session.id)]
+        book.applyPlan(window)
+        XCTAssertEqual(book.localEfforts.map(\.id), [kept.id])
+        XCTAssertFalse(book.pendingEvents.contains { $0.record.id == erased.id || $0.record.id == session.id })
+        XCTAssertNil(book.state.heads?["effort/\(erased.id)"])
+        XCTAssertNil(book.activeSession)
+        XCTAssertFalse(book.canUndo(erased.id))
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()
