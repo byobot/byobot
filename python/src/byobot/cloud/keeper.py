@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+from .. import __version__
 from ..core import relay as rules
 from ..core import sources
 from ..core.store import Store
@@ -27,6 +28,7 @@ MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
 SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
+NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
 
 DDL = """
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -346,7 +348,7 @@ class Keeper:
                 report["read"] += 1
             elif outcome != "ignored":
                 report["skipped"].append({"path": path, "reason": outcome})
-                if where["kind"] == "segment" and where["device_id"] != self.device_id:
+                if where["kind"] == "segment" and where["device_id"] != self.device_id and NEWER not in outcome:
                     self.folder.delete(path)  # its writer sees it gone and sends what it held again
         return report
 
@@ -484,6 +486,10 @@ class Keeper:
             self._set("error", message)
 
     def _sync(self) -> dict:
+        if self._get("read_by") != __version__:  # upgraded: read again what an older byobot couldn't
+            with self.store._tx():
+                self.store.conn.execute("DELETE FROM cloud_read WHERE instr(outcome, ?)", (NEWER,))
+                self._set("read_by", __version__)
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
@@ -592,6 +598,10 @@ class Keeper:
             return "compact"
         return None
 
+    def _newer(self) -> bool:
+        found = self.store.conn.execute("SELECT 1 FROM cloud_read WHERE instr(outcome, ?) LIMIT 1", (NEWER,))
+        return found.fetchone() is not None
+
     def _waiting(self) -> list[str]:
         """Active devices that haven't written in the current epoch yet, so older epochs can't be deleted."""
         return [d["id"] for d in self.devices() if d["class"] == "relay" and d["moved_epoch"] < self.epoch]
@@ -607,6 +617,8 @@ class Keeper:
         waiting = self._waiting()
         if waiting:
             return {"cleanup_waits_on": waiting}
+        if self._newer():
+            return {"cleanup_waits_on": ["an upgrade of byobot on this Mac"]}
         for path in old:
             self.folder.delete(path)
         with self.store._tx():
@@ -624,6 +636,8 @@ class Keeper:
             out["off"] = True
         if self._get("error"):
             out["error"] = self._get("error")
+        if self._newer():
+            out["upgrade"] = "a device writes with a newer byobot; upgrade byobot on this Mac to read it"
         out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
                            "last_heard": _when(synced if d["class"] == "keeper" else self._get(f"heard:{d['id']}"))}
                           for d in self.devices()]
