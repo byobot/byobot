@@ -18,10 +18,11 @@ from ..core import relay as rules
 from ..core.store import Store
 from ..util import ByobotError, ValidationFailed, uuid7
 from . import files, segment
-from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, unb64
+from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
 
 JOIN_TTL_S = 600
+MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
 
 DDL = """
@@ -38,33 +39,91 @@ CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
         self.store, self.folder, self.clock = store, folder, clock
-        for statement in DDL.strip().split(";"):
-            if statement.strip():
-                store.conn.execute(statement)
+        _tables(store)
         if self._get("device_id") is None:
             raise ByobotError("the cloud logbook isn't set up for this store; run byobot cloud setup")
         self.device_id = self._get("device_id")
         self.identity = Identity.from_private(json.loads(self._get("identity")))
+        self.recovery_code: str | None = None
 
     # -- setup -----------------------------------------------------------------
 
     @classmethod
-    def setup(cls, store: Store, folder: Folder, clock: Callable[[], float] = time.time) -> Keeper:
-        """Make this store the folder's keeper and start the first epoch."""
-        for statement in DDL.strip().split(";"):
-            if statement.strip():
-                store.conn.execute(statement)
+    def setup(cls, store: Store, folder: Folder, clock: Callable[[], float] = time.time,
+              recovery: bool = False) -> Keeper:
+        """Make this store the folder's keeper and start the first epoch. With ``recovery``, ``recovery_code`` on
+        the result is shown once and opens every later epoch's recovery key."""
+        _tables(store)
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
         if any(p.startswith("epochs/") for p in folder.list()):
             raise ByobotError("this cloud folder already has a keeper; restore with the recovery code instead")
         identity = Identity.generate()
+        code = recovery_code() if recovery else None
+        meta = [("device_id", uuid7()), ("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
+                ("checkpoint_position", "0")]
+        if code:
+            meta.append(("recovery_key", b64(recovery_key(code, store.store_id))))
         with store._tx():
-            for key, value in (("device_id", uuid7()), ("identity", json.dumps(identity.private())),
-                               ("epoch", "0"), ("seq", "1"), ("checkpoint_position", "0")):
-                store.conn.execute("INSERT INTO cloud_meta VALUES (?, ?)", (key, value))
+            store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
+            store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES "
+                               "(?, 'keeper', ?, ?, 1, 1)", (meta[0][1], identity.public()["box"],
+                                                             identity.public()["sign"]))
         keeper = cls(store, folder, clock)
-        keeper._enrol({"id": keeper.device_id, "class": "keeper", **identity.public()}, 1)
+        keeper.start_epoch()
+        keeper.recovery_code = code
+        return keeper
+
+    @classmethod
+    def recover(cls, store: Store, folder: Folder, code: str, clock: Callable[[], float] = time.time) -> Keeper:
+        """Become the keeper again from the folder and the recovery code: on a new Mac with an empty store, or on
+        one restored from an export of this store. Reads every epoch the code opens, then starts a new one."""
+        _tables(store)
+        if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
+            raise ByobotError("this store is already the cloud logbook's keeper")
+        listing = folder.list()
+        opened: dict[int, dict] = {}
+        store_id = None
+        for path in (p for p in listing if p.startswith("keys/") and p.endswith("/recovery.key")):
+            data = folder.read(path) or b""
+            try:
+                found = json.loads(data)["store_id"]
+                epoch = int(path.split("/")[1])
+                opened[epoch] = files.open_recovery(data, recovery_key(code, found), found, epoch)
+                store_id = found
+            except (ValueError, KeyError, TypeError, CloudError) as exc:
+                if "recovery code" in str(exc):
+                    raise ByobotError(str(exc)) from None
+        identity = epoch_body = None
+        for n in sorted(opened, reverse=True):
+            identity = Identity.from_private(opened[n]["keeper"])
+            try:
+                epoch_body = files.read_epoch(folder.read(files.epoch_path(n)) or b"", identity.public()["sign"],
+                                              store_id, n)
+                break
+            except CloudError:
+                continue
+        if epoch_body is None:
+            raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
+        top = opened[n]
+        if store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+            if store.store_id != store_id or store.store_key.hex() != top["store_key"]:
+                raise ByobotError("this store isn't the one the cloud folder belongs to")
+        else:
+            store.adopt(store_id, top["store_key"])
+        own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{top['device_id']}/", "plan/"))]
+        seq = max([w["seq"] for w in own if w] + [0]) + 1
+        meta = [("device_id", top["device_id"]), ("identity", json.dumps(identity.private())), ("epoch", n),
+                ("seq", seq), ("checkpoint_position", 0), ("recovery_key", b64(recovery_key(code, store_id)))]
+        with store._tx():
+            store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
+            store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
+                                   [(e, c["epoch_key"]) for e, c in opened.items()])
+            store.conn.executemany(
+                "INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?)",
+                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in epoch_body["devices"]])
+        keeper = cls(store, folder, clock)
+        keeper._read(listing)
         keeper.start_epoch()
         return keeper
 
@@ -91,7 +150,7 @@ class Keeper:
 
     def devices(self, removed: bool = False) -> list[dict]:
         return [dict(r) for r in self.store.conn.execute(
-            "SELECT * FROM cloud_devices WHERE removed = ? ORDER BY joined_epoch, id", (int(removed),))]
+            "SELECT * FROM cloud_devices WHERE removed = ? ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
 
     def device(self, device_id: str) -> dict | None:
         row = self.store.conn.execute("SELECT * FROM cloud_devices WHERE id = ?", (device_id,)).fetchone()
@@ -141,6 +200,11 @@ class Keeper:
         for d in devices:
             if d["id"] != self.device_id:
                 self._write(files.key_path(n, d["id"]), files.key_file(self.identity, store_id, n, d, key))
+        if self._get("recovery_key"):
+            content = {"epoch_key": b64(key), "store_key": self.store.store_key.hex(), "device_id": self.device_id,
+                       "keeper": self.identity.private()}
+            self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
+                                                                    content))
         events = self.store.events()
         position = self.store.position()
         parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
@@ -151,6 +215,7 @@ class Keeper:
             self._set("checkpoint_position", position)
             self.store.conn.execute("DELETE FROM cloud_shown")
             self._unset("plan_digest")
+            self._unset("epoch_pending")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts)))
@@ -247,6 +312,11 @@ class Keeper:
         except CloudError as exc:
             return str(exc)
         apply(self.store, writer, device["class"], messages, self._shown)
+        erased = set(self.store.erased())
+        if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
+                          for m in messages for e in _events(m)):
+            with self.store._tx():
+                self._set("epoch_pending", "erase")  # it carried a record already erased here
         with self.store._tx():
             self.store.conn.execute("UPDATE cloud_devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
@@ -306,11 +376,103 @@ class Keeper:
 
     def sync(self) -> dict:
         listing = self.folder.list()
-        report = {"epoch": self.epoch, **self._admit(listing), **self._read(listing)}
+        report: dict[str, Any] = {}
+        if files.epoch_path(self.epoch) not in listing:  # the folder was deleted, or a start was cut short
+            report["reseeded"] = self.start_epoch()
+            listing = self.folder.list()
+        report.update(self._admit(listing))
+        report.update(self._read(listing))
+        report.update(self._cleanup())
+        reason = self._new_epoch_reason(self.folder.list())
+        if reason:
+            report["new_epoch"] = {"epoch": self.start_epoch(), "reason": reason}
+            report.update(self._cleanup())
         self._publish_device()
         report["published"] = self.publish_events()
         report["plan"] = self.publish_plan()
-        return report
+        return {"epoch": self.epoch, **report}
+
+    def compact(self) -> int:
+        """Rewrite the folder into a new epoch now; the old one is deleted once every device has moved."""
+        return self.start_epoch()
+
+    def remove(self, device_id: str) -> int:
+        """Retire a device: a new epoch whose key isn't sealed to it. What it already read, it keeps."""
+        device = self.device(device_id)
+        if device is None or device["removed"]:
+            raise ByobotError(f"no device {device_id} in this cloud logbook")
+        if device["class"] == "keeper":
+            raise ByobotError("the keeper can't remove itself")
+        with self.store._tx():
+            self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+        self.folder.delete(files.device_path(device_id))
+        return self.start_epoch()
+
+    def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
+        last_erase = self.store.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
+        if last_erase > int(self._get("checkpoint_position")):
+            return "erase"
+        if self._get("epoch_pending"):
+            return self._get("epoch_pending")
+        if len(listing) > MAX_FILES and not self._waiting():
+            return "compact"
+        return None
+
+    def _waiting(self) -> list[str]:
+        """Active devices that haven't written in the current epoch yet, so older epochs can't be deleted."""
+        return [d["id"] for d in self.devices() if d["class"] == "relay" and d["moved_epoch"] < self.epoch]
+
+    def _cleanup(self) -> dict:
+        """Once every active device writes in the current epoch: delete every older file and key outright."""
+        current = self.epoch
+        old_keys = [r[0] for r in self.store.conn.execute("SELECT epoch FROM cloud_keys WHERE epoch < ?", (current,))]
+        listing = self.folder.list()
+        old = [p for p in listing if (e := _epoch_of(p)) is not None and e < current]
+        if not old and not old_keys:
+            return {}
+        waiting = self._waiting()
+        if waiting:
+            return {"cleanup_waits_on": waiting}
+        for path in old:
+            self.folder.delete(path)
+        with self.store._tx():
+            self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch < ?", (current,))
+            self.store.conn.executemany("DELETE FROM cloud_read WHERE path = ?", [(p,) for p in old])
+        return {"cleaned": len(old)}
+
+    def status(self) -> dict:
+        listing = self.folder.list()
+        return {"store_id": self.store.store_id, "epoch": self.epoch, "files": len(listing),
+                "recovery": bool(self._get("recovery_key")),
+                "devices": [{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")}
+                            for d in self.devices()],
+                "cleanup_waits_on": self._waiting() if any((e := _epoch_of(p)) is not None and e < self.epoch
+                                                           for p in listing) else []}
+
+
+def _tables(store: Store) -> None:
+    for statement in DDL.strip().split(";"):
+        if statement.strip():
+            store.conn.execute(statement)
+
+
+def _epoch_of(path: str) -> int | None:
+    """The epoch a cloud file belongs to; None for a device file."""
+    found = segment.parse_name(path)
+    if found:
+        return found["epoch"]
+    parts = path.split("/")
+    if parts[0] == "epochs" and len(parts) == 2 and parts[1][:4].isdigit():
+        return int(parts[1][:4])
+    if parts[0] == "keys" and len(parts) == 3 and parts[1].isdigit():
+        return int(parts[1])
+    return None
+
+
+def _events(message: dict) -> list[dict]:
+    body = message.get("events")
+    events = body.get("events") if isinstance(body, dict) else None
+    return [e for e in events if isinstance(e, dict)] if isinstance(events, list) else []
 
 
 def apply(store: Store, writer: str, cls: str, messages: list[dict],
