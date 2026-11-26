@@ -65,7 +65,9 @@ final class CloudRelayTests: XCTestCase {
         return relay
     }
 
-    func event(_ n: Int) -> Event {
+    func event(_ n: Int) -> Event { Self.event(n) }
+
+    static func event(_ n: Int) -> Event {
         Event(id: "0193a0b0-0000-7000-8000-0000000e\(String(format: "%04d", n))", schemaVersion: 1,
               record: RecordRef(kind: "effort", id: "0193a0b0-0000-7000-8000-0000000f\(String(format: "%04d", n))"),
               op: .put, kindVersion: 1, hlc: String(format: "%016d-0000", n), ts: "2026-11-23T08:00:00-05:00",
@@ -73,7 +75,9 @@ final class CloudRelayTests: XCTestCase {
               payload: .object([:]))
     }
 
-    func weighed(_ id: String) -> Sample {
+    func weighed(_ id: String) -> Sample { Self.weighed(id) }
+
+    static func weighed(_ id: String) -> Sample {
         Sample(source: "apple_health", sourceId: id, type: "HKQuantityTypeIdentifierBodyMass",
                start: "2026-11-23T06:30:00-05:00", value: .number(80), unit: "kg")
     }
