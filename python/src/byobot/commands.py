@@ -782,12 +782,17 @@ def _drive_folder(store: Store, quick: bool = False) -> Any:
     return DriveFolder(store.store_id, Drive(tries=2, timeout=10) if quick else Drive())
 
 
+def lock_path(store: Store) -> Path:
+    """Beside the database, not named for its store id, which `cloud recover` changes."""
+    return Path(f"{store.path}.cloud-lock")
+
+
 @contextmanager
 def _lock(store: Store, wait: bool = True) -> Iterator[bool]:
     from byobot.cloud.lock import Busy, held
 
     try:
-        with held(home() / "cloud" / f"keeper-{store.store_id}.lock", wait) as mine:
+        with held(lock_path(store), wait) as mine:
             yield mine
     except Busy:
         raise ByobotError("another byobot is syncing with Drive; try again") from None
@@ -966,9 +971,10 @@ def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
     sys.stderr.write("Waiting for the phone. Press Ctrl-C to stop.\n")
     try:
         while True:
-            report = _sync(keeper)
-            if "join" in report:
-                return {**out, "join": report["join"], **({"device": report["device"]} if "device" in report else {})}
+            _sync(keeper)
+            ended = keeper.last_join()  # this process or `serve` may have admitted it
+            if ended:
+                return {**out, **ended}
             time.sleep(JOIN_POLL_S)
     except KeyboardInterrupt:
         return {**out, "join": "stopped"}

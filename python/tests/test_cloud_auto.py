@@ -9,7 +9,7 @@ from byobot.cloud.lock import held
 from byobot.cloud.relay import Relay
 from byobot.commands import Context, run
 from byobot.serve import CloudPoller
-from byobot.util import ValidationFailed, home
+from byobot.util import ValidationFailed
 
 from test_cloud_commands import CLI, cloud, fake  # noqa: F401 - fixtures
 from test_cloud_keeper import PHONE, event
@@ -83,7 +83,7 @@ def test_a_read_skips_drive_while_another_process_syncs(phone):
     relay.log([event()])
     relay.sync()
     age(ctx)
-    with held(home() / "cloud" / f"keeper-{ctx.store().store_id}.lock") as mine:
+    with held(commands.lock_path(ctx.store())) as mine:
         assert mine
         assert commands.autosync(ctx.store()) is None
     assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
@@ -152,3 +152,27 @@ def test_cloud_off_can_delete_the_folder(phone, fake):
     assert run("cloud status", ctx, {}) == {"on": False}
     assert ctx.store().counts()  # the store is untouched
     assert run("cloud setup", ctx, {})["epoch"] == 1
+
+
+def test_a_read_during_recover_finds_the_keeper_busy(store, tmp_path, monkeypatch):
+    from byobot.cloud.folder import MemoryFolder
+    from byobot.cloud.keeper import Keeper
+    from byobot.core.store import Store
+    from test_cloud_keeper import Clock, joined
+
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock(), recovery=True)
+    joined(keeper, folder)
+    fresh = Store(tmp_path / "new-mac.db")
+    seen = []
+    real = Keeper._read
+
+    def read(self, listing):  # an agent's read while recover is still reading the folder
+        if not seen:
+            seen.append(commands.autosync(Store(fresh.path), folder=folder))
+        return real(self, listing)
+
+    monkeypatch.setattr(Keeper, "_read", read)
+    with commands._lock(fresh):  # as `cloud recover` holds it, under the new store's old id
+        Keeper.recover(fresh, folder, keeper.recovery_code, Clock())
+    assert seen == [None]

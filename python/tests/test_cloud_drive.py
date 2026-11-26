@@ -265,3 +265,47 @@ def test_a_phone_upload_that_fails_keeps_its_samples_for_the_next_sync(fake, tmp
         relay.sync()
     settled(fake, Mac(fake, tmp_path, store.path), relay)
     assert [r["payload"]["source_id"] for r in store.records("source_record")] == ["W1"]
+
+
+def test_a_start_retried_while_drive_still_hides_its_leftovers_seals_the_same_key(fake, tmp_path, store,
+                                                                                    monkeypatch):
+    keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id, "mac1"), Clock())
+    relay = Relay.join(folder_on(fake, tmp_path, store.store_id, "phone"), keeper.join_code()["link"], PHONE)
+    keeper.sync()
+    relay.sync()
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    commands.erase(store, ME, "location", "example-gym")
+    before = set(fake.files)
+    real = Keeper._segment
+
+    def die(self, kind, *rest):
+        if kind == "checkpoint":
+            raise Killed("power cut")
+        return real(self, kind, *rest)
+
+    monkeypatch.setattr(Keeper, "_segment", die)
+    with pytest.raises(Killed):
+        keeper.sync()  # epoch 2's key files are up, then the Mac dies
+    monkeypatch.setattr(Keeper, "_segment", real)
+    fake.lagging = set(fake.files) - before
+    again = Keeper(Store(store.path), folder_on(fake, tmp_path, store.store_id, "mac2"), Clock())
+    assert again.sync()["reseeded"] == 2
+    fake.lagging = set()
+    sent = event()
+    relay.log([sent])
+    for _ in range(3):
+        relay.sync()
+        again.sync()
+    assert relay.key == again.key(2) and again.store.event(sent["id"])
+
+
+def test_a_listing_behind_another_process_starts_no_extra_epoch(fake, tmp_path, store):
+    a = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id, "a"), Clock())
+    b = Keeper(Store(store.path), folder_on(fake, tmp_path, store.store_id, "b"), Clock())
+    b.sync()
+    before = set(fake.files)
+    assert a.compact() == 2  # `cloud compact` in another process
+    fake.lagging = set(fake.files) - before
+    assert "reseeded" not in b.sync()
+    fake.lagging = set()
+    assert "reseeded" not in b.sync() and b.epoch == 2

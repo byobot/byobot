@@ -352,7 +352,11 @@ class DriveFolder:
 
     def list(self) -> dict[str, str]:
         self.changed()
-        return {p: entries[0][1] for p, entries in sorted(self._index.items())}
+        return {p: entries[-1][1] for p, entries in sorted(self._index.items())}
+
+    def refresh(self) -> None:
+        """List the folder afresh rather than through the change feed."""
+        self._load()
 
     def size(self) -> int:
         """Bytes the folder takes in Drive, as of the last listing."""
@@ -363,7 +367,7 @@ class DriveFolder:
     def read(self, path: str) -> bytes | None:
         if self._index is None:
             self._load()
-        for file_id, _ in list(self._index.get(_safe(path), [])):
+        for file_id, _ in reversed(self._index.get(_safe(path), [])):  # a run that retried wrote the newest
             try:
                 return self.drive.call("GET", f"{API}/files/{file_id}", {"alt": "media"})
             except NotFound:

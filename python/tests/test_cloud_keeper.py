@@ -1,6 +1,7 @@
 """The keeper and a relay over a local folder: joining, sending both ways, the plan, and what gets refused."""
 
 import json
+import sqlite3
 
 import pytest
 
@@ -10,6 +11,7 @@ from byobot.cloud.folder import Exists, LocalFolder, MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.cloud.relay import Relay, parse_join
 from byobot.core import commands, hlc
+from byobot.core.store import Store
 from byobot.util import ByobotError, uuid7
 
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
@@ -226,3 +228,85 @@ def test_the_keeper_and_a_relay_work_over_a_local_folder(store, tmp_path, clock)
     with pytest.raises(CloudError):
         segment.read(b"junk", path="plan/0001-0000000001.seg", store_id=store.store_id, key=keeper.key(1),
                      sign_public=keeper.identity.public()["sign"])
+
+
+class Busy(MemoryFolder):
+    """Each upload is where the hub would write a set the phone pushed."""
+
+    def __init__(self, db):
+        super().__init__()
+        self.db, self.blocked = db, []
+
+    def create(self, path, data):
+        other = sqlite3.connect(self.db, isolation_level=None, timeout=0.1)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            other.execute("ROLLBACK")
+        except sqlite3.OperationalError:
+            self.blocked.append(path)
+        finally:
+            other.close()
+        super().create(path, data)
+
+
+def test_uploads_leave_the_store_free_for_other_writers(store):
+    folder = Busy(store.path)
+    keeper = Keeper.setup(store, folder, Clock())
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    folder.blocked.clear()
+    keeper.sync()
+    keeper.compact()
+    assert folder.blocked == []
+
+
+class Flaky(MemoryFolder):
+    """Key uploads fail outright, or land with their answer lost."""
+
+    def __init__(self):
+        super().__init__()
+        self.fail = self.lose = False
+
+    def create(self, path, data):
+        if self.fail and path.startswith("keys/"):
+            raise ByobotError("can't reach Google Drive")
+        super().create(path, data)
+        if self.lose and path.startswith("keys/"):
+            self.lose = False
+            raise ByobotError("can't reach Google Drive")
+
+
+def test_a_failed_key_upload_keeps_the_join_code(store):
+    folder = Flaky()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = Relay.join(folder, keeper.join_code()["link"], PHONE)
+    folder.fail = True
+    with pytest.raises(ByobotError):
+        keeper.sync()
+    folder.fail = False
+    assert keeper.sync()["join"] == "admitted"
+    relay.sync()
+    assert relay.key is not None
+
+
+def test_a_key_upload_whose_answer_was_lost_still_admits_the_phone(store):
+    folder = Flaky()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = Relay.join(folder, keeper.join_code()["link"], PHONE)
+    folder.lose = True
+    assert keeper.sync()["join"] == "admitted"
+    sent = event()
+    relay.log([sent])
+    relay.sync()
+    keeper.sync()
+    assert store.event(sent["id"])
+
+
+def test_another_process_admitting_the_phone_ends_the_join(store):
+    folder = MemoryFolder()
+    cli = Keeper.setup(store, folder, Clock())
+    serve = Keeper(Store(store.path), folder, Clock())
+    cli.join_code()
+    assert cli.last_join() is None
+    Relay.join(folder, cli.join_code()["link"], PHONE)
+    serve.sync()
+    assert cli.last_join() == {"join": "admitted", "device": PHONE}

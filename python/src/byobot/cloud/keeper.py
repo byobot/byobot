@@ -25,6 +25,7 @@ from .folder import Exists, Folder, checksum
 JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
+MISSING_S = 30  # past Drive's change-feed lag
 
 DDL = """
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -194,10 +195,11 @@ class Keeper:
         self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, 'written') ON CONFLICT (path) DO UPDATE SET "
                                 "checksum = excluded.checksum, outcome = excluded.outcome", (path, checksum(data)))
 
-    def _segment(self, kind: str, seq: int, messages: list[dict]) -> str:
-        path = segment.name(kind, self.epoch, seq, self.device_id)
-        self._write(path, segment.write(kind, self.store.store_id, self.device_id, self.epoch, seq, messages,
-                                        self.key(self.epoch), self.identity))
+    def _segment(self, kind: str, seq: int, messages: list[dict], epoch: int | None = None) -> str:
+        epoch = self.epoch if epoch is None else epoch
+        path = segment.name(kind, epoch, seq, self.device_id)
+        self._write(path, segment.write(kind, self.store.store_id, self.device_id, epoch, seq, messages,
+                                        self.key(epoch), self.identity))
         return path
 
     # -- epochs ------------------------------------------------------------------
@@ -205,8 +207,10 @@ class Keeper:
     def start_epoch(self) -> int:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
-        n = self.epoch + 1
-        key = new_key()
+        n = int(self._get("starting") or self.epoch + 1)
+        with self.store._tx():
+            self._set("starting", n)
+        key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
         listing = self.folder.list()
         self._seq_floor(listing)
@@ -214,8 +218,7 @@ class Keeper:
             if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
                 self.folder.delete(path)
         with self.store._tx():
-            self.store.conn.execute("INSERT INTO cloud_keys VALUES (?, ?) ON CONFLICT (epoch) DO UPDATE SET "
-                                    "key = excluded.key", (n, b64(key)))
+            self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
         devices = [{k: d[k] for k in ("id", "class", "box", "sign")} for d in self.devices()]
         for d in devices:
             if d["id"] != self.device_id:
@@ -225,20 +228,27 @@ class Keeper:
                        "keeper": self.identity.private()}
             self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
                                                                     content))
-        with self.store._tx():  # the checkpoint and its position from one snapshot, so no event falls between
+        self.store.conn.execute("BEGIN")  # the checkpoint and its position from one snapshot
+        try:
             events = self.store.events()
             position = self.store.position()
-            parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
+        finally:
+            self.store.conn.execute("COMMIT")
+        parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
+        for i, part in enumerate(parts):  # uploads hold no write lock, so the hub and other writers go on
+            self._segment("checkpoint", i, [{"events": {"events": part}}], n)
+        with self.store._tx():
             self._set("epoch", n)
-            for i, part in enumerate(parts):
-                self._segment("checkpoint", i, [{"events": {"events": part}}])
             self._set("checkpoint_position", position)
             self.store.conn.execute("DELETE FROM cloud_shown")
             self._unset("plan_digest")
             self._unset("epoch_pending")
+            self._unset("missing_since")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts)))
+        with self.store._tx():
+            self._unset("starting")
         return n
 
     # -- joining -------------------------------------------------------------------
@@ -249,6 +259,7 @@ class Keeper:
         expires = self.clock() + JOIN_TTL_S
         with self.store._tx():
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
+            self._unset("last_join")
         code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper": self.identity.public()["sign"],
                 "expires": expires}
         return {**code, "link": "byobot://cloud-join?" + urlencode(
@@ -259,9 +270,7 @@ class Keeper:
         if not join:
             return {}
         if self.clock() > join["expires"]:
-            with self.store._tx():
-                self._unset("join")
-            return {"join": "expired"}
+            return self._joined({"join": "expired"})
         secret = unb64(join["secret"])
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
         valid = []
@@ -282,16 +291,35 @@ class Keeper:
                 valid.append(found)
         if not valid:
             return {}
-        with self.store._tx():
-            self._unset("join")
         if len(valid) > 1:
-            return {"join": "refused: two devices answered one code; show a new code"}
+            return self._joined({"join": "refused: two devices answered one code; show a new code"})
         device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
-        self._write(files.key_path(self.epoch, device["id"]),
-                    files.key_file(self.identity, self.store.store_id, self.epoch, device, self.key(self.epoch)))
+        path = files.key_path(self.epoch, device["id"])
+        try:  # the code stays good until the phone's key is in the folder
+            self._write(path, files.key_file(self.identity, self.store.store_id, self.epoch, device,
+                                             self.key(self.epoch)))
+        except ByobotError:  # an earlier try landed and its answer was lost
+            try:
+                landed = files.key_device(self.folder.read(path) or b"", self.identity.public()["sign"],
+                                          self.store.store_id, self.epoch)
+            except CloudError:
+                landed = None
+            if landed != device:
+                raise
+        return self._joined({"join": "admitted", "device": device["id"]}, device)
+
+    def _joined(self, outcome: dict, device: dict | None = None) -> dict:
+        """End the join: enrol the device if one was admitted, and keep the outcome for `cloud join`."""
         with self.store._tx():
-            self._enrol(device, self.epoch)
-        return {"join": "admitted", "device": device["id"]}
+            if device:
+                self._enrol(device, self.epoch)
+            self._unset("join")
+            self._set("last_join", json.dumps(outcome))
+        return outcome
+
+    def last_join(self) -> dict | None:
+        """How the last join ended, once it has."""
+        return None if self._get("join") else json.loads(self._get("last_join") or "null")
 
     # -- reading -------------------------------------------------------------------
 
@@ -379,8 +407,9 @@ class Keeper:
         for i in range(0, len(events), rules.MAX_BATCH):
             part = events[i:i + rules.MAX_BATCH]
             with self.store._tx():
-                self._segment("segment", self._next_seq(), [{"events": {"events": part}}])
-                self._shown([e["id"] for e in part])
+                seq = self._next_seq()
+            self._segment("segment", seq, [{"events": {"events": part}}])
+            self._shown([e["id"] for e in part])
         return len(events)
 
     def plan(self) -> dict:
@@ -418,7 +447,9 @@ class Keeper:
             return False
         old = [p for p in self.folder.list() if p.startswith("plan/")]
         with self.store._tx():
-            path = self._segment("plan", self._next_seq(), messages)
+            seq = self._next_seq()
+        path = self._segment("plan", seq, messages)
+        with self.store._tx():
             self._set("plan_digest", digest)
         for p in old:
             if p != path:
@@ -449,9 +480,15 @@ class Keeper:
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
-        if files.epoch_path(self.epoch) not in listing:  # the folder was deleted, or a start was cut short
-            report["reseeded"] = self.start_epoch()
+        there = files.epoch_path(self.epoch) in listing
+        starting = self._get("starting")
+        if starting and (starting != str(self.epoch) or not there) or not there and self._gone():
+            report["reseeded"] = self.start_epoch()  # a start was cut short, or the folder was deleted
             listing = self.folder.list()
+        elif there and (starting or self._get("missing_since")):
+            with self.store._tx():
+                self._unset("missing_since")
+                self._unset("starting")
         report.update(self._admit(listing))
         report.update(self._read(listing))
         report.update(self._cleanup())
@@ -463,6 +500,24 @@ class Keeper:
         report["published"] = self.publish_events()
         report["plan"] = self.publish_plan()
         return {"epoch": self.epoch, **report}
+
+    def _gone(self) -> bool:
+        """Whether the current epoch's file is really gone, not just missing from a listing that lags behind
+        another process: still missing on a fresh listing a while after it was first missed."""
+        since = self._get("missing_since")
+        if since is None:
+            with self.store._tx():
+                self._set("missing_since", self.clock())
+            return False
+        if self.clock() - float(since) < MISSING_S:
+            return False
+        if hasattr(self.folder, "refresh"):
+            self.folder.refresh()
+        if files.epoch_path(self.epoch) in self.folder.list():
+            with self.store._tx():
+                self._unset("missing_since")
+            return False
+        return True
 
     def compact(self) -> int:
         """Rewrite the folder into a new epoch now; the old one is deleted once every device has moved."""
@@ -477,6 +532,7 @@ class Keeper:
             raise ByobotError("the keeper can't remove itself")
         with self.store._tx():
             self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
 
