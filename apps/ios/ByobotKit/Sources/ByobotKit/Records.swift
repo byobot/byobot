@@ -79,10 +79,22 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var sessions: [PerformedSession]
     /// Efforts logged against them, and the last two times each planned activity was done at each location.
     public var efforts: [PerformedEffort]
+    // Older laptops send none of these.
+    /// The laptop's clock.
+    public var hlc: String?
+    /// Records a person writes that were erased, so the phone drops what it holds of them.
+    public var erased: [ErasedRecord]?
+    public var kindVersions: [String: Int]?
+    /// The latest of this phone's events the laptop holds; empty when it holds none.
+    public var received: [String: String]?
+    /// This phone's events the laptop refused.
+    public var rejected: [Rejection]?
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
-                overlays: [Overlay] = [], sessions: [PerformedSession] = [], efforts: [PerformedEffort] = []) {
+                overlays: [Overlay] = [], sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
+                hlc: String? = nil, erased: [ErasedRecord]? = nil, kindVersions: [String: Int]? = nil,
+                received: [String: String]? = nil, rejected: [Rejection]? = nil) {
         self.from = from
         self.to = to
         self.activities = activities
@@ -93,11 +105,18 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.overlays = overlays
         self.sessions = sessions
         self.efforts = efforts
+        self.hlc = hlc
+        self.erased = erased
+        self.kindVersions = kindVersions
+        self.received = received
+        self.rejected = rejected
     }
 
     enum CodingKeys: String, CodingKey {
-        case from, to, activities, locations, settings, plans, overlays, sessions, efforts
+        case from, to, activities, locations, settings, plans, overlays, sessions, efforts, hlc, erased, received,
+             rejected
         case plannedSessions = "planned_sessions"
+        case kindVersions = "kind_versions"
     }
 }
 
