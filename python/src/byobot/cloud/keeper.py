@@ -59,7 +59,7 @@ class Keeper:
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
         if any(p.startswith("epochs/") for p in folder.list()):
-            raise ByobotError("this cloud folder already has a keeper; restore with the recovery code instead")
+            raise ByobotError("this cloud folder already has a keeper; run `byobot cloud recover` with the recovery code instead")
         identity = Identity.generate()
         code = recovery_code() if recovery else None
         meta = [("device_id", uuid7()), ("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
@@ -492,6 +492,12 @@ def _tables(store: Store) -> None:
     for statement in DDL.strip().split(";"):
         if statement.strip():
             store.conn.execute(statement)
+
+
+def is_keeper(store: Store) -> bool:
+    """Whether this store keeps a cloud folder."""
+    _tables(store)
+    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone() is not None
 
 
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
