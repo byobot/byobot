@@ -33,6 +33,7 @@ def test_tools_come_from_the_registry():
     by_name = {t["name"]: t for t in tools()}
     assert by_name["query"]["annotations"]["readOnlyHint"] is True
     assert by_name["log"]["annotations"]["readOnlyHint"] is False
+    assert {n for n, t in by_name.items() if t["annotations"]["destructiveHint"]} == {"remove", "undo", "resolve"}
     assert by_name["log"]["inputSchema"]["required"] == ["kind", "payload"]
     assert "model" in by_name["log"]["inputSchema"]["properties"]
     assert "model" not in by_name["query"]["inputSchema"]["properties"]

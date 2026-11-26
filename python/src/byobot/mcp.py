@@ -71,7 +71,7 @@ def tools() -> list[dict]:
             "title": cmd.summary.split(":")[0].rstrip("."),
             "description": description,
             "inputSchema": _input_schema(cmd),
-            "annotations": {"readOnlyHint": cmd.read_only, "destructiveHint": False, "openWorldHint": False},
+            "annotations": {"readOnlyHint": cmd.read_only, "destructiveHint": cmd.destructive, "openWorldHint": False},
         })
     return out
 
