@@ -309,3 +309,43 @@ def test_a_listing_behind_another_process_starts_no_extra_epoch(fake, tmp_path, 
     assert "reseeded" not in b.sync()
     fake.lagging = set()
     assert "reseeded" not in b.sync() and b.epoch == 2
+
+
+@pytest.mark.parametrize("name", ["devices/a b.json", "keys/0001/x y.key"])
+def test_a_file_byobot_never_writes_is_left_alone(fake, tmp_path, store, name):
+    keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id), Clock())
+    keeper.join_code()
+    fake.files["planted"] = {"id": "planted", "name": f"{store.store_id}/{name}",
+                             "appProperties": {"byobot_store": store.store_id}, "parents": ["appDataFolder"],
+                             "data": b"{}"}
+    fake.changes.append("planted")
+    keeper.compact()
+    keeper.sync()
+    assert keeper.forget() > 0
+
+
+def test_a_planted_seq_doesnt_use_up_the_keepers(store):
+    from byobot.cloud.folder import MemoryFolder
+
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    folder.files["plan/0001-9999999999.seg"] = b"anything"
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    keeper.sync()
+    folder.files.pop("plan/0001-9999999999.seg", None)
+    commands.log(store, ME, [{"kind": "location", "id": "example-pool", "payload": {"name": "y"}}])
+    assert keeper.sync()["published"] == 1
+
+
+def test_a_long_lived_client_never_writes_back_an_older_sign_in(fake):
+    from byobot import credentials
+
+    old = {"client_id": "old-client", "client_secret": "s", "refresh_token": "refresh-1", "access_token": "a",
+           "expires_at": time.time() - 10}
+    credentials.save("google", old)
+    serve = Drive(fake, sleep=lambda s: None)  # `serve` keeps this one
+    credentials.save("google", {**old, "client_id": "new-client", "refresh_token": "refresh-2",
+                                "expires_at": time.time() + 3600})  # `cloud setup` again in a terminal
+    with pytest.raises(UpstreamError, match="sign-in changed"):
+        serve.call("GET", "https://www.googleapis.com/drive/v3/changes/startPageToken")
+    assert credentials.load("google")["client_id"] == "new-client"
