@@ -106,6 +106,7 @@ final class AppModel: ObservableObject {
             Keychain.deleteToken(for: old.deviceId)
         }
         change {
+            $0.paired(storeId: response.server.storeId)
             $0.state.server = PairedServer(hosts: hosts, port: port, fingerprint: fingerprint,
                                            deviceId: response.server.deviceId, name: response.server.name,
                                            pairedAt: response.device.pairedAt)
@@ -138,23 +139,36 @@ final class AppModel: ObservableObject {
         defer { syncing = false }
         let client = SyncClient(server: server, token: token)
         do {
-            while true {
-                let batch = Array(book.pendingEvents.prefix(500))
-                if batch.isEmpty { break }
-                let before = book.state.pending.count
-                let response = try await client.push(events: batch)
-                change { $0.applyPush(response, sent: batch) }
-                if book.state.pending.count >= before { break }  // no progress; try again next sync
+            if book.state.storeId == nil {  // paired before the app kept it
+                let hello = try await client.hello()
+                change { $0.state.storeId = hello.server.storeId }
             }
-            let window = try await client.plan()
-            change {
-                $0.applyPlan(window)
-                $0.state.lastSyncAt = Timestamp.now()
+            // A plan can ask for events again (the laptop was restored); those go out before this sync ends.
+            for _ in 0..<2 {
+                try await pushPending(client)
+                let window = try await client.plan()
+                var resent = 0
+                change {
+                    resent = $0.applyPlan(window)
+                    $0.state.lastSyncAt = Timestamp.now()
+                }
+                if resent == 0 { break }
             }
             if healthEnabled { try await syncHealth(client) }
             message = nil
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    private func pushPending(_ client: SyncClient) async throws {
+        while true {
+            let batch = Array(book.pendingEvents.prefix(500))
+            if batch.isEmpty { break }
+            let before = book.state.pending.count
+            let response = try await client.push(events: batch)
+            change { $0.applyPush(response, sent: batch) }
+            if book.state.pending.count >= before { break }  // no progress; try again next sync
         }
     }
 
