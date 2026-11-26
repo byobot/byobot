@@ -300,8 +300,7 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
 @command(
     "erase",
     "Destroy a record's content in this store for good. Can't be undone.",
-    Param("kind", "string", "The record's kind.", required=True, choices=(*core.AUTHORED, "source_record"),
-          positional=True),
+    Param("kind", "string", "The record's kind.", required=True, choices=core.ERASABLE, positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
     Param("with", "string", "Erase these with it: a session's efforts.", choices=("efforts",)),
     read_only=False, destructive=True,

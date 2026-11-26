@@ -14,6 +14,7 @@ from .store import Store, stamp
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
 TIMED = ("session", "effort", "observation")
 TAKEN_BACK = (*AUTHORED, "overlay")  # what remove and undo work on
+ERASABLE = (*(k for k in AUTHORED if k != "setting"), "source_record")  # an erased id can't be written again
 
 
 def merge_patch(target: Any, patch: Any) -> Any:
@@ -218,7 +219,9 @@ def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = 
 def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = False) -> list[dict]:
     """Destroy a record's content everywhere, with every overlay on it, and a session's efforts if asked.
     Can't be undone."""
-    if kind not in AUTHORED and kind != "source_record":
+    if kind == "setting":
+        raise ValidationFailed("a setting can't be erased, or it could never be set again; remove it instead")
+    if kind not in ERASABLE:
         raise ValidationFailed(f"{kind} records can't be erased on their own")
     found = store.record(kind, rid)
     if found is None:

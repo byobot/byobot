@@ -52,7 +52,8 @@ extension Logbook {
     /// Add a location by name and train there from now on.
     @discardableResult
     public mutating func addLocation(name: String) -> Location {
-        let id = LocationId.make(name, taken: Set(locations.map(\.id)))
+        let erased = (state.plan?.erased ?? []).filter { $0.kind == "location" }.map(\.id)
+        let id = LocationId.make(name, taken: Set(locations.map(\.id) + erased))  // an erased id can't be written again
         let payload = LocationPayload(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
         let event = put("location", id, payload)
         setLocation(id)

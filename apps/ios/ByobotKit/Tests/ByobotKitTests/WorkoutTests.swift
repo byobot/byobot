@@ -188,6 +188,14 @@ final class WorkoutTests: XCTestCase {
 
     // MARK: Locations
 
+    func testANewLocationNeverTakesAnErasedId() throws {
+        var book = try makeBook()
+        var window = try window()
+        window.erased = [ErasedRecord(kind: "location", id: "home-gym")]
+        book.applyPlan(window)
+        XCTAssertEqual(book.addLocation(name: "Home Gym").id, "home-gym-2")
+    }
+
     func testAddingLocations() throws {
         var book = try makeBook()
         XCTAssertEqual(book.locations, [])
