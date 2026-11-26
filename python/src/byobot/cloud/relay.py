@@ -38,7 +38,8 @@ class Relay:
     seq: int = 0
     events: dict[str, dict] = field(default_factory=dict)  # every event it wrote and the keeper hasn't read yet
     samples: list[dict] = field(default_factory=list)  # sample batches not yet in a segment
-    sent: dict[str, dict] = field(default_factory=dict)  # its unread segments -> {"events": ids, "samples": batches}
+    sent: dict[str, dict] = field(default_factory=dict)  # unread segments -> {"events": ids, "samples": {line: batch}}
+    refused: list[dict] = field(default_factory=list)  # sample batches the keeper refused, with why
     plan: dict | None = None
     receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
@@ -147,19 +148,24 @@ class Relay:
 
     def _settle(self, listing: dict[str, str]) -> None:
         """Drop what a read segment carried; queue again the samples of one that left the folder unread."""
-        read = set((self.receipts.get(self.device_id) or {}).get("read", []))
+        mine = self.receipts.get(self.device_id) or {}
+        read = set(mine.get("read", []))
+        refused = {(r["seq"], r["line"]): r["reason"] for r in mine.get("refused", [])}
         for path, carried in list(self.sent.items()):
-            if segment.parse_name(path)["seq"] in read:
+            seq = segment.parse_name(path)["seq"]
+            if seq in read:
                 for eid in carried["events"]:
                     self.events.pop(eid, None)
+                self.refused += [{"reason": refused[(seq, line)], "samples": batch}
+                                 for line, batch in carried["samples"].items() if (seq, line) in refused]
                 del self.sent[path]
             elif path not in listing:
-                self.samples[:0] = carried["samples"]
+                self.samples[:0] = list(carried["samples"].values())
                 del self.sent[path]
 
     def _requeue(self) -> None:
         """Moving to a new epoch: send again whatever no receipt covered."""
-        self.samples[:0] = [b for carried in self.sent.values() for b in carried["samples"]]
+        self.samples[:0] = [b for carried in self.sent.values() for b in carried["samples"].values()]
         self.sent = {}
 
     def _send(self, listing: dict[str, str], force: bool) -> int:
@@ -177,6 +183,7 @@ class Relay:
             while self.samples and room >= segment.size([{"samples": self.samples[0]}]):
                 room -= segment.size([{"samples": self.samples[0]}])
                 batches.append(self.samples.pop(0))
+            lines = {len(messages) + i: b for i, b in enumerate(batches)}
             messages += [{"samples": b} for b in batches]
             if not messages and not force:
                 break
@@ -184,7 +191,7 @@ class Relay:
             path = segment.name("segment", self.epoch, self.seq, self.device_id)
             self.folder.create(path, segment.write("segment", self.store_id, self.device_id, self.epoch, self.seq,
                                                    messages, self.key, self.identity))
-            self.sent[path] = {"events": [e["id"] for e in batch], "samples": batches}
+            self.sent[path] = {"events": [e["id"] for e in batch], "samples": lines}
             written, force = written + 1, False
         return written
 
