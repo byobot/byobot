@@ -941,6 +941,37 @@ public struct SamplesResponse: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct ErasedRecord: Codable, Equatable, Hashable, Sendable {
+    public var kind: String
+    public var id: String
+
+    public init(kind: String, id: String) {
+        self.kind = kind
+        self.id = id
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+    }
+}
+
+/// An event the hub refused. Sending it again won't change that.
+public struct Rejection: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var reason: String
+
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case reason
+    }
+}
+
 public struct Attachment: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
     public var mediaType: String

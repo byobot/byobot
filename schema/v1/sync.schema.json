@@ -233,8 +233,39 @@
         }
       }
     },
+    "erased_record": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "rejection": {
+      "description": "An event the hub refused. Sending it again won't change that.",
+      "type": "object",
+      "required": [
+        "id",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
     "plan_window": {
-      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev.",
+      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev. A hub older than `hlc`, `erased`, `kind_versions`, `received` and `rejected` sends none of them, and the app then skips what they drive.",
       "type": "object",
       "required": [
         "from",
@@ -306,6 +337,38 @@
             "$ref": "#/$defs/entry"
           },
           "description": "Efforts logged against them, and those of the last two times each planned activity was done at each location."
+        },
+        "hlc": {
+          "$ref": "common.schema.json#/$defs/hlc",
+          "description": "The hub's clock. The app writes its next events after it."
+        },
+        "erased": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/erased_record"
+          },
+          "description": "Records a person writes that were erased. The app drops what it holds of them."
+        },
+        "kind_versions": {
+          "$ref": "#/$defs/kinds",
+          "description": "The hub's kind versions."
+        },
+        "received": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/hlc"
+          },
+          "description": "By device id, the clock reading of the latest of its events the hub holds; the asking device's only. The app sends again what it wrote after it, so a hub restored from an older backup ends complete. A device the hub holds nothing from is absent."
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rejection"
+          },
+          "description": "The asking device's events the hub refused, newest first."
         }
       }
     },

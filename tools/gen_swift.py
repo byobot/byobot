@@ -58,6 +58,8 @@ TYPES: dict[tuple[str, str | None], str] = {
     ("sync", "deletion"): "Deletion",
     ("sync", "samples_request"): "SamplesRequest",
     ("sync", "samples_response"): "SamplesResponse",
+    ("sync", "erased_record"): "ErasedRecord",
+    ("sync", "rejection"): "Rejection",
 }
 
 # Enums and objects declared inline on a property: (file, definition, property) -> Swift name.
@@ -79,7 +81,7 @@ INLINE = {
 }
 
 # Types whose `id` is not an identity (a reference's id names another record).
-NOT_IDENTIFIABLE = {"Actor", "Ref", "RecordRef"}
+NOT_IDENTIFIABLE = {"Actor", "Ref", "RecordRef", "ErasedRecord"}
 
 STRING_DEFS = {"id", "slug", "uuid", "kind", "timestamp", "date", "zone", "hlc", "text", "name", "code", "unit"}
 
