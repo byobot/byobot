@@ -355,14 +355,27 @@ class Keeper:
         window["rejected"] = [r for d in relays for r in self.store.rejections(d)]
         return window
 
+    def receipts(self) -> dict:
+        """Each relay's segments in this epoch that the keeper has read, by seq."""
+        out: dict[str, dict] = {d["id"]: {"read": []} for d in self.devices() if d["class"] == "relay"}
+        prefix = f"{self.epoch:04d}-"
+        for path, outcome in self.store.conn.execute("SELECT path, outcome FROM cloud_read WHERE path LIKE "
+                                                     "'segments/%' ORDER BY path"):
+            where = segment.parse_name(path)
+            if where and where["device_id"] in out and path.rsplit("/", 1)[1].startswith(prefix) \
+                    and outcome == "read":
+                out[where["device_id"]]["read"].append(where["seq"])
+        return out
+
     def publish_plan(self) -> bool:
         window = self.plan()
-        digest = checksum(dumps(window))
+        messages = [{"plan": window}, {"receipts": self.receipts()}]
+        digest = checksum(dumps(messages))
         if self._get("plan_digest") == digest:
             return False
         old = [p for p in self.folder.list() if p.startswith("plan/")]
         with self.store._tx():
-            path = self._segment("plan", self._next_seq(), [{"plan": window}])
+            path = self._segment("plan", self._next_seq(), messages)
             self._set("plan_digest", digest)
         for p in old:
             if p != path:
@@ -485,7 +498,7 @@ def apply(store: Store, writer: str, cls: str, messages: list[dict],
     out = []
     for m in messages:
         name, body = next(iter(m.items()))
-        if name == "plan":
+        if name in ("plan", "receipts"):
             continue
         if name == "samples":
             if cls == "relay":
