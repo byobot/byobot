@@ -8,10 +8,11 @@ import Compression
 import CryptoKit
 import Foundation
 
-public struct CloudError: Error, Equatable, CustomStringConvertible {
+public struct CloudError: Error, Equatable, CustomStringConvertible, LocalizedError {
     public let message: String
-    init(_ message: String) { self.message = message }
+    public init(_ message: String) { self.message = message }
     public var description: String { message }
+    public var errorDescription: String? { message }
 }
 
 /// A device's two key pairs: one to receive sealed keys (X25519), one to sign what it writes (Ed25519).

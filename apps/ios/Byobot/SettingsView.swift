@@ -8,6 +8,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var confirmForget = false
+    @State private var confirmLeave = false
 
     var body: some View {
         Form {
@@ -22,15 +23,33 @@ struct SettingsView: View {
                 }
             }
             Section {
+                if let store = model.cloudStore {
+                    LabeledContent("Logbook", value: String(store.suffix(8))).monospaced()
+                    LabeledContent("Last sync", value: Format.ago(model.cloudSyncedAt))
+                    if model.server == nil {
+                        Button(model.syncing ? "Syncing…" : "Sync now") { Task { await model.sync() } }
+                            .disabled(model.syncing)
+                    }
+                    Button("Stop Drive sync", role: .destructive) { confirmLeave = true }
+                } else {
+                    Text("Not on. On your Mac, run `byobot cloud join` and scan its code with the Camera app.")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Drive sync")
+            } footer: {
+                Text("Syncs with your Mac through your own Google Drive when the laptop is out of reach. Everything is encrypted on this phone first.")
+            }
+            Section {
                 LabeledContent("Waiting to send", value: String(model.state.pending.count))
                 ForEach(model.state.rejected) { rejected in
                     VStack(alignment: .leading) {
-                        Text("Refused by your laptop").font(.subheadline)
+                        Text("Refused by your Mac").font(.subheadline)
                         Text(rejected.reason ?? "No reason given").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } footer: {
-                Text("What you log stays on this phone until it reaches your laptop.")
+                Text("What you log stays on this phone until it reaches your Mac.")
             }
             Section {
                 GymMenu()
@@ -53,10 +72,12 @@ struct SettingsView: View {
             } header: {
                 Text("Apple Health")
             } footer: {
-                Text("byobot reads body measurements, heart, activity, mobility, vitals, sleep and workouts, and sends them only to your laptop. It never reads nutrition or cycle tracking. Where your laptop connects to a source like WHOOP directly, that source wins over its copy in Apple Health.")
+                Text("byobot reads body measurements, heart, activity, mobility, vitals, sleep and workouts, and sends them only to your Mac, directly or encrypted through your Google Drive if Drive sync is on. It never reads nutrition or cycle tracking. Where your laptop connects to a source like WHOOP directly, that source wins over its copy in Apple Health.")
             }
-            Section {
-                Button("Forget this laptop", role: .destructive) { confirmForget = true }
+            if model.server != nil {
+                Section {
+                    Button("Forget this laptop", role: .destructive) { confirmForget = true }
+                }
             }
             Section("This phone") {
                 Text(model.state.deviceId).font(.caption.monospaced()).textSelection(.enabled)
@@ -67,6 +88,11 @@ struct SettingsView: View {
             Button("Forget", role: .destructive) { Task { await model.forgetServer() } }
         } message: {
             Text("What you've logged stays on this phone and goes to the next laptop you pair. On the laptop, `byobot unpair` revokes this phone.")
+        }
+        .confirmationDialog("Stop Drive sync?", isPresented: $confirmLeave, titleVisibility: .visible) {
+            Button("Stop", role: .destructive) { model.leaveCloud() }
+        } message: {
+            Text("This phone signs out of Google and stops syncing through Drive. What you've logged stays here. On your Mac, `byobot cloud remove` takes it off the logbook.")
         }
     }
 }
