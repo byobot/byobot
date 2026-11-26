@@ -189,3 +189,18 @@ def test_s10_replanning_without_ids_keeps_logged_sets_linked(world):
     planned = {e.get("id") for b in plan["blocks"] for e in b["efforts"]}
     assert "ps1.pe0" in planned
     assert diff(world.snapshot("phone"), world.expected("phone")) == []
+
+
+def test_s10_a_swapped_exercise_gets_a_new_planned_effort(world):
+    """A replan that puts lunges where squats were must not relink the squats logged to that slot."""
+    world.replica("phone")
+    for activity in ("barbell_back_squat", "lunge"):
+        world.author("phone", {"intent": "define_activity", "record": {"id": activity, "name": activity}})
+    world.author("phone", {"intent": "plan_session", "record": PLAN}, {"kind": "agent", "id": "example-agent"})
+    swapped = {**PLAN, "blocks": [{"rounds": 3, "efforts": [{"activity_id": "lunge"}]},
+                                  {"rounds": 3, "efforts": [{"activity_id": "lunge"}]}]}
+    world.author("phone", {"intent": "replan_session", "record": swapped}, {"kind": "agent", "id": "example-agent"})
+    plan = world.snapshot("phone")["records"]["planned_session/ps1"]["fields"]
+    ids = [b["efforts"][0]["id"] for b in plan["blocks"]]
+    assert ids[0] != "ps1.pe0" and ids[1] == "ps1.pe1" and len(set(ids)) == 2
+    assert diff(world.snapshot("phone"), world.expected("phone")) == []

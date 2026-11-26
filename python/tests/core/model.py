@@ -207,13 +207,25 @@ class ModelReplica:
         return [self._write(at, actor, k, rid, "put", content) for k, rid, content in parts]
 
     def _replan(self, record: dict, at: str, actor: str) -> list[Write]:
-        """Re-planning keeps the ids of blocks and planned efforts it leaves out, by position."""
+        """Re-planning keeps the ids of blocks and planned efforts it leaves out, by position; a planned effort's
+        only for the same activity."""
         old = self.fields(key("planned_session", record["id"])) or {"blocks": []}
+        used = {e["id"] for b in old["blocks"] for e in b["efforts"]}
         blocks = []
         for bi, block in enumerate(record["blocks"]):
             was = old["blocks"][bi] if bi < len(old["blocks"]) else {"efforts": []}
-            efforts = [{"id": was["efforts"][ei]["id"] if ei < len(was["efforts"]) else f"{record['id']}.{bi}.{ei}",
-                        **e} for ei, e in enumerate(block["efforts"])]
+            efforts = []
+            for ei, e in enumerate(block["efforts"]):
+                same = ei < len(was["efforts"]) and was["efforts"][ei].get("activity_id") == e.get("activity_id")
+                if same:
+                    rid = was["efforts"][ei]["id"]
+                else:
+                    rid, n = f"{record['id']}.{bi}.{ei}", 1
+                    while rid in used:
+                        n += 1
+                        rid = f"{record['id']}.{bi}.{ei}.{n}"
+                used.add(rid)
+                efforts.append({"id": rid, **e})
             blocks.append({"id": was.get("id", f"{record['id']}.{bi}"), **block, "efforts": efforts})
         content = {k: v for k, v in record.items() if k != "id"} | {"blocks": blocks}
         return [self._write(at, actor, "planned_session", record["id"], "put", content, read=True)]

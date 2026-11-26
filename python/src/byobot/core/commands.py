@@ -161,7 +161,8 @@ def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
 
 def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
     """Write a planned session's new version. Blocks and planned efforts given without ids keep the ids at
-    their positions, so efforts already logged against them stay linked."""
+    their positions, so efforts already logged against them stay linked; a planned effort only if it's the same
+    activity."""
     current = store.get("planned_session", rid)
     payload = _parts(rid, payload, current["payload"]["blocks"] if current else [])
     return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
@@ -169,18 +170,36 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
 
 
 def _parts(rid: str, payload: dict, old: list) -> dict:
-    """Ids for blocks and planned efforts given without them: the ones at their positions in `old`, else new."""
+    """Ids for blocks and planned efforts given without them: the ones at their positions in `old` (a planned
+    effort's only if it's the same activity, so logged sets never move to another exercise), else new."""
     if not isinstance(payload.get("blocks"), list):
         return payload
+    taken = {e.get("id") for b in old for e in b.get("efforts", [])}
     blocks = []
     for bi, block in enumerate(payload["blocks"]):
         if not isinstance(block, dict) or not isinstance(block.get("efforts", []), list):
             return payload
         was = old[bi] if bi < len(old) else {"efforts": []}
-        efforts = [{"id": was["efforts"][ei]["id"] if ei < len(was["efforts"]) else f"{rid}.{bi}.{ei}", **e}
-                   if isinstance(e, dict) else e for ei, e in enumerate(block.get("efforts", []))]
+        efforts = []
+        for ei, e in enumerate(block.get("efforts", [])):
+            if isinstance(e, dict) and "id" not in e:
+                prior = was["efforts"][ei] if ei < len(was["efforts"]) else None
+                if prior and prior.get("activity_id") == e.get("activity_id"):
+                    e = {"id": prior["id"], **e}
+                else:
+                    e = {"id": _unused(f"{rid}.{bi}.{ei}", taken), **e}
+                taken.add(e["id"])
+            efforts.append(e)
         blocks.append({"id": was.get("id", f"{rid}.{bi}"), **block, "efforts": efforts})
     return {**payload, "blocks": blocks}
+
+
+def _unused(base: str, taken: set) -> str:
+    n, rid = 1, base
+    while rid in taken:
+        n += 1
+        rid = f"{base}.{n}"
+    return rid
 
 
 def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = None) -> dict:
