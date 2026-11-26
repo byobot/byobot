@@ -374,7 +374,8 @@ final class DriveTests: XCTestCase {
         let report = try await relay.sync(f, identity: k.relay)
         XCTAssertEqual(report.epoch, 1)
         XCTAssertEqual(report.written, 1)
-        let path = Cloud.segmentPath(kind: "segment", epoch: 1, seq: 1, deviceID: k.relayID)
+        let listed = try await keeperSide.list()
+        let path = try XCTUnwrap(listed.keys.first { $0.hasPrefix("segments/\(k.relayID)/") })
         let data = try await keeperSide.read(path)
         let found = try Cloud.readSegment(data ?? Data(), path: path, storeID: k.store, key: k.epochKey,
                                           signPublic: k.relay.signPublic)
