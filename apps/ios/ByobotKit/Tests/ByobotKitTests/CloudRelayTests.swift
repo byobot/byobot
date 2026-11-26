@@ -184,7 +184,8 @@ final class CloudRelayTests: XCTestCase {
         await folder.delete(Cloud.segmentPath(kind: "segment", epoch: 1, seq: 1, deviceID: k.relayID))
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
-        XCTAssertEqual(try sourceIds(try await segment(k, folder, 2), "samples"), ["W1"])
+        let written = try await segment(k, folder, 2)
+        XCTAssertEqual(try sourceIds(written, "samples"), ["W1"])
     }
 
     func testADeletionWaitsUntilTheKeeperReadsItsSample() async throws {
@@ -202,7 +203,8 @@ final class CloudRelayTests: XCTestCase {
         report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
         XCTAssertEqual(relay.held, [])
-        XCTAssertEqual(try sourceIds(try await segment(k, folder, 2), "deleted"), ["W1"])
+        let written = try await segment(k, folder, 2)
+        XCTAssertEqual(try sourceIds(written, "deleted"), ["W1"])
     }
 
     func testASampleDeletedBeforeItWasSentNeverGoes() async throws {
@@ -234,7 +236,8 @@ final class CloudRelayTests: XCTestCase {
         relay.send(SampleBatch(samples: (0..<(CloudRelay.maxBatch + 5)).map { weighed("W\($0)") }))
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 2)
-        XCTAssertEqual(try sourceIds(try await segment(k, folder, 2), "samples").count, 5)
+        let written = try await segment(k, folder, 2)
+        XCTAssertEqual(try sourceIds(written, "samples").count, 5)
     }
 
     // MARK: failures
@@ -282,7 +285,8 @@ final class CloudRelayTests: XCTestCase {
         relay.send(SampleBatch(samples: [weighed("W1")]))
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
-        XCTAssertEqual(try sourceIds(try await segment(k, folder, 2), "samples"), ["W1"])
+        let written = try await segment(k, folder, 2)
+        XCTAssertEqual(try sourceIds(written, "samples"), ["W1"])
     }
 
     func testTheRelayIsSavedBeforeEachWriteAndReadsBackTheSame() async throws {

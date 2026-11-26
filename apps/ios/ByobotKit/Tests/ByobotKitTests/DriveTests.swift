@@ -98,8 +98,8 @@ actor FakeDrive: HTTPSending {
             return try json(request, .object(["startPageToken": .string(String(changes.count))]))
         case "/drive/v3/changes":
             let start = Int(params["pageToken"]!)!
-            let page = changes[start..<min(start + 2, changes.count)].filter { !lagging.contains($0) }
-            let out: [JSONValue] = page.map { id in
+            let shown = changes[start..<min(start + 2, changes.count)].filter { !lagging.contains($0) }
+            let out: [JSONValue] = shown.map { id in
                 var c: [String: JSONValue] = ["fileId": .string(id), "removed": .bool(files[id] == nil)]
                 if let f = files[id] { c["file"] = meta(f) }
                 return .object(c)
