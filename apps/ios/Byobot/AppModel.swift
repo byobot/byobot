@@ -100,10 +100,10 @@ final class AppModel: ObservableObject {
 
     func pair(hosts: [String], port: Int, code: String, fingerprint: String) async throws {
         let client = SyncClient(hosts: hosts, port: port, fingerprint: fingerprint)
-        let response = try await client.pair(code: code, deviceId: state.deviceId, name: UIDevice.current.name)
+        leaving += 1
         do {
-            leaving = true
-            defer { leaving = false }
+            defer { leaving -= 1 }
+            let response = try await client.pair(code: code, deviceId: state.deviceId, name: UIDevice.current.name)
             await finishSyncing()
             let old = server, oldToken = old.flatMap { Keychain.token(for: $0.deviceId) }
             try Keychain.setToken(response.token, for: response.server.deviceId)
@@ -126,9 +126,9 @@ final class AppModel: ObservableObject {
 
     /// Forget the laptop. What you logged stays on the phone and goes to whichever laptop you pair next.
     func forgetServer() async {
-        guard !leaving, let server else { return }
-        leaving = true
-        defer { leaving = false }
+        guard let server else { return }
+        leaving += 1
+        defer { leaving -= 1 }
         await finishSyncing()
         await settle(leaving: server, token: Keychain.token(for: server.deviceId))
         guard self.server == server else { return }
@@ -140,8 +140,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Set while switching laptops, so no sync starts against the one being left.
-    private var leaving = false
+    /// Pairings and forgets under way, so no sync starts against the laptop being left.
+    private var leaving = 0
 
     /// Let a sync still talking to the old laptop land its answer first, or its pushes would go to the next one too.
     private func finishSyncing() async {
@@ -176,7 +176,7 @@ final class AppModel: ObservableObject {
     /// The plan comes first: what the laptop says it holds shows what it lost (it was restored) only until
     /// this phone pushes something newer.
     func sync() async {
-        guard !leaving else { return }
+        guard leaving == 0 else { return }
         guard !syncing else {
             syncAgain = true
             return
