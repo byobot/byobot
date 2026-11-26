@@ -19,7 +19,7 @@ from jsonschema.exceptions import best_match
 from referencing import Registry, Resource
 
 SCHEMA_VERSION = 1
-SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
+SCHEMA_NAMES = ("common", "records", "event", "registry", "sync", "cloud")
 SLUG_KINDS = ("activity", "location", "setting")
 RULES = ("time-order", "date-order", "range-order", "code-value", "part-ids", "self-reference", "derived-id")
 
@@ -66,15 +66,24 @@ class Rejected(Exception):
 
 def sync_errors(definition: str, document: Any) -> list[str]:
     """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
+    return _errors("sync", definition, document)
+
+
+def cloud_errors(definition: str, document: Any) -> list[str]:
+    """Why a cloud protocol file or message (a `$defs` entry of cloud.schema.json) is malformed."""
+    return _errors("cloud", definition, document)
+
+
+def _errors(schema: str, definition: str, document: Any) -> list[str]:
     return [f"{'/'.join(str(p) for p in e.absolute_path) or 'message'}: {e.message}"
-            for e in _sync_validator(definition).iter_errors(document)]
+            for e in _validator(schema, definition).iter_errors(document)]
 
 
 @lru_cache(maxsize=None)
-def _sync_validator(definition: str) -> Draft202012Validator:
+def _validator(schema: str, definition: str) -> Draft202012Validator:
     docs = documents()[0]
     resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in docs.values())
-    return Draft202012Validator({"$ref": f"{docs['sync']['$id']}#/$defs/{definition}"}, registry=resources)
+    return Draft202012Validator({"$ref": f"{docs[schema]['$id']}#/$defs/{definition}"}, registry=resources)
 
 
 @dataclass
