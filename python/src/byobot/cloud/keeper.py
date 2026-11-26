@@ -26,6 +26,7 @@ JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
+SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
 
 DDL = """
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -672,7 +673,7 @@ def is_keeper(store: Store) -> bool:
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
     """The keeper's next seq past every file of its own in the folder."""
     own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{device_id}/", "plan/"))]
-    return max([w["seq"] for w in own if w] + [0]) + 1
+    return max([w["seq"] for w in own if w and w["seq"] < SEQ_CEILING] + [0]) + 1
 
 
 def _epoch_of(path: str) -> int | None:
