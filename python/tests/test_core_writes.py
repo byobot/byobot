@@ -112,9 +112,25 @@ def test_resolve_keeps_a_version_that_arrived_after_the_person_looked(stores):
     assert not b.conflicts()
 
 
+def adds(field):
+    """A contract a version ahead, whose effort version 2 added `field`."""
+    spec = Contract.shipped().registry["kinds"]["effort"]
+    return Contract.shipped().newer(2, {"effort": {**spec, "version": 2, "since": {field: 2}}})
+
+
+def test_a_writer_writes_the_lowest_version_that_holds_the_payload(tmp_path):
+    old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
+    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=adds("tempo"))
+    [plain, fast] = commands.log(new, ME, [{"kind": "effort", "payload": effort(5)},
+                                           {"kind": "effort", "payload": {**effort(6), "tempo": "fast"}}])
+    assert (plain["kind_version"], fast["kind_version"]) == (1, 2)
+    old.accept_many(new.events())
+    assert reps(old, plain["record"]["id"]) == 5 and old.get("effort", fast["record"]["id"]) is None
+
+
 def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
-    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=Contract.shipped().newer(2))
+    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=adds("metrics"))
     new.adopt(old.store_id, old._get("store_key"))
     [e] = commands.log(old, ME, [{"kind": "effort", "payload": effort(5)}])
     rid = e["record"]["id"]
@@ -129,7 +145,7 @@ def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     assert old.newer() == {("effort", rid)} and not new.get("effort", rid)["newer"]
     listed = run("list", Context(actor=ME, _store=old), {"kind": "efforts"})["items"]
     assert [(i["id"], i.get("newer")) for i in listed] == [(rid, True)]
-    old.use(Contract.shipped().newer(2))
+    old.use(adds("metrics"))
     assert not old.get("effort", rid)["newer"] and reps(old, rid) == 8
 
 
