@@ -15,13 +15,22 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public var conflict: Bool?
     /// An activity that ships with byobot, not yet written to the logbook.
     public var library: Bool?
+    /// The kind version its payload needs (1 when absent). Above this app's, the app leaves the record as it is.
+    public var kindVersion: Int?
 
-    public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil) {
+    public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil,
+                kindVersion: Int? = nil) {
         self.id = id
         self.payload = payload
         self.prev = prev
         self.conflict = conflict
         self.library = library
+        self.kindVersion = kindVersion
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, payload, prev, conflict, library
+        case kindVersion = "kind_version"
     }
 
     public subscript<T>(dynamicMember path: KeyPath<Payload, T>) -> T {
@@ -31,6 +40,18 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public subscript<T>(dynamicMember path: WritableKeyPath<Payload, T>) -> T {
         get { payload[keyPath: path] }
         set { payload[keyPath: path] = newValue }
+    }
+}
+
+extension KindVersion {
+    /// The lowest version of `kind` that holds `payload`. Writes are stamped with it, so installs that know only
+    /// older versions still read them.
+    public static func lowest(_ kind: String, _ payload: JSONValue) -> Int {
+        var version = reshaped[kind] ?? 1
+        if case .object(let fields) = payload, let added = since[kind] {
+            for key in fields.keys { version = max(version, added[key] ?? 1) }
+        }
+        return min(version, all[kind] ?? 1)
     }
 }
 

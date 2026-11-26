@@ -99,7 +99,7 @@ public final class SyncClient: @unchecked Sendable {
     }
 
     public func push(events: [Event]) async throws -> EventsResponse {
-        try await call("POST", "/v1/events", body: EventsRequest(events: events))
+        try await call("POST", "/v1/events", body: EventsRequest(events: events, kinds: KindVersion.all))
     }
 
     public func push(samples: [Sample], deleted: [Deletion] = []) async throws -> SamplesResponse {
