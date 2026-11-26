@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlencode
 
@@ -515,14 +515,33 @@ class Keeper:
             self.store.conn.executemany("DELETE FROM cloud_refused WHERE path = ?", [(p,) for p in old])
         return {"cleaned": len(old)}
 
+    def local_status(self) -> dict:
+        """What this store knows about the folder, without asking Drive."""
+        synced = self._get("synced_at")
+        out: dict[str, Any] = {"store_id": self.store.store_id, "epoch": self.epoch,
+                               "synced_at": _when(synced), "recovery": bool(self._get("recovery_key"))}
+        if self.is_off:
+            out["off"] = True
+        if self._get("error"):
+            out["error"] = self._get("error")
+        out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
+                           "last_heard": _when(synced if d["class"] == "keeper" else self._get(f"heard:{d['id']}"))}
+                          for d in self.devices()]
+        return out
+
     def status(self) -> dict:
+        out = self.local_status()
         listing = self.folder.list()
-        return {"store_id": self.store.store_id, "epoch": self.epoch, "files": len(listing),
-                "recovery": bool(self._get("recovery_key")),
-                "devices": [{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")}
-                            for d in self.devices()],
-                "cleanup_waits_on": self._waiting() if any((e := _epoch_of(p)) is not None and e < self.epoch
-                                                           for p in listing) else []}
+        out["files"] = len(listing)
+        if hasattr(self.folder, "size"):
+            out["size_bytes"] = self.folder.size()
+        out["cleanup_waits_on"] = self._waiting() if any((e := _epoch_of(p)) is not None and e < self.epoch
+                                                         for p in listing) else []
+        return out
+
+
+def _when(stamp: str | None) -> str | None:
+    return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
 
 
 def _tables(store: Store) -> None:

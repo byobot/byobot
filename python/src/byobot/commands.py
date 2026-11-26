@@ -22,7 +22,8 @@ from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, ddl, query
-from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
+from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
+                         sync_folder_warning)
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,8 @@ def _status(ctx: Context) -> dict:
     store = ctx.store()
     return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": str(ctx.path),
             "device_id": store.device_id, "counts": store.counts(),
-            **({"clock_warnings": warnings} if (warnings := store.clock_warnings()) else {})}
+            **({"clock_warnings": warnings} if (warnings := store.clock_warnings()) else {}),
+            **({"warning": w} if (w := sync_folder_warning(home())) else {})}
 
 
 @command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False)
@@ -987,19 +989,24 @@ def _cloud_sync(ctx: Context) -> dict:
 
 @command(
     "cloud status",
-    "Where Drive sync stands: the devices in it, the current epoch, the files in Drive, and any cleanup that waits "
-    "on a device.",
+    "Where Drive sync stands: when it last synced and any error, the devices in it and when each was last heard "
+    "from, the current epoch, the files and bytes in Drive, and any cleanup that waits on a device.",
 )
 def _cloud_status(ctx: Context) -> dict:
-    from byobot.cloud.keeper import is_keeper
-    from byobot.util import ByobotError
+    from byobot.cloud.keeper import Keeper, is_keeper
 
-    if not is_keeper(ctx.store()):
-        return {"on": False}
+    warning = {"warning": w} if (w := sync_folder_warning(home())) else {}
+    store = ctx.store()
+    if not is_keeper(store):
+        return {"on": False, **warning}
+    keeper = Keeper(store, None)
+    if keeper.is_off:
+        return {"on": False, **keeper.local_status(), **warning}
     try:
-        return {"on": True, **_keeper(ctx).status()}
+        keeper.folder = _drive_folder(store)
+        return {"on": True, **keeper.status(), **warning}
     except ByobotError as exc:
-        return {"on": True, "error": exc.message}
+        return {"on": True, **keeper.local_status(), "error": exc.message, **warning}
 
 
 @command(
