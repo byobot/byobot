@@ -80,8 +80,9 @@ def test_undo_writes_the_previous_content_back():
     assert reps(phone) == 5 and undo.reverts == edited.id
     phone.author({"intent": "undo", "events": [undo]}, at(3), H)
     assert reps(phone) == 9
-    phone.author({"intent": "undo", "events": [created]}, at(4), H)
-    assert reps(phone) is None
+    with pytest.raises(Refused):  # the effort changed after it was logged
+        phone.author({"intent": "undo", "events": [created]}, at(4), H)
+    assert reps(phone) == 9
 
 
 def test_undo_racing_an_edit_is_a_conflict_in_any_order():

@@ -207,7 +207,8 @@ def erase(store: Store, actor: dict, kind: str, rid: str) -> list[dict]:
 
 
 def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
-    """Take an event back by writing its record's previous version (a retract if it had none).
+    """Take an event back by writing its record's previous version (a retract if it had none). Only the
+    current version can be undone, so a later edit is never thrown away.
 
     An event written in a batch is undone with the rest of its batch.
     """
@@ -221,15 +222,19 @@ def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
         if e["op"] not in ("put", "retract"):
             raise ValidationFailed(f"can't undo a {e['op']}")
         _authored(kind)
+        found = store.record(kind, rid)
+        if found["current"] != e["id"] or found["conflict"]:
+            raise Conflict(f"{kind} {rid} changed after {e['id']}; edit it instead")
         before = [store.event(p) for p in e["prev"]]
         if any(b is None for b in before):
             raise Conflict(f"can't undo {e['id']}: its previous version isn't here yet")
         base = max(before, key=lambda b: (b["hlc"], b["id"]), default=None)
         if base is None or base["op"] == "retract":
-            changes.append({"kind": kind, "id": rid, "op": "retract", "payload": {}, "reverts": e["id"]})
+            changes.append({"kind": kind, "id": rid, "op": "retract", "payload": {}, "reverts": e["id"],
+                            "prev": [e["id"]]})
         else:
             changes.append({"kind": kind, "id": rid, "op": "put", "payload": base["payload"],
-                            "kind_version": base["kind_version"], "reverts": e["id"]})
+                            "kind_version": base["kind_version"], "reverts": e["id"], "prev": [e["id"]]})
     return store.write(actor, changes)
 
 

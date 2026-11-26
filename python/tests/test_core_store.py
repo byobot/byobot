@@ -99,9 +99,13 @@ def test_undo_writes_the_previous_version_back_and_undo_of_a_log_removes(pair):
     edited = commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 9}}})
     [back] = commands.undo(a, ME, edited["id"])
     assert back["reverts"] == edited["id"] and reps(a, rid) == 5
+    with pytest.raises(Conflict, match="edit it instead"):  # the log isn't current any more
+        commands.undo(a, ME, e["id"])
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    rid = e["record"]["id"]
     commands.undo(a, ME, e["id"])
     assert a.get("effort", rid) is None
-    assert a.conn.execute("SELECT count(*) FROM efforts").fetchone()[0] == 0
+    assert a.conn.execute("SELECT count(*) FROM efforts WHERE id = ?", (rid,)).fetchone()[0] == 0
 
 
 def test_undo_takes_back_a_whole_batch(pair):
@@ -404,6 +408,17 @@ def test_query_stops_at_its_deadline(tmp_path):
     with pytest.raises(ValidationFailed, match="stopped after"):
         query(tmp_path / "s.db", endless, seconds=0.5)
     assert time.monotonic() - started < 5
+
+
+def test_undo_of_an_older_version_keeps_the_later_edit(pair):
+    a, _ = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    rid = e["record"]["id"]
+    first = commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 7}}})
+    commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 9}}})
+    with pytest.raises(Conflict):
+        commands.undo(a, ME, first["id"])
+    assert reps(a, rid) == 9
 
 
 def test_a_redaction_without_its_erase_blanks_nothing(pair):
