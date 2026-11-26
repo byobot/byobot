@@ -242,7 +242,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: keeperSign,
                                                   storeID: storeID, epoch: n) else { continue }
             let first = epoch == nil
-            requeue()
             epoch = n
             key = opened
             plan = nil
@@ -308,15 +307,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 sent[path] = nil
             }
         }
-    }
-
-    /// Moving to a new epoch: sends again whatever no receipt covered.
-    mutating func requeue() {
-        let again = sent.keys.sorted().flatMap { path in
-            sent[path].map { c in c.samples.keys.sorted().compactMap { c.samples[$0] } } ?? []
-        }
-        samples.insert(contentsOf: again, at: 0)
-        sent = [:]
     }
 
     mutating func send(_ folder: some CloudFolder, _ me: CloudIdentity, force: Bool,

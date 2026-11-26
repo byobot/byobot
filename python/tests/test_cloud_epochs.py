@@ -109,6 +109,40 @@ def test_an_erased_record_arriving_later_starts_a_new_epoch(store, folder, keepe
     assert keeper.sync()["new_epoch"]["reason"] == "erase"
 
 
+WEIGHT = {"samples": [{"source": "apple_health", "source_id": "S1", "start": "2026-11-23T07:00:00Z",
+                       "type": "HKQuantityTypeIdentifierBodyMass", "value": 83.4567, "unit": "kg"}]}
+
+
+def test_an_erased_sample_doesnt_come_back_under_the_new_key(store, folder, keeper):
+    relay = joined(keeper, folder)
+    relay.send_samples(WEIGHT)
+    relay.sync()
+    keeper.sync()
+    [found] = store.records("source_record")
+    commands.erase(store, ME, "source_record", found["id"])  # before the phone saw the receipt
+    assert keeper.sync()["new_epoch"]["reason"] == "erase"
+    relay.sync()
+    assert keeper.sync().get("cleaned")
+    for _ in range(2):
+        relay.sync()
+        keeper.sync()
+    assert not [t for t in opened(folder, keeper, keeper.key(keeper.epoch)) if "83.4567" in t]
+    assert keeper.status()["cleanup_waits_on"] == []
+
+
+def test_a_resent_erased_sample_starts_another_epoch(store, folder, keeper):
+    relay = joined(keeper, folder)
+    relay.send_samples(WEIGHT)
+    relay.sync()
+    keeper.sync()
+    [found] = store.records("source_record")
+    commands.erase(store, ME, "source_record", found["id"])
+    keeper.sync()
+    relay.send_samples(WEIGHT)  # Health hands the same sample over again
+    relay.sync()
+    assert keeper.sync()["new_epoch"]["reason"] == "erase"
+
+
 def test_a_removed_device_gets_no_new_key_and_its_writes_are_ignored(store, folder, keeper):
     relay = joined(keeper, folder)
     assert keeper.remove(PHONE) == 2
@@ -204,6 +238,20 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
     relay.sync()
     again.sync()
     assert fresh.event(later["id"])
+
+
+def test_recovery_keeps_a_phone_that_joined_since_the_epoch_began(store, folder, keeper, tmp_path, clock):
+    code = keeper.recovery_code
+    relay = joined(keeper, folder)  # only its key file names it until the next epoch
+    sent = event()
+    relay.log([sent])
+    relay.sync()
+    fresh = Store(tmp_path / "new-mac.db")
+    again = Keeper.recover(fresh, folder, code, clock)
+    relay.sync()
+    again.sync()
+    assert [d["id"] for d in again.devices() if d["class"] == "relay"] == [PHONE]
+    assert not relay.removed and fresh.event(sent["id"])
 
 
 def test_recovery_needs_the_code_at_setup(store, folder, tmp_path, clock):

@@ -15,6 +15,7 @@ from typing import Any, Callable
 from urllib.parse import urlencode
 
 from ..core import relay as rules
+from ..core import sources
 from ..core.store import Store
 from ..util import ByobotError, ValidationFailed, uuid7
 from . import files, segment
@@ -109,6 +110,14 @@ class Keeper:
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
         top = opened[n]
+        devices = {d["id"]: d for d in epoch_body["devices"]}
+        for path in listing:  # admitted since the epoch file was written: only a key file names them
+            if path.startswith(f"keys/{n:04d}/") and not path.endswith("/recovery.key"):
+                try:
+                    d = files.key_device(folder.read(path) or b"", identity.public()["sign"], store_id, n)
+                except CloudError:
+                    continue
+                devices.setdefault(d["id"], d)
         if store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             if store.store_id != store_id or store.store_key.hex() != top["store_key"]:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
@@ -123,7 +132,7 @@ class Keeper:
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
             store.conn.executemany(
                 "INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?)",
-                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in epoch_body["devices"]])
+                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
         keeper.start_epoch()
@@ -331,7 +340,7 @@ class Keeper:
                                         [(path, i, why) for i, why in refused])
         erased = set(self.store.erased())
         if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
-                          for m in messages for e in _events(m)):
+                          for m in messages for e in _events(m)) or self._erased_samples(messages):
             with self.store._tx():
                 self._set("epoch_pending", "erase")  # it carried a record already erased here
         with self.store._tx():
@@ -341,6 +350,19 @@ class Keeper:
             if writer != self.device_id:
                 self._set(f"heard:{writer}", self.clock())
         return "read"
+
+    def _erased_samples(self, messages: list[dict]) -> bool:
+        for m in messages:
+            body = m.get("samples")
+            for s in body.get("samples", []) if isinstance(body, dict) else []:
+                try:
+                    rid = sources.record_id(self.store, "apple_health", sources.sample_type(s["type"]), s["source_id"])
+                except (KeyError, TypeError, ValueError, ByobotError):
+                    continue
+                found = self.store.record("source_record", rid)
+                if found and found["erased"]:
+                    return True
+        return False
 
     def _shown(self, ids: list[str]) -> None:
         with self.store._tx():
@@ -372,17 +394,16 @@ class Keeper:
         return window
 
     def receipts(self) -> dict:
-        """Each relay's segments in this epoch that the keeper has read, by seq, and the samples it refused."""
+        """Each relay's segments still in the folder that the keeper has read, by seq (a relay's seqs never repeat
+        across epochs), and the samples it refused."""
         out: dict[str, dict] = {d["id"]: {"read": []} for d in self.devices() if d["class"] == "relay"}
-        prefix = f"{self.epoch:04d}-"
         refused: dict[str, list] = {}
         for path, line, why in self.store.conn.execute("SELECT * FROM cloud_refused ORDER BY path, line"):
             refused.setdefault(path, []).append((line, why))
         for path, outcome in self.store.conn.execute("SELECT path, outcome FROM cloud_read WHERE path LIKE "
                                                      "'segments/%' ORDER BY path"):
             where = segment.parse_name(path)
-            if where and where["device_id"] in out and path.rsplit("/", 1)[1].startswith(prefix) \
-                    and outcome == "read":
+            if where and where["device_id"] in out and outcome == "read":
                 mine = out[where["device_id"]]
                 mine["read"].append(where["seq"])
                 for line, why in refused.get(path, []):
