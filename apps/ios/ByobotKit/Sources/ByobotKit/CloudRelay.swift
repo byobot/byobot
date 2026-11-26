@@ -133,13 +133,42 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         guard let secret = Data(base64Encoded: code.secret) else { throw CloudError("that isn't a byobot cloud join code") }
         let relay = CloudRelay(storeID: code.storeID, deviceID: deviceID, keeperSign: code.keeper)
         let proof = Cloud.joinProof(secret: secret, storeID: code.storeID, deviceID: deviceID, identity: identity)
-        try await folder.create(Cloud.devicePath(deviceID),
-                                try Cloud.deviceFile(storeID: code.storeID, id: deviceID, deviceClass: "relay",
-                                                     identity: identity, proof: proof))
+        var signed = false
+        for path in try await folder.list().keys.filter({ Self.epochNumber($0) != nil }).sorted(by: >) {
+            if let n = Self.epochNumber(path), let data = try await folder.read(path),
+               (try? Cloud.readEpoch(data, keeperSign: code.keeper, storeID: code.storeID, epoch: n)) != nil {
+                signed = true
+                break
+            }
+        }
+        guard signed else {
+            throw CloudError("This Google account doesn't hold that Mac's logbook. Sign in with the account the Mac uses.")
+        }
+        let file = try Cloud.deviceFile(storeID: code.storeID, id: deviceID, deviceClass: "relay", identity: identity,
+                                        proof: proof)
+        do {
+            try await folder.create(Cloud.devicePath(deviceID), file)
+        } catch let taken as CloudExists {
+            // Left by a join the Mac never finished: answer this code instead. A phone with a key is already in.
+            if try await folder.list().keys.contains(where: { $0.hasPrefix("keys/") && $0.hasSuffix("/\(deviceID).key") }) {
+                throw taken
+            }
+            try await folder.delete(Cloud.devicePath(deviceID))
+            try await folder.create(Cloud.devicePath(deviceID), file)
+        }
         return relay
     }
 
     public var joined: Bool { key != nil }
+
+    /// Every sample and deletion the keeper hasn't read: queued, in unread segments, or held. A phone leaving Drive
+    /// sync sends these another way, since Apple Health won't hand them over again.
+    public var leftovers: SampleBatch {
+        let batches = samples + sent.keys.sorted().flatMap { path in
+            sent[path].map { c in c.samples.keys.sorted().compactMap { c.samples[$0] } } ?? []
+        }
+        return SampleBatch(samples: batches.flatMap(\.samples), deleted: batches.flatMap(\.deleted) + held)
+    }
 
     public mutating func log(_ events: [Event]) {
         for event in events { self.events[event.id] = event }

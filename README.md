@@ -79,9 +79,9 @@ byobot cloud join      # shows a code; in the app, turn on Drive sync and scan i
 byobot cloud status    # devices, when each was last heard from, the folder's size, any error
 ```
 
-`byobot serve` syncs with Drive every minute, and any command that reads data syncs first. `byobot cloud off` stops; `--delete yes` also empties the folder. Keep byobot's home out of any folder another app syncs (Google Drive for desktop, iCloud Drive, Dropbox): `byobot status` warns if it is in one.
+`byobot serve` syncs with Drive every minute, and any command that reads data syncs first. `byobot cloud off` stops; `--delete yes` also deletes the folder's files, leaving one small signed note that tells phones Drive sync ended. Keep byobot's home out of any folder another app syncs (Google Drive for desktop, iCloud Drive, Dropbox): `byobot status` warns if it is in one.
 
-Erasing a record with Drive sync on rewrites the folder under a new key. Once every device has moved to it, the old files and keys are deleted outright, so the record is gone from Drive's folder and from every device that synced. What Google keeps on its own systems after a delete isn't documented, but anything left is encrypted with a key no device holds any more. `byobot cloud status` names any device the cleanup still waits on, and `byobot cloud remove` retires one that won't come back. Exports made before the erase still hold the data.
+Erasing a record with Drive sync on rewrites the folder under a new key. Once every device has moved to it, the old files and keys are deleted outright, so the record is gone from Drive's folder and from every device that synced. What Google keeps on its own systems after a delete isn't documented, but anything left is encrypted with a key that only a device you removed with `byobot cloud remove` may still hold. `byobot cloud status` names any device the cleanup still waits on, and `byobot cloud remove` retires one that won't come back. Exports made before the erase still hold the data.
 
 ## Import from WHOOP
 

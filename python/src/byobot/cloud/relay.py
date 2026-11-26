@@ -14,7 +14,7 @@ from ..core.relay import MAX_BATCH
 from ..util import ByobotError
 from . import files, segment
 from .crypto import CloudError, Identity, join_proof, unb64
-from .folder import Folder
+from .folder import Exists, Folder
 
 
 def parse_join(link: str) -> dict:
@@ -53,9 +53,29 @@ class Relay:
         relay = cls(folder, code["store_id"], device_id, code["keeper"], **kw)
         public = relay.identity.public()
         proof = join_proof(unb64(code["secret"]), relay.store_id, device_id, public)
-        folder.create(files.device_path(device_id),
-                      files.device_file(relay.store_id, {"id": device_id, "class": "relay", **public}, proof))
+        if not relay._keeper_here(folder.list()):
+            raise ByobotError("this Google account doesn't hold that Mac's logbook; sign in with the account the Mac "
+                              "uses")
+        path = files.device_path(device_id)
+        data = files.device_file(relay.store_id, {"id": device_id, "class": "relay", **public}, proof)
+        try:
+            folder.create(path, data)
+        except Exists:  # left by a join the keeper never finished; a device with a key is already in
+            if any(p.startswith("keys/") and p.endswith(f"/{device_id}.key") for p in folder.list()):
+                raise
+            folder.delete(path)
+            folder.create(path, data)
         return relay
+
+    def _keeper_here(self, listing: dict[str, str]) -> bool:
+        """Whether this folder holds an epoch file the code's keeper signed."""
+        for p in sorted((p for p in listing if is_epoch_file(p)), reverse=True):
+            try:
+                files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, int(p[7:11]))
+                return True
+            except CloudError:
+                continue
+        return False
 
     def log(self, events: list[dict]) -> None:
         for e in events:

@@ -789,13 +789,10 @@ def lock_path(store: Store) -> Path:
 
 @contextmanager
 def _lock(store: Store, wait: bool = True) -> Iterator[bool]:
-    from byobot.cloud.lock import Busy, held
+    from byobot.cloud.lock import held
 
-    try:
-        with held(lock_path(store), wait) as mine:
-            yield mine
-    except Busy:
-        raise ByobotError("another byobot is syncing with Drive; try again") from None
+    with held(lock_path(store), wait) as mine:
+        yield mine
 
 
 def _keeper(ctx: Context, off_ok: bool = False) -> Any:
@@ -1008,8 +1005,10 @@ def _cloud_status(ctx: Context) -> dict:
     keeper = Keeper(store, None)
     if keeper.is_off:
         return {"on": False, **keeper.local_status(), **warning}
+    if keeper.local_status().get("error"):  # the sync just before this failed; don't wait on Drive again
+        return {"on": True, **keeper.local_status(), **warning}
     try:
-        keeper.folder = _drive_folder(store)
+        keeper.folder = _drive_folder(store, quick=True)
         return {"on": True, **keeper.status(), **warning}
     except ByobotError as exc:
         return {"on": True, **keeper.local_status(), "error": exc.message, **warning}
@@ -1047,9 +1046,10 @@ def _cloud_compact(ctx: Context) -> dict:
 @command(
     "cloud off",
     "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
-    "setup` turns it on again, unless the folder was deleted, in which case setup starts a new one.",
-    Param("delete", "string", "Also delete the folder in Drive, and forget its keys and devices here. Phones then "
-          "join again after setup.", choices=("yes", "no"), default="no"),
+    "setup` turns it on again.",
+    Param("delete", "string", "Also delete the folder's files, all but a note that tells phones they were taken "
+          "off, and forget the keys and devices here. Phones then join again after setup.", choices=("yes", "no"),
+          default="no"),
     read_only=False, destructive=True,
     mcp=False,
 )

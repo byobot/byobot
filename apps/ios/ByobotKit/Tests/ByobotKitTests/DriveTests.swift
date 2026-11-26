@@ -364,9 +364,9 @@ final class DriveTests: XCTestCase {
 
     func testThePhoneRelaysThroughDrive() async throws {
         let k = try CloudRelayTests.keeper(), fake = FakeDrive(), f = folder(fake, store: k.store)
-        var relay = try await CloudRelay.join(f, link: k.link, deviceID: k.relayID, identity: k.relay)
         let keeperSide = folder(fake, store: k.store, who: "mac")
         try await keeperSide.create(Cloud.epochPath(1), k.epochFile)
+        var relay = try await CloudRelay.join(f, link: k.link, deviceID: k.relayID, identity: k.relay)
         try await keeperSide.create(Cloud.keyPath(1, k.relayID), k.keyFile)
         relay.send(SampleBatch(samples: [Sample(source: "apple_health", sourceId: "W1",
                                                 type: "HKQuantityTypeIdentifierBodyMass",

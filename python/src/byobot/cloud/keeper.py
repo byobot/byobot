@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+from .. import __version__
 from ..core import relay as rules
 from ..core import sources
 from ..core.store import Store
@@ -26,6 +27,8 @@ JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
 PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
+SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
+NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
 
 DDL = """
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -244,6 +247,7 @@ class Keeper:
             self._unset("plan_digest")
             self._unset("epoch_pending")
             self._unset("missing_since")
+            self._unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts)))
@@ -270,7 +274,7 @@ class Keeper:
         if not join:
             return {}
         if self.clock() > join["expires"]:
-            return self._joined({"join": "expired"})
+            return self._joined({"join": "expired"}, listing)
         secret = unb64(join["secret"])
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
         valid = []
@@ -292,7 +296,7 @@ class Keeper:
         if not valid:
             return {}
         if len(valid) > 1:
-            return self._joined({"join": "refused: two devices answered one code; show a new code"})
+            return self._joined({"join": "refused: two devices answered one code; show a new code"}, listing)
         device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
         path = files.key_path(self.epoch, device["id"])
         try:  # the code stays good until the phone's key is in the folder
@@ -306,15 +310,20 @@ class Keeper:
                 landed = None
             if landed != device:
                 raise
-        return self._joined({"join": "admitted", "device": device["id"]}, device)
+        return self._joined({"join": "admitted", "device": device["id"]}, listing, device)
 
-    def _joined(self, outcome: dict, device: dict | None = None) -> dict:
-        """End the join: enrol the device if one was admitted, and keep the outcome for `cloud join`."""
+    def _joined(self, outcome: dict, listing: dict[str, str], device: dict | None = None) -> dict:
+        """End the join: enrol the device if one was admitted, keep the outcome for `cloud join`, and delete the
+        device files no one admitted, so those phones can answer a new code."""
         with self.store._tx():
             if device:
                 self._enrol(device, self.epoch)
             self._unset("join")
             self._set("last_join", json.dumps(outcome))
+        known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
+        for path in listing:
+            if path.startswith("devices/") and path.endswith(".json") and path[8:-5] not in known:
+                self.folder.delete(path)
         return outcome
 
     def last_join(self) -> dict | None:
@@ -339,7 +348,7 @@ class Keeper:
                 report["read"] += 1
             elif outcome != "ignored":
                 report["skipped"].append({"path": path, "reason": outcome})
-                if where["kind"] == "segment" and where["device_id"] != self.device_id:
+                if where["kind"] == "segment" and where["device_id"] != self.device_id and NEWER not in outcome:
                     self.folder.delete(path)  # its writer sees it gone and sends what it held again
         return report
 
@@ -477,9 +486,16 @@ class Keeper:
             self._set("error", message)
 
     def _sync(self) -> dict:
+        if self._get("read_by") != __version__:  # upgraded: read again what an older byobot couldn't
+            with self.store._tx():
+                self.store.conn.execute("DELETE FROM cloud_read WHERE instr(outcome, ?)", (NEWER,))
+                self._set("read_by", __version__)
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
+        if self._get("closed"):  # turned on again after `cloud off --delete yes`
+            report["reseeded"] = self.start_epoch()
+            listing = self.folder.list()
         there = files.epoch_path(self.epoch) in listing
         starting = self._get("starting")
         if starting and (starting != str(self.epoch) or not there) or not there and self._gone():
@@ -550,13 +566,26 @@ class Keeper:
         return self._get("off") is not None
 
     def forget(self) -> int:
-        """Delete every file in the folder, then everything this store knew about it. The logbook is untouched."""
-        listing = self.folder.list()
-        for path in listing:
-            self.folder.delete(path)
+        """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
+        was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
+        here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
+        n = self.epoch + 1
+        path = files.epoch_path(n)
+        keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
+        self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0))
+        listing = [p for p in self.folder.list() if p != path]
+        for p in listing:
+            self.folder.delete(p)
         with self.store._tx():
-            for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown", "cloud_refused"):
+            for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
+            self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error')")
+            self._set("epoch", n)
+            self._set("checkpoint_position", 0)
+            self._set("closed", 1)
+            self._set("off", 1)
         return len(listing)
 
     def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
@@ -568,6 +597,10 @@ class Keeper:
         if sum(not p.startswith("checkpoints/") for p in listing) > MAX_FILES and not self._waiting():
             return "compact"
         return None
+
+    def _newer(self) -> bool:
+        found = self.store.conn.execute("SELECT 1 FROM cloud_read WHERE instr(outcome, ?) LIMIT 1", (NEWER,))
+        return found.fetchone() is not None
 
     def _waiting(self) -> list[str]:
         """Active devices that haven't written in the current epoch yet, so older epochs can't be deleted."""
@@ -584,6 +617,8 @@ class Keeper:
         waiting = self._waiting()
         if waiting:
             return {"cleanup_waits_on": waiting}
+        if self._newer():
+            return {"cleanup_waits_on": ["an upgrade of byobot on this Mac"]}
         for path in old:
             self.folder.delete(path)
         with self.store._tx():
@@ -601,6 +636,8 @@ class Keeper:
             out["off"] = True
         if self._get("error"):
             out["error"] = self._get("error")
+        if self._newer():
+            out["upgrade"] = "a device writes with a newer byobot; upgrade byobot on this Mac to read it"
         out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
                            "last_heard": _when(synced if d["class"] == "keeper" else self._get(f"heard:{d['id']}"))}
                           for d in self.devices()]
@@ -650,7 +687,7 @@ def is_keeper(store: Store) -> bool:
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
     """The keeper's next seq past every file of its own in the folder."""
     own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{device_id}/", "plan/"))]
-    return max([w["seq"] for w in own if w] + [0]) + 1
+    return max([w["seq"] for w in own if w and w["seq"] < SEQ_CEILING] + [0]) + 1
 
 
 def _epoch_of(path: str) -> int | None:

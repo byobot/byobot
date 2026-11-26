@@ -60,3 +60,21 @@ def test_status_warns_about_a_synced_home(tmp_path, monkeypatch):
     assert "Dropbox" in run("status", ctx, {})["warning"]
     assert "Dropbox" in run("cloud status", ctx, {})["warning"]
     ctx.close()
+
+
+def test_status_doesnt_wait_on_drive_again_right_after_a_failed_sync(phone, monkeypatch):  # noqa: F811
+    ctx, _ = phone
+
+    def unreachable(store, quick=False):
+        raise UpstreamError("can't reach Google Drive: offline")
+
+    commands._folders.clear()
+    monkeypatch.setattr(commands, "_drive_folder", unreachable)
+    age(ctx)
+    assert run("cloud status", ctx, {})["error"] == "can't reach Google Drive: offline"
+
+    def never(store, quick=False):
+        raise AssertionError("asked Drive again")
+
+    monkeypatch.setattr(commands, "_drive_folder", never)
+    assert run("cloud status", ctx, {})["error"] == "can't reach Google Drive: offline"

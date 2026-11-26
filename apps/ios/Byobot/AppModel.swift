@@ -197,7 +197,8 @@ final class AppModel: ObservableObject {
         await sync()
     }
 
-    /// Stops Drive sync on this phone. What's waiting stays and goes by the laptop, or by Drive if you join again.
+    /// Stops Drive sync on this phone. What's waiting, Apple Health readings included, goes by the laptop, or by
+    /// Drive if you join again.
     func leaveCloud() {
         CloudSetup.forget()
         cloudRoute = nil
@@ -257,6 +258,13 @@ final class AppModel: ObservableObject {
                 healthError = error.localizedDescription
             }
         }
+        let anchors = read?.anchors
+        let carried = CloudSetup.carry()  // what a Drive relay held when this phone left it
+        let carrying = !carried.samples.isEmpty || !carried.deleted.isEmpty
+        if carrying {
+            read = HealthRead(samples: carried.samples + (read?.samples ?? []),
+                              deleted: carried.deleted + (read?.deleted ?? []), anchors: anchors ?? [:])
+        }
         let route = cloudRoute
         let unread = await route?.unread ?? []
         var healthSent = false
@@ -264,6 +272,7 @@ final class AppModel: ObservableObject {
             do {
                 try await syncLaptop(server, health: read, skipping: unread)
                 healthSent = read != nil
+                if carrying { CloudSetup.keepCarry(SampleBatch()) }
                 reached = true
             } catch is SyncStopped {
                 syncAgain = true
@@ -276,6 +285,7 @@ final class AppModel: ObservableObject {
                 let samples = healthSent ? [] : read?.samples ?? []
                 let deleted = (read?.deleted ?? []).filter { !healthSent || unread.contains($0.sourceId) }
                 let result = try await route.sync(events: book.pendingEvents, samples: samples, deleted: deleted)
+                if carrying && !healthSent { CloudSetup.keepCarry(SampleBatch()) }
                 healthSent = healthSent || read != nil
                 let laptop = reached
                 change {
@@ -285,8 +295,13 @@ final class AppModel: ObservableObject {
                         $0.state.lastSyncAt = Timestamp.now()
                     }
                 }
-                cloudSyncedAt = Timestamp.now()
-                cloudOK = true
+                if result.joined {
+                    cloudSyncedAt = Timestamp.now()
+                    cloudOK = true
+                } else if !result.removed {
+                    cloudError = "Waiting for your Mac to let this phone in. Keep `byobot cloud join` or `byobot serve` "
+                        + "running on it."
+                }
                 if result.removed {
                     leaveCloud()
                     cloudError = "Your Mac took this phone off Drive sync. Show its join code again to rejoin."
@@ -295,8 +310,8 @@ final class AppModel: ObservableObject {
                 cloudError = error.localizedDescription
             }
         }
-        if healthSent, let read {
-            UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
+        if healthSent, let anchors {
+            UserDefaults.standard.set(anchors, forKey: "healthAnchors")
             UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
             change { $0.state.lastHealthSyncAt = Timestamp.now() }
         }

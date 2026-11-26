@@ -195,10 +195,22 @@ def test_a_relay_trusts_only_the_keeper_s_signature(store, folder, keeper):
     link = keeper.join_code()["link"].replace(keeper.identity.public()["sign"].replace("+", "%2B").replace(
         "/", "%2F").replace("=", "%3D"), impostor.public()["sign"].replace("+", "%2B").replace("/", "%2F")
         .replace("=", "%3D"))
-    relay = Relay.join(folder, link, PHONE)
-    keeper.sync()
+    with pytest.raises(ByobotError, match="doesn't hold that Mac's logbook"):
+        Relay.join(folder, link, PHONE)
+
+
+def test_a_phone_the_keeper_never_let_in_can_answer_a_new_code(store, folder, keeper):
+    Relay.join(folder, keeper.join_code()["link"], PHONE)
+    keeper.clock.now += 3600
+    assert keeper.sync()["join"] == "expired"
+    assert files.device_path(PHONE) not in folder.list()  # the keeper clears what no one admitted
+    folder.create(files.device_path(PHONE), b"left by an earlier code")
+    relay = Relay.join(folder, keeper.join_code()["link"], PHONE)
+    assert keeper.sync()["join"] == "admitted"
     relay.sync()
-    assert relay.key is None
+    assert relay.key is not None
+    with pytest.raises(Exists):  # a phone already in
+        Relay.join(folder, keeper.join_code()["link"], PHONE)
 
 
 def test_a_local_folder_never_replaces_a_file(tmp_path):
@@ -310,3 +322,24 @@ def test_another_process_admitting_the_phone_ends_the_join(store):
     Relay.join(folder, cli.join_code()["link"], PHONE)
     serve.sync()
     assert cli.last_join() == {"join": "admitted", "device": PHONE}
+
+
+def test_an_older_keeper_keeps_a_newer_phone_s_segment_until_it_is_upgraded(store, folder, keeper, monkeypatch):
+    from byobot.cloud import keeper as keeper_module
+
+    relay = joined(keeper, folder)
+    sent = event()
+    relay.log([sent])
+    monkeypatch.setattr(segment, "FORMAT", segment.FORMAT + 1)  # the phone runs a newer byobot
+    relay.sync()
+    monkeypatch.undo()
+    path = next(p for p in folder.list() if p.startswith("segments/"))
+    assert "newer byobot" in keeper.sync()["skipped"][0]["reason"]
+    assert path in folder.list() and "upgrade" in keeper.local_status()
+    keeper.start_epoch()
+    relay.sync()  # the phone moves to the new epoch, so only the newer segment holds the old one back
+    assert keeper.sync().get("cleanup_waits_on") == ["an upgrade of byobot on this Mac"] and path in folder.list()
+    monkeypatch.setattr(segment, "FORMAT", segment.FORMAT + 1)  # this Mac is upgraded
+    monkeypatch.setattr(keeper_module, "__version__", "next")
+    keeper.sync()
+    assert store.event(sent["id"]) and "upgrade" not in keeper.local_status()
