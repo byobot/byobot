@@ -189,6 +189,8 @@ def test_a_wiped_folder_is_seeded_again_and_relays_send_again(store, folder, kee
     relay.log([sent])
     relay.sync()
     folder.files.clear()
+    assert "reseeded" not in keeper.sync()  # a listing can lag behind another process; look again later
+    keeper.clock.now += keeper_module.MISSING_S
     assert keeper.sync()["reseeded"] == 2
     relay.sync()
     keeper.sync()
