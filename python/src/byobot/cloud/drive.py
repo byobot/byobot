@@ -170,8 +170,8 @@ def sign_in(client: dict, opener: Callable = urllib.request.urlopen,
 
 
 def _tokens(client: dict, answer: dict, refresh: str) -> dict:
-    return {"client_id": client["client_id"], "client_secret": client["client_secret"], "refresh_token": refresh,
-            "access_token": answer["access_token"], "expires_at": time.time() + answer.get("expires_in", 3600)}
+    return {**client, "refresh_token": refresh, "access_token": answer["access_token"],
+            "expires_at": time.time() + answer.get("expires_in", 3600)}
 
 
 # -- the API -------------------------------------------------------------------------------------------------------
@@ -232,6 +232,21 @@ class Drive:
 
     def json(self, method: str, path: str, params: dict | None = None) -> dict:
         return json.loads(self.call(method, API + path, params) or b"{}")
+
+
+def stores(drive: Drive) -> set[str]:
+    """Every store with a byobot logbook in this Google account's hidden app folder."""
+    found: set[str] = set()
+    params = {"spaces": "appDataFolder", "pageSize": 1000, "fields": "nextPageToken,files(name,appProperties)"}
+    while True:
+        page = drive.json("GET", "/files", params)
+        for f in page.get("files", []):
+            store = (f.get("appProperties") or {}).get(STORE)
+            if store and f.get("name", "").startswith(f"{store}/epochs/"):
+                found.add(store)
+        if not page.get("nextPageToken"):
+            return found
+        params["pageToken"] = page["nextPageToken"]
 
 
 # -- the folder ----------------------------------------------------------------------------------------------------

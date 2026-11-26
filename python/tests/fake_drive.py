@@ -106,9 +106,9 @@ class FakeDrive:
             return self._json({"ids": [self._id() for _ in range(int(params["count"]))]})
         if path == "/drive/v3/files" and method == "GET":
             assert params["spaces"] == "appDataFolder"
-            store = re.fullmatch(r"appProperties has \{ key='byobot_store' and value='([^']+)' \}", params["q"])[1]
-            mine = [self._meta(f) for f in self.files.values()
-                    if f["appProperties"].get("byobot_store") == store and f["id"] not in self.lagging]
+            query = re.fullmatch(r"appProperties has \{ key='byobot_store' and value='([^']+)' \}", params.get("q", ""))
+            mine = [self._meta(f) for f in self.files.values() if f["id"] not in self.lagging
+                    and (query is None or f["appProperties"].get("byobot_store") == query[1])]
             start = int(params.get("pageToken", 0))
             more = start + 3 < len(mine)
             return self._json({"files": mine[start:start + 3], **({"nextPageToken": str(start + 3)} if more else {})})
