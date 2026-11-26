@@ -167,6 +167,10 @@ extension Data {
     }
 }
 
+extension DriveFolder {
+    func age(by seconds: TimeInterval) { loadedAt -= seconds }
+}
+
 actor Naps {
     var taken: [Double] = []
     func add(_ s: Double) { taken.append(s) }
@@ -249,6 +253,20 @@ final class DriveTests: XCTestCase {
         try await phone.delete("segments/p/0.seg")
         let after = try await mac.list()
         XCTAssertNil(after["segments/p/0.seg"])
+    }
+
+    func testAFullListingComesEveryTenMinutesWhateverTheFeedSays() async throws {
+        let fake = FakeDrive(), mac = folder(fake, who: "mac")
+        _ = try await mac.list()
+        var before = await fake.calls.count
+        _ = try await mac.list()
+        var calls = await fake.calls
+        XCTAssertFalse(calls[before...].contains("GET /drive/v3/files"))
+        await mac.age(by: DriveFolder.relist)
+        before = calls.count
+        _ = try await mac.list()
+        calls = await fake.calls
+        XCTAssertTrue(calls[before...].contains("GET /drive/v3/files"))
     }
 
     func testABusyDriveIsRetriedWithBackoff() async throws {

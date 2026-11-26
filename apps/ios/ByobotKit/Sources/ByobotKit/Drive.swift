@@ -271,6 +271,9 @@ public actor DriveFolder: CloudFolder {
     let journal: URL
     var index: [String: [(id: String, sum: String)]]?  // path -> files, oldest first
     var token: String?
+    var loadedAt = Date.distantPast
+    /// A full listing this often, so a change feed that lags or misses a file never hides it for long.
+    static let relist: TimeInterval = 600
 
     public init(storeID: String, drive: Drive, journal: URL) {
         self.storeID = storeID
@@ -318,6 +321,7 @@ public actor DriveFolder: CloudFolder {
     func load() async throws {
         token = Google.text(try await drive.json("GET", "/changes/startPageToken"), "startPageToken")
         index = [:]
+        loadedAt = Date()
         var query = [("spaces", "appDataFolder"), ("pageSize", "1000"), ("orderBy", "createdTime"),
                      ("q", "appProperties has { key='\(Self.store)' and value='\(storeID)' }"),
                      ("fields", "nextPageToken,files(\(Self.fields))")]
@@ -334,7 +338,7 @@ public actor DriveFolder: CloudFolder {
 
     /// Reads Drive's change feed; true if any of this store's files came or went since the last look.
     public func changed() async throws -> Bool {
-        guard index != nil, let start = token else {
+        guard index != nil, let start = token, Date().timeIntervalSince(loadedAt) < Self.relist else {
             try await load()
             return true
         }
