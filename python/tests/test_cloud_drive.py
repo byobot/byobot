@@ -1,0 +1,255 @@
+"""The cloud folder in Drive's hidden app folder, against a fake Drive: the folder rules, retries, the change feed,
+and a keeper killed mid-upload and mid-epoch that recovers on its next run."""
+
+import time
+from collections import Counter
+
+import pytest
+
+from byobot.cloud import drive as drive_module
+from byobot.cloud.drive import Drive, DriveFolder, NotConnected, UpstreamError
+from byobot.cloud.folder import Exists
+from byobot.cloud.keeper import Keeper
+from byobot.cloud.relay import Relay
+from byobot.core import commands
+from byobot.core.store import Store
+
+from fake_drive import FakeDrive, Killed
+from test_cloud_epochs import SECRET, opened
+from test_cloud_keeper import ME, PHONE, Clock, event
+
+STORE = "0193a0b0-0000-7000-8000-00000000c001"
+
+
+@pytest.fixture
+def fake():
+    return FakeDrive()
+
+
+def signed_in():
+    return {"client_id": "cid", "client_secret": "secret", "refresh_token": "refresh-1", "access_token": "access-1",
+            "expires_at": time.time() + 3600}
+
+
+def folder_on(fake, tmp_path, store_id=STORE, who="mac", naps=None):
+    drive = Drive(fake, sleep=(naps.append if naps is not None else lambda s: None), stored=signed_in())
+    return DriveFolder(store_id, drive, journal=tmp_path / f"{who}-journal.json")
+
+
+def test_a_file_is_written_once_read_back_and_deleted_outright(fake, tmp_path):
+    folder = folder_on(fake, tmp_path)
+    folder.create("devices/abc.json", b"one")
+    with pytest.raises(Exists):
+        folder.create("devices/abc.json", b"two")
+    assert folder.read("devices/abc.json") == b"one" and folder.read("devices/none.json") is None
+    assert list(folder.list()) == ["devices/abc.json"] and fake.names() == [f"{STORE}/devices/abc.json"]
+    folder.delete("devices/abc.json")
+    folder.delete("devices/abc.json")
+    assert folder.list() == {} and fake.files == {}
+    with pytest.raises(ValueError):
+        folder.create("../escape", b"x")
+
+
+def test_each_store_sees_only_its_own_files_page_by_page(fake, tmp_path):
+    mine, other = folder_on(fake, tmp_path), folder_on(fake, tmp_path, "0193a0b0-0000-7000-8000-00000000c002", "b")
+    for n in range(7):
+        mine.create(f"devices/d{n}.json", b"x")
+    other.create("devices/d0.json", b"y")
+    assert len(folder_on(fake, tmp_path, who="fresh").list()) == 7
+    assert list(other.list()) == ["devices/d0.json"]
+
+
+def test_another_device_s_files_show_through_the_change_feed(fake, tmp_path):
+    mac, phone = folder_on(fake, tmp_path), folder_on(fake, tmp_path, who="phone")
+    mac.list()
+    assert mac.changed() is False
+    for n in range(5):
+        phone.create(f"segments/p/{n}.seg", b"set")
+    calls = len(fake.calls)
+    assert mac.changed() is True and len(mac.list()) == 5
+    assert "GET /drive/v3/files" not in fake.calls[calls:]  # the feed, not a full listing
+    phone.delete("segments/p/0.seg")
+    assert "segments/p/0.seg" not in mac.list()
+
+
+@pytest.mark.parametrize("code", [429, 500, 503])
+def test_a_busy_drive_is_retried_with_backoff(fake, tmp_path, code):
+    naps = []
+    folder = folder_on(fake, tmp_path, naps=naps)
+    fake.fail("GET /drive/v3/files", code, times=2)
+    folder.create("devices/abc.json", b"one")
+    assert len(naps) == 2 and naps[1] > naps[0] and list(folder.list()) == ["devices/abc.json"]
+
+
+def test_drive_down_for_good_fails_the_call(fake, tmp_path):
+    folder = folder_on(fake, tmp_path)
+    fake.fail("GET /drive/v3/changes/startPageToken", 503, times=drive_module.TRIES)
+    with pytest.raises(UpstreamError, match="503"):
+        folder.list()
+
+
+def test_an_expired_token_is_refreshed_and_saved(fake, tmp_path):
+    from byobot import credentials
+
+    folder = folder_on(fake, tmp_path)
+    fake.token = "access-elsewhere"  # Google expired it early
+    folder.create("devices/abc.json", b"one")
+    assert fake.refreshes == 1 and credentials.load("google")["access_token"] == fake.token
+
+
+def test_a_revoked_sign_in_says_to_sign_in_again(fake, tmp_path, monkeypatch):
+    def refused(form, opener):
+        raise NotConnected("Google signed byobot out of Drive; run `byobot cloud setup` to sign in again")
+
+    folder = folder_on(fake, tmp_path)
+    folder.drive.stored["expires_at"] = 0
+    monkeypatch.setattr(drive_module, "_post_token", refused)
+    with pytest.raises(NotConnected, match="cloud setup"):
+        folder.list()
+    with pytest.raises(NotConnected):
+        Drive(fake)  # nothing saved
+
+
+def test_an_upload_whose_answer_is_lost_lands_once(fake, tmp_path):
+    folder = folder_on(fake, tmp_path)
+    fake.fail("POST /upload", "lost")
+    folder.create("devices/abc.json", b"one")
+    assert fake.names() == [f"{STORE}/devices/abc.json"] and folder.read("devices/abc.json") == b"one"
+
+
+def test_an_upload_cut_short_by_a_crash_is_finished_with_the_same_id(fake, tmp_path):
+    fake.fail("POST /upload", "kill")
+    with pytest.raises(Killed):
+        folder_on(fake, tmp_path).create("devices/abc.json", b"one")
+    fake.lagging = set(fake.files)
+    folder_on(fake, tmp_path).create("devices/abc.json", b"one")  # the next run, before listings show the file
+    assert fake.names() == [f"{STORE}/devices/abc.json"]
+    fake.lagging.clear()
+    assert folder_on(fake, tmp_path, who="fresh").read("devices/abc.json") == b"one"
+
+
+def test_a_damaged_upload_is_deleted_and_sent_again(fake, tmp_path):
+    folder = folder_on(fake, tmp_path)
+    fake.fail("POST /upload", "damage")
+    with pytest.raises(UpstreamError, match="damaged"):
+        folder.create("devices/abc.json", b"one")
+    assert folder.list() == {}
+    folder.create("devices/abc.json", b"one")
+    assert folder.read("devices/abc.json") == b"one"
+
+
+# -- a keeper and a phone over Drive ------------------------------------------------------------------------------
+
+
+class Mac:
+    """The keeper as a process: each run opens the store and Drive afresh, as a new `byobot` command would."""
+
+    def __init__(self, fake, tmp_path, path):
+        self.fake, self.tmp_path, self.path = fake, tmp_path, path
+
+    def run(self, act):
+        with Store(self.path) as store:
+            keeper = Keeper(store, folder_on(self.fake, self.tmp_path, store.store_id))
+            return act(store, keeper)
+
+
+def setup(fake, tmp_path, store):
+    keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id), Clock(), recovery=True)
+    phone_folder = folder_on(fake, tmp_path, store.store_id, who="phone")
+    relay = Relay.join(phone_folder, keeper.join_code()["link"], PHONE)
+    keeper.sync()
+    relay.sync()
+    return keeper, relay
+
+
+def settled(fake, mac, relay):
+    for _ in range(3):
+        relay.sync()
+        mac.run(lambda s, k: k.sync())
+    assert relay.events == {} and relay.sent == {}
+    names = Counter(fake.names())
+    assert all(n == 1 for n in names.values()), [n for n, c in names.items() if c > 1]
+
+
+def test_a_week_of_sets_goes_both_ways_over_drive(fake, tmp_path, store):
+    keeper, relay = setup(fake, tmp_path, store)
+    sets = [event(n=n) for n in range(30)]
+    relay.log(sets)
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
+    relay.sync()
+    report = keeper.sync()
+    assert report["published"] >= 1 and all(store.event(e["id"]) for e in sets)
+    relay.sync()
+    assert relay.plan is not None and relay.events == {}
+
+
+@pytest.mark.parametrize("nth", range(2))
+def test_a_keeper_killed_mid_upload_recovers_on_its_next_run(fake, tmp_path, store, nth):
+    keeper, relay = setup(fake, tmp_path, store)
+    sets = [event(n=n) for n in range(5)]
+    relay.log(sets)
+    relay.sync()
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
+    fake.fail("POST /upload", "pass", times=nth)
+    fake.faults.append(("POST /upload", "kill"))
+    with pytest.raises(Killed):
+        keeper.sync()
+    fake.faults.clear()
+    mac = Mac(fake, tmp_path, store.path)
+    settled(fake, mac, relay)
+    held = mac.run(lambda s, k: {e["id"] for e in s.events()})
+    assert {e["id"] for e in sets} <= held
+    unshown = mac.run(lambda s, k: s.rows("SELECT id FROM events WHERE id NOT IN (SELECT event_id FROM cloud_shown) "
+                                         "AND seq > ?", (int(k._get("checkpoint_position")),)))
+    assert unshown == []
+
+
+@pytest.mark.parametrize("nth", range(5))
+def test_a_keeper_killed_mid_epoch_finishes_it_on_its_next_run(fake, tmp_path, store, nth):
+    keeper, relay = setup(fake, tmp_path, store)
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": SECRET}}])
+    keeper.sync()
+    old = keeper.key(1)
+    commands.erase(store, ME, "location", "example-gym")
+    fake.fail("POST /upload", "pass", times=nth)
+    fake.faults.append(("POST /upload", "kill"))
+    with pytest.raises(Killed):
+        keeper.sync()
+    fake.faults.clear()
+    mac = Mac(fake, tmp_path, store.path)
+    settled(fake, mac, relay)
+    epoch = mac.run(lambda s, k: k.epoch)
+    assert epoch >= 2 and relay.epoch == epoch
+    assert mac.run(lambda s, k: k.status()["cleanup_waits_on"]) == []
+    folder = folder_on(fake, tmp_path, store.store_id, who="check")
+    assert all(int(p.split("/")[1][:4]) == epoch for p in folder.list() if p.startswith(("epochs/", "keys/")))
+    assert mac.run(lambda s, k: opened(folder, k, old)) == []
+    assert not any(SECRET in text for text in mac.run(lambda s, k: opened(folder, k, k.key(epoch))))
+
+
+def test_a_keeper_killed_mid_cleanup_finishes_it_on_its_next_run(fake, tmp_path, store):
+    keeper, relay = setup(fake, tmp_path, store)
+    keeper.compact()
+    relay.sync()
+    fake.fail("DELETE /drive/v3/files/", "pass", times=2)
+    fake.faults.append(("DELETE /drive/v3/files/", "kill"))
+    with pytest.raises(Killed):
+        keeper.sync()
+    fake.faults.clear()
+    mac = Mac(fake, tmp_path, store.path)
+    settled(fake, mac, relay)
+    folder = folder_on(fake, tmp_path, store.store_id, who="check")
+    assert not any(p.startswith(("epochs/0001", "keys/0001/", "checkpoints/0001/")) for p in folder.list())
+
+
+def test_a_phone_upload_that_fails_keeps_its_samples_for_the_next_sync(fake, tmp_path, store):
+    keeper, relay = setup(fake, tmp_path, store)
+    relay.log([event()])
+    relay.send_samples({"samples": [{"source": "apple_health", "source_id": "W1",
+                                     "type": "HKQuantityTypeIdentifierBodyMass", "start": "2026-11-23T06:30:00-05:00",
+                                     "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}]})
+    fake.fail("POST /upload", 503, times=drive_module.TRIES)
+    with pytest.raises(UpstreamError):
+        relay.sync()
+    settled(fake, Mac(fake, tmp_path, store.path), relay)
+    assert [r["payload"]["source_id"] for r in store.records("source_record")] == ["W1"]

@@ -9,13 +9,14 @@ import getpass
 import json
 import os
 import sys
+import time
 import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, library, whoop
+from byobot import __version__, credentials, library, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
@@ -762,6 +763,205 @@ def _devices(ctx: Context) -> dict:
 )
 def _unpair(ctx: Context, device_id: str) -> dict:
     return {"device": ctx.store().unpair(device_id)}
+
+
+# -- the cloud logbook ----------------------------------------------------------------------------------------------
+
+
+def _drive_folder(store: Store) -> Any:
+    from byobot.cloud.drive import Drive, DriveFolder
+
+    return DriveFolder(store.store_id, Drive())
+
+
+def _keeper(ctx: Context) -> Any:
+    from byobot.cloud.keeper import Keeper, is_keeper
+
+    store = ctx.store()
+    if not is_keeper(store):
+        raise ValidationFailed("Drive sync isn't on for this store; run `byobot cloud setup` in a terminal")
+    return Keeper(store, _drive_folder(store))
+
+
+def _ask(prompt: str, secret: bool = False) -> str:
+    if secret:
+        return getpass.getpass(prompt).strip()
+    sys.stderr.write(prompt)
+    return input().strip()
+
+
+@command(
+    "cloud setup",
+    "Turn on Drive sync: sign in to Google Drive with your own Google Cloud project, and make this computer the "
+    "keeper of the byobot logbook's encrypted copy there. Run it in a terminal; run it again to sign in again.",
+    Param("client_file", "string", "The Desktop app client's JSON, downloaded from your Google Cloud project. "
+          "Asked for the first time if left out."),
+    Param("ios_client_id", "string", "Your iOS client's id, which a phone needs to join. Asked for the first time "
+          "if left out."),
+    Param("recovery", "string", "Make a recovery code, which rebuilds the logbook from Drive alone if every device "
+          "is lost.", choices=("yes", "no"), default="yes"),
+    read_only=False,
+    mcp=False,
+    description="The Google Cloud project needs the Drive API on, a consent screen In production with only the "
+                "drive.appdata scope, a Desktop app client and an iOS client for the app's bundle id. byobot sees "
+                "only its own hidden folder in your Drive.",
+)
+def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: str | None = None,
+                 recovery: str = "yes") -> dict:
+    from byobot.cloud import drive
+    from byobot.cloud.keeper import Keeper, is_keeper
+
+    if not sys.stdin.isatty():
+        raise ValidationFailed("run `byobot cloud setup` in a terminal, so it can sign you in to Google")
+    saved = credentials.load(drive.NAME) or {}
+    client = {k: saved[k] for k in ("client_id", "client_secret", "ios_client_id") if k in saved}
+    if client_file or not client.get("client_id"):
+        client.update(drive.read_client(client_file or _ask("Path to the Desktop app client's JSON: ")))
+    if ios_client_id is not None or "ios_client_id" not in client:
+        client["ios_client_id"] = ios_client_id if ios_client_id is not None else _ask(
+            "iOS client id (blank to add it later): ")
+    drive.sign_in(client, open_browser=_open_google)
+    store = ctx.store()
+    if is_keeper(store):
+        return {"signed_in": True, "keeper": "already", **_keeper(ctx).sync()}
+    folder = _drive_folder(store)
+    others = drive.stores(folder.drive) - {store.store_id}
+    if others and not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+        raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
+                               "run `byobot cloud recover` with its recovery code")
+    keeper = Keeper.setup(store, folder, recovery=recovery == "yes")
+    out = {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch}
+    if keeper.recovery_code:
+        out["recovery_code"] = keeper.recovery_code
+        out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
+    return out
+
+
+def _open_google(url: str) -> None:
+    sys.stderr.write(f"Opening Google's sign-in in your browser. If it doesn't open, visit:\n{url}\n")
+    webbrowser.open(url)
+
+
+@command(
+    "cloud recover",
+    "Become the Drive sync keeper again on this computer, from the folder in Drive and the recovery code: on a "
+    "new computer, or one restored from an export.",
+    Param("code", "string", "The recovery code from setup. Asked for without showing it if left out."),
+    read_only=False,
+    mcp=False,
+    description="Run `byobot cloud setup` first to sign in; it says when the folder already has a keeper.",
+)
+def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
+    from byobot.cloud import drive
+    from byobot.cloud.drive import DriveFolder
+    from byobot.cloud.keeper import Keeper
+
+    store = ctx.store()
+    folder = _drive_folder(store)
+    if not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():  # a new computer: find the logbook
+        found = sorted(drive.stores(folder.drive))
+        if len(found) > 1:
+            raise ValidationFailed("your Google Drive holds more than one byobot logbook; restore the right one from "
+                                   "an export, then run `byobot cloud recover` there")
+        if found:
+            folder = DriveFolder(found[0], folder.drive)
+    code = code or _ask("Recovery code (not shown): ", secret=True)
+    keeper = Keeper.recover(store, folder, code)
+    return {"recovered": True, **keeper.status()}
+
+
+@command(
+    "cloud join",
+    "Show a one-time code for a phone to join Drive sync, then wait until it joins. The code works once, for ten "
+    "minutes, and holds no key.",
+    Param("wait", "string", "Wait for the phone here, or only show the code.", choices=("yes", "no"),
+          default="yes"),
+    read_only=False,
+    mcp=False,
+)
+def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
+    from byobot.cloud import drive
+
+    keeper = _keeper(ctx)
+    code = keeper.join_code()
+    ios = (credentials.load(drive.NAME) or {}).get("ios_client_id")
+    link = code["link"] + (f"&client={ios}" if ios else "")
+    out = {"link": link, "expires": datetime.fromtimestamp(code["expires"]).astimezone().isoformat(timespec="seconds")}
+    if sys.stderr.isatty():
+        sys.stderr.write("\nIn the byobot app, turn on Drive sync and scan this:\n\n")
+        try:
+            import segno
+
+            segno.make(link, error="l").terminal(out=sys.stderr, compact=True)
+        except Exception:  # pragma: no cover - a terminal that can't draw the code still gets the link
+            pass
+        sys.stderr.write(f"\nLink: {link}\n")
+    if wait == "no":
+        return out
+    sys.stderr.write("Waiting for the phone. Press Ctrl-C to stop.\n")
+    try:
+        while True:
+            report = keeper.sync()
+            if "join" in report:
+                return {**out, "join": report["join"], **({"device": report["device"]} if "device" in report else {})}
+            time.sleep(JOIN_POLL_S)
+    except KeyboardInterrupt:
+        return {**out, "join": "stopped"}
+
+
+JOIN_POLL_S = 5
+
+
+@command(
+    "cloud sync",
+    "Sync with Drive now: read what phones sent, and publish what the Drive copy doesn't hold yet. Running it again "
+    "changes nothing new.",
+    read_only=False,
+)
+def _cloud_sync(ctx: Context) -> dict:
+    return _keeper(ctx).sync()
+
+
+@command(
+    "cloud status",
+    "Where Drive sync stands: the devices in it, the current epoch, the files in Drive, and any cleanup that waits "
+    "on a device.",
+)
+def _cloud_status(ctx: Context) -> dict:
+    from byobot.cloud.keeper import is_keeper
+    from byobot.util import ByobotError
+
+    if not is_keeper(ctx.store()):
+        return {"on": False}
+    try:
+        return {"on": True, **_keeper(ctx).status()}
+    except ByobotError as exc:
+        return {"on": True, "error": exc.message}
+
+
+@command(
+    "cloud remove",
+    "Remove a device from Drive sync, such as a lost phone. A new epoch starts with a key it doesn't get.",
+    Param("device_id", "string", "The device to remove (see `byobot cloud status`).", required=True,
+          positional=True),
+    read_only=False, destructive=True,
+    mcp=False,
+)
+def _cloud_remove(ctx: Context, device_id: str) -> dict:
+    epoch = _keeper(ctx).remove(device_id)
+    return {"removed": device_id, "epoch": epoch,
+            "next": "A lost phone is still signed in to Google: in your Google Account's third-party connections, "
+                    "remove its access to your Google Cloud project's app."}
+
+
+@command(
+    "cloud compact",
+    "Rewrite the Drive copy into a new epoch now. The old files are deleted once every device has moved.",
+    read_only=False,
+    mcp=False,
+)
+def _cloud_compact(ctx: Context) -> dict:
+    return {"epoch": _keeper(ctx).compact()}
 
 
 @command(

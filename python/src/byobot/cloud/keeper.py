@@ -59,7 +59,7 @@ class Keeper:
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
         if any(p.startswith("epochs/") for p in folder.list()):
-            raise ByobotError("this cloud folder already has a keeper; restore with the recovery code instead")
+            raise ByobotError("this cloud folder already has a keeper; run `byobot cloud recover` with the recovery code instead")
         identity = Identity.generate()
         code = recovery_code() if recovery else None
         meta = [("device_id", uuid7()), ("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
@@ -114,10 +114,9 @@ class Keeper:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
         else:
             store.adopt(store_id, top["store_key"])
-        own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{top['device_id']}/", "plan/"))]
-        seq = max([w["seq"] for w in own if w] + [0]) + 1
         meta = [("device_id", top["device_id"]), ("identity", json.dumps(identity.private())), ("epoch", n),
-                ("seq", seq), ("checkpoint_position", 0), ("recovery_key", b64(recovery_key(code, store_id)))]
+                ("seq", _top_seq(listing, top["device_id"])), ("checkpoint_position", 0),
+                ("recovery_key", b64(recovery_key(code, store_id)))]
         with store._tx():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
@@ -164,6 +163,13 @@ class Keeper:
                                 "VALUES (?, ?, ?, ?, ?, ?)", (device["id"], device["class"], device["box"],
                                                               device["sign"], epoch, epoch))
 
+    def _seq_floor(self, listing: dict[str, str]) -> None:
+        """A run cut short after an upload leaves that file's seq behind; never write another file under it."""
+        top = _top_seq(listing, self.device_id)
+        if top > int(self._get("seq")):
+            with self.store._tx():
+                self._set("seq", top)
+
     def _next_seq(self) -> int:
         seq = int(self._get("seq"))
         self._set("seq", seq + 1)
@@ -193,7 +199,9 @@ class Keeper:
         n = self.epoch + 1
         key = new_key()
         store_id = self.store.store_id
-        for path in self.folder.list():  # what a start cut short left behind; no device uses it yet
+        listing = self.folder.list()
+        self._seq_floor(listing)
+        for path in listing:  # what a start cut short left behind; no device uses it yet
             if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
                 self.folder.delete(path)
         with self.store._tx():
@@ -404,6 +412,7 @@ class Keeper:
 
     def sync(self) -> dict:
         listing = self.folder.list()
+        self._seq_floor(listing)
         report: dict[str, Any] = {}
         if files.epoch_path(self.epoch) not in listing:  # the folder was deleted, or a start was cut short
             report["reseeded"] = self.start_epoch()
@@ -483,6 +492,18 @@ def _tables(store: Store) -> None:
     for statement in DDL.strip().split(";"):
         if statement.strip():
             store.conn.execute(statement)
+
+
+def is_keeper(store: Store) -> bool:
+    """Whether this store keeps a cloud folder."""
+    _tables(store)
+    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone() is not None
+
+
+def _top_seq(listing: dict[str, str], device_id: str) -> int:
+    """The keeper's next seq past every file of its own in the folder."""
+    own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{device_id}/", "plan/"))]
+    return max([w["seq"] for w in own if w] + [0]) + 1
 
 
 def _epoch_of(path: str) -> int | None:
