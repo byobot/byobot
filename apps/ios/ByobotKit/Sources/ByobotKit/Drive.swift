@@ -303,7 +303,7 @@ public actor DriveFolder: CloudFolder {
         guard file["trashed"] != .bool(true), case .object(let props)? = file["appProperties"],
               props[Self.store] == .string(storeID), let name = Google.text(file, "name"),
               name.hasPrefix(storeID + "/") else { return nil }
-        return String(name.dropFirst(storeID.count + 1))
+        return try? Self.safe(String(name.dropFirst(storeID.count + 1)))  // a name byobot never writes is left alone
     }
 
     func add(_ file: [String: JSONValue]) {

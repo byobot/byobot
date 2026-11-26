@@ -294,7 +294,10 @@ class DriveFolder:
         name, props = f.get("name", ""), f.get("appProperties") or {}
         if f.get("trashed") or props.get(STORE) != self.store_id or not name.startswith(self.store_id + "/"):
             return None
-        return name[len(self.store_id) + 1:]
+        try:
+            return _safe(name[len(self.store_id) + 1:])
+        except ValueError:  # a name byobot never writes; leave it alone
+            return None
 
     def _add(self, f: dict) -> None:
         path = self._path(f)
