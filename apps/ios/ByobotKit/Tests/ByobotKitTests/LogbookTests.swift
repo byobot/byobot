@@ -183,6 +183,19 @@ final class LogbookTests: XCTestCase {
         XCTAssertFalse(book.canUndo(erased.id))
     }
 
+    func testRefusalsWhoseAnswerWasLostAreSetAside() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        let sent = try XCTUnwrap(book.pendingEvents.first)
+        var window = try Fixtures.window()
+        window.rejected = [Rejection(id: sent.id, reason: "nope"), Rejection(id: "not-from-here", reason: "nope")]
+        book.applyPlan(window)
+        book.applyPlan(window)
+        XCTAssertEqual(book.pendingEvents, [])
+        XCTAssertEqual(book.state.rejected.map(\.eventId), [sent.id])
+        XCTAssertEqual(book.state.rejected.map(\.reason), ["nope"])
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

@@ -376,6 +376,7 @@ public struct Logbook: Sendable {
             state.hlc = hlc  // what's written here next comes after what the laptop has seen
         }
         for record in window.erased ?? [] { drop(record.kind, record.id) }
+        setAside(window.rejected ?? [])
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
         let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
@@ -396,6 +397,16 @@ public struct Logbook: Sendable {
         if !waiting.contains(Self.key("setting", SettingId.currentLocation.rawValue)), activeSession == nil {
             if case .string(let id)? = setting(.currentLocation) { state.locationId = id } else { state.locationId = nil }
         }
+    }
+
+    /// The laptop's record of events it refused, for when its answer to a push never arrived.
+    mutating func setAside(_ refused: [Rejection]) {
+        let held = Set(state.events.map(\.id)), known = Set(state.rejected.map(\.eventId))
+        let refused = refused.filter { held.contains($0.id) }
+        state.rejected += refused.filter { !known.contains($0.id) }
+            .map { RejectedEvent(eventId: $0.id, reason: $0.reason, at: Timestamp.string(clock())) }
+        let ids = Set(refused.map(\.id))
+        state.pending.removeAll { ids.contains($0) }
     }
 
     /// Forget everything this phone holds of a record that was erased.
