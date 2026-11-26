@@ -45,10 +45,10 @@ CREATE INDEX IF NOT EXISTS efforts_day ON efforts (local_date);
 CREATE INDEX IF NOT EXISTS efforts_session ON efforts (session_id);
 CREATE INDEX IF NOT EXISTS efforts_planned ON efforts (planned_session_id, planned_effort_id);
 CREATE TABLE IF NOT EXISTS observations (
-  id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, text TEXT, unit TEXT, started_at TEXT NOT NULL,
-  ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL,
-  zone TEXT, modality TEXT NOT NULL, std_value REAL, std_unit TEXT, source TEXT, source_record_id TEXT,
-  overlay_id TEXT);
+  id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, min REAL, max REAL, text TEXT, unit TEXT,
+  started_at TEXT NOT NULL, ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL,
+  local_date TEXT NOT NULL, zone TEXT, modality TEXT NOT NULL, std_value REAL, std_min REAL, std_max REAL,
+  std_unit TEXT, source TEXT, source_record_id TEXT, overlay_id TEXT);
 CREATE INDEX IF NOT EXISTS observations_code ON observations (code, start_ms);
 CREATE INDEX IF NOT EXISTS observations_day ON observations (local_date);
 CREATE INDEX IF NOT EXISTS observations_source ON observations (source_record_id) WHERE source_record_id IS NOT NULL;
@@ -258,10 +258,10 @@ def _effort(conn, c, rid, p):
 
 def _observation(conn, c, rid, p, source=None, source_record_id=None, overlay_id=None):
     value = p.get("value")
-    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-        rid, p["code"], value if not isinstance(value, str) else None, value if isinstance(value, str) else None,
-        p.get("unit"), *_when(p["time"]), p["modality"], *_std(c, p["code"], p)[::3], source, source_record_id,
-        overlay_id))
+    conn.execute(f"INSERT INTO observations VALUES ({', '.join('?' * 22)})", (
+        rid, p["code"], value if not isinstance(value, str) else None, p.get("min"), p.get("max"),
+        value if isinstance(value, str) else None, p.get("unit"), *_when(p["time"]), p["modality"],
+        *_std(c, p["code"], p), source, source_record_id, overlay_id))
 
 
 def _source_record(conn, c, rid, p):

@@ -54,7 +54,7 @@ def measures(kind, payload):
     if kind == "overlay":
         yield payload.get("fields", {}).get("metrics", {})
     if kind == "observation":
-        yield {payload["code"]: {k: payload[k] for k in ("value", "unit") if k in payload}}
+        yield {payload["code"]: {k: payload[k] for k in ("value", "min", "max", "unit") if k in payload}}
 
 
 def code_ok(code, m):
@@ -98,6 +98,8 @@ def broken_rules(event):
     for metrics in measures(kind, p):
         for code, m in metrics.items():
             if "min" in m and "max" in m and m["min"] > m["max"]:
+                broken.add("range-order")
+            if "value" in m and (m["value"] < m.get("min", m["value"]) or m["value"] > m.get("max", m["value"])):
                 broken.add("range-order")
             if not code_ok(code, m):
                 broken.add("code-value")

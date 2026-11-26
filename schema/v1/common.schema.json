@@ -90,7 +90,7 @@
       }
     },
     "measure": {
-      "description": "One measurement: an exact `value`, or a range with `min`, `max` or both (only `min` is 'at least', as in AMRAP). In a plan it is the target; in a log it is what happened. `unit` is one the code's registry entry accepts.",
+      "description": "One measurement: an exact `value`; a range with `min`, `max` or both (only `min` is 'at least', as in AMRAP); or an estimate, a numeric `value` with the bounds it likely lies within. In a plan it is the target; in a log it is what happened. `unit` is one the code's registry entry accepts.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -99,10 +99,14 @@
         "max": { "type": "number" },
         "unit": { "$ref": "#/$defs/unit" }
       },
-      "oneOf": [
-        { "required": ["value"], "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] } },
-        { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }], "not": { "required": ["value"] } }
-      ]
+      "anyOf": [{ "required": ["value"] }, { "required": ["min"] }, { "required": ["max"] }],
+      "if": { "$ref": "#/$defs/estimate" },
+      "then": { "properties": { "value": { "type": "number" } } }
+    },
+    "estimate": {
+      "description": "A `value` with bounds: the value must be a number.",
+      "required": ["value"],
+      "anyOf": [{ "required": ["min"] }, { "required": ["max"] }]
     },
     "metrics": {
       "description": "Measurements by code.",

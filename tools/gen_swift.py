@@ -66,6 +66,7 @@ INLINE = {
     ("records", "header", "status"): "RecordStatus",
     ("records", "header", "origin"): "Origin",
     ("records", "header", "links"): "Links",
+    ("records", "header", "attachments"): "Attachment",
     ("records", "activity", "targets"): "Targets",
     ("records", "activity", "resistance_curve"): "ResistanceCurve",
     ("records", "overlay", "effect"): "OverlayEffect",

@@ -165,7 +165,9 @@ class Contract:
             broken.add("date-order")
         for metrics in _measures(kind, p):
             for code, m in metrics.items():
-                if "min" in m and "max" in m and _number(m["min"]) and _number(m["max"]) and m["min"] > m["max"]:
+                bounds = [m.get("min"), m.get("value") if "min" in m or "max" in m else None, m.get("max")]
+                bounds = [x for x in bounds if _number(x)]
+                if bounds != sorted(bounds):
                     broken.add("range-order")
                 if not self.code_ok(code, m):
                     broken.add("code-value")
@@ -278,7 +280,7 @@ def _measures(kind: str, p: dict):
     if kind == "overlay":
         yield (p.get("fields") or {}).get("metrics") or {}
     if kind == "observation" and "code" in p:
-        yield {p["code"]: {k: p[k] for k in ("value", "unit") if k in p}}
+        yield {p["code"]: {k: p[k] for k in ("value", "min", "max", "unit") if k in p}}
 
 
 @lru_cache(maxsize=1)

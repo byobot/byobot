@@ -62,7 +62,7 @@ Fixture cases that break one of these name it in `rule`, and must be rejected:
 
 - `time-order`: `time.start <= time.end`, as instants.
 - `date-order`: a plan's `starts_on <= ends_on`.
-- `range-order`: in a measure, `min <= max`.
+- `range-order`: in a measure, `min <= max`, and an estimate's `value` lies within its bounds.
 - `code-value`: a known code's value has its type (a quantity carries a unit, others don't), matches its `pattern`, and lies within its bounds once converted to its unit.
 - `part-ids`: block and planned effort ids are unique within a planned session.
 - `self-reference`: an event's `prev` and `reverts` don't name the event itself.

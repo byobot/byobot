@@ -262,6 +262,17 @@ def test_an_erase_from_a_later_schema_version_is_honored(pair):
     assert b.get("effort", e["record"]["id"]) is None and b.event(e["id"])["payload"] == {}
 
 
+def test_an_estimate_keeps_its_bounds_and_attachments(pair):
+    a, _ = pair
+    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113}]
+    [o] = commands.log(a, ME, [{"kind": "observation", "payload": {
+        "code": "body_mass", "value": 180, "min": 176, "max": 184, "unit": "[lb_av]", "modality": "estimated",
+        "time": {"start": "2026-03-02T10:00:00-05:00"}, "attachments": photo}}])
+    row = a.rows("SELECT value, min, max, round(std_min, 1) AS low, round(std_max, 1) AS high FROM observations")
+    assert row == [{"value": 180, "min": 176, "max": 184, "low": 79.8, "high": 83.5}]
+    assert a.get("observation", o["record"]["id"])["payload"]["attachments"] == photo
+
+
 def test_local_dates_and_offsets_come_from_the_record(pair):
     a, _ = pair
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {

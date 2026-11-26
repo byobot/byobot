@@ -242,6 +242,8 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var scheduledOn: String
     public var name: String
     public var locationId: String?
@@ -250,10 +252,11 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
     public var blocks: [Block]
     public var notes: String?
 
-    public init(origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, scheduledOn: String, name: String, locationId: String? = nil, metrics: Metrics? = nil, blocks: [Block], notes: String? = nil) {
+    public init(origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, scheduledOn: String, name: String, locationId: String? = nil, metrics: Metrics? = nil, blocks: [Block], notes: String? = nil) {
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.scheduledOn = scheduledOn
         self.name = name
         self.locationId = locationId
@@ -266,6 +269,7 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case scheduledOn = "scheduled_on"
         case name
         case locationId = "location_id"
@@ -284,18 +288,21 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var name: String?
     public var locationId: String?
     /// Totals, such as duration, distance or session RPE.
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.name = name
         self.locationId = locationId
         self.metrics = metrics
@@ -308,6 +315,7 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case name
         case locationId = "location_id"
         case metrics
@@ -324,6 +332,8 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var activityId: String
     /// Which round of the planned block.
     public var round: Int?
@@ -334,12 +344,13 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.activityId = activityId
         self.round = round
         self.side = side
@@ -354,6 +365,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case activityId = "activity_id"
         case round
         case side
@@ -363,7 +375,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes.
+/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes. An estimate gives the bounds its `value` likely lies within.
 public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
     /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -371,18 +383,25 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     /// The app and device that captured it, which may differ from the actor that wrote it.
     public var origin: Origin?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var code: String
     public var value: Scalar
+    public var min: Double?
+    public var max: Double?
     public var unit: String?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, code: String, value: Scalar, unit: String? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.links = links
+        self.attachments = attachments
         self.code = code
         self.value = value
+        self.min = min
+        self.max = max
         self.unit = unit
         self.notes = notes
     }
@@ -392,8 +411,11 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
         case modality
         case origin
         case links
+        case attachments
         case code
         case value
+        case min
+        case max
         case unit
         case notes
     }
@@ -852,6 +874,24 @@ public struct SamplesResponse: Codable, Equatable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case written
         case bySource = "by_source"
+    }
+}
+
+public struct Attachment: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var mediaType: String
+    public var bytes: Int
+
+    public init(id: String, mediaType: String, bytes: Int) {
+        self.id = id
+        self.mediaType = mediaType
+        self.bytes = bytes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case mediaType = "media_type"
+        case bytes
     }
 }
 
