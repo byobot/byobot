@@ -54,10 +54,9 @@ from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__
-from byobot.core import commands as core
 from byobot.core import reducers
-from byobot.core import sources
-from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
+from byobot.core.contract import SCHEMA_VERSION, Contract
+from byobot.core.relay import PERSON, accept_events, accept_samples, push_events  # noqa: F401 - the hub's own names
 from byobot.core.store import Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
@@ -66,7 +65,6 @@ PAIRING_TTL_S = 600
 PAIRING_TRIES = 5
 MAX_BODY = 8 * 1024 * 1024
 MAX_PAIR_BODY = 4096  # pairing is unauthenticated, so its body stays small
-MAX_BATCH = 2000
 MAX_TOKEN = 200
 # Bytes already in the socket buffer that we may drop after a refusal, so close() does not RST
 # the response away. We never wait for the client to send more.
@@ -79,8 +77,6 @@ QUERY_PROGRESS_INTERVAL = 10_000
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 DATE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
 MAX_PULL = 5000
-# A paired phone logs the person's training. The body does not get to name another actor.
-PAIRED_ACTOR = {"kind": "human", "id": "me"}
 
 
 # -- certificate -------------------------------------------------------------
@@ -235,7 +231,6 @@ def token_hash(token: str) -> str:
 # -- what the phone pulls ----------------------------------------------------
 
 PLAN_SETTINGS = ("equipment", "current_location", "home_zone")
-PHONE_KINDS = (*core.AUTHORED, "overlay")
 
 
 def _entry(store: Store, kind: str, rid: str) -> dict | None:
@@ -320,7 +315,7 @@ def actor_for_peer(peer: dict) -> dict:
     """The actor a pushed event must already name (``human`` / ``me``). A mismatch is rejected; the body is not rewritten."""
     if not peer.get("device_id"):
         raise HTTPError(HTTPStatus.UNAUTHORIZED, "unauthorized", "pair this device with `byobot serve` first")
-    return dict(PAIRED_ACTOR)
+    return dict(PERSON)
 
 
 def limit_query_time(conn: sqlite3.Connection, seconds: float | None = None,
@@ -346,72 +341,6 @@ def _query_interrupted(exc: sqlite3.OperationalError) -> NoReturn:
         raise HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "timeout",
                         "the query took too long and was stopped") from None
     raise exc
-
-
-def _needs(store: Store, event: dict) -> float:
-    """The kind version an app must know to change a record on top of this event."""
-    if event["op"] != "put":
-        return 1
-    if not store.contract.understands(event):
-        return float("inf")
-    kind = event["record"]["kind"]
-    return reducers.lowest(store.contract, kind, reducers.upcast(store.contract, kind, event.get("kind_version"),
-                                                                 event["payload"]))
-
-
-def _too_new(store: Store, event: dict, kinds: dict) -> bool:
-    """Whether a pushed put names as prev a version its app doesn't know, whose fields the app would drop."""
-    prev = event.get("prev")
-    if event.get("op") != "put" or not isinstance(prev, list):
-        return False
-    known = kinds.get(event["record"].get("kind"), 1)
-    held = [store.event(p) for p in prev if isinstance(p, str)]
-    return any(h and h["record"] == event["record"] and _needs(store, h) > known for h in held)
-
-
-def accept_events(store: Store, device_id: str, events: list, actor: dict, kinds: dict | None = None) -> list[dict]:
-    """Accept pushed events one by one, in order. Retrying an event already accepted is harmless.
-
-    ``device_id`` and ``actor`` are the authenticated peer's. An event that names another device or actor, or
-    writes a record a person doesn't write, is rejected and not written. So is a put on top of a version newer
-    than ``kinds``, the app's kind versions (all 1 when it sends none).
-    """
-    results = []
-    for i, event in enumerate(events):
-        result: dict[str, Any] = {"index": i, "id": event.get("id") if isinstance(event, dict) else None}
-        record = event.get("record") if isinstance(event, dict) else None
-        if not isinstance(event, dict) or not isinstance(record, dict):
-            reason = "not an event"
-        elif event.get("device_id") != device_id:
-            reason = "events must be authored by the paired device that pushes them"
-        elif event.get("actor") != actor:
-            reason = "events must be authored by the paired device's user"
-        elif record.get("kind") not in PHONE_KINDS or event.get("op") not in ("put", "retract") or \
-                "redacted_by" in event:
-            reason = "a phone writes only what a person writes"
-        elif _too_new(store, event, kinds or {}):
-            reason = "a newer byobot wrote this record; update the app to change it"
-        else:
-            outcome, reason = store.accept(event)
-            results.append({**result, "status": outcome, **({"reason": reason} if reason else {})})
-            continue
-        results.append({**result, "status": "rejected", "reason": reason})
-    return results
-
-
-def accept_samples(store: Store, body: Any) -> dict:
-    """Write Apple Health's samples as source records, all or none per source."""
-    samples = body.get("samples", []) if isinstance(body, dict) else None
-    deleted = body.get("deleted", []) if isinstance(body, dict) else None
-    if not isinstance(samples, list) or not isinstance(deleted, list) or len(samples) + len(deleted) > MAX_BATCH:
-        raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid",
-                        f"send {{samples: [...], deleted: [...]}} with at most {MAX_BATCH} in all")
-    if any(not isinstance(s, dict) or sources.SAMPLE_SOURCES.get(s.get("source"), s.get("source")) != "apple_health"
-           for s in samples + deleted):
-        raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "a phone sends only apple_health samples")
-    written = sources.ingest_samples(store, samples, deleted)
-    return {"written": sum(len(e) for e in written.values()),
-            "by_source": {s: len(e) for s, e in written.items()}}
 
 
 # -- HTTP --------------------------------------------------------------------
@@ -731,18 +660,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def events(self) -> dict:
         body = self._body()
-        events = body.get("events") if isinstance(body, dict) else None
-        if not isinstance(events, list) or len(events) > MAX_BATCH:
-            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"send {{events: [...]}} with at most {MAX_BATCH} events")
-        kinds = body.get("kinds", {})
-        if sync_errors("kinds", kinds):
-            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "kinds must map each kind to the version the app knows")
         with Store(self.server.db) as store:
             peer = self._auth(store)
-            results = accept_events(store, peer["device_id"], events, actor_for_peer(peer), kinds)
-        counts = {s: sum(r["status"] == s for r in results)
-                  for s in ("accepted", "duplicate", "stored_unprojected", "rejected")}
-        return {"results": results, **counts}
+            return push_events(store, peer["device_id"], body, actor_for_peer(peer))
 
     def samples(self) -> dict:
         body = self._body()
