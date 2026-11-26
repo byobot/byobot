@@ -271,7 +271,7 @@ class Keeper:
         if not join:
             return {}
         if self.clock() > join["expires"]:
-            return self._joined({"join": "expired"})
+            return self._joined({"join": "expired"}, listing)
         secret = unb64(join["secret"])
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
         valid = []
@@ -293,7 +293,7 @@ class Keeper:
         if not valid:
             return {}
         if len(valid) > 1:
-            return self._joined({"join": "refused: two devices answered one code; show a new code"})
+            return self._joined({"join": "refused: two devices answered one code; show a new code"}, listing)
         device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
         path = files.key_path(self.epoch, device["id"])
         try:  # the code stays good until the phone's key is in the folder
@@ -307,15 +307,20 @@ class Keeper:
                 landed = None
             if landed != device:
                 raise
-        return self._joined({"join": "admitted", "device": device["id"]}, device)
+        return self._joined({"join": "admitted", "device": device["id"]}, listing, device)
 
-    def _joined(self, outcome: dict, device: dict | None = None) -> dict:
-        """End the join: enrol the device if one was admitted, and keep the outcome for `cloud join`."""
+    def _joined(self, outcome: dict, listing: dict[str, str], device: dict | None = None) -> dict:
+        """End the join: enrol the device if one was admitted, keep the outcome for `cloud join`, and delete the
+        device files no one admitted, so those phones can answer a new code."""
         with self.store._tx():
             if device:
                 self._enrol(device, self.epoch)
             self._unset("join")
             self._set("last_join", json.dumps(outcome))
+        known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
+        for path in listing:
+            if path.startswith("devices/") and path.endswith(".json") and path[8:-5] not in known:
+                self.folder.delete(path)
         return outcome
 
     def last_join(self) -> dict | None:
