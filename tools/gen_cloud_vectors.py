@@ -63,7 +63,8 @@ def build() -> dict:
     seg_path = segment.name("segment", 1, 1, RELAY)
     seg = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))
     plan_path = segment.name("plan", 1, 2)
-    plan_seg = segment.write("plan", STORE, KEEPER, 1, 2, [{"plan": plan}], epoch_key, keeper, fixed("nonce 2", 12))
+    plan_messages = [{"plan": plan}, {"receipts": {RELAY: {"read": [1]}}}]
+    plan_seg = segment.write("plan", STORE, KEEPER, 1, 2, plan_messages, epoch_key, keeper, fixed("nonce 2", 12))
     cp_path = segment.name("checkpoint", 1, 0)
     cp = segment.write("checkpoint", STORE, KEEPER, 1, 0, [{"events": {"events": [event]}}], epoch_key, keeper,
                        fixed("nonce 3", 12))
@@ -94,7 +95,7 @@ def build() -> dict:
         {"name": "relay segment", "path": seg_path, "def": "header", "data": seg,
          "expect": {"header": segment.header(seg), "messages": relay_messages}},
         {"name": "plan", "path": plan_path, "def": "header", "data": plan_seg,
-         "expect": {"header": segment.header(plan_seg), "messages": [{"plan": plan}]}},
+         "expect": {"header": segment.header(plan_seg), "messages": plan_messages}},
         {"name": "checkpoint part", "path": cp_path, "def": "header", "data": cp,
          "expect": {"header": segment.header(cp), "messages": [{"events": {"events": [event]}}]}},
     ]
