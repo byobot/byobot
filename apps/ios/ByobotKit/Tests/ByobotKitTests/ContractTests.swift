@@ -18,7 +18,9 @@ final class ContractTests: XCTestCase {
 
     func kept() throws -> [(name: String, data: JSONValue)] {
         try Fixtures.cases("schema/fixtures/v1/cases.json").compactMap { item in
-            guard ["accepted", "stored_unprojected"].contains(item.string("outcome")), let data = item["data"] else {
+            // A later schema_version's events reach only the hub, which relays them as received.
+            guard ["accepted", "stored_unprojected"].contains(item.string("outcome")), let data = item["data"],
+                  case .object(let event) = data, event["schema_version"] == .number(1) else {
                 return nil
             }
             return (item.string("name") ?? "?", data)

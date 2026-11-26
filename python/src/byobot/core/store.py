@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterable
 from .. import library
 from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
-from .contract import SLUG_KINDS, Contract, Rejected, jcs, mac
+from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
 
 EXPORT_VERSION = 1
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
@@ -28,6 +28,7 @@ MAX_PREV = 64
 COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
            "actor_model", "prev", "batch", "reverts", "redacted_by", "payload")
 OPTIONAL = ("kind_version", "batch", "reverts", "redacted_by")
+SELECT_EVENTS = "SELECT e.*, l.envelope AS later FROM events e LEFT JOIN later_events l ON l.id = e.id"
 
 DDL = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -48,6 +49,11 @@ CREATE TRIGGER IF NOT EXISTS events_redact_only BEFORE UPDATE ON events
     OR NEW.reverts IS NOT OLD.reverts
   BEGIN SELECT RAISE(ABORT, 'events are append-only; erase only blanks payloads'); END;
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete BEFORE DELETE ON events
+  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TABLE IF NOT EXISTS later_events (id TEXT PRIMARY KEY, envelope TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS later_events_append_only_update BEFORE UPDATE ON later_events
+  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS later_events_append_only_delete BEFORE DELETE ON later_events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TABLE IF NOT EXISTS records (
   kind TEXT NOT NULL, id TEXT NOT NULL, current TEXT, live INTEGER NOT NULL DEFAULT 0,
@@ -196,21 +202,21 @@ class Store:
     # -- the logbook ----------------------------------------------------------
 
     def event(self, event_id: str) -> dict | None:
-        row = self.conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+        row = self.conn.execute(f"{SELECT_EVENTS} WHERE e.id = ?", (event_id,)).fetchone()
         return row and _envelope(row)
 
     def events(self, since: int = 0, limit: int = -1) -> list[dict]:
         """Every event after arrival position `since`, in arrival order: at most `limit` (-1 for all)."""
-        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
+        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE e.seq > ? ORDER BY e.seq LIMIT ?",
                                                         (since, limit))]
 
     def history(self, kind: str, rid: str) -> list[dict]:
         """One record's events, in arrival order."""
         return [_envelope(r) for r in self.conn.execute(
-            "SELECT * FROM events WHERE kind = ? AND record_id = ? ORDER BY seq", (kind, rid))]
+            f"{SELECT_EVENTS} WHERE e.kind = ? AND e.record_id = ? ORDER BY e.seq", (kind, rid))]
 
     def batch(self, batch_id: str) -> list[dict]:
-        return [_envelope(r) for r in self.conn.execute("SELECT * FROM events WHERE batch = ? ORDER BY seq",
+        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE e.batch = ? ORDER BY e.seq",
                                                         (batch_id,))]
 
     def position(self) -> int:
@@ -271,7 +277,7 @@ class Store:
         if hlc.out_of_range(hlc.parse(event["hlc"])):
             return "rejected", "clock reading past 2200"
         if event["record"]["kind"] == "source_record" and event["op"] != "erase" and "redacted_by" not in event and \
-                event["id"] != self._source_event_id(event):
+                not later(event) and event["id"] != self._source_event_id(event):
             return "rejected", "broken rule: derived-id"
         kind, rid = event["record"]["kind"], event["record"]["id"]
         self._insert(event)
@@ -310,6 +316,15 @@ class Store:
         return None
 
     def _insert(self, e: dict) -> None:
+        if later(e):  # the columns hold what v1 reads; the rest of the envelope is kept beside it as received
+            actor = e["actor"] if isinstance(e.get("actor"), dict) else {}
+            e = {k: e.get(k) for k in ("id", "record", "op", "hlc", "prev", "payload", "redacted_by")} | {
+                "ts": _text(e.get("ts")), "device_id": _text(e.get("device_id")),
+                "actor": {"kind": _text(actor.get("kind")), "id": _text(actor.get("id"))},
+                "envelope": {k: v for k, v in e.items() if k not in ("payload", "redacted_by")}}
+            if not isinstance(e["redacted_by"], str):
+                e["redacted_by"] = None
+            self.conn.execute("INSERT INTO later_events VALUES (?, ?)", (e["id"], jcs(e["envelope"])))
         actor = e["actor"]
         self.conn.execute(f"INSERT INTO events ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", (
             e["id"], e["record"]["kind"], e["record"]["id"], e["op"], e.get("kind_version"), e["hlc"], e["ts"],
@@ -328,12 +343,12 @@ class Store:
     # -- the record index ------------------------------------------------------
 
     def _reindex(self, kind: str, rid: str) -> None:
-        rows = self.conn.execute("SELECT * FROM events WHERE kind = ? AND record_id = ?", (kind, rid)).fetchall()
+        rows = self.conn.execute(f"{SELECT_EVENTS} WHERE e.kind = ? AND e.record_id = ?", (kind, rid)).fetchall()
         events = {r["id"]: _envelope(r) for r in rows}
         erased = any(e["op"] == "erase" for e in events.values())
         # a redacted event whose erase isn't held yet takes no part, so a forged one can't blank a live record
         versions = {i: e for i, e in events.items()
-                    if e["op"] in ("put", "retract") and not erased and "redacted_by" not in e}
+                    if (e["op"] in ("put", "retract") or later(e)) and not erased and "redacted_by" not in e}
         understood = {i: e for i, e in versions.items() if self.contract.understands(e)}
         if kind == "source_record":
             current, live, conflict, heads, tips = _source_current(understood)
@@ -416,9 +431,10 @@ class Store:
         with self._tx():
             unread = {r[0]: (r[1], r[2]) for r in self.conn.execute("SELECT * FROM unprojected")}
             now = {}
-            for row in self.conn.execute("SELECT id, kind, record_id, op, kind_version FROM events"):
+            for row in self.conn.execute("SELECT e.id, e.kind, e.record_id, e.op, e.kind_version, l.id FROM events e "
+                                         "LEFT JOIN later_events l ON l.id = e.id"):
                 probe = {"record": {"kind": row[1], "id": row[2]}, "op": row[3], "kind_version": row[4]}
-                if not contract.understands(probe):
+                if row[5] is not None or not contract.understands(probe):
                     now[row[0]] = (row[1], row[2])
             changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
             if self._units_changed(contract):
@@ -467,7 +483,7 @@ class Store:
 
     def records(self, kind: str | None = None) -> list[dict]:
         """Every live record, current version, in kind then id order."""
-        sql = ("SELECT r.kind, r.id, r.conflict, e.* FROM records r JOIN events e ON e.id = r.current "
+        sql = ("SELECT r.kind, r.id, r.conflict, e.*, NULL AS later FROM records r JOIN events e ON e.id = r.current "
                "WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") + " ORDER BY r.kind, r.id")
         return [{"kind": r[0], "id": r[1], "conflict": bool(r[2]), "payload": json.loads(r["payload"]),
                  "event": _envelope(r)} for r in self.conn.execute(sql, (kind,) if kind else ())]
@@ -709,6 +725,11 @@ def _content(event: dict) -> str:
 
 
 def _envelope(row: sqlite3.Row) -> dict:
+    if row["later"] is not None:
+        e = {**json.loads(row["later"]), "payload": json.loads(row["payload"])}
+        if row["redacted_by"] is not None:
+            e["redacted_by"] = row["redacted_by"]
+        return e
     e = {"id": row["id"], "schema_version": 1, "record": {"kind": row["kind"], "id": row["record_id"]},
          "op": row["op"], "hlc": row["hlc"], "ts": row["ts"], "device_id": row["device_id"],
          "actor": {"kind": row["actor_kind"], "id": row["actor_id"]}, "prev": json.loads(row["prev"]),
@@ -719,6 +740,10 @@ def _envelope(row: sqlite3.Row) -> dict:
         if row[key] is not None:
             e[key] = row[key]
     return e
+
+
+def _text(x: Any) -> str:
+    return x if isinstance(x, str) else ""
 
 
 def _canonical(event: dict) -> str:

@@ -1276,6 +1276,127 @@
    }
   },
   {
+   "name": "later/put",
+   "outcome": "stored_unprojected",
+   "description": "An event of a later schema_version, with envelope fields this one lacks, is kept and relayed as received, never applied.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000030",
+    "schema_version": 2,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010c"
+    },
+    "op": "put",
+    "kind_version": 3,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me",
+     "device_name": "Example iPhone"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "sets": 5
+    },
+    "context": {
+     "note": "a field schema 2 added"
+    }
+   }
+  },
+  {
+   "name": "later/new-op",
+   "outcome": "stored_unprojected",
+   "description": "A later schema_version may add ops; the event is kept like any other it can't read.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000030",
+    "schema_version": 2,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010c"
+    },
+    "op": "move",
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me",
+     "device_name": "Example iPhone"
+    },
+    "prev": [],
+    "payload": {},
+    "context": {
+     "note": "a field schema 2 added"
+    }
+   }
+  },
+  {
+   "name": "later/no-hlc",
+   "outcome": "rejected",
+   "description": "A later event is kept only if the fields every version orders and links by still parse.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000030",
+    "schema_version": 2,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010c"
+    },
+    "op": "put",
+    "kind_version": 3,
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me",
+     "device_name": "Example iPhone"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "sets": 5
+    },
+    "context": {
+     "note": "a field schema 2 added"
+    }
+   }
+  },
+  {
+   "name": "later/bad-prev",
+   "outcome": "rejected",
+   "description": "A later event's prev still names events by id.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000030",
+    "schema_version": 2,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-00000000010c"
+    },
+    "op": "put",
+    "kind_version": 3,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me",
+     "device_name": "Example iPhone"
+    },
+    "prev": [
+     "not-an-event"
+    ],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "sets": 5
+    },
+    "context": {
+     "note": "a field schema 2 added"
+    }
+   }
+  },
+  {
    "name": "envelope/missing-prev",
    "outcome": "rejected",
    "description": "Every write says what it saw, even when that is nothing.",

@@ -383,7 +383,14 @@
           "type": "array",
           "maxItems": 5000,
           "items": {
-            "$ref": "event.schema.json"
+            "anyOf": [
+              {
+                "$ref": "event.schema.json"
+              },
+              {
+                "$ref": "event.schema.json#/$defs/later"
+              }
+            ]
           }
         },
         "next": {

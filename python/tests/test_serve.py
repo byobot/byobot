@@ -19,6 +19,7 @@ from byobot.core.store import Store
 from byobot.util import uuid7
 
 SYNC = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "sync.json").read_text())
+CASES = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "cases.json").read_text())["cases"]
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
 ME = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-coach"}
@@ -453,12 +454,14 @@ def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
 
 def test_pull_events_after_a_cursor(server, byobot_home, monkeypatch):
     _, info, client, _ = server
+    ahead = next(c for c in CASES if c["name"] == "later/put")["data"]
     with db(byobot_home) as s:
         seed(s)
+        s.accept(ahead)
         total = s.rows("SELECT count(*) AS n FROM events")[0]["n"]
     _pair(client, info)
     status, body = client.call("GET", "/v1/events")
-    assert status == 200 and sync_errors("pull_response", body) == []
+    assert status == 200 and sync_errors("pull_response", body) == [] and ahead in body["events"]
     assert len(body["events"]) == total and body["more"] is False
     assert client.call("GET", f"/v1/events?after={body['next']}")[1] == {"events": [], "next": body["next"],
                                                                          "more": False}

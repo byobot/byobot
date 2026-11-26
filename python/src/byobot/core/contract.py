@@ -93,6 +93,11 @@ class Contract:
         resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
         return Draft202012Validator(self.schemas["event"], registry=resources)
 
+    @cached_property
+    def _later_validator(self) -> Draft202012Validator:
+        resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
+        return Draft202012Validator({"$ref": f"{self.schemas['event']['$id']}#/$defs/later"}, registry=resources)
+
     def version(self, kind: str) -> int | None:
         known = self.registry["kinds"].get(kind)
         return known and known["version"]
@@ -105,6 +110,11 @@ class Contract:
 
     def check(self, event: dict) -> None:
         """Raise Rejected if the event breaks the schemas or a rule."""
+        if later(event):
+            error = best_match(self._later_validator.iter_errors(event))
+            if error is not None:
+                raise Rejected(f"{'/'.join(str(p) for p in error.absolute_path) or 'event'}: {error.message}")
+            return
         error = best_match(self._validator.iter_errors(event))
         if error is not None:
             where = "/".join(str(p) for p in error.absolute_path) or "event"
@@ -133,6 +143,8 @@ class Contract:
 
     def understands(self, event: dict) -> bool:
         """Whether this install can project the event (it is stored either way)."""
+        if later(event):
+            return False
         kind, op = event["record"]["kind"], event["op"]
         known = self.version(kind)
         if known is None or (op == "put" and event["kind_version"] > known):
@@ -243,6 +255,12 @@ class Contract:
 
 
 PLACEHOLDER_ID = "00000000-0000-7000-8000-000000000000"
+
+
+def later(event: dict) -> bool:
+    """Whether the event is of a later schema_version: kept and relayed, never applied (except an erase)."""
+    v = event.get("schema_version")
+    return isinstance(v, int) and not isinstance(v, bool) and v > SCHEMA_VERSION
 
 
 def _number(x: Any) -> bool:

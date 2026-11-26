@@ -229,6 +229,39 @@ def test_a_newer_payload_this_install_can_not_check_is_still_kept(pair):
         == "rejected"
 
 
+def later(e, **extra):
+    return {**e, "id": "019aa000-0000-7000-8000-0000000000dd", "schema_version": 2, "kind_version": 3,
+            "prev": [e["id"]], "context": {"note": "a field schema 2 added"}, **extra}
+
+
+def test_a_later_schema_version_is_kept_and_relayed_as_received_never_applied(pair, tmp_path):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    rid, ahead = e["record"]["id"], later(e, payload={"sets": 5})
+    assert b.accept_many([e, ahead]) == [("accepted", ""), ("stored_unprojected", "")]
+    assert b.event(ahead["id"]) == ahead and b.events()[-1] == ahead
+    assert reps(b, rid) == 5 and b.accept(ahead) == ("duplicate", "")
+    assert b.accept({**ahead, "context": {}})[0] == "rejected"
+    with pytest.raises(Conflict, match="newer byobot"):
+        commands.edit(b, ME, "effort", rid, {"metrics": {"reps": {"value": 9}}})
+    b.rebuild()
+    b.use(Contract.shipped().newer(3))
+    assert reps(b, rid) == 5
+    with Store(tmp_path / "c.db") as c:
+        c.restore(b.export())
+        assert c.event(ahead["id"]) == ahead
+        assert c.accept({**ahead, "id": "019aa000-0000-7000-8000-0000000000de", "hlc": "bad"})[0] == "rejected"
+
+
+def test_an_erase_from_a_later_schema_version_is_honored(pair):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    gone = later(e, op="erase", payload={})
+    del gone["kind_version"]
+    assert b.accept_many([e, gone])[1] == ("stored_unprojected", "")
+    assert b.get("effort", e["record"]["id"]) is None and b.event(e["id"])["payload"] == {}
+
+
 def test_local_dates_and_offsets_come_from_the_record(pair):
     a, _ = pair
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {
