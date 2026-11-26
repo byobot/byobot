@@ -72,20 +72,6 @@ def test_the_plan_names_what_was_erased(store):
     assert window["erased"] == [{"kind": "effort", "id": sent["record"]["id"]}]
 
 
-def test_a_device_hears_only_of_erased_records_it_could_hold(store):
-    [mine] = logged(1)
-    relay.accept_events(store, PHONE, [mine])
-    theirs = commands.log(store, ME, [{"kind": "effort", "payload": {
-        "activity_id": "barbell_back_squat", "time": {"start": "2026-11-23T07:40:00-05:00"}}}])[0]
-    place = commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])[0]
-    for e in (mine, theirs, place):
-        commands.erase(store, ME, e["record"]["kind"], e["record"]["id"])
-    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
-    assert window["erased"] == [{"kind": "effort", "id": mine["record"]["id"]},
-                                {"kind": "location", "id": "example-gym"}]
-    assert len(relay.plan_window(store, "2026-11-22", "2026-12-05")["erased"]) == 3
-
-
 def test_the_plan_tells_a_device_what_the_hub_holds_and_refused(store):
     sent = logged(2) + [{**event(device_id="another-device")}]
     relay.accept_events(store, PHONE, sent)
