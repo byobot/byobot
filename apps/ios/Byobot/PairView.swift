@@ -20,6 +20,8 @@ struct PairView: View {
         Form {
             Section {
                 Text("On your laptop, run `byobot serve`. Scan the QR code it shows with the Camera app, or enter its details below.")
+                Text("To sync through your Google Drive instead, run `byobot cloud join` on your Mac and scan its code.")
+                    .foregroundStyle(.secondary)
             }
             Section("Pairing link") {
                 TextField("byobot://pair?…", text: $link)
