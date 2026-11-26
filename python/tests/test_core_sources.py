@@ -180,3 +180,14 @@ def test_without_revision_times_the_last_written_is_current(store):
 def seen_value(store, code):
     [v] = [r[0] for r in store.conn.execute("SELECT value FROM observations WHERE code = ?", (code,))]
     return v
+
+
+def test_an_exclude_can_be_undone_and_a_correction_removed(store):
+    sources.ingest(store, "whoop", [("workout", "w1", workout())])
+    w1 = sources.record_id(store, "whoop", "workout", "w1")
+    excluded = commands.exclude(store, ME, w1)
+    commands.undo(store, ME, excluded["id"])
+    assert store.conn.execute("SELECT count(*) FROM occurrences").fetchone()[0] == 1
+    fixed = commands.correct(store, ME, w1, {"metrics": {"heart_rate": {"value": 150, "unit": "/min"}}})
+    commands.remove(store, ME, "overlay", fixed["record"]["id"])
+    assert merged(store)["heart_rate"] == (140, w1)

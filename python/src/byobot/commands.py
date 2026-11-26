@@ -286,8 +286,8 @@ def _replan(ctx: Context, id: str, payload: Any) -> dict:
 
 @command(
     "remove",
-    "Remove a record you or your agent wrote. `undo` brings it back.",
-    Param("kind", "string", "The record's kind.", required=True, choices=core.AUTHORED, positional=True),
+    "Remove a record you or your agent wrote, or an overlay such as a correction. `undo` brings it back.",
+    Param("kind", "string", "The record's kind.", required=True, choices=core.TAKEN_BACK, positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
     Param("reason", "string", "Why, in a few words."),
     read_only=False,
