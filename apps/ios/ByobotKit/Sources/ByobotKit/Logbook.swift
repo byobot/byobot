@@ -445,8 +445,8 @@ public struct Logbook: Sendable {
         state.storeId = storeId
     }
 
-    /// What a store says it refused and holds of what is waiting, for when its answer to a push never arrived.
-    /// Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
+    /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push
+    /// never arrived. Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
     public mutating func settle(with window: PlanWindow) {
         setAside(window.rejected ?? [])
         guard let held = window.received?[state.deviceId] else { return }

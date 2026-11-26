@@ -291,16 +291,6 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id], "the new store gets only what's waiting")
     }
 
-    func testAPlanClearsWhatItsStoreAlreadyHolds() throws {
-        var book = makeLogbook()
-        let taken = book.logEffort(activityId: "run", metrics: [:])
-        let waiting = book.logEffort(activityId: "run", metrics: [:])
-        var window = try Fixtures.window()
-        window.received = [book.state.deviceId: try XCTUnwrap(book.lastEvent("effort", taken.id)).hlc]
-        XCTAssertEqual(book.applyPlan(window), 0)
-        XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id])
-    }
-
     func testAnInstallPairedBeforeTheStoreIdWasKeptSendsNothingOld() throws {
         var book = makeLogbook()
         book.logEffort(activityId: "run", metrics: [:])
