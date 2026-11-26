@@ -160,6 +160,9 @@ extension Event {
 
 /// Hybrid logical clock readings: Unix milliseconds and a counter, compared as text.
 public enum HLC {
+    /// Readings at or past 2200 are refused, as the laptop refuses them.
+    public static let ceiling = format(ms: 7_258_118_400_000, counter: 0)
+
     public static func format(ms: UInt64, counter: Int) -> String {
         String(format: "%013llu-%06ld", ms, counter)
     }

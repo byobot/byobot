@@ -155,6 +155,19 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.localEfforts.last?.metrics, "no metrics means none, not an empty map")
     }
 
+    func testWritesComeAfterTheLaptopsClock() throws {
+        var book = makeLogbook()
+        var window = try Fixtures.window()
+        window.hlc = "1900000000000-000004"
+        book.applyPlan(window)
+        XCTAssertEqual(book.state.hlc, "1900000000000-000004")
+        book.logEffort(activityId: "run", metrics: [:])
+        XCTAssertGreaterThan(try XCTUnwrap(book.state.events.last).hlc, "1900000000000-000004")
+        window.hlc = "7258118400000-000000"
+        book.applyPlan(window)
+        XCTAssertLessThan(book.state.hlc ?? "", HLC.ceiling, "a reading past 2200 is ignored")
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

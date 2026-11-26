@@ -372,6 +372,9 @@ public struct Logbook: Sendable {
     /// Take a pulled plan. For records the laptop now has, its versions replace what this phone kept, unless
     /// this phone has changes to them still to send.
     public mutating func applyPlan(_ window: PlanWindow) {
+        if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
+            state.hlc = hlc  // what's written here next comes after what the laptop has seen
+        }
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
         let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
