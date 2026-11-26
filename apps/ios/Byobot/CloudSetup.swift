@@ -48,8 +48,28 @@ enum CloudSetup {
         return CloudRoute(relay: relay, folder: folder, identity: identity, save: { try store($0) })
     }
 
+    static var carryFile: URL { dir.appendingPathComponent("health-carry.json") }
+
+    /// Apple Health readings and deletions a relay held when this phone left Drive sync, sent by the next route.
+    static func carry() -> SampleBatch {
+        (try? Data(contentsOf: carryFile)).flatMap { try? JSONDecoder().decode(SampleBatch.self, from: $0) }
+            ?? SampleBatch()
+    }
+
+    static func keepCarry(_ batch: SampleBatch) {
+        if batch.samples.isEmpty && batch.deleted.isEmpty {
+            try? FileManager.default.removeItem(at: carryFile)
+        } else if let data = try? JSONEncoder().encode(batch) {
+            try? data.write(to: carryFile, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
     /// Forgets the relay and the sign-in. The keys stay, so joining again later is the same phone.
     static func forget() {
+        if let left = load()?.leftovers {
+            let had = carry()
+            keepCarry(SampleBatch(samples: had.samples + left.samples, deleted: had.deleted + left.deleted))
+        }
         try? FileManager.default.removeItem(at: file)
         try? FileManager.default.removeItem(at: journal)
         Keychain.delete(service: google, account: "drive")

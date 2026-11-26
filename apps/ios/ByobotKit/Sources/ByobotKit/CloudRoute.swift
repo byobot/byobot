@@ -12,6 +12,8 @@ public actor CloudRoute {
         public var plan: PlanWindow?
         public var refused: [RefusedBatch]
         public var removed: Bool
+        /// False until the Mac admits this phone.
+        public var joined: Bool
     }
 
     public private(set) var relay: CloudRelay
@@ -47,7 +49,8 @@ public actor CloudRoute {
         let delivered = relay.takeDelivered()
         let refused = relay.refused
         try await save(relay)
-        return Result(delivered: delivered, plan: relay.plan, refused: refused, removed: report.removed)
+        return Result(delivered: delivered, plan: relay.plan, refused: refused, removed: report.removed,
+                      joined: relay.joined)
     }
 }
 #endif
