@@ -204,7 +204,7 @@ class ModelReplica:
         for k, rid, _ in parts:
             if self.fields(key(k, rid)) is not None:
                 raise Refused(f"{k} {rid} already exists")
-        return [self._write(at, actor, k, rid, "put", content) for k, rid, content in parts]
+        return [self._write(at, actor, k, rid, "put", content, read=True) for k, rid, content in parts]
 
     def _replan(self, record: dict, at: str, actor: str) -> list[Write]:
         """Re-planning keeps the ids of blocks and planned efforts it leaves out, by position; a planned effort's
