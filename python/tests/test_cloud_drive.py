@@ -278,10 +278,10 @@ def test_a_start_retried_while_drive_still_hides_its_leftovers_seals_the_same_ke
     before = set(fake.files)
     real = Keeper._segment
 
-    def die(self, kind, seq, messages):
+    def die(self, kind, *rest):
         if kind == "checkpoint":
             raise Killed("power cut")
-        return real(self, kind, seq, messages)
+        return real(self, kind, *rest)
 
     monkeypatch.setattr(Keeper, "_segment", die)
     with pytest.raises(Killed):

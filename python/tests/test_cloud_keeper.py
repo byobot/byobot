@@ -1,6 +1,7 @@
 """The keeper and a relay over a local folder: joining, sending both ways, the plan, and what gets refused."""
 
 import json
+import sqlite3
 
 import pytest
 
@@ -226,3 +227,32 @@ def test_the_keeper_and_a_relay_work_over_a_local_folder(store, tmp_path, clock)
     with pytest.raises(CloudError):
         segment.read(b"junk", path="plan/0001-0000000001.seg", store_id=store.store_id, key=keeper.key(1),
                      sign_public=keeper.identity.public()["sign"])
+
+
+class Busy(MemoryFolder):
+    """Each upload is where the hub would write a set the phone pushed."""
+
+    def __init__(self, db):
+        super().__init__()
+        self.db, self.blocked = db, []
+
+    def create(self, path, data):
+        other = sqlite3.connect(self.db, isolation_level=None, timeout=0.1)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            other.execute("ROLLBACK")
+        except sqlite3.OperationalError:
+            self.blocked.append(path)
+        finally:
+            other.close()
+        super().create(path, data)
+
+
+def test_uploads_leave_the_store_free_for_other_writers(store):
+    folder = Busy(store.path)
+    keeper = Keeper.setup(store, folder, Clock())
+    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    folder.blocked.clear()
+    keeper.sync()
+    keeper.compact()
+    assert folder.blocked == []
