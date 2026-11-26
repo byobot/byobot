@@ -11,17 +11,18 @@ import os
 import sys
 import time
 import webbrowser
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from byobot import __version__, credentials, library, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, ddl, query
-from byobot.util import Conflict, NotFound, ValidationFailed, db_path, home, profile
+from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,8 @@ def run(name: str, ctx: Context, args: dict) -> Any:
             raise ValidationFailed(f"{p.name} must be an integer")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
+    if cmd.read_only and ctx.path.exists():
+        autosync(ctx.store())  # so an answer includes what phones sent through Drive
     return cmd.handler(ctx, **clean)
 
 
@@ -768,19 +771,75 @@ def _unpair(ctx: Context, device_id: str) -> dict:
 # -- the cloud logbook ----------------------------------------------------------------------------------------------
 
 
-def _drive_folder(store: Store) -> Any:
+CLOUD_EVERY_S = 60  # how often a read, or `serve`, syncs with Drive
+
+
+def _drive_folder(store: Store, quick: bool = False) -> Any:
     from byobot.cloud.drive import Drive, DriveFolder
 
-    return DriveFolder(store.store_id, Drive())
+    return DriveFolder(store.store_id, Drive(tries=2, timeout=10) if quick else Drive())
 
 
-def _keeper(ctx: Context) -> Any:
+@contextmanager
+def _lock(store: Store, wait: bool = True) -> Iterator[bool]:
+    from byobot.cloud.lock import Busy, held
+
+    try:
+        with held(home() / "cloud" / f"keeper-{store.store_id}.lock", wait) as mine:
+            yield mine
+    except Busy:
+        raise ByobotError("another byobot is syncing with Drive; try again") from None
+
+
+def _keeper(ctx: Context, off_ok: bool = False) -> Any:
     from byobot.cloud.keeper import Keeper, is_keeper
 
     store = ctx.store()
     if not is_keeper(store):
         raise ValidationFailed("Drive sync isn't on for this store; run `byobot cloud setup` in a terminal")
-    return Keeper(store, _drive_folder(store))
+    keeper = Keeper(store, _drive_folder(store))
+    if keeper.is_off and not off_ok:
+        raise ValidationFailed("Drive sync is off for this store; run `byobot cloud setup` to turn it on again")
+    return keeper
+
+
+def _sync(keeper: Any) -> dict:
+    from byobot.cloud.keeper import tried
+
+    with _lock(keeper.store):
+        tried(keeper.store)
+        try:
+            return keeper.sync()
+        except ByobotError as exc:
+            keeper.failed(exc.message)
+            raise
+
+
+def autosync(store: Store, folder: Any = None, every: float = CLOUD_EVERY_S) -> dict | None:
+    """Sync with Drive when it's due. Never waits on another process's sync and never raises: a read, or `serve`,
+    goes on with what the store holds, and `cloud status` shows the error."""
+    from byobot.cloud.keeper import Keeper, due, tried
+
+    if not due(store, every):
+        return None
+    with _lock(store, wait=False) as mine:
+        if not mine or not due(store, every):
+            return None
+        tried(store)
+        keeper = Keeper(store, folder)
+        try:
+            if keeper.folder is None:  # one folder per store for the process, so the change feed carries on
+                keeper.folder = _folders.get(store.store_id) or _drive_folder(store, quick=True)
+                _folders[store.store_id] = keeper.folder
+            return keeper.sync()
+        except Exception as exc:  # noqa: BLE001 - Drive failing never fails a read
+            _folders.pop(store.store_id, None)
+            message = exc.message if isinstance(exc, ByobotError) else f"{type(exc).__name__}: {exc}"
+            keeper.failed(message)
+            return {"error": message}
+
+
+_folders: dict[str, Any] = {}
 
 
 def _ask(prompt: str, secret: bool = False) -> str:
@@ -823,13 +882,16 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
     drive.sign_in(client, open_browser=_open_google)
     store = ctx.store()
     if is_keeper(store):
-        return {"signed_in": True, "keeper": "already", **_keeper(ctx).sync()}
+        keeper = _keeper(ctx, off_ok=True)
+        keeper.on()
+        return {"signed_in": True, "keeper": "already", **_sync(keeper)}
     folder = _drive_folder(store)
     others = drive.stores(folder.drive) - {store.store_id}
     if others and not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
         raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
                                "run `byobot cloud recover` with its recovery code")
-    keeper = Keeper.setup(store, folder, recovery=recovery == "yes")
+    with _lock(store):
+        keeper = Keeper.setup(store, folder, recovery=recovery == "yes")
     out = {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch}
     if keeper.recovery_code:
         out["recovery_code"] = keeper.recovery_code
@@ -866,7 +928,8 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
         if found:
             folder = DriveFolder(found[0], folder.drive)
     code = code or _ask("Recovery code (not shown): ", secret=True)
-    keeper = Keeper.recover(store, folder, code)
+    with _lock(store):
+        keeper = Keeper.recover(store, folder, code)
     return {"recovered": True, **keeper.status()}
 
 
@@ -901,7 +964,7 @@ def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
     sys.stderr.write("Waiting for the phone. Press Ctrl-C to stop.\n")
     try:
         while True:
-            report = keeper.sync()
+            report = _sync(keeper)
             if "join" in report:
                 return {**out, "join": report["join"], **({"device": report["device"]} if "device" in report else {})}
             time.sleep(JOIN_POLL_S)
@@ -919,7 +982,7 @@ JOIN_POLL_S = 5
     read_only=False,
 )
 def _cloud_sync(ctx: Context) -> dict:
-    return _keeper(ctx).sync()
+    return _sync(_keeper(ctx))
 
 
 @command(
@@ -948,7 +1011,9 @@ def _cloud_status(ctx: Context) -> dict:
     mcp=False,
 )
 def _cloud_remove(ctx: Context, device_id: str) -> dict:
-    epoch = _keeper(ctx).remove(device_id)
+    keeper = _keeper(ctx)
+    with _lock(keeper.store):
+        epoch = keeper.remove(device_id)
     return {"removed": device_id, "epoch": epoch,
             "next": "A lost phone is still signed in to Google: in your Google Account's third-party connections, "
                     "remove its access to your Google Cloud project's app."}
@@ -961,7 +1026,31 @@ def _cloud_remove(ctx: Context, device_id: str) -> dict:
     mcp=False,
 )
 def _cloud_compact(ctx: Context) -> dict:
-    return {"epoch": _keeper(ctx).compact()}
+    keeper = _keeper(ctx)
+    with _lock(keeper.store):
+        return {"epoch": keeper.compact()}
+
+
+@command(
+    "cloud off",
+    "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
+    "setup` turns it on again, unless the folder was deleted, in which case setup starts a new one.",
+    Param("delete", "string", "Also delete the folder in Drive, and forget its keys and devices here. Phones then "
+          "join again after setup.", choices=("yes", "no"), default="no"),
+    read_only=False, destructive=True,
+    mcp=False,
+)
+def _cloud_off(ctx: Context, delete: str = "no") -> dict:
+    from byobot.cloud.keeper import is_keeper
+
+    if not is_keeper(ctx.store()):
+        return {"on": False}
+    keeper = _keeper(ctx, off_ok=True)
+    with _lock(keeper.store):
+        if delete == "yes":
+            return {"on": False, "deleted": keeper.forget()}
+        keeper.off()
+    return {"on": False, "deleted": 0}
 
 
 @command(

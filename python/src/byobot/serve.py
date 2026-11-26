@@ -590,6 +590,48 @@ class Handler(BaseHTTPRequestHandler):
 
 # -- running it --------------------------------------------------------------
 
+class CloudPoller(threading.Thread):
+    """While `serve` runs, sync with Drive once a minute if Drive sync is on for this store."""
+
+    def __init__(self, db: Path, log: Callable[[str], None], every: float = 60):
+        super().__init__(name="byobot-cloud", daemon=True)
+        self.db, self.log, self.every = db, log, every
+        self.stopped = threading.Event()
+        self.error: str | None = None
+
+    def run(self) -> None:
+        while True:
+            self.poll()
+            if self.stopped.wait(self.every):
+                return
+
+    def poll(self) -> dict | None:
+        from byobot.commands import autosync
+
+        try:
+            with Store(self.db) as store:
+                report = autosync(store, every=self.every / 2)  # a read in the last half minute already synced
+        except Exception as exc:  # noqa: BLE001 - serving goes on
+            report = {"error": f"{type(exc).__name__}: {exc}"}
+        if report is not None:
+            self._note(report)
+        return report
+
+    def _note(self, report: dict) -> None:
+        error = report.get("error")
+        if error and error != self.error:
+            self.log(f"Drive sync: {error}")
+        elif not error and self.error:
+            self.log("Drive sync: working again")
+        self.error = error
+        if report.get("join") == "admitted":
+            self.log("Drive sync: a phone joined")
+        if report.get("read"):
+            self.log(f"Drive sync: read {report['read']} file{'s' if report['read'] != 1 else ''} from phones")
+        if "new_epoch" in report:
+            self.log(f"Drive sync: new epoch ({report['new_epoch']['reason']})")
+
+
 def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool | None = None, tls: bool = True,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> tuple[Server, dict]:
     """Build a server (not yet serving). ``pair=None`` opens pairing only when no device is paired yet."""
@@ -648,10 +690,13 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
         err.write("Pairing is closed (a device is already paired). Run `byobot serve --pair` to pair another.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
+    poller = CloudPoller(db_path(), log)
+    poller.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        poller.stopped.set()
         server.server_close()
     return 0
