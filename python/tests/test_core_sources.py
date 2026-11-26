@@ -191,3 +191,11 @@ def test_an_exclude_can_be_undone_and_a_correction_removed(store):
     fixed = commands.correct(store, ME, w1, {"metrics": {"heart_rate": {"value": 150, "unit": "/min"}}})
     commands.remove(store, ME, "overlay", fixed["record"]["id"])
     assert merged(store)["heart_rate"] == (140, w1)
+
+
+def test_a_correction_can_move_a_workout(store):
+    sources.ingest(store, "whoop", [("workout", "w1", workout())])
+    w1 = sources.record_id(store, "whoop", "workout", "w1")
+    fixed = commands.correct(store, ME, w1, {"time": {"start": "2026-03-02T09:30:00", "end": "2026-03-02T10:30:00"}})
+    assert "modality" not in fixed["payload"]["fields"] and fixed["payload"]["fields"]["time"]["start"][19:]
+

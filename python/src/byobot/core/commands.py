@@ -61,13 +61,18 @@ def _timed(store: Store, kind: str, payload: Any) -> Any:
         return payload
     if "modality" not in payload:
         payload = {**payload, "modality": "self_reported"}
-    t = payload.get("time")
-    if t is None:
+    if payload.get("time") is None:
         return {**payload, "time": {"start": stamp(store.wall())}}
-    if isinstance(t, dict):
-        zone = _home_zone(store)
-        return {**payload, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
-    return payload
+    return _times(store, payload)
+
+
+def _times(store: Store, fields: dict) -> dict:
+    """`fields` with a start and end left without an offset made local."""
+    t = fields.get("time")
+    if not isinstance(t, dict):
+        return fields
+    zone = _home_zone(store)
+    return {**fields, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
 
 
 def _written(store: Store, kind: str, payload: Any) -> Any:
@@ -129,8 +134,7 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
     fields = merge_patch(found["payload"]["fields"] if found else {}, fields)
     if not fields:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
-    if "time" in fields:
-        fields = _timed(store, "session", fields)
+    fields = _times(store, fields)
     return _overlay(store, actor, "correct", target, {"fields": fields}, found)
 
 
