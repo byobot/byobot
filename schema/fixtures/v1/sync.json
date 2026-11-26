@@ -259,6 +259,305 @@
       }
     },
     {
+      "name": "sync/plan-window-device-state",
+      "def": "plan_window",
+      "valid": true,
+      "description": "The hub's clock, what was erased, its kind versions, and the asking phone's latest event held and refused events.",
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "kind_version": 1
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": [],
+        "hlc": "1764001200000-000003",
+        "erased": [
+          {
+            "kind": "effort",
+            "id": "0193a0b0-0000-7000-8000-00000000ef09"
+          }
+        ],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {
+          "0193a0b0-0000-7000-8000-00000000ab01": "1764000900000-000000"
+        },
+        "rejected": [
+          {
+            "id": "0193a0b0-0000-7000-8000-00000000ee01",
+            "reason": "a phone writes only what a person writes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/plan-window-hlc-not-a-reading",
+      "def": "plan_window",
+      "valid": false,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "kind_version": 1
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": [],
+        "hlc": "2026-11-24T12:00:00Z",
+        "erased": [
+          {
+            "kind": "effort",
+            "id": "0193a0b0-0000-7000-8000-00000000ef09"
+          }
+        ],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {
+          "0193a0b0-0000-7000-8000-00000000ab01": "1764000900000-000000"
+        },
+        "rejected": [
+          {
+            "id": "0193a0b0-0000-7000-8000-00000000ee01",
+            "reason": "a phone writes only what a person writes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/plan-window-rejection-without-reason",
+      "def": "plan_window",
+      "valid": false,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "kind_version": 1
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": [],
+        "hlc": "1764001200000-000003",
+        "erased": [
+          {
+            "kind": "effort",
+            "id": "0193a0b0-0000-7000-8000-00000000ef09"
+          }
+        ],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {
+          "0193a0b0-0000-7000-8000-00000000ab01": "1764000900000-000000"
+        },
+        "rejected": [
+          {
+            "id": "0193a0b0-0000-7000-8000-00000000ee01"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sync/plan-window-erased-without-kind",
+      "def": "plan_window",
+      "valid": false,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "kind_version": 1
+          }
+        ],
+        "overlays": [],
+        "sessions": [],
+        "efforts": [],
+        "hlc": "1764001200000-000003",
+        "erased": [
+          {
+            "id": "0193a0b0-0000-7000-8000-00000000ef09"
+          }
+        ],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {
+          "0193a0b0-0000-7000-8000-00000000ab01": "1764000900000-000000"
+        },
+        "rejected": [
+          {
+            "id": "0193a0b0-0000-7000-8000-00000000ee01",
+            "reason": "a phone writes only what a person writes"
+          }
+        ]
+      }
+    },
+    {
       "name": "sync/plan-window-without-overlays",
       "def": "plan_window",
       "valid": false,

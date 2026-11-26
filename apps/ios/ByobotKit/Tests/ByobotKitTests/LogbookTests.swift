@@ -155,6 +155,92 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.localEfforts.last?.metrics, "no metrics means none, not an empty map")
     }
 
+    func testWritesComeAfterTheLaptopsClock() throws {
+        var book = makeLogbook()
+        var window = try Fixtures.window()
+        window.hlc = "1900000000000-000004"
+        book.applyPlan(window)
+        XCTAssertEqual(book.state.hlc, "1900000000000-000004")
+        book.logEffort(activityId: "run", metrics: [:])
+        XCTAssertGreaterThan(try XCTUnwrap(book.state.events.last).hlc, "1900000000000-000004")
+        window.hlc = "7258118400000-000000"
+        book.applyPlan(window)
+        XCTAssertLessThan(book.state.hlc ?? "", HLC.ceiling, "a reading past 2200 is ignored")
+    }
+
+    func testWhatWasErasedLeavesThePhone() throws {
+        var book = makeLogbook()
+        let session = book.startSession(name: "Easy run")
+        let kept = book.logEffort(activityId: "run", metrics: [:])
+        let erased = book.logEffort(activityId: "run", metrics: ["distance": .exact(5, unit: "km")])
+        var window = try Fixtures.window()
+        window.erased = [ErasedRecord(kind: "effort", id: erased.id), ErasedRecord(kind: "session", id: session.id)]
+        book.applyPlan(window)
+        XCTAssertEqual(book.localEfforts.map(\.id), [kept.id])
+        XCTAssertFalse(book.pendingEvents.contains { $0.record.id == erased.id || $0.record.id == session.id })
+        XCTAssertNil(book.state.heads?["effort/\(erased.id)"])
+        XCTAssertNil(book.activeSession)
+        XCTAssertFalse(book.canUndo(erased.id))
+    }
+
+    func testRefusalsWhoseAnswerWasLostAreSetAside() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        let sent = try XCTUnwrap(book.pendingEvents.first)
+        var window = try Fixtures.window()
+        window.rejected = [Rejection(id: sent.id, reason: "nope"), Rejection(id: "not-from-here", reason: "nope")]
+        book.applyPlan(window)
+        book.applyPlan(window)
+        XCTAssertEqual(book.pendingEvents, [])
+        XCTAssertEqual(book.state.rejected.map(\.eventId), [sent.id])
+        XCTAssertEqual(book.state.rejected.map(\.reason), ["nope"])
+    }
+
+    func ack(_ book: inout Logbook) {
+        let sent = book.pendingEvents
+        let results = sent.enumerated().map { EventResult(index: $0.offset, id: $0.element.id, status: .accepted) }
+        book.applyPush(EventsResponse(results: results, accepted: sent.count, duplicate: 0, storedUnprojected: 0,
+                                      rejected: 0), sent: sent)
+    }
+
+    func testALaptopRestoredFromAnOlderBackupGetsWhatItLost() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        let first = book.logEffort(activityId: "run", metrics: [:])
+        book.logEffort(activityId: "run", metrics: [:])
+        let last = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let events = book.state.events
+        var window = try Fixtures.window()
+        XCTAssertEqual(book.applyPlan(window), 0, "an older laptop says nothing about what it holds")
+        window.received = [book.state.deviceId: events[0].hlc]
+        XCTAssertEqual(book.applyPlan(window), 2)
+        XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
+        XCTAssertEqual(book.prev("effort", last.id), [events[2].id], "a change builds on what's being resent")
+        XCTAssertEqual(book.applyPlan(window), 0, "queued once")
+        ack(&book)
+        window.received = [book.state.deviceId: events[2].hlc]
+        XCTAssertEqual(book.applyPlan(window), 0)
+        book.paired(storeId: "store-a")
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 3, "re-pairing after a restore keeps the same store")
+        XCTAssertEqual(book.pendingEvents.first?.record.id, first.id)
+    }
+
+    func testAnotherStoreGetsOnlyWhatIsWaitingAndWhatComesNext() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let waiting = book.logEffort(activityId: "run", metrics: [:])
+        book.paired(storeId: "store-b")
+        let next = book.logEffort(activityId: "run", metrics: [:])
+        var window = try Fixtures.window()
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0)
+        XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id, next.id])
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

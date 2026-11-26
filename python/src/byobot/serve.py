@@ -54,9 +54,9 @@ from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__
-from byobot.core import reducers
 from byobot.core.contract import SCHEMA_VERSION, Contract
-from byobot.core.relay import PERSON, accept_events, accept_samples, push_events  # noqa: F401 - the hub's own names
+from byobot.core.relay import (PERSON, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
+                               push_events)
 from byobot.core.store import Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
@@ -226,89 +226,6 @@ def lan_hosts() -> list[str]:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
-
-
-# -- what the phone pulls ----------------------------------------------------
-
-PLAN_SETTINGS = ("equipment", "current_location", "home_zone")
-
-
-def _entry(store: Store, kind: str, rid: str) -> dict | None:
-    """A live record as the phone keeps it: its payload, and the version a change to it names as prev."""
-    found = store.get(kind, rid)
-    if found is None:
-        return None
-    return {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
-            "kind_version": reducers.lowest(store.contract, kind, found["payload"]),
-            **({"conflict": True} if found["conflict"] else {})}
-
-
-def _entries(store: Store, kind: str, ids) -> list[dict]:
-    return [e for rid in ids if (e := _entry(store, kind, rid))]
-
-
-def plan_window(store: Store, start: str, end: str) -> dict:
-    """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
-
-    Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
-    efforts of the last two times each planned activity was done at each location.
-    """
-    ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
-    activities = []
-    for r in store.rows("SELECT id, source FROM activities ORDER BY id"):
-        if r["source"] == "store":
-            activities += _entries(store, "activity", [r["id"]])
-        else:
-            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
-            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
-            activities.append({"id": r["id"], "payload": payload, "prev": [],
-                               "kind_version": reducers.lowest(store.contract, "activity", payload), "library": True})
-    planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
-                  "ORDER BY scheduled_on, name, id", start, end)
-    plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
-                "(SELECT value FROM json_each(?))) OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) "
-                "ORDER BY starts_on, id", json.dumps(planned), end, start)
-    window = json.dumps(planned)
-    sessions = ids("SELECT id FROM sessions WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                   "ORDER BY start_ms, id", window)
-    efforts = ids("SELECT id FROM efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                  "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
-                  json.dumps(sessions))
-    efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
-    overlays = ids("SELECT id FROM overlays WHERE effect = 'rearrange' AND target_kind = 'planned_session' "
-                   "AND target_id IN (SELECT value FROM json_each(?)) ORDER BY id", window)
-    return {"from": start, "to": end, "activities": activities,
-            "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
-            "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
-            "planned_sessions": _entries(store, "planned_session", planned),
-            "overlays": _entries(store, "overlay", overlays), "sessions": _entries(store, "session", sessions),
-            "efforts": _entries(store, "effort", efforts)}
-
-
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
-             "resistance_curve")
-_JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
-
-
-def _recent_efforts(store: Store, planned: list[str], times: int = 2) -> list[str]:
-    """Efforts from the last `times` occasions each planned activity was done, per location."""
-    rows = store.conn.execute("""
-        WITH wanted AS (
-          SELECT DISTINCT activity_id FROM planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?))),
-        done AS (
-          SELECT e.id, e.activity_id, e.start_ms, coalesce(e.location_id, s.location_id, '') AS location_id,
-                 coalesce(e.session_id, e.local_date) AS occasion
-          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id
-          WHERE e.activity_id IN (SELECT activity_id FROM wanted)),
-        occasions AS (
-          SELECT activity_id, location_id, occasion, dense_rank() OVER (
-            PARTITION BY activity_id, location_id ORDER BY max(start_ms) DESC, occasion DESC) AS n
-          FROM done GROUP BY activity_id, location_id, occasion)
-        SELECT d.id FROM done d JOIN occasions o ON o.activity_id = d.activity_id AND o.occasion = d.occasion
-          AND o.location_id = d.location_id
-        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (json.dumps(planned), times))
-    return [r[0] for r in rows]
 
 
 def actor_for_peer(peer: dict) -> dict:
@@ -639,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not DATE.fullmatch(value):
                     raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"{label} must be a YYYY-MM-DD date")
             try:
-                return plan_window(store, start, end)
+                return plan_window(store, start, end, self.peer["device_id"])
             except sqlite3.OperationalError as exc:
                 _query_interrupted(exc)
 
