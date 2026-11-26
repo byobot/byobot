@@ -241,6 +241,29 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id, next.id])
     }
 
+    func testWhatALaptopLostIsFoundBeforeTheNextPush() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let lost = try XCTUnwrap(book.state.events.last)
+        book.logEffort(activityId: "run", metrics: [:])  // waiting, so the laptop hasn't seen it
+        var window = try Fixtures.window()
+        window.received = [:]  // restored from before the first set
+        XCTAssertEqual(book.applyPlan(window), 1)
+        XCTAssertEqual(book.pendingEvents.first?.id, lost.id)
+    }
+
+    func testAnInstallPairedBeforeTheStoreIdWasKeptSendsNothingOld() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        book.paired(storeId: "store-b")  // learned from the laptop it's paired with now
+        var window = try Fixtures.window()
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0, "it may have sent those to another store")
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

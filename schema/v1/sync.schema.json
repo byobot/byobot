@@ -361,7 +361,7 @@
           "additionalProperties": {
             "$ref": "common.schema.json#/$defs/hlc"
           },
-          "description": "By device id, the clock reading of the latest of its events the hub holds; the asking device's only. The app sends again what it wrote after it, so a hub restored from an older backup ends complete. A device the hub holds nothing from is absent."
+          "description": "By device id, the clock reading of the latest of its events the hub holds; the asking device's only. The app sends again what it wrote after it, so a hub restored from an older backup ends complete. It shows what was lost only until the device pushes something newer, so a device reads the plan before it pushes. A device the hub holds nothing from is absent."
         },
         "rejected": {
           "type": "array",
