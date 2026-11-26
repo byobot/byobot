@@ -225,8 +225,12 @@ class Relay:
                 break
             self.seq += 1
             path = segment.name("segment", self.epoch, self.seq, self.device_id)
-            self.folder.create(path, segment.write("segment", self.store_id, self.device_id, self.epoch, self.seq,
-                                                   messages, self.key, self.identity))
+            try:
+                self.folder.create(path, segment.write("segment", self.store_id, self.device_id, self.epoch, self.seq,
+                                                       messages, self.key, self.identity))
+            except BaseException:
+                self.samples[:0] = batches  # its events are still in self.events; its samples go back in line
+                raise
             self.sent[path] = {"events": [e["id"] for e in batch], "samples": lines}
             written, force = written + 1, False
         return written

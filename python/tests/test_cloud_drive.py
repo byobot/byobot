@@ -240,3 +240,16 @@ def test_a_keeper_killed_mid_cleanup_finishes_it_on_its_next_run(fake, tmp_path,
     settled(fake, mac, relay)
     folder = folder_on(fake, tmp_path, store.store_id, who="check")
     assert not any(p.startswith(("epochs/0001", "keys/0001/", "checkpoints/0001/")) for p in folder.list())
+
+
+def test_a_phone_upload_that_fails_keeps_its_samples_for_the_next_sync(fake, tmp_path, store):
+    keeper, relay = setup(fake, tmp_path, store)
+    relay.log([event()])
+    relay.send_samples({"samples": [{"source": "apple_health", "source_id": "W1",
+                                     "type": "HKQuantityTypeIdentifierBodyMass", "start": "2026-11-23T06:30:00-05:00",
+                                     "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}]})
+    fake.fail("POST /upload", 503, times=drive_module.TRIES)
+    with pytest.raises(UpstreamError):
+        relay.sync()
+    settled(fake, Mac(fake, tmp_path, store.path), relay)
+    assert [r["payload"]["source_id"] for r in store.records("source_record")] == ["W1"]
