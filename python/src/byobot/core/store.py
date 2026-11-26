@@ -25,6 +25,7 @@ from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
 EXPORT_VERSION = 1
 STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
+MAX_REJECTIONS = 1000  # per device, newest kept
 TOO_BIG = "a number too large to store"
 COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
            "actor_model", "prev", "batch", "reverts", "redacted_by", "payload")
@@ -655,8 +656,11 @@ class Store:
                 else:
                     self.conn.execute("INSERT INTO rejections VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET "
                                       "reason = excluded.reason, at = excluded.at", (device_id, event_id, reason, at))
+            self.conn.execute("DELETE FROM rejections WHERE device_id = ? AND event_id NOT IN (SELECT event_id FROM "
+                              "rejections WHERE device_id = ? ORDER BY at DESC, event_id LIMIT ?)",
+                              (device_id, device_id, MAX_REJECTIONS))
 
-    def rejections(self, device_id: str, limit: int = 1000) -> list[dict]:
+    def rejections(self, device_id: str, limit: int = MAX_REJECTIONS) -> list[dict]:
         """A device's refused events, newest first."""
         return [dict(r) for r in self.conn.execute(
             "SELECT event_id AS id, reason FROM rejections WHERE device_id = ? ORDER BY at DESC, event_id LIMIT ?",
@@ -668,6 +672,7 @@ class Store:
         with self._tx():
             self.conn.execute("UPDATE peers SET revoked_at = coalesce(revoked_at, ?) WHERE device_id = ?",
                               (stamp(self.wall()), device_id))
+            self.conn.execute("DELETE FROM rejections WHERE device_id = ?", (device_id,))
         return self.peer(device_id)
 
     # -- writing ---------------------------------------------------------------
