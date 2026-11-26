@@ -445,6 +445,15 @@ public struct Logbook: Sendable {
         state.storeId = storeId
     }
 
+    /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push
+    /// never arrived. Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
+    public mutating func settle(with window: PlanWindow) {
+        setAside(window.rejected ?? [])
+        guard let held = window.received?[state.deviceId] else { return }
+        let taken = Set(pendingEvents.lazy.filter { $0.hlc <= held }.map(\.id))
+        state.pending.removeAll { taken.contains($0) }
+    }
+
     /// The laptop's record of events it refused, for when its answer to a push never arrived.
     mutating func setAside(_ refused: [Rejection]) {
         let held = Set(state.events.map(\.id)), known = Set(state.rejected.map(\.eventId))

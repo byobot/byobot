@@ -275,6 +275,22 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.first?.id, lost.id)
     }
 
+    func testWhatALaptopTookBeforeItsAnswerWasLostStaysThere() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.logEffort(activityId: "run", metrics: [:])
+        let taken = book.logEffort(activityId: "run", metrics: [:])  // pushed; the answer never came
+        let waiting = book.logEffort(activityId: "run", metrics: [:])
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: try XCTUnwrap(book.lastEvent("effort", taken.id)).hlc]
+        book.settle(with: window)
+        XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id])
+        book.paired(storeId: "store-b")
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0)
+        XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id], "the new store gets only what's waiting")
+    }
+
     func testAnInstallPairedBeforeTheStoreIdWasKeptSendsNothingOld() throws {
         var book = makeLogbook()
         book.logEffort(activityId: "run", metrics: [:])

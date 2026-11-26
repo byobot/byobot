@@ -101,7 +101,11 @@ final class AppModel: ObservableObject {
     func pair(hosts: [String], port: Int, code: String, fingerprint: String) async throws {
         let client = SyncClient(hosts: hosts, port: port, fingerprint: fingerprint)
         let response = try await client.pair(code: code, deviceId: state.deviceId, name: UIDevice.current.name)
+        let old = server, oldToken = old.flatMap { Keychain.token(for: $0.deviceId) }
         try Keychain.setToken(response.token, for: response.server.deviceId)
+        if let old, book.state.storeId != response.server.storeId {
+            await settle(leaving: old, token: oldToken)
+        }
         if let old = server, old.deviceId != response.server.deviceId {
             Keychain.deleteToken(for: old.deviceId)
         }
@@ -116,14 +120,34 @@ final class AppModel: ObservableObject {
     }
 
     /// Forget the laptop. What you logged stays on the phone and goes to whichever laptop you pair next.
-    func forgetServer() {
+    func forgetServer() async {
         guard let server else { return }
+        await settle(leaving: server, token: Keychain.token(for: server.deviceId))
+        guard self.server == server else { return }
         Keychain.deleteToken(for: server.deviceId)
         change {
             $0.state.server = nil
             $0.state.plan = nil
             $0.state.planFetchedAt = nil
         }
+    }
+
+    /// Before leaving a laptop: what it took of what's waiting, for when its answer to a push was lost, so the
+    /// next store doesn't get it too. Gives up after a few seconds; then the next store gets it.
+    private func settle(leaving old: PairedServer, token: String?) async {
+        guard !book.pendingEvents.isEmpty, let token else { return }
+        let client = SyncClient(hosts: old.hosts, port: old.port, fingerprint: old.fingerprint, token: token, timeout: 3)
+        let window = await withTaskGroup(of: PlanWindow?.self) { group in
+            group.addTask { try? await client.plan(from: nil, to: nil) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        if let window { change { $0.settle(with: window) } }
     }
 
     // MARK: Sync
