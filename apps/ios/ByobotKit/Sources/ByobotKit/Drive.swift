@@ -126,7 +126,8 @@ public enum Google {
             throw DriveError.upstream("Can't reach Google: \(error.localizedDescription)")
         }
         let (data, response) = result
-        let body = (try? JSONValue.parse(data)).flatMap { if case .object(let o) = $0 { return o } else { return nil } } ?? [:]
+        var body: [String: JSONValue] = [:]
+        if case .object(let o)? = try? JSONValue.parse(data) { body = o }
         guard response.statusCode == 200 else {
             if text(body, "error") == "invalid_grant" { throw DriveError.notConnected(signedOut) }
             throw DriveError.upstream("Google refused the sign-in (\(response.statusCode)).")
