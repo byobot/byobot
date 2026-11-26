@@ -33,7 +33,7 @@ def fake():
 def cloud(fake, monkeypatch, tmp_path):
     """A terminal, a sign-in that lands at once, and Drive faked."""
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr(commands, "_drive_folder", lambda store: DriveFolder(
+    monkeypatch.setattr(commands, "_drive_folder", lambda store, quick=False: DriveFolder(
         store.store_id, Drive(fake, sleep=lambda s: None), journal=tmp_path / f"{store.store_id}.json"))
 
     def sign_in(client, **_):

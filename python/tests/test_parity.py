@@ -8,7 +8,7 @@ from byobot.commands import REGISTRY
 
 # Setup and device admin, which belong to the person at the computer.
 CLI_ONLY = {"init", "connect whoop", "disconnect whoop", "rebuild", "unpair", "erase", "export", "restore", "ingest",
-            "cloud setup", "cloud recover", "cloud join", "cloud remove", "cloud compact"}
+            "cloud setup", "cloud recover", "cloud join", "cloud remove", "cloud compact", "cloud off"}
 
 
 def cli_commands():
