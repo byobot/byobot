@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from byobot.core import commands
+from byobot.commands import Context, run
+from byobot.core import commands, reducers
 from byobot.core.contract import Contract
 from byobot.core.store import Store
 from byobot.util import Conflict
@@ -111,9 +112,28 @@ def test_resolve_keeps_a_version_that_arrived_after_the_person_looked(stores):
     assert not b.conflicts()
 
 
+def adds(field):
+    """A contract a version ahead, whose effort version 2 added `field`."""
+    spec = Contract.shipped().registry["kinds"]["effort"]
+    return Contract.shipped().newer(2, {"effort": {**spec, "version": 2, "since": {field: 2}}})
+
+
+def test_a_writer_writes_the_lowest_version_that_holds_the_payload(tmp_path):
+    old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
+    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=adds("tempo"))
+    [plain, fast] = commands.log(new, ME, [{"kind": "effort", "payload": effort(5)},
+                                           {"kind": "effort", "payload": {**effort(6), "tempo": "fast"}}])
+    assert (plain["kind_version"], fast["kind_version"]) == (1, 2)
+    reshaped = adds("tempo").newer(3, {"effort": {**adds("tempo").registry["kinds"]["effort"], "version": 3,
+                                                  "reshaped": 3}})
+    assert reducers.lowest(reshaped, "effort", effort(5)) == 3
+    old.accept_many(new.events())
+    assert reps(old, plain["record"]["id"]) == 5 and old.get("effort", fast["record"]["id"]) is None
+
+
 def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
-    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=Contract.shipped().newer(2))
+    new = Store(tmp_path / "new.db", device_id="phone", wall=Wall(), contract=adds("metrics"))
     new.adopt(old.store_id, old._get("store_key"))
     [e] = commands.log(old, ME, [{"kind": "effort", "payload": effort(5)}])
     rid = e["record"]["id"]
@@ -123,3 +143,24 @@ def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     with pytest.raises(Conflict, match="newer byobot"):
         commands.edit(old, AGENT, "effort", rid, {"notes": "agent note"})
     assert reps(new, rid) == 8
+    assert old.get("effort", rid)["newer"] and reps(old, rid) == 5 and old.counts()["newer"] == 1
+    assert [(r["id"], r["event"]["id"], r["newer"]) for r in old.records("effort")] == [(rid, e["id"], True)]
+    assert old.newer() == {("effort", rid)} and not new.get("effort", rid)["newer"]
+    listed = run("list", Context(actor=ME, _store=old), {"kind": "efforts"})["items"]
+    assert [(i["id"], i.get("newer")) for i in listed] == [(rid, True)]
+    old.use(adds("metrics"))
+    assert not old.get("effort", rid)["newer"] and reps(old, rid) == 8
+
+
+def test_older_versions_are_lifted_before_they_are_read_or_edited(tmp_path, monkeypatch):
+    lift = {("effort", 1): lambda p: {**p, "metrics": {**p["metrics"], "rpe": {"value": 8}}}}
+    monkeypatch.setattr(reducers, "UPCASTS", lift)
+    old = Store(tmp_path / "old.db", device_id="laptop", wall=Wall())
+    [e] = commands.log(old, ME, [{"kind": "effort", "payload": effort(5)}])
+    rid = e["record"]["id"]
+    old.use(Contract.shipped().newer(2))
+    assert old.rows("SELECT code FROM metrics WHERE owner_id = ? ORDER BY code", (rid,)) == [
+        {"code": "reps"}, {"code": "rpe"}]
+    edited = commands.edit(old, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
+    assert edited["kind_version"] == 2 and edited["payload"]["metrics"] == {"reps": {"value": 6}, "rpe": {"value": 8}}
+    assert old.event(e["id"])["payload"]["metrics"] == {"reps": {"value": 5}}

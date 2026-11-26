@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/event.schema.json",
   "title": "byobot event, v1",
-  "description": "Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. Its event type is `<kind>.<op>`, such as `effort.put`.",
+  "description": "Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. So is an event of a later `schema_version` (see `$defs/later`). Its event type is `<kind>.<op>`, such as `effort.put`.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -915,6 +915,45 @@
           "required": [
             "model"
           ]
+        }
+      }
+    },
+    "later": {
+      "description": "An event of a later schema_version. A v1 replica reads only these fields, keeps the rest as received, relays it and never applies it, except an erase, which every replica honors.",
+      "type": "object",
+      "required": [
+        "id",
+        "schema_version",
+        "record",
+        "op",
+        "hlc",
+        "prev",
+        "payload"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 1000
+        },
+        "record": {
+          "$ref": "#/properties/record"
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]{0,39}$"
+        },
+        "hlc": {
+          "$ref": "common.schema.json#/$defs/hlc"
+        },
+        "prev": {
+          "$ref": "#/properties/prev"
+        },
+        "payload": {
+          "type": "object"
         }
       }
     }

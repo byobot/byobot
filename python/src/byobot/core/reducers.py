@@ -45,10 +45,10 @@ CREATE INDEX IF NOT EXISTS efforts_day ON efforts (local_date);
 CREATE INDEX IF NOT EXISTS efforts_session ON efforts (session_id);
 CREATE INDEX IF NOT EXISTS efforts_planned ON efforts (planned_session_id, planned_effort_id);
 CREATE TABLE IF NOT EXISTS observations (
-  id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, text TEXT, unit TEXT, started_at TEXT NOT NULL,
-  ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL,
-  zone TEXT, modality TEXT NOT NULL, std_value REAL, std_unit TEXT, source TEXT, source_record_id TEXT,
-  overlay_id TEXT);
+  id TEXT PRIMARY KEY, code TEXT NOT NULL, value REAL, min REAL, max REAL, text TEXT, unit TEXT,
+  started_at TEXT NOT NULL, ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL,
+  local_date TEXT NOT NULL, zone TEXT, modality TEXT NOT NULL, std_value REAL, std_min REAL, std_max REAL,
+  std_unit TEXT, source TEXT, source_record_id TEXT, overlay_id TEXT);
 CREATE INDEX IF NOT EXISTS observations_code ON observations (code, start_ms);
 CREATE INDEX IF NOT EXISTS observations_day ON observations (local_date);
 CREATE INDEX IF NOT EXISTS observations_source ON observations (source_record_id) WHERE source_record_id IS NOT NULL;
@@ -112,6 +112,28 @@ TABLES = {
 OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
                 ("planned_session", "planned_efforts"): "planned_session_id",
                 ("source_record", "observations"): "source_record_id"}
+
+
+# (kind, version) -> the step that lifts a payload of that version to the next, so reducers and edits only ever
+# see the version this install writes. A version whose old payloads are still valid needs none.
+UPCASTS: dict[tuple[str, int], Callable[[dict], dict]] = {}
+
+
+def upcast(c: Contract, kind: str, version: int | None, payload: dict) -> dict:
+    """`payload`, written at kind version `version`, as this install's version of the kind holds it."""
+    for v in range(version or 1, c.version(kind) or 1):
+        if (kind, v) in UPCASTS:
+            payload = UPCASTS[(kind, v)](payload)
+    return payload
+
+
+def lowest(c: Contract, kind: str, payload: dict) -> int:
+    """The lowest version of `kind` that holds `payload`: after its last reshape, and at least the version that
+    added each field it uses. Writers write this, so installs that know only older versions still read it."""
+    spec = c.registry["kinds"].get(kind, {})
+    since = spec.get("since", {})
+    floor = max((v + 1 for k, v in UPCASTS if k == kind), default=spec.get("reshaped", 1))
+    return min(max([floor, *(since.get(f, 1) for f in payload)]), c.version(kind) or 1)
 
 
 def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload: dict | None) -> None:
@@ -245,10 +267,10 @@ def _effort(conn, c, rid, p):
 
 def _observation(conn, c, rid, p, source=None, source_record_id=None, overlay_id=None):
     value = p.get("value")
-    conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-        rid, p["code"], value if not isinstance(value, str) else None, value if isinstance(value, str) else None,
-        p.get("unit"), *_when(p["time"]), p["modality"], *_std(c, p["code"], p)[::3], source, source_record_id,
-        overlay_id))
+    conn.execute(f"INSERT INTO observations VALUES ({', '.join('?' * 22)})", (
+        rid, p["code"], value if not isinstance(value, str) else None, p.get("min"), p.get("max"),
+        value if isinstance(value, str) else None, p.get("unit"), *_when(p["time"]), p["modality"],
+        *_std(c, p["code"], p), source, source_record_id, overlay_id))
 
 
 def _source_record(conn, c, rid, p):

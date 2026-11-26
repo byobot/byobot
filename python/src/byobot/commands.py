@@ -637,7 +637,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     if where:
         sql += " WHERE " + " AND ".join(where)
     rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, max(0, limit)])
+    owner = LISTS[kind][3] if kind in LISTS else None
+    newer = {i for _, i in store.newer(owner)} if owner else set()
     for row in rows:
+        if row.get("id") in newer:
+            row["newer"] = True  # this record also holds a version a newer byobot wrote, which this one can't read
         for col in JSON_COLUMNS:
             if isinstance(row.get(col), str) and (kind != "observations" or col != "value"):
                 row[col] = json.loads(row[col])

@@ -23,6 +23,7 @@ RULES = {"time-order", "date-order", "range-order", "code-value", "part-ids", "s
 
 _resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in SCHEMAS.values())
 EVENT = Draft202012Validator(SCHEMAS["event"], registry=_resources)
+LATER = Draft202012Validator({"$ref": SCHEMAS["event"]["$id"] + "#/$defs/later"}, registry=_resources)
 
 
 def jcs(value):
@@ -53,7 +54,7 @@ def measures(kind, payload):
     if kind == "overlay":
         yield payload.get("fields", {}).get("metrics", {})
     if kind == "observation":
-        yield {payload["code"]: {k: payload[k] for k in ("value", "unit") if k in payload}}
+        yield {payload["code"]: {k: payload[k] for k in ("value", "min", "max", "unit") if k in payload}}
 
 
 def code_ok(code, m):
@@ -98,6 +99,8 @@ def broken_rules(event):
         for code, m in metrics.items():
             if "min" in m and "max" in m and m["min"] > m["max"]:
                 broken.add("range-order")
+            if "value" in m and (m["value"] < m.get("min", m["value"]) or m["value"] > m.get("max", m["value"])):
+                broken.add("range-order")
             if not code_ok(code, m):
                 broken.add("code-value")
     if kind == "planned_session":
@@ -112,6 +115,8 @@ def broken_rules(event):
 
 
 def outcome(event):
+    if isinstance(event.get("schema_version"), int) and event["schema_version"] > 1:
+        return "rejected" if any(LATER.iter_errors(event)) else "stored_unprojected"
     if any(EVENT.iter_errors(event)) or broken_rules(event):
         return "rejected"
     kind, op = event["record"]["kind"], event["op"]

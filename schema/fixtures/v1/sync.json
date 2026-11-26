@@ -15,7 +15,31 @@
           "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
           "name": "example-laptop"
         },
-        "pairing_open": true
+        "pairing_open": true,
+        "kinds": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        }
+      }
+    },
+    {
+      "name": "sync/hello-kind-version-zero",
+      "def": "hello",
+      "valid": false,
+      "data": {
+        "byobot": "0.1.0",
+        "protocol": 1,
+        "schema_version": 1,
+        "server": {
+          "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
+          "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+          "name": "example-laptop"
+        },
+        "pairing_open": true,
+        "kinds": {
+          "effort": 0
+        }
       }
     },
     {
@@ -171,7 +195,8 @@
             },
             "prev": [
               "0193a0b0-0000-7000-8000-0000000000e1"
-            ]
+            ],
+            "kind_version": 1
           }
         ],
         "overlays": [],
@@ -396,7 +421,11 @@
               }
             }
           }
-        ]
+        ],
+        "kinds": {
+          "effort": 1,
+          "session": 1
+        }
       }
     },
     {

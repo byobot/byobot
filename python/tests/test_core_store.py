@@ -229,6 +229,50 @@ def test_a_newer_payload_this_install_can_not_check_is_still_kept(pair):
         == "rejected"
 
 
+def later(e, **extra):
+    return {**e, "id": "019aa000-0000-7000-8000-0000000000dd", "schema_version": 2, "kind_version": 3,
+            "prev": [e["id"]], "context": {"note": "a field schema 2 added"}, **extra}
+
+
+def test_a_later_schema_version_is_kept_and_relayed_as_received_never_applied(pair, tmp_path):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    rid, ahead = e["record"]["id"], later(e, payload={"sets": 5})
+    assert b.accept_many([e, ahead]) == [("accepted", ""), ("stored_unprojected", "")]
+    assert b.event(ahead["id"]) == ahead and b.events()[-1] == ahead
+    assert reps(b, rid) == 5 and b.accept(ahead) == ("duplicate", "")
+    assert b.accept({**ahead, "context": {}})[0] == "rejected"
+    with pytest.raises(Conflict, match="newer byobot"):
+        commands.edit(b, ME, "effort", rid, {"metrics": {"reps": {"value": 9}}})
+    b.rebuild()
+    b.use(Contract.shipped().newer(3))
+    assert reps(b, rid) == 5
+    with Store(tmp_path / "c.db") as c:
+        c.restore(b.export())
+        assert c.event(ahead["id"]) == ahead
+        assert c.accept({**ahead, "id": "019aa000-0000-7000-8000-0000000000de", "hlc": "bad"})[0] == "rejected"
+
+
+def test_an_erase_from_a_later_schema_version_is_honored(pair):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    gone = later(e, op="erase", payload={})
+    del gone["kind_version"]
+    assert b.accept_many([e, gone])[1] == ("stored_unprojected", "")
+    assert b.get("effort", e["record"]["id"]) is None and b.event(e["id"])["payload"] == {}
+
+
+def test_an_estimate_keeps_its_bounds_and_attachments(pair):
+    a, _ = pair
+    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113}]
+    [o] = commands.log(a, ME, [{"kind": "observation", "payload": {
+        "code": "body_mass", "value": 180, "min": 176, "max": 184, "unit": "[lb_av]", "modality": "estimated",
+        "time": {"start": "2026-03-02T10:00:00-05:00"}, "attachments": photo}}])
+    row = a.rows("SELECT value, min, max, round(std_min, 1) AS low, round(std_max, 1) AS high FROM observations")
+    assert row == [{"value": 180, "min": 176, "max": 184, "low": 79.8, "high": 83.5}]
+    assert a.get("observation", o["record"]["id"])["payload"]["attachments"] == photo
+
+
 def test_local_dates_and_offsets_come_from_the_record(pair):
     a, _ = pair
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {

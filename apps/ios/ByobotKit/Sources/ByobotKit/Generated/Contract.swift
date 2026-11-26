@@ -17,6 +17,14 @@ public enum ActorKind: String, Codable, CaseIterable, Hashable, Sendable {
     case human
     case agent
     case connector
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [ActorKind] = [.human, .agent, .connector]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// All but `rejected` mean the server has it, so the app can forget it. `rejected` will not change on retry.
@@ -25,6 +33,14 @@ public enum EventStatus: String, Codable, CaseIterable, Hashable, Sendable {
     case duplicate
     case storedUnprojected = "stored_unprojected"
     case rejected
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [EventStatus] = [.accepted, .duplicate, .storedUnprojected, .rejected]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -33,6 +49,14 @@ public enum Modality: String, Codable, CaseIterable, Hashable, Sendable {
     case selfReported = "self_reported"
     case estimated
     case derived
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Modality] = [.sensed, .selfReported, .estimated, .derived]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// `put` writes the record's whole content; `retract` removes it, as any edit would; `erase` destroys its content everywhere.
@@ -40,6 +64,14 @@ public enum Op: String, Codable, CaseIterable, Hashable, Sendable {
     case put
     case retract
     case erase
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Op] = [.put, .retract, .erase]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
@@ -47,6 +79,14 @@ public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
     case exclude
     case sameAs = "same_as"
     case rearrange
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs, .rearrange]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum RecordStatus: String, Codable, CaseIterable, Hashable, Sendable {
@@ -55,12 +95,28 @@ public enum RecordStatus: String, Codable, CaseIterable, Hashable, Sendable {
     case completed
     case skipped
     case cancelled
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [RecordStatus] = [.planned, .inProgress, .completed, .skipped, .cancelled]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
     case left
     case right
     case both
+    /// A value from a newer byobot, so one new value doesn't stop a whole read.
+    case unknown
+
+    public static let allCases: [Side] = [.left, .right, .both]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// A record, and optionally a part inside it (a planned effort inside a planned session).
@@ -242,6 +298,8 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var scheduledOn: String
     public var name: String
     public var locationId: String?
@@ -250,10 +308,11 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
     public var blocks: [Block]
     public var notes: String?
 
-    public init(origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, scheduledOn: String, name: String, locationId: String? = nil, metrics: Metrics? = nil, blocks: [Block], notes: String? = nil) {
+    public init(origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, scheduledOn: String, name: String, locationId: String? = nil, metrics: Metrics? = nil, blocks: [Block], notes: String? = nil) {
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.scheduledOn = scheduledOn
         self.name = name
         self.locationId = locationId
@@ -266,6 +325,7 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case scheduledOn = "scheduled_on"
         case name
         case locationId = "location_id"
@@ -284,18 +344,21 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var name: String?
     public var locationId: String?
     /// Totals, such as duration, distance or session RPE.
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.name = name
         self.locationId = locationId
         self.metrics = metrics
@@ -308,6 +371,7 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case name
         case locationId = "location_id"
         case metrics
@@ -324,6 +388,8 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var origin: Origin?
     public var status: RecordStatus?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var activityId: String
     /// Which round of the planned block.
     public var round: Int?
@@ -334,12 +400,13 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
+        self.attachments = attachments
         self.activityId = activityId
         self.round = round
         self.side = side
@@ -354,6 +421,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
         case origin
         case status
         case links
+        case attachments
         case activityId = "activity_id"
         case round
         case side
@@ -363,7 +431,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes.
+/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes. An estimate gives the bounds its `value` likely lies within.
 public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
     /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -371,18 +439,25 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     /// The app and device that captured it, which may differ from the actor that wrote it.
     public var origin: Origin?
     public var links: Links?
+    /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
+    public var attachments: [Attachment]?
     public var code: String
     public var value: Scalar
+    public var min: Double?
+    public var max: Double?
     public var unit: String?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, code: String, value: Scalar, unit: String? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
         self.links = links
+        self.attachments = attachments
         self.code = code
         self.value = value
+        self.min = min
+        self.max = max
         self.unit = unit
         self.notes = notes
     }
@@ -392,8 +467,11 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
         case modality
         case origin
         case links
+        case attachments
         case code
         case value
+        case min
+        case max
         case unit
         case notes
     }
@@ -447,7 +525,7 @@ public struct SettingPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. Its event type is `<kind>.<op>`, such as `effort.put`.
+/// Every change enters as one immutable event that writes one record. The envelope is closed: its fields and three ops never change within v1. Kinds are open: an event of a kind or kind version a replica doesn't know is kept and relayed, and read once the replica knows it. So is an event of a later `schema_version` (see `$defs/later`). Its event type is `<kind>.<op>`, such as `effort.put`.
 public struct Event: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// UUIDv7, or for a source's events the id derived from what it holds (see README).
     public var id: String
@@ -602,13 +680,16 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
     public var schemaVersion: Int
     public var server: SyncServer
     public var pairingOpen: Bool
+    /// The server's kind versions.
+    public var kinds: [String: Int]?
 
-    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool) {
+    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kinds: [String: Int]? = nil) {
         self.byobot = byobot
         self.protocol = `protocol`
         self.schemaVersion = schemaVersion
         self.server = server
         self.pairingOpen = pairingOpen
+        self.kinds = kinds
     }
 
     enum CodingKeys: String, CodingKey {
@@ -617,6 +698,7 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
         case schemaVersion = "schema_version"
         case server
         case pairingOpen = "pairing_open"
+        case kinds
     }
 }
 
@@ -686,13 +768,17 @@ public struct SyncStatus: Codable, Equatable, Hashable, Sendable {
 /// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.
 public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     public var events: [Event]
+    /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.
+    public var kinds: [String: Int]?
 
-    public init(events: [Event]) {
+    public init(events: [Event], kinds: [String: Int]? = nil) {
         self.events = events
+        self.kinds = kinds
     }
 
     enum CodingKeys: String, CodingKey {
         case events
+        case kinds
     }
 }
 
@@ -744,13 +830,13 @@ public struct EventsResponse: Codable, Equatable, Hashable, Sendable {
 
 /// GET /v1/events?after=N. Events in the order this server received them, after position N (0 for all).
 public struct PullResponse: Codable, Equatable, Hashable, Sendable {
-    public var events: [Event]
+    public var events: [JSONValue]
     /// Pass as `after` next time.
     public var next: Int
     /// Pull again at once: there are more after `next`.
     public var more: Bool
 
-    public init(events: [Event], next: Int, more: Bool) {
+    public init(events: [JSONValue], next: Int, more: Bool) {
         self.events = events
         self.next = next
         self.more = more
@@ -852,6 +938,24 @@ public struct SamplesResponse: Codable, Equatable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case written
         case bySource = "by_source"
+    }
+}
+
+public struct Attachment: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var mediaType: String
+    public var bytes: Int
+
+    public init(id: String, mediaType: String, bytes: Int) {
+        self.id = id
+        self.mediaType = mediaType
+        self.bytes = bytes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case mediaType = "media_type"
+        case bytes
     }
 }
 
@@ -1009,6 +1113,12 @@ public enum KindVersion {
         "source_record": 1,
         "overlay": 1,
     ]
+
+    /// The kind version that added each payload field added after version 1.
+    public static let since: [String: [String: Int]] = [:]
+
+    /// The latest kind version that changed the shape of earlier payloads.
+    public static let reshaped: [String: Int] = [:]
 }
 
 /// Namespaces for ids derived from other ids (UUIDv5).

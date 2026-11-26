@@ -201,6 +201,22 @@ final class LogbookTests: XCTestCase {
         XCTAssertFalse(book.canUndo(remote.id))
     }
 
+    func testASetANewerAppWroteIsLeftAsItIs() throws {
+        let planned = try plannedSession()
+        var remote = remote(planned.blocks[0].efforts[0].id, metrics: ["reps": .exact(8)])
+        remote.kindVersion = (KindVersion.all["effort"] ?? 1) + 1
+        var book = makeLogbook(plan: try window(efforts: [remote]))
+        XCTAssertTrue(book.isNewer("effort", remote.id))
+        XCTAssertEqual(book.editEffort(remote, metrics: ["reps": .exact(7)], side: nil, notes: nil), remote)
+        XCTAssertTrue(book.pendingEvents.isEmpty, "changing it here would drop what this app can't read")
+    }
+
+    func testValuesFromANewerByobotStillRead() throws {
+        XCTAssertEqual(try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8)), [.left, .unknown])
+        XCTAssertFalse(Side.allCases.contains(.unknown))
+        XCTAssertEqual(KindVersion.lowest("effort", .object(["round": .number(1)])), 1)
+    }
+
     func testThePulledVersionWinsOnceThePhoneHasSynced() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]
