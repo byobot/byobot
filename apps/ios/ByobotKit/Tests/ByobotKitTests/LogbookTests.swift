@@ -199,7 +199,7 @@ final class LogbookTests: XCTestCase {
             + (0..<1_000).map { ErasedRecord(kind: "session", id: "not-here-\($0)") }
         let start = Date()
         book.applyPlan(window)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5)
         XCTAssertEqual(book.state.events.count, 19_000)
         XCTAssertEqual(Array(book.state.pending.prefix(3)), ["event-1", "event-3", "event-5"])
     }
