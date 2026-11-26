@@ -240,6 +240,20 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
     assert fresh.event(later["id"])
 
 
+def test_recovery_keeps_a_phone_that_joined_since_the_epoch_began(store, folder, keeper, tmp_path, clock):
+    code = keeper.recovery_code
+    relay = joined(keeper, folder)  # only its key file names it until the next epoch
+    sent = event()
+    relay.log([sent])
+    relay.sync()
+    fresh = Store(tmp_path / "new-mac.db")
+    again = Keeper.recover(fresh, folder, code, clock)
+    relay.sync()
+    again.sync()
+    assert [d["id"] for d in again.devices() if d["class"] == "relay"] == [PHONE]
+    assert not relay.removed and fresh.event(sent["id"])
+
+
 def test_recovery_needs_the_code_at_setup(store, folder, tmp_path, clock):
     Keeper.setup(store, folder, clock)
     with pytest.raises(ByobotError, match="no recovery key"):
