@@ -72,6 +72,18 @@ def test_another_device_s_files_show_through_the_change_feed(fake, tmp_path):
     assert "segments/p/0.seg" not in mac.list()
 
 
+def test_a_full_listing_comes_every_ten_minutes_whatever_the_feed_says(fake, tmp_path):
+    mac = folder_on(fake, tmp_path)
+    mac.list()
+    calls = len(fake.calls)
+    mac.list()
+    assert "GET /drive/v3/files" not in fake.calls[calls:]
+    mac._loaded_at -= drive_module.RELIST
+    calls = len(fake.calls)
+    mac.list()
+    assert "GET /drive/v3/files" in fake.calls[calls:]
+
+
 @pytest.mark.parametrize("code", [429, 500, 503])
 def test_a_busy_drive_is_retried_with_backoff(fake, tmp_path, code):
     naps = []

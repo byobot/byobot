@@ -35,6 +35,7 @@ SCOPE = "https://www.googleapis.com/auth/drive.appdata"
 NAME = "google"
 STORE = "byobot_store"  # the appProperties key that marks a file as one store's
 FIELDS = "id,name,sha256Checksum,appProperties,trashed"
+RELIST = 600  # seconds between full listings, so a change feed that lags or misses a file never hides it for long
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)"}
 TRIES = 6
 RETRY = {429, 500, 502, 503, 504}
@@ -262,6 +263,7 @@ class DriveFolder:
         self.journal = journal or home() / "cloud" / f"drive-{store_id}.json"
         self._index: dict[str, list[tuple[str, str]]] | None = None  # path -> [(file id, checksum)], oldest first
         self._token: str | None = None
+        self._loaded_at = 0.0
 
     # The journal: path -> the id asked for before its upload.
 
@@ -307,7 +309,7 @@ class DriveFolder:
 
     def _load(self) -> None:
         self._token = self.drive.json("GET", "/changes/startPageToken")["startPageToken"]
-        self._index = {}
+        self._index, self._loaded_at = {}, time.monotonic()
         params = {"spaces": "appDataFolder", "pageSize": 1000, "orderBy": "createdTime",
                   "q": f"appProperties has {{ key='{STORE}' and value='{self.store_id}' }}",
                   "fields": f"nextPageToken,files({FIELDS})"}
@@ -321,7 +323,7 @@ class DriveFolder:
 
     def changed(self) -> bool:
         """Read Drive's change feed; True if any of this store's files came or went since the last look."""
-        if self._index is None:
+        if self._index is None or time.monotonic() - self._loaded_at >= RELIST:
             self._load()
             return True
         seen = False
