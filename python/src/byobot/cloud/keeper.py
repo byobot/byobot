@@ -338,6 +338,8 @@ class Keeper:
             self.store.conn.execute("UPDATE cloud_devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
                                     (where["epoch"], where["seq"], writer))
+            if writer != self.device_id:
+                self._set(f"heard:{writer}", self.clock())
         return "read"
 
     def _shown(self, ids: list[str]) -> None:
@@ -411,6 +413,18 @@ class Keeper:
     # -- sync ----------------------------------------------------------------------
 
     def sync(self) -> dict:
+        report = self._sync()
+        with self.store._tx():
+            self._set("synced_at", self.clock())
+            self._unset("error")
+        return report
+
+    def failed(self, message: str) -> None:
+        """Keep why the last sync failed, for `cloud status`."""
+        with self.store._tx():
+            self._set("error", message)
+
+    def _sync(self) -> dict:
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
@@ -444,6 +458,29 @@ class Keeper:
             self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
+
+    def off(self) -> None:
+        """Stop reading and writing the folder; `cloud setup` turns it on again."""
+        with self.store._tx():
+            self._set("off", 1)
+
+    def on(self) -> None:
+        with self.store._tx():
+            self._unset("off")
+
+    @property
+    def is_off(self) -> bool:
+        return self._get("off") is not None
+
+    def forget(self) -> int:
+        """Delete every file in the folder, then everything this store knew about it. The logbook is untouched."""
+        listing = self.folder.list()
+        for path in listing:
+            self.folder.delete(path)
+        with self.store._tx():
+            for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown", "cloud_refused"):
+                self.store.conn.execute(f"DELETE FROM {table}")
+        return len(listing)
 
     def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
         last_erase = self.store.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
@@ -492,6 +529,20 @@ def _tables(store: Store) -> None:
     for statement in DDL.strip().split(";"):
         if statement.strip():
             store.conn.execute(statement)
+
+
+def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:
+    """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
+    last ``every`` seconds. Reads only, so a store without Drive sync is left as it is."""
+    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cloud_meta'").fetchone():
+        return False
+    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('device_id', 'off', 'tried_at')"))
+    return "device_id" in meta and "off" not in meta and clock() - float(meta.get("tried_at", 0)) >= every
+
+
+def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
+    store.conn.execute("INSERT INTO cloud_meta VALUES ('tried_at', ?) ON CONFLICT (key) DO UPDATE SET value = "
+                       "excluded.value", (str(clock()),))
 
 
 def is_keeper(store: Store) -> bool:
