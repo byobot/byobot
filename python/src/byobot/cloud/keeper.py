@@ -244,6 +244,7 @@ class Keeper:
             self._unset("plan_digest")
             self._unset("epoch_pending")
             self._unset("missing_since")
+            self._unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts)))
@@ -480,6 +481,9 @@ class Keeper:
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
+        if self._get("closed"):  # turned on again after `cloud off --delete yes`
+            report["reseeded"] = self.start_epoch()
+            listing = self.folder.list()
         there = files.epoch_path(self.epoch) in listing
         starting = self._get("starting")
         if starting and (starting != str(self.epoch) or not there) or not there and self._gone():
@@ -550,13 +554,26 @@ class Keeper:
         return self._get("off") is not None
 
     def forget(self) -> int:
-        """Delete every file in the folder, then everything this store knew about it. The logbook is untouched."""
-        listing = self.folder.list()
-        for path in listing:
-            self.folder.delete(path)
+        """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
+        was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
+        here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
+        n = self.epoch + 1
+        path = files.epoch_path(n)
+        keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
+        self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0))
+        listing = [p for p in self.folder.list() if p != path]
+        for p in listing:
+            self.folder.delete(p)
         with self.store._tx():
-            for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown", "cloud_refused"):
+            for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
+            self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error')")
+            self._set("epoch", n)
+            self._set("checkpoint_position", 0)
+            self._set("closed", 1)
+            self._set("off", 1)
         return len(listing)
 
     def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
