@@ -17,4 +17,4 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 
 - One record: `byobot erase <kind> <id>`.
 - Everything on a computer: delete the `~/.byobot` folder. On the iPhone: delete the app.
-- Drive sync: `byobot cloud off --delete yes` deletes the folder. Or, in Google Drive's settings under Manage apps, delete byobot's hidden app data and disconnect it.
+- Drive sync: `byobot cloud off --delete yes` deletes the folder's files, all but a small signed note that holds no data and tells phones sync ended. Or, in Google Drive's settings under Manage apps, delete byobot's hidden app data and disconnect it.

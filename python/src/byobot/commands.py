@@ -1047,9 +1047,10 @@ def _cloud_compact(ctx: Context) -> dict:
 @command(
     "cloud off",
     "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
-    "setup` turns it on again, unless the folder was deleted, in which case setup starts a new one.",
-    Param("delete", "string", "Also delete the folder in Drive, and forget its keys and devices here. Phones then "
-          "join again after setup.", choices=("yes", "no"), default="no"),
+    "setup` turns it on again.",
+    Param("delete", "string", "Also delete the folder's files, all but a note that tells phones they were taken "
+          "off, and forget the keys and devices here. Phones then join again after setup.", choices=("yes", "no"),
+          default="no"),
     read_only=False, destructive=True,
     mcp=False,
 )
