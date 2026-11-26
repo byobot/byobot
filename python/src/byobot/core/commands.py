@@ -3,6 +3,7 @@ version written meanwhile stays a visible conflict."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -214,8 +215,9 @@ def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = 
     return store.write(actor, [{"kind": kind, "id": rid, "op": "retract", "payload": payload, **_from(found)}])[0]
 
 
-def erase(store: Store, actor: dict, kind: str, rid: str) -> list[dict]:
-    """Destroy a record's content everywhere, with every overlay on it. Can't be undone."""
+def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = False) -> list[dict]:
+    """Destroy a record's content everywhere, with every overlay on it, and a session's efforts if asked.
+    Can't be undone."""
     if kind not in AUTHORED and kind != "source_record":
         raise ValidationFailed(f"{kind} records can't be erased on their own")
     found = store.record(kind, rid)
@@ -223,12 +225,34 @@ def erase(store: Store, actor: dict, kind: str, rid: str) -> list[dict]:
         raise NotFound(f"no {kind} {rid}")
     if found["erased"]:
         raise Conflict(f"{kind} {rid} was already erased")
-    overlays = [r[0] for r in store.conn.execute(
-        "SELECT DISTINCT record_id FROM events WHERE kind = 'overlay' AND json_extract(payload, '$.target.kind') = ? "
-        "AND json_extract(payload, '$.target.id') = ? ORDER BY record_id", (kind, rid))]
-    changes = [{"kind": kind, "id": rid, "op": "erase"}]
-    changes += [{"kind": "overlay", "id": o, "op": "erase"} for o in overlays if not store.record("overlay", o)["erased"]]
+    if with_efforts and kind != "session":
+        raise ValidationFailed("only a session has efforts to erase with it")
+    targets = [(kind, rid)]
+    if with_efforts:
+        targets += [e for e in linked(store, kind, rid, "part_of") if e[0] == "effort"]
+    changes = []
+    for k, r in targets:
+        changes.append({"kind": k, "id": r, "op": "erase"})
+        overlays = [o[0] for o in store.conn.execute(
+            "SELECT DISTINCT record_id FROM events WHERE kind = 'overlay' AND json_extract(payload, '$.target.kind') = ? "
+            "AND json_extract(payload, '$.target.id') = ? ORDER BY record_id", (k, r))]
+        changes += [{"kind": "overlay", "id": o, "op": "erase"} for o in overlays
+                    if not store.record("overlay", o)["erased"]]
     return store.write(actor, changes)
+
+
+def linked(store: Store, kind: str, rid: str, link: str | None = None) -> list[tuple[str, str]]:
+    """Records not erased that any version links to this one, by any link or the one named."""
+    out = set()
+    for k, r, payload in store.conn.execute(
+            "SELECT e.kind, e.record_id, e.payload FROM events e JOIN records r ON r.kind = e.kind "
+            "AND r.id = e.record_id WHERE r.erased = 0 AND e.op = 'put' AND instr(e.payload, ?) > 0", (rid,)):
+        links = json.loads(payload).get("links") or {}
+        for name, target in links.items():
+            if (link is None or name == link) and isinstance(target, dict) and \
+                    (target.get("kind"), target.get("id")) == (kind, rid):
+                out.add((k, r))
+    return sorted(out)
 
 
 def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
