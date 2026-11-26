@@ -285,6 +285,33 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.applyPlan(window), 0, "it may have sent those to another store")
     }
 
+    func testAnOlderInstallBackOnItsRestoredLaptopGetsWhatItLost() throws {
+        var book = makeLogbook()
+        for _ in 0..<3 { book.logEffort(activityId: "run", metrics: [:]) }
+        ack(&book)
+        let events = book.state.events
+        book.paired(storeId: "store-a")  // its own laptop is gone; this one was restored from a backup
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: events[0].hlc]
+        XCTAssertEqual(book.applyPlan(window), 2)
+        XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
+        ack(&book)
+        book.paired(storeId: "store-b")
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0, "once it knows its store, another one gets nothing old")
+    }
+
+    func testAnOlderInstallMovingOnBeforeItsFirstPlanSendsNothingOld() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        book.paired(storeId: "store-a")
+        book.paired(storeId: "store-b")
+        var window = try Fixtures.window()
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0)
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

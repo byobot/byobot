@@ -38,6 +38,9 @@ public struct AppState: Codable, Equatable, Sendable {
     public var storeId: String?
     /// What was sent up to this clock reading went to another store, and is never sent again.
     public var resendAfter: String?
+    /// What was sent up to this clock reading, before the app kept which store it went to. The first plan
+    /// shows whether this store holds it.
+    public var unsureAfter: String?
 
     public init(deviceId: String = UUID7.make()) {
         self.deviceId = deviceId
@@ -383,6 +386,10 @@ public struct Logbook: Sendable {
         }
         drop(window.erased ?? [])
         setAside(window.rejected ?? [])
+        if let unsure = state.unsureAfter {
+            if window.received?[state.deviceId] == nil, unsure > (state.resendAfter ?? "") { state.resendAfter = unsure }
+            state.unsureAfter = nil
+        }
         let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
         state.plan = window
         state.planFetchedAt = Timestamp.string(clock())
@@ -427,9 +434,13 @@ public struct Logbook: Sendable {
     /// still waiting and what's logged from now on.
     public mutating func paired(storeId: String) {
         let pending = Set(state.pending)
-        if state.storeId != storeId, let last = state.events.last(where: { !pending.contains($0.id) })?.hlc,
-           last > (state.resendAfter ?? "") {
-            state.resendAfter = last
+        let last = state.events.last(where: { !pending.contains($0.id) })?.hlc ?? ""
+        if state.storeId == nil {
+            if last > (state.unsureAfter ?? "") { state.unsureAfter = last }
+        } else if state.storeId != storeId {
+            let floor = Swift.max(last, state.unsureAfter ?? "")
+            if floor > (state.resendAfter ?? "") { state.resendAfter = floor }
+            state.unsureAfter = nil
         }
         state.storeId = storeId
     }
