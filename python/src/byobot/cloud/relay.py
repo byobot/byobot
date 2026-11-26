@@ -60,7 +60,11 @@ class Relay:
             self.events[e["id"]] = e
 
     def send_samples(self, body: dict) -> None:
-        self.samples.append(body)
+        items = [("samples", s) for s in body.get("samples", [])] + [("deleted", d) for d in body.get("deleted", [])]
+        for i in range(0, max(len(items), 1), MAX_BATCH):
+            part = items[i:i + MAX_BATCH]
+            self.samples.append({**body, "samples": [v for k, v in part if k == "samples"],
+                                 "deleted": [v for k, v in part if k == "deleted"]})
 
     # -- sync ----------------------------------------------------------------
 
@@ -72,7 +76,10 @@ class Relay:
         moved = self._adopt(listing)
         if self.removed or self.key is None:
             return {"removed": self.removed, "joined": False}
+        self.sent = {p: ids for p, ids in self.sent.items() if p in listing}
         self._read_plan(listing)
+        if self.plan is not None:
+            self._apply_plan(self.plan)
         written = self._send(listing, force=moved)
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
@@ -116,8 +123,8 @@ class Relay:
     def _read_plan(self, listing: dict[str, str]) -> None:
         plans = sorted((p for p in listing if p.startswith(f"plan/{self.epoch:04d}-")), reverse=True)
         for path in plans:
-            if path == self.plan_path:
-                return
+            if self.plan_path is not None and path <= self.plan_path:
+                return  # never step back to an older plan
             try:
                 _, messages = segment.read(self.folder.read(path) or b"", path=path, store_id=self.store_id,
                                            key=self.key, sign_public=self.keeper_sign)
@@ -127,15 +134,17 @@ class Relay:
             if plan is None:
                 continue
             self.plan, self.plan_path = plan, path
-            self._apply_plan(plan)
             return
 
     def _apply_plan(self, plan: dict) -> None:
+        """Drop erased records, and what the keeper holds. An event whose segment vanished stays to be sent again,
+        since the keeper may have held a later one without reading it."""
         erased = {(r["kind"], r["id"]) for r in plan.get("erased", [])}
         held = plan.get("received", {}).get(self.device_id)
+        in_folder = {i for ids in self.sent.values() for i in ids}
         for eid, e in list(self.events.items()):
             if (e["record"]["kind"], e["record"]["id"]) in erased or \
-                    (held is not None and clocks.parse(e["hlc"]) <= clocks.parse(held)):
+                    (held is not None and eid in in_folder and clocks.parse(e["hlc"]) <= clocks.parse(held)):
                 del self.events[eid]
 
     def _send(self, listing: dict[str, str], force: bool) -> int:

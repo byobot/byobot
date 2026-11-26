@@ -83,7 +83,7 @@ class Keeper:
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
         opened: dict[int, dict] = {}
-        store_id = None
+        store_id, wrong = None, False
         for path in (p for p in listing if p.startswith("keys/") and p.endswith("/recovery.key")):
             data = folder.read(path) or b""
             try:
@@ -92,8 +92,9 @@ class Keeper:
                 opened[epoch] = files.open_recovery(data, recovery_key(code, found), found, epoch)
                 store_id = found
             except (ValueError, KeyError, TypeError, CloudError) as exc:
-                if "recovery code" in str(exc):
-                    raise ByobotError(str(exc)) from None
+                wrong = wrong or "recovery code" in str(exc)
+        if wrong and not opened:
+            raise ByobotError("that recovery code doesn't open this store")
         identity = epoch_body = None
         for n in sorted(opened, reverse=True):
             identity = Identity.from_private(opened[n]["keeper"])
@@ -205,10 +206,10 @@ class Keeper:
                        "keeper": self.identity.private()}
             self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
                                                                     content))
-        events = self.store.events()
-        position = self.store.position()
-        parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
-        with self.store._tx():
+        with self.store._tx():  # the checkpoint and its position from one snapshot, so no event falls between
+            events = self.store.events()
+            position = self.store.position()
+            parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
             self._set("epoch", n)
             for i, part in enumerate(parts):
                 self._segment("checkpoint", i, [{"events": {"events": part}}])
@@ -291,6 +292,8 @@ class Keeper:
                 report["read"] += 1
             elif outcome != "ignored":
                 report["skipped"].append({"path": path, "reason": outcome})
+                if where["kind"] == "segment" and where["device_id"] != self.device_id:
+                    self.folder.delete(path)  # its writer sees it gone and sends what it held again
         return report
 
     def _read_one(self, path: str, where: dict) -> str:
@@ -414,7 +417,7 @@ class Keeper:
             return "erase"
         if self._get("epoch_pending"):
             return self._get("epoch_pending")
-        if len(listing) > MAX_FILES and not self._waiting():
+        if sum(not p.startswith("checkpoints/") for p in listing) > MAX_FILES and not self._waiting():
             return "compact"
         return None
 
