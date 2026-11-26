@@ -35,7 +35,9 @@ final class CloudRelayTests: XCTestCase {
         }
     }
 
-    func keeper() throws -> Keeper {
+    func keeper() throws -> Keeper { try Self.keeper() }
+
+    static func keeper() throws -> Keeper {
         guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/cloud.json"),
               case .object(let inputs)? = doc["inputs"],
               case .object(let k)? = inputs["keeper"], case .object(let kp)? = k["private"],
