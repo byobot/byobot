@@ -193,6 +193,11 @@ class Drive:
             raise NotConnected("byobot isn't signed in to Google Drive; run `byobot cloud setup` in a terminal")
 
     def _refresh(self) -> None:
+        latest = credentials.load(NAME)
+        if latest and (latest.get("refresh_token"), latest.get("client_id")) != (
+                self.stored.get("refresh_token"), self.stored.get("client_id")):
+            self.stored = latest  # `cloud setup` signed in again meanwhile: never write the old sign-in back
+            raise UpstreamError("the Google sign-in changed; syncing again with the new one")
         s = self.stored
         answer = _post_token({"grant_type": "refresh_token", "refresh_token": s["refresh_token"],
                               "client_id": s["client_id"], "client_secret": s["client_secret"]}, self.opener)
