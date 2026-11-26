@@ -367,7 +367,7 @@ class Store:
             (kind, rid, current and current["id"], int(live), int(conflict), int(erased),
              jcs([h["id"] for h in heads]), jcs([t["id"] for t in tips])))
         if self.contract.version(kind) is not None:
-            self._project(kind, rid, current["payload"] if live else None)
+            self._project(kind, rid, self._read(current) if live else None)
 
     def _project(self, kind: str, rid: str, payload: dict | None) -> None:
         """Rewrite one record's rows, then what reads it: the source records it feeds and the merged workouts
@@ -379,7 +379,7 @@ class Store:
         try:
             with self._tx():
                 reducers.project(conn, self.contract, kind, rid, payload)
-        except (KeyError, TypeError, ValueError, AttributeError):  # a newer version its reducer can't read
+        except (KeyError, TypeError, ValueError, AttributeError):  # a version its reducer can't read
             reducers.project(conn, self.contract, kind, rid, None)
         after = self._overlay_targets(kind, rid)
         for k, i in sorted((before | after) - {(kind, rid)}):
@@ -408,7 +408,7 @@ class Store:
     def _reproject(self, rid: str) -> None:
         found = self.record("source_record", rid)
         if found and found["live"]:
-            self._project("source_record", rid, self.event(found["current"])["payload"])
+            self._project("source_record", rid, self._read(self.event(found["current"])))
 
     def _resolve_all(self) -> None:
         occurrences.clear(self.conn)
@@ -437,15 +437,26 @@ class Store:
                 if row[5] is not None or not contract.understands(probe):
                     now[row[0]] = (row[1], row[2])
             changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
+            for kind in self._versions_changed(contract):  # their records now read through an upcast
+                changed |= {tuple(r) for r in self.conn.execute("SELECT kind, id FROM records WHERE live AND kind = ?",
+                                                                (kind,))}
             if self._units_changed(contract):
-                changed |= set(self.conn.execute(
+                changed |= {tuple(r) for r in self.conn.execute(
                     "SELECT kind, id FROM records WHERE live AND kind IN ('planned_session', 'session', 'effort', "
-                    "'observation')").fetchall())
+                    "'observation')")}
             self.conn.execute("DELETE FROM unprojected")
             self.conn.executemany("INSERT INTO unprojected VALUES (?, ?, ?)", [(i, *r) for i, r in now.items()])
             for kind, rid in sorted(changed):
                 self._reindex(kind, rid)
             self._set("contract", contract.fingerprint())
+
+    def _versions_changed(self, contract: Contract) -> set[str]:
+        try:
+            was = json.loads(self._get("contract") or "[{}]")[0]
+        except ValueError:
+            was = {}
+        now = json.loads(contract.fingerprint())[0]
+        return {k for k in set(was) | set(now) if was.get(k) != now.get(k)}
 
     def _units_changed(self, contract: Contract) -> bool:
         try:
@@ -474,19 +485,34 @@ class Store:
                 "heads": json.loads(row["heads"]), "tips": json.loads(row["tips"])}
 
     def get(self, kind: str, rid: str) -> dict | None:
-        """The live record's content and who wrote it, or None."""
+        """The live record's content and who wrote it, or None. `newer` says the record also holds a version
+        written by a newer byobot, which this one can't read."""
         found = self.record(kind, rid)
         if not found or not found["live"]:
             return None
         event = self.event(found["current"])
-        return {"kind": kind, "id": rid, "payload": event["payload"], "event": event, "conflict": found["conflict"]}
+        return {"kind": kind, "id": rid, "payload": self._read(event), "event": event, "conflict": found["conflict"],
+                "newer": found["tips"] != found["heads"]}
+
+    def _read(self, event: dict) -> dict:
+        return reducers.upcast(self.contract, event["record"]["kind"], event.get("kind_version"), event["payload"])
+
+    def newer(self, kind: str | None = None) -> set[tuple[str, str]]:
+        """Records that also hold a version written by a newer byobot."""
+        sql = "SELECT kind, id FROM records WHERE tips != heads" + (" AND kind = ?" if kind else "")
+        return {tuple(r) for r in self.conn.execute(sql, (kind,) if kind else ())}
 
     def records(self, kind: str | None = None) -> list[dict]:
         """Every live record, current version, in kind then id order."""
-        sql = ("SELECT r.kind, r.id, r.conflict, e.*, NULL AS later FROM records r JOIN events e ON e.id = r.current "
-               "WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") + " ORDER BY r.kind, r.id")
-        return [{"kind": r[0], "id": r[1], "conflict": bool(r[2]), "payload": json.loads(r["payload"]),
-                 "event": _envelope(r)} for r in self.conn.execute(sql, (kind,) if kind else ())]
+        sql = ("SELECT e.*, NULL AS later, r.conflict AS r_conflict, r.tips != r.heads AS r_newer FROM records r "
+               "JOIN events e ON e.id = r.current WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") +
+               " ORDER BY r.kind, r.id")
+        out = []
+        for r in self.conn.execute(sql, (kind,) if kind else ()):
+            event = _envelope(r)
+            out.append({"kind": r["kind"], "id": r["record_id"], "conflict": bool(r["r_conflict"]),
+                        "newer": bool(r["r_newer"]), "payload": self._read(event), "event": event})
+        return out
 
     def conflicts(self, kind: str | None = None, rid: str | None = None) -> list[dict]:
         """Records with more than one current version, each version with its author, device and time."""
@@ -515,7 +541,8 @@ class Store:
         tables = ("events", "records", "activities", "locations", "plans", "planned_sessions", "sessions", "efforts",
                   "observations", "source_records", "overlays", "occurrences")
         out = {t: self.conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in tables}
-        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0]}
+        return {**out, "conflicts": self.conn.execute("SELECT count(*) FROM records WHERE conflict").fetchone()[0],
+                "newer": self.conn.execute("SELECT count(*) FROM records WHERE tips != heads").fetchone()[0]}
 
     # -- backup ----------------------------------------------------------------
 
