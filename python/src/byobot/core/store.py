@@ -666,7 +666,7 @@ class Store:
                  "actor": {k: v for k, v in actor.items() if k in ("kind", "id", "model")},
                  "prev": prev, "payload": change.get("payload", {}) if op != "erase" else {}}
         if op == "put":
-            event["kind_version"] = change.get("kind_version") or self.contract.version(kind)
+            event["kind_version"] = change.get("kind_version") or reducers.lowest(self.contract, kind, event["payload"])
         if change.get("reverts"):
             event["reverts"] = change["reverts"]
         if batch:

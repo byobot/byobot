@@ -75,6 +75,18 @@
         "details": {}
       }
     },
+    "kinds": {
+      "type": "object",
+      "description": "The newest version of each kind a side knows, by kind.",
+      "propertyNames": {
+        "$ref": "common.schema.json#/$defs/kind"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+      }
+    },
     "hello": {
       "description": "GET /v1/hello. No token needed; the app calls it to learn whom it reached before pairing.",
       "type": "object",
@@ -101,6 +113,10 @@
         },
         "pairing_open": {
           "type": "boolean"
+        },
+        "kinds": {
+          "$ref": "#/$defs/kinds",
+          "description": "The server's kind versions."
         }
       }
     },
@@ -208,6 +224,12 @@
         "library": {
           "const": true,
           "description": "An activity that ships with byobot, not yet written to the logbook."
+        },
+        "kind_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "The kind version its payload needs (1 when absent). An app that knows a lower one leaves the record as it is."
         }
       }
     },
@@ -300,6 +322,10 @@
           "items": {
             "$ref": "event.schema.json"
           }
+        },
+        "kinds": {
+          "$ref": "#/$defs/kinds",
+          "description": "The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know."
         }
       },
       "additionalProperties": false

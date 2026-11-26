@@ -55,8 +55,9 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__
 from byobot.core import commands as core
+from byobot.core import reducers
 from byobot.core import sources
-from byobot.core.contract import SCHEMA_VERSION
+from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
 from byobot.core.store import Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
@@ -243,6 +244,7 @@ def _entry(store: Store, kind: str, rid: str) -> dict | None:
     if found is None:
         return None
     return {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
+            "kind_version": reducers.lowest(store.contract, kind, found["payload"]),
             **({"conflict": True} if found["conflict"] else {})}
 
 
@@ -265,7 +267,8 @@ def plan_window(store: Store, start: str, end: str) -> dict:
         else:
             row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
             payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
-            activities.append({"id": r["id"], "payload": payload, "prev": [], "library": True})
+            activities.append({"id": r["id"], "payload": payload, "prev": [],
+                               "kind_version": reducers.lowest(store.contract, "activity", payload), "library": True})
     planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
                   "ORDER BY scheduled_on, name, id", start, end)
     plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
@@ -345,11 +348,33 @@ def _query_interrupted(exc: sqlite3.OperationalError) -> NoReturn:
     raise exc
 
 
-def accept_events(store: Store, device_id: str, events: list, actor: dict) -> list[dict]:
+def _needs(store: Store, event: dict) -> float:
+    """The kind version an app must know to change a record on top of this event."""
+    if event["op"] != "put":
+        return 1
+    if not store.contract.understands(event):
+        return float("inf")
+    kind = event["record"]["kind"]
+    return reducers.lowest(store.contract, kind, reducers.upcast(store.contract, kind, event.get("kind_version"),
+                                                                 event["payload"]))
+
+
+def _too_new(store: Store, event: dict, kinds: dict) -> bool:
+    """Whether a pushed put names as prev a version its app doesn't know, whose fields the app would drop."""
+    prev = event.get("prev")
+    if event.get("op") != "put" or not isinstance(prev, list):
+        return False
+    known = kinds.get(event["record"].get("kind"), 1)
+    held = [store.event(p) for p in prev if isinstance(p, str)]
+    return any(h and h["record"] == event["record"] and _needs(store, h) > known for h in held)
+
+
+def accept_events(store: Store, device_id: str, events: list, actor: dict, kinds: dict | None = None) -> list[dict]:
     """Accept pushed events one by one, in order. Retrying an event already accepted is harmless.
 
     ``device_id`` and ``actor`` are the authenticated peer's. An event that names another device or actor, or
-    writes a record a person doesn't write, is rejected and not written.
+    writes a record a person doesn't write, is rejected and not written. So is a put on top of a version newer
+    than ``kinds``, the app's kind versions (all 1 when it sends none).
     """
     results = []
     for i, event in enumerate(events):
@@ -364,6 +389,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict) -> li
         elif record.get("kind") not in PHONE_KINDS or event.get("op") not in ("put", "retract") or \
                 "redacted_by" in event:
             reason = "a phone writes only what a person writes"
+        elif _too_new(store, event, kinds or {}):
+            reason = "a newer byobot wrote this record; update the app to change it"
         else:
             outcome, reason = store.accept(event)
             results.append({**result, "status": outcome, **({"reason": reason} if reason else {})})
@@ -636,7 +663,8 @@ class Handler(BaseHTTPRequestHandler):
     def hello(self) -> dict:
         pairing = self.server.pairing
         return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": SCHEMA_VERSION,
-                "server": self._server_info(), "pairing_open": bool(pairing and pairing.open)}
+                "server": self._server_info(), "pairing_open": bool(pairing and pairing.open),
+                "kinds": {k: v["version"] for k, v in Contract.shipped().registry["kinds"].items()}}
 
     def pair(self) -> dict:
         body = self._body(MAX_PAIR_BODY)
@@ -706,9 +734,12 @@ class Handler(BaseHTTPRequestHandler):
         events = body.get("events") if isinstance(body, dict) else None
         if not isinstance(events, list) or len(events) > MAX_BATCH:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"send {{events: [...]}} with at most {MAX_BATCH} events")
+        kinds = body.get("kinds", {})
+        if sync_errors("kinds", kinds):
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "kinds must map each kind to the version the app knows")
         with Store(self.server.db) as store:
             peer = self._auth(store)
-            results = accept_events(store, peer["device_id"], events, actor_for_peer(peer))
+            results = accept_events(store, peer["device_id"], events, actor_for_peer(peer), kinds)
         counts = {s: sum(r["status"] == s for r in results)
                   for s in ("accepted", "duplicate", "stored_unprojected", "rejected")}
         return {"results": results, **counts}

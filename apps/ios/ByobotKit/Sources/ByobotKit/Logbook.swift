@@ -94,7 +94,7 @@ public struct Logbook: Sendable {
         let hlc = HLC.next(after: state.hlc, now: now)
         let event = Event(id: UUID7.make(at: now), schemaVersion: ContractVersion.schema,
                           record: RecordRef(kind: kind, id: id), op: op,
-                          kindVersion: op == .put ? KindVersion.all[kind] : nil, hlc: hlc, ts: Timestamp.string(now),
+                          kindVersion: op == .put ? KindVersion.lowest(kind, payload) : nil, hlc: hlc, ts: Timestamp.string(now),
                           deviceId: state.deviceId, actor: actor, prev: prev(kind, id, known: known), reverts: reverts,
                           payload: payload)
         state.hlc = hlc
@@ -110,20 +110,31 @@ public struct Logbook: Sendable {
     func prev(_ kind: String, _ id: String, known: [String]? = nil) -> [String] {
         if let mine = state.heads?[Self.key(kind, id)] { return mine }
         if let known { return known }
-        guard let plan = state.plan else { return [] }
-        let entries: [(String, [String])]
-        switch kind {
-        case "activity": entries = plan.activities.map { ($0.id, $0.prev) }
-        case "location": entries = plan.locations.map { ($0.id, $0.prev) }
-        case "setting": entries = plan.settings.map { ($0.id, $0.prev) }
-        case "plan": entries = plan.plans.map { ($0.id, $0.prev) }
-        case "planned_session": entries = plan.plannedSessions.map { ($0.id, $0.prev) }
-        case "overlay": entries = plan.overlays.map { ($0.id, $0.prev) }
-        case "session": entries = plan.sessions.map { ($0.id, $0.prev) }
-        case "effort": entries = plan.efforts.map { ($0.id, $0.prev) }
-        default: entries = []
+        return entry(kind, id)?.prev ?? []
+    }
+
+    /// Whether the laptop's version of the record needs a newer app. Changing it here would drop what this app
+    /// can't read, so the app leaves it as it is.
+    public func isNewer(_ kind: String, _ id: String) -> Bool {
+        state.heads?[Self.key(kind, id)] == nil && (entry(kind, id)?.kindVersion ?? 1) > (KindVersion.all[kind] ?? 1)
+    }
+
+    private func entry(_ kind: String, _ id: String) -> (prev: [String], kindVersion: Int?)? {
+        guard let plan = state.plan else { return nil }
+        func find<P: Codable & Hashable & Sendable>(_ records: [Record<P>]) -> (prev: [String], kindVersion: Int?)? {
+            records.first { $0.id == id }.map { ($0.prev, $0.kindVersion) }
         }
-        return entries.first { $0.0 == id }?.1 ?? []
+        switch kind {
+        case "activity": return find(plan.activities)
+        case "location": return find(plan.locations)
+        case "setting": return find(plan.settings)
+        case "plan": return find(plan.plans)
+        case "planned_session": return find(plan.plannedSessions)
+        case "overlay": return find(plan.overlays)
+        case "session": return find(plan.sessions)
+        case "effort": return find(plan.efforts)
+        default: return nil
+        }
     }
 
     func now() -> RecordTime {
@@ -197,6 +208,7 @@ public struct Logbook: Sendable {
     @discardableResult
     public mutating func editEffort(_ original: PerformedEffort, metrics: Metrics, side: Side?, notes: String?,
                                     activityId: String? = nil, performedAt: String? = nil) -> PerformedEffort {
+        guard !isNewer("effort", original.id) else { return original }
         if !wrote("effort", original.id) {
             var originals = state.remoteOriginals ?? [:]
             originals[original.id] = original

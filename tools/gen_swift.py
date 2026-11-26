@@ -118,6 +118,12 @@ def doc(text: str | None, indent: str = "") -> list[str]:
     return [f"{indent}/// {line}".rstrip() for line in text.splitlines()]
 
 
+def swift_dict(d: dict) -> str:
+    if not d:
+        return "[:]"
+    return "[" + ", ".join(f"{json.dumps(k)}: {swift_dict(v) if isinstance(v, dict) else v}" for k, v in d.items()) + "]"
+
+
 def number(x) -> str:
     return "nil" if x is None else repr(float(x))
 
@@ -173,6 +179,8 @@ class Generator:
                 return "Metrics", False
             if (rfile, rdef) == ("common", "measure"):
                 return "Measure", False
+            if (rfile, rdef) == ("sync", "kinds"):
+                return "[String: Int]", False
             if (rfile, rdef) not in TYPES:
                 raise ValueError(f"no Swift type for {rfile}#{rdef}")
             return TYPES[(rfile, rdef)], False
@@ -256,7 +264,12 @@ class Generator:
         for raw in values:
             case = ident(camel(raw))
             lines.append(f"    case {case}" + (f' = "{raw}"' if case.strip("`") != raw else ""))
-        lines.append("}")
+        cases = ", ".join(f".{ident(camel(raw))}" for raw in values)
+        lines += ["    /// A value from a newer byobot, so one new value doesn't stop a whole read.", "    case unknown", "",
+                  f"    public static let allCases: [{name}] = [{cases}]", "",
+                  "    public init(from decoder: any Decoder) throws {",
+                  "        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown",
+                  "    }", "}"]
         return lines
 
     def registry(self) -> list[str]:
@@ -266,7 +279,12 @@ class Generator:
         lines = ["/// The payload version each kind is written at.", "public enum KindVersion {",
                  "    public static let all: [String: Int] = ["]
         lines += [f"        {json.dumps(k)}: {v['version']}," for k, v in reg["kinds"].items()]
-        lines += ["    ]", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
+        since = {k: v["since"] for k, v in reg["kinds"].items() if v.get("since")}
+        reshaped = {k: v["reshaped"] for k, v in reg["kinds"].items() if "reshaped" in v}
+        lines += ["    ]", "", "    /// The kind version that added each payload field added after version 1.",
+                  f"    public static let since: [String: [String: Int]] = {swift_dict(since)}", "",
+                  "    /// The latest kind version that changed the shape of earlier payloads.",
+                  f"    public static let reshaped: [String: Int] = {swift_dict(reshaped)}", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
         lines += [f"    public static let {camel(k)} = {json.dumps(v)}" for k, v in reg["namespaces"].items()]
         lines += ["}", "", "/// Settings this contract knows, by record id.",
                   "public enum SettingId: String, CaseIterable, Sendable {"]

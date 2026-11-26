@@ -14,7 +14,7 @@ import pytest
 
 from byobot import serve
 from byobot.core import commands, hlc
-from byobot.core.contract import sync_errors
+from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
 from byobot.util import uuid7
 
@@ -125,6 +125,24 @@ def test_plan_window_is_contract_shaped(store):
     assert effort["payload"]["round"] == 1 and effort["payload"]["metrics"]["load"] == {"value": 100, "unit": "kg"}
 
 
+def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
+    spec = Contract.shipped().registry["kinds"]["effort"]
+    hub = Store(tmp_path / "hub.db", contract=Contract.shipped().newer(2, {"effort": {**spec, "version": 2,
+                                                                                    "since": {"tempo": 2}}}))
+    payload = {"activity_id": "barbell_back_squat", "modality": "self_reported", "metrics": {"reps": {"value": 5}},
+               "time": {"start": "2026-11-23T07:40:00-05:00"}}
+    [plain, fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload},
+                                           {"kind": "effort", "payload": {**payload, "tempo": "fast"}}])
+    entries = {e["id"]: e["kind_version"] for e in serve._entries(hub, "effort", [plain["record"]["id"],
+                                                                               fast["record"]["id"]])}
+    assert entries == {plain["record"]["id"]: 1, fast["record"]["id"]: 2}
+    edits = [_event("effort", e["record"]["id"], {**payload, "notes": "felt good"}, prev=[e["id"]])
+             for e in (plain, fast)]
+    results = serve.accept_events(hub, PHONE, edits, ME)
+    assert [r["status"] for r in results] == ["accepted", "rejected"] and "update the app" in results[1]["reason"]
+    assert serve.accept_events(hub, PHONE, edits[1:], ME, {"effort": 2})[0]["status"] == "accepted"
+
+
 def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
@@ -136,7 +154,7 @@ def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
     with Store(byobot_home / "lib.db") as s:
         window = serve.plan_window(s, "2026-11-22", "2026-11-28")
     assert window["activities"] == [{"id": "dip", "payload": {k: v for k, v in dip.items() if k != "id"}, "prev": [],
-                                     "library": True}]
+                                     "kind_version": 1, "library": True}]
     assert sync_errors("plan_window", window) == []
 
 
@@ -286,7 +304,7 @@ def test_hello_needs_no_token_and_names_the_store(server, byobot_home):
     assert status == 200 and body["pairing_open"] is True and body["server"]["device_id"] == info["device_id"]
     with db(byobot_home) as s:
         assert body["server"]["store_id"] == s.store_id
-    assert sync_errors("hello", body) == []
+    assert sync_errors("hello", body) == [] and body["kinds"]["effort"] == 1
     assert client.call("GET", "/v0/hello")[0] == 404  # an app on the old protocol is told nothing it would misread
 
 
@@ -411,6 +429,8 @@ def test_push_rejects_bad_requests(server):
     _pair(client, info)
     assert client.call("POST", "/v1/events", {"nope": []})[0] == 400
     assert client.call("POST", "/v1/events", {"events": [1]})[1]["results"][0]["status"] == "rejected"
+    assert client.call("POST", "/v1/events", {"events": [], "kinds": {"effort": 0}})[0] == 400
+    assert client.call("POST", "/v1/events", {"events": [], "kinds": {"effort": 2}})[0] == 200
     assert client.call("GET", "/v1/nowhere")[0] == 404
 
 
