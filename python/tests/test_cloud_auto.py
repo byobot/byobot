@@ -145,13 +145,21 @@ def test_cloud_off_stops_sync_until_setup(phone):
 
 
 def test_cloud_off_can_delete_the_folder(phone, fake):
-    ctx, _ = phone
+    ctx, relay = phone
     store_id = ctx.store().store_id
+    relay.log([event()])
+    relay.sync()
     assert run("cloud off", ctx, {"delete": "yes"})["deleted"] > 0
-    assert not [n for n in fake.names() if n.startswith(store_id + "/")]
-    assert run("cloud status", ctx, {}) == {"on": False}
+    left = [n for n in fake.names() if n.startswith(store_id + "/")]
+    assert left == [f"{store_id}/epochs/0002.json"]  # only the notice that lists no phone
+    relay.log([event(n=2)])
+    assert relay.sync() == {"removed": True, "joined": False}
+    assert [n for n in fake.names() if n.startswith(store_id + "/")] == left
+    status = run("cloud status", ctx, {})
+    assert status["off"] and [d["class"] for d in status["devices"]] == ["keeper"]
     assert ctx.store().counts()  # the store is untouched
-    assert run("cloud setup", ctx, {})["epoch"] == 1
+    assert run("cloud setup", ctx, {})["epoch"] == 3
+    assert relay.sync() == {"removed": True}
 
 
 def test_a_read_during_recover_finds_the_keeper_busy(store, tmp_path, monkeypatch):
