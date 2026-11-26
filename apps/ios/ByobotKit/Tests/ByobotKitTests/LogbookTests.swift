@@ -183,6 +183,27 @@ final class LogbookTests: XCTestCase {
         XCTAssertFalse(book.canUndo(erased.id))
     }
 
+    func testALongErasedListLeavesInOnePass() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        let template = try XCTUnwrap(book.state.events.last)
+        book.state.events = (0..<20_000).map { i in
+            var event = template
+            event.id = "event-\(i)"
+            event.record = RecordRef(kind: "effort", id: "set-\(i)")
+            return event
+        }
+        book.state.pending = book.state.events.map(\.id)
+        var window = try Fixtures.window()
+        window.erased = (0..<1_000).map { ErasedRecord(kind: "effort", id: "set-\($0 * 2)") }
+            + (0..<1_000).map { ErasedRecord(kind: "session", id: "not-here-\($0)") }
+        let start = Date()
+        book.applyPlan(window)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        XCTAssertEqual(book.state.events.count, 19_000)
+        XCTAssertEqual(Array(book.state.pending.prefix(3)), ["event-1", "event-3", "event-5"])
+    }
+
     func testRefusalsWhoseAnswerWasLostAreSetAside() throws {
         var book = makeLogbook()
         book.logEffort(activityId: "run", metrics: [:])
