@@ -11,8 +11,8 @@ actor Kept {
 
 final class CloudRouteTests: XCTestCase {
     func makeRoute(_ k: CloudRelayTests.Keeper, _ folder: MemoryCloudFolder, _ kept: Kept) async throws -> CloudRoute {
-        let relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         await folder.put(Cloud.epochPath(1), k.epochFile)
+        let relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         await folder.put(Cloud.keyPath(1, k.relayID), k.keyFile)
         return CloudRoute(relay: relay, folder: folder, identity: k.relay, save: { await kept.keep($0) })
     }

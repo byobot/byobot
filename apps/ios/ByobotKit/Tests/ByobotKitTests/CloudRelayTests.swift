@@ -57,8 +57,8 @@ final class CloudRelayTests: XCTestCase {
 
     /// A relay that joined and took epoch 1's key.
     func joined(_ k: Keeper, _ folder: MemoryCloudFolder) async throws -> CloudRelay {
-        var relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         await folder.put(Cloud.epochPath(1), k.epochFile)
+        var relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         await folder.put(Cloud.keyPath(1, k.relayID), k.keyFile)
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.epoch, 1)
@@ -101,9 +101,50 @@ final class CloudRelayTests: XCTestCase {
 
     func testJoiningWritesTheDeviceFileTheKeeperChecks() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
+        await folder.put(Cloud.epochPath(1), k.epochFile)
         _ = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         let written = await folder.files[Cloud.devicePath(k.relayID)]
         XCTAssertEqual(written, k.deviceFile)
+    }
+
+    func testJoiningAFolderTheMacDoesntKeepFails() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        do {
+            _ = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
+            XCTFail("joined another account's folder")
+        } catch let error as CloudError {
+            XCTAssertTrue(error.message.contains("Google account"))
+        }
+        let written = await folder.files[Cloud.devicePath(k.relayID)]
+        XCTAssertNil(written)
+    }
+
+    func testAPhoneTheMacNeverLetInCanAnswerANewCode() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        await folder.put(Cloud.epochPath(1), k.epochFile)
+        await folder.put(Cloud.devicePath(k.relayID), Data("left by an earlier code".utf8))
+        _ = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
+        let written = await folder.files[Cloud.devicePath(k.relayID)]
+        XCTAssertEqual(written, k.deviceFile)
+        await folder.put(Cloud.keyPath(1, k.relayID), k.keyFile)
+        do {
+            _ = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
+            XCTFail("a phone already in joined again")
+        } catch is CloudExists {}
+    }
+
+    func testWhatTheMacHasntReadIsLeftOverForAnotherRoute() async throws {
+        var k = try keeper()
+        let folder = MemoryCloudFolder()
+        var relay = try await joined(k, folder)
+        relay.send(SampleBatch(samples: [weighed("W1")]))
+        _ = try await relay.sync(folder, identity: k.relay)  // in a segment the Mac hasn't read
+        relay.send(SampleBatch(samples: [weighed("W2")], deleted: [deletion("W1")]))  // W2 queued, W1's deletion held
+        XCTAssertEqual(relay.leftovers.samples.map(\.sourceId).sorted(), ["W1", "W2"])
+        XCTAssertEqual(relay.leftovers.deleted.map(\.sourceId), ["W1"])
+        try await k.publish(folder, read: [relay.seq])
+        _ = try await relay.sync(folder, identity: k.relay)
+        XCTAssertFalse(relay.leftovers.samples.map(\.sourceId).contains("W1"))
     }
 
     func testAJoinCodeIsReadWithOrWithoutItsGoogleClient() throws {
@@ -117,6 +158,7 @@ final class CloudRelayTests: XCTestCase {
 
     func testARelayWithoutAKeyYetWritesNothing() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
+        await folder.put(Cloud.epochPath(1), k.epochFile)
         var relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
         relay.log([event(1)])
         let report = try await relay.sync(folder, identity: k.relay)
