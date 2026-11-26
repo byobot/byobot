@@ -41,7 +41,7 @@
 		<true/>
 	</dict>
 	<key>NSHealthShareUsageDescription</key>
-	<string>byobot reads your body measurements, heart, activity, mobility, vitals, sleep and workouts, and sends them only to the laptop you paired. It never reads nutrition or cycle tracking.</string>
+	<string>byobot reads your body measurements, heart, activity, mobility, vitals, sleep and workouts, and sends them only to your own Mac and, if you turn on Drive sync, encrypted to your own Google Drive. It never reads nutrition or cycle tracking.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>byobot syncs your plan and your logged training with byobot on your laptop over your local network.</string>
 	<key>UIApplicationSceneManifest</key>
