@@ -431,8 +431,11 @@ public enum Cloud {
     }
 
     static func inflate(_ data: Data) throws -> Data {
-        let (output, left) = try stream(Array(data), operation: COMPRESSION_STREAM_DECODE)
-        guard left == 0 else { throw CloudError("cut short, or too large") }
+        let bytes = Array(data)
+        let (output, left) = try stream(bytes, operation: COMPRESSION_STREAM_DECODE)
+        // The decoder can swallow bytes after the stream's end, so one that also ends a byte sooner has extra bytes.
+        let endsSooner = (try? stream(Array(bytes.dropLast()), operation: COMPRESSION_STREAM_DECODE)) != nil
+        guard left == 0, !endsSooner else { throw CloudError("cut short, or too large") }
         return output
     }
 
