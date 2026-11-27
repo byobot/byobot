@@ -112,13 +112,13 @@ class ModelReplica:
         return (wall, 0) if wall > self.floor[0] else (self.floor[0], self.floor[1] + 1)
 
     def _write(self, at: str, actor: str, kind: str, rid: str, op: str, content: Any, reverts: str | None = None,
-               wid: str | None = None, read: bool = False) -> Write:
-        """`read`: the write was made from the record's current version, and names only that one."""
+               wid: str | None = None, read: bool = False, on: str | None = None) -> Write:
+        """`read`: the write was made from the record's current version, and names only that one; `on` names it."""
         record = key(kind, rid)
-        cur = self.current(record) if read else None
+        cur = self.current(record) if read and on is None else None
         if read and self._unread(record):
             raise Refused(f"{record} holds a version written by a newer byobot")
-        prior = frozenset({cur.id}) if cur else frozenset(self.by_record.get(record, ()))
+        prior = frozenset({on}) if on else frozenset({cur.id}) if cur else frozenset(self.by_record.get(record, ()))
         if wid is None:
             self.authored += 1
             wid = f"{self.name}:{self.authored}"
@@ -200,7 +200,7 @@ class ModelReplica:
                 raise Refused(f"no {kind} {rid}")
             return [self._write(at, actor, kind, rid, "retract", None, read=True)]
         if name == "undo":
-            return [self._undo(target, at, actor) for target in intent["events"]]
+            return [w for target in intent["events"] for w in self._undo(target, at, actor)]
         if name == "resolve":
             return [self._resolve(intent, at, actor)]
         if name == "erase":  # with every overlay on the record
@@ -260,15 +260,18 @@ class ModelReplica:
         content = {k: v for k, v in record.items() if k != "id"} | {"blocks": blocks}
         return [self._write(at, actor, "planned_session", record["id"], "put", content, read=True)]
 
-    def _undo(self, target: Write, at: str, actor: str) -> Write:
+    def _undo(self, target: Write, at: str, actor: str) -> list[Write]:
+        """Writes back the version before `target`, or each version a resolve chose between."""
         if target.op not in ("put", "retract"):
             raise Refused(f"can't undo a {target.op}")
         if [h.id for h in self.heads(target.record)] != [target.id]:
             raise Refused(f"{target.record} changed after {target.id}")
-        before = self.current(target.record, set(target.prior))
-        if before is None or before.op == "retract":
-            return self._write(at, actor, target.kind, target.rid, "retract", None, reverts=target.id, read=True)
-        return self._write(at, actor, target.kind, target.rid, "put", before.content, reverts=target.id, read=True)
+        out = []
+        for before in self.heads(target.record, set(target.prior)) or [None]:
+            put = before is not None and before.op != "retract"
+            out.append(self._write(at, actor, target.kind, target.rid, "put" if put else "retract",
+                                   before.content if put else None, reverts=target.id, read=True, on=target.id))
+        return out
 
     def _resolve(self, intent: dict, at: str, actor: str) -> Write:
         kind, rid = intent["record"]
