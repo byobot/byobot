@@ -22,6 +22,7 @@ from ..util import ByobotError, ValidationFailed, uuid7
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
+from .relay import is_epoch_file
 
 JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
@@ -210,12 +211,15 @@ class Keeper:
     def start_epoch(self) -> int:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
-        n = int(self._get("starting") or self.epoch + 1)
+        listing = self.folder.list()
+        top = max([int(p[7:11]) for p in listing if is_epoch_file(p)] + [self.epoch])
+        n = int(self._get("starting") or 0)
+        if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
+            n = max(n, top) + 1
         with self.store._tx():
             self._set("starting", n)
         key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
-        listing = self.folder.list()
         self._seq_floor(listing)
         for path in listing:  # what a start cut short left behind; no device uses it yet
             if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
@@ -254,6 +258,10 @@ class Keeper:
         with self.store._tx():
             self._unset("starting")
         return n
+
+    def _committed(self, n: int, listing: dict[str, str]) -> bool:
+        """Whether epoch ``n``'s file is in the folder, read directly since a listing can lag behind an upload."""
+        return files.epoch_path(n) in listing or self.folder.read(files.epoch_path(n)) is not None
 
     # -- joining -------------------------------------------------------------------
 
