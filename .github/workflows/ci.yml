@@ -1,9 +1,14 @@
 name: CI
 
+# Pull requests and main install the exact versions in python/uv.lock; only one job runs every core driver.
+# The nightly run installs the newest dependency versions and runs every core driver everywhere.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "29 5 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +16,37 @@ permissions:
 jobs:
   python:
     name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.13"}
+          - {os: ubuntu-latest, python: "3.10", drivers: v1}
+          - {os: ubuntu-latest, python: "3.11", drivers: v1}
+          - {os: ubuntu-latest, python: "3.12", drivers: v1}
+          - {os: macos-latest, python: "3.13", drivers: v1}
+          - {os: windows-latest, python: "3.13", drivers: v1}
+    defaults:
+      run:
+        working-directory: python
+    env:
+      BYOBOT_DRIVERS: ${{ matrix.drivers }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Install from the lock
+        run: uv sync --locked --extra test --python ${{ matrix.python }}
+      - name: Test
+        run: uv run --locked python -m pytest -q
+
+  latest:
+    name: Newest dependencies, Python ${{ matrix.python }} on ${{ matrix.os }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -40,11 +76,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
       - name: Check the generated Swift is up to date
-        run: python tools/gen_swift.py --check
+        run: uv run --locked --project python python tools/gen_swift.py --check
+      - name: Check the cloud test vectors are up to date
+        run: uv run --locked --project python python tools/gen_cloud_vectors.py --check
 
   package:
     name: Build and smoke-test the wheel
