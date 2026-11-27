@@ -1,0 +1,58 @@
+name: Release
+
+# Run by hand. It builds and checks a release and keeps the files as an artifact; it publishes nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The release, such as 0.1.0 (must match python/src/byobot/__init__.py)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: The release number matches the package and the app
+        run: |
+          python - <<'EOF'
+          import os, re, sys
+          sys.path.insert(0, "python/src")
+          from byobot import __version__
+          want = os.environ["VERSION"]
+          app = re.search(r'MARKETING_VERSION: "([^"]+)"', open("apps/ios/project.yml").read())[1]
+          if __version__ != want or app != want:
+              sys.exit(f"asked for {want}; the package says {__version__} and the app {app}")
+          EOF
+      - name: Test
+        working-directory: python
+        run: |
+          python -m pip install -e ".[test]"
+          python -m pytest -q
+      - name: Build
+        run: |
+          python -m pip install build twine
+          python -m build python --outdir dist
+          python -m twine check --strict dist/*
+      - name: Install the wheel outside the repo and run it
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          cd /tmp
+          export BYOBOT_HOME=/tmp/byobot-home
+          /tmp/venv/bin/byobot init
+          test "$(/tmp/venv/bin/byobot --version | awk '{print $NF}')" = "$VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: byobot-${{ inputs.version }}
+          path: dist/
