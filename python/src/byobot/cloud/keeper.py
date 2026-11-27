@@ -62,7 +62,7 @@ class Keeper:
                 ("checkpoint_position", "0")]
         if code:
             meta += [("recovery_key", b64(recovery_key(code, store.store_id))), ("recovery_unshown", code)]
-        with store._tx():
+        with store.transaction():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
             store.conn.execute(ENROL, (store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
                                        1, 1))
@@ -122,8 +122,8 @@ class Keeper:
                 ("seq", _top_seq(listing, top["keeper_device_id"])), ("checkpoint_position", 0),
                 ("recovery_key", b64(recovery_key(code, store_id)))]
         mine = store.device_id
-        with store._tx():
-            store._set("device_id", top["keeper_device_id"])  # this Mac takes the keeper's place, and its id
+        with store.transaction():
+            store.set_device_id(top["keeper_device_id"])  # this Mac takes the keeper's place, and its id
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
@@ -136,11 +136,11 @@ class Keeper:
         lost = sorted(p for p in own | {segment.name("checkpoint", n, i) for i in range(epoch_body["checkpoint"])}
                       if outcomes.get(p) != "read")
         if lost:  # nothing kept here, so it can run again
-            with store._tx():
+            with store.transaction():
                 for table in ("cloud_meta", "cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                     store.conn.execute(f"DELETE FROM {table}")
                 _leave(store, "class IS NOT NULL")
-                store._set("device_id", mine)
+                store.set_device_id(mine)
             raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
                               f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
                               "from an export instead, or upgrade byobot and run `byobot cloud recover` again")
@@ -195,7 +195,7 @@ class Keeper:
         """A run cut short after an upload leaves that file's seq behind; never write another file under it."""
         top = _top_seq(listing, self.device_id)
         if top > int(self._get("seq")):
-            with self.store._tx():
+            with self.store.transaction():
                 self._set("seq", top)
 
     def _next_seq(self) -> int:
@@ -239,7 +239,7 @@ class Keeper:
         n = int(self._get("starting") or 0)
         if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
             n = max(n, top) + 1
-        with self.store._tx():
+        with self.store.transaction():
             self._set("starting", n)
         key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
@@ -248,7 +248,7 @@ class Keeper:
         for path in listing:  # what a start cut short left behind; no device uses it yet
             if path.startswith((f"keys/{d}/", f"checkpoints/{d}/", f"plan/{d}-")):
                 self.folder.delete(path)
-        with self.store._tx():
+        with self.store.transaction():
             self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
         devices = [_wire(d) for d in self.devices()]
         for d in devices:
@@ -259,16 +259,13 @@ class Keeper:
                        "keeper_device_id": self.device_id, "keeper_private": self.identity.private()}
             self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
                                                                     content))
-        self.store.conn.execute("BEGIN")  # the checkpoint and its position from one snapshot
-        try:
+        with self.store.snapshot():  # the checkpoint and its position from one snapshot
             events = self.store.events()
             position = self.store.position()
-        finally:
-            self.store.conn.execute("COMMIT")
         parts = _parts(events)
         for i, part in enumerate(parts):  # uploads hold no write lock, so the hub and other writers go on
             self._segment("checkpoint", i, [{"events": {"events": part}}], n)
-        with self.store._tx():
+        with self.store.transaction():
             self._set("epoch", n)
             self._set("checkpoint_position", position)
             self.store.conn.execute("DELETE FROM cloud_shown")
@@ -279,7 +276,7 @@ class Keeper:
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts), previous=self._previous()))
-        with self.store._tx():
+        with self.store.transaction():
             self._unset("starting")
             self._unset("previous_identity")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
@@ -297,7 +294,7 @@ class Keeper:
         new = Identity.generate()
         pending = self.unshown_code() if self._get("previous_identity") else None
         code = pending or (recovery_code() if recovery else None)
-        with self.store._tx():  # a retry of a rotation cut short still hands over from the keys phones trust
+        with self.store.transaction():  # a retry of a rotation cut short still hands over from the keys phones trust
             if self._get("previous_identity") is None:
                 self._set("previous_identity", json.dumps(self.identity.private()))
             self._set("identity", json.dumps(new.private()))
@@ -322,7 +319,7 @@ class Keeper:
         return self._get("recovery_unshown")
 
     def code_shown(self) -> None:
-        with self.store._tx():
+        with self.store.transaction():
             self._unset("recovery_unshown")
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
@@ -337,7 +334,7 @@ class Keeper:
         secret = secrets.token_bytes(16)
         expires = self.clock() + JOIN_TTL_S
         sealed = self._sealed(self.folder.list()) if self.folder is not None and self._get("join") else None
-        with self.store._tx():
+        with self.store.transaction():
             if sealed:  # the code this one replaces let that phone in
                 self._take(sealed)
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
@@ -396,7 +393,7 @@ class Keeper:
         answer a new code. A newer code shown meanwhile is left as it is."""
         if device is None and (device := self._sealed(listing)):
             outcome = {"join": "admitted", "device": device["device_id"]}
-        with self.store._tx():
+        with self.store.transaction():
             if device:
                 self._take(device)
             replaced = json.loads(self._get("join") or "null") != join
@@ -453,7 +450,7 @@ class Keeper:
             if where is None or held.get(path) == sum_:
                 continue
             outcome = self._read_one(path, where)
-            with self.store._tx():
+            with self.store.transaction():
                 self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET "
                                         "checksum = excluded.checksum, outcome = excluded.outcome",
                                         (path, sum_, outcome))
@@ -488,15 +485,15 @@ class Keeper:
         rejected: list[tuple[int, str]] = []
         shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
         apply(self.store, writer, device["class"], messages, shown, lambda i, why: rejected.append((i, why)))
-        with self.store._tx():
+        with self.store.transaction():
             self.store.conn.executemany("INSERT OR REPLACE INTO cloud_refused VALUES (?, ?, ?)",
                                         [(path, i, why) for i, why in rejected])
         erased = set(self.store.erased())
         if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
                           for m in messages for e in _events(m)) or self._erased_samples(messages):
-            with self.store._tx():
+            with self.store.transaction():
                 self._set("epoch_pending", "erase")  # it carried a record already erased here
-        with self.store._tx():
+        with self.store.transaction():
             self.store.conn.execute("UPDATE devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
                                     (where["epoch"], where.get("seq", 0), writer))
@@ -519,7 +516,7 @@ class Keeper:
         return False
 
     def _shown(self, ids: list[str]) -> None:
-        with self.store._tx():
+        with self.store.transaction():
             self.store.conn.executemany("INSERT OR IGNORE INTO cloud_shown VALUES (?)", [(i,) for i in ids])
 
     # -- writing -------------------------------------------------------------------
@@ -531,7 +528,7 @@ class Keeper:
         events = [e for e in self.store.events(since=int(self._get("checkpoint_position")))
                   if e["id"] not in shown]
         for part in _parts(events):
-            with self.store._tx():
+            with self.store.transaction():
                 seq = self._next_seq()
             self._segment("segment", seq, [{"events": {"events": part}}])
             self._shown([e["id"] for e in part])
@@ -571,10 +568,10 @@ class Keeper:
         if self._get("plan_digest") == digest:
             return False
         old = [p for p in self.folder.list() if p.startswith("plan/")]
-        with self.store._tx():
+        with self.store.transaction():
             seq = self._next_seq()
         path = self._segment("plan", seq, messages)
-        with self.store._tx():
+        with self.store.transaction():
             self._set("plan_digest", digest)
         for p in old:
             if p != path:
@@ -592,19 +589,19 @@ class Keeper:
 
     def sync(self) -> dict:
         report = self._sync()
-        with self.store._tx():
+        with self.store.transaction():
             self._set("synced_at", self.clock())
             self._unset("error")
         return report
 
     def failed(self, message: str) -> None:
         """Keep why the last sync failed, for `cloud status`."""
-        with self.store._tx():
+        with self.store.transaction():
             self._set("error", message)
 
     def _sync(self) -> dict:
         if self._get("read_by") != __version__:  # upgraded: read again what an older byobot couldn't
-            with self.store._tx():
+            with self.store.transaction():
                 self.store.conn.execute("DELETE FROM cloud_read WHERE instr(outcome, ?)", (NEWER,))
                 self._set("read_by", __version__)
         if self._get("closing"):
@@ -621,7 +618,7 @@ class Keeper:
             report["reseeded"] = self.start_epoch()  # a start was cut short, or the folder was deleted
             listing = self.folder.list()
         elif there and (starting or self._get("missing_since")):
-            with self.store._tx():
+            with self.store.transaction():
                 self._unset("missing_since")
                 self._unset("starting")
         report.update(self._admit(listing))
@@ -641,7 +638,7 @@ class Keeper:
         another process: still missing on a fresh listing a while after it was first missed."""
         since = self._get("missing_since")
         if since is None:
-            with self.store._tx():
+            with self.store.transaction():
                 self._set("missing_since", self.clock())
             return False
         if self.clock() - float(since) < MISSING_S:
@@ -649,7 +646,7 @@ class Keeper:
         if hasattr(self.folder, "refresh"):
             self.folder.refresh()
         if files.epoch_path(self.epoch) in self.folder.list():
-            with self.store._tx():
+            with self.store.transaction():
                 self._unset("missing_since")
             return False
         return True
@@ -665,7 +662,7 @@ class Keeper:
             raise ByobotError(f"no device {device_id} in this cloud logbook")
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
-        with self.store._tx():  # until an epoch without it commits, running this again finishes the removal
+        with self.store.transaction():  # until an epoch without it commits, running this again finishes the removal
             self.store.conn.execute("UPDATE devices SET removed = 1 WHERE id = ?", (device_id,))
             self._set(f"removing:{device_id}", 1)
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
@@ -674,11 +671,11 @@ class Keeper:
 
     def off(self) -> None:
         """Stop reading and writing the folder; `cloud setup` turns it on again."""
-        with self.store._tx():
+        with self.store.transaction():
             self._set("off", 1)
 
     def on(self) -> None:
-        with self.store._tx():
+        with self.store.transaction():
             self._unset("off")
 
     @property
@@ -696,7 +693,7 @@ class Keeper:
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
         n = int(self._get("closing") or 0) or max(
             [files.epoch_number(p) for p in self.folder.list() if files.is_epoch_file(p)] + [self.epoch]) + 1
-        with self.store._tx():  # sync finishes a close that failed partway, so phones and this Mac agree
+        with self.store.transaction():  # sync finishes a close that failed partway, so phones and this Mac agree
             self._set("closing", n)
         path = files.epoch_path(n)
         keeper = [{"device_id": self.device_id, "device_class": "keeper", **self.identity.public()}]
@@ -717,7 +714,7 @@ class Keeper:
             for p in late:
                 self.folder.delete(p)
             listing += late
-        with self.store._tx():
+        with self.store.transaction():
             for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
             _leave(self.store, "class = 'relay'")
@@ -763,7 +760,7 @@ class Keeper:
             return {"cleanup_waits_on": ["an upgrade of byobot on this Mac"]}
         for path in old:
             self.folder.delete(path)
-        with self.store._tx():
+        with self.store.transaction():
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch < ?", (current,))
             self.store.conn.executemany("DELETE FROM cloud_read WHERE path = ?", [(p,) for p in old])
             self.store.conn.executemany("DELETE FROM cloud_refused WHERE path = ?", [(p,) for p in old])

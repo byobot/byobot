@@ -158,7 +158,7 @@ class Store:
         if version and (not reshaped or not migrate) and device_id in (None, self._get("device_id")):
             self._repair_clock()
             return
-        with self._tx():
+        with self.transaction():
             if reshaped:
                 reducers.drop(self.conn)
             for ddl in (DDL, reducers.DDL):
@@ -186,10 +186,11 @@ class Store:
         if not hlc.out_of_range(hlc.parse(self._get("hlc"))):
             return
         held = [hlc.parse(r[0]) for r in self.conn.execute("SELECT hlc FROM events")]
-        with self._tx():
+        with self.transaction():
             self._set("hlc", hlc.format(max((h for h in held if not hlc.out_of_range(h)), default=(0, 0))))
 
-    def _tx(self):
+    def transaction(self):
+        """Writes inside commit together; nested, they roll back on their own."""
         conn = self.conn
 
         class _Tx:
@@ -238,6 +239,9 @@ class Store:
     def device_id(self) -> str:
         return self._get("device_id")
 
+    def set_device_id(self, device_id: str) -> None:
+        self._set("device_id", device_id)
+
     @property
     def store_key(self) -> bytes:
         return bytes.fromhex(self._get("store_key"))
@@ -276,10 +280,10 @@ class Store:
 
     def accept_many(self, events: Iterable[Any]) -> list[tuple[str, str]]:
         out = []
-        with self._tx():
+        with self.transaction():
             for event in events:
                 try:
-                    with self._tx():
+                    with self.transaction():
                         out.append(self._accept(event))
                 except OverflowError:
                     out.append(("rejected", TOO_BIG))
@@ -418,7 +422,7 @@ class Store:
         before = self._overlay_targets(kind, rid)
         spans = [s for k, i in touched | before if (s := occurrences.span(conn, k, i))]
         try:
-            with self._tx():
+            with self.transaction():
                 reducers.project(conn, self.contract, kind, rid, payload)
         except (KeyError, TypeError, ValueError, AttributeError):  # a version its reducer can't read
             reducers.project(conn, self.contract, kind, rid, None)
@@ -462,7 +466,7 @@ class Store:
         the old key no longer verify."""
         if self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             raise Conflict("only an empty store can join another")
-        with self._tx():
+        with self.transaction():
             self._set("store_id", store_id)
             self._set("store_key", store_key)
 
@@ -477,7 +481,7 @@ class Store:
         """Switch to another contract (an upgrade or a downgrade) and re-derive every record. The new shape is
         recorded with the rebuild, so one cut short runs again on the next open."""
         self.contract = contract
-        with self._tx():
+        with self.transaction():
             self.conn.execute("DELETE FROM unprojected")
             for (header,) in self.conn.execute("SELECT header FROM events").fetchall():
                 event = json.loads(header)
@@ -489,7 +493,7 @@ class Store:
 
     def rebuild(self) -> None:
         """Re-derive every record from the logbook. A repair tool: accepting never needs it."""
-        with self._tx():
+        with self.transaction():
             self.conn.execute("DELETE FROM records")
             reducers.clear(self.conn)
             for kind, rid in self.conn.execute("SELECT DISTINCT kind, record_id FROM events").fetchall():
@@ -588,7 +592,7 @@ class Store:
         if not all(isinstance(header.get(k), str) for k in ("store_id", "store_key")):
             raise ValidationFailed("not a byobot export: the header has no store_id or store_key")
         outcomes: dict[str, int] = {}
-        with self._tx():  # all or nothing
+        with self.transaction():  # all or nothing
             self.adopt(header["store_id"], header["store_key"])
             for line in it:
                 if not line.strip():
@@ -612,7 +616,7 @@ class Store:
     def pair(self, device_id: str, name: str, token_sha256: str) -> dict:
         """Pair a device, or pair it again with a new token (which also lifts an earlier unpair)."""
         at = stamp(self.wall())
-        with self._tx():
+        with self.transaction():
             self.conn.execute(
                 "INSERT INTO devices (id, name, token_sha256, paired_at, last_seen_at) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT (id) DO UPDATE SET name = excluded.name, token_sha256 = excluded.token_sha256, "
@@ -638,7 +642,7 @@ class Store:
             return None
         self.conn.execute("PRAGMA busy_timeout=0")
         try:
-            with self._tx():
+            with self.transaction():
                 self.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (stamp(self.wall()), found))
         except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
             pass
@@ -658,7 +662,7 @@ class Store:
         """Keep what a device sent and was refused ((event id, reason), reason None once accepted), so a device
         that can't hear a push's answer still learns of it."""
         at = stamp(self.wall())
-        with self._tx():
+        with self.transaction():
             for event_id, reason in results:
                 if reason is None:
                     self.conn.execute("DELETE FROM rejections WHERE device_id = ? AND event_id = ?",
@@ -679,7 +683,7 @@ class Store:
     def unpair(self, device_id: str) -> dict:
         if not self.peer(device_id):
             raise NotFound(f"no paired device {device_id}")
-        with self._tx():
+        with self.transaction():
             self.conn.execute("UPDATE devices SET revoked_at = coalesce(revoked_at, ?) WHERE id = ?",
                               (stamp(self.wall()), device_id))
             self.conn.execute("DELETE FROM rejections WHERE device_id = ?", (device_id,))
@@ -692,7 +696,7 @@ class Store:
         is refused if the record is live or erased by the time it is written."""
         batch = self.new_id() if len(changes) > 1 else None
         written = []
-        with self._tx():
+        with self.transaction():
             for change in changes:
                 event = self._event(actor, change, batch)
                 try:
