@@ -110,8 +110,8 @@ def test_refresh_tokens_rotate(auth):
     fresh = auth.refresh(client, tokens["refresh_token"])
     assert fresh["access_token"] != tokens["access_token"]
     with pytest.raises(OAuthError):
-        auth.refresh(client, tokens["refresh_token"])
-    assert auth.refresh(client, fresh["refresh_token"])
+        auth.refresh(client, tokens["refresh_token"])  # a replay, so the tokens that replaced it stop working
+    assert auth.client_for_token(fresh["access_token"]) is None
 
 
 def test_access_tokens_expire(auth, monkeypatch):

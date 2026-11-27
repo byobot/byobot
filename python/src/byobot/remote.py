@@ -126,11 +126,11 @@ class Auth:
         except FileNotFoundError:
             data = {}
         return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {}),
-                "keys": data.get("keys", {}), "generation": data.get("generation", 0)}
+                "used": data.get("used", {}), "keys": data.get("keys", {}), "generation": data.get("generation", 0)}
 
     def _save(self, data: dict) -> None:
         now = time.time()
-        for kind in ("access", "refresh"):
+        for kind in ("access", "refresh", "used"):
             data[kind] = {h: t for h, t in data[kind].items() if t["expires_at"] > now}
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")  # mode 0600
@@ -143,7 +143,8 @@ class Auth:
             raise
 
     def _change(self, fn: Callable[[dict], Any]) -> Any:
-        """Apply ``fn`` to the file's data and write it, again from a fresh read if another process wrote it meanwhile."""
+        """Apply ``fn`` to the file's data and write it, again from a fresh read if another process wrote it meanwhile.
+        ``fn`` returns its result, or an OAuthError to raise once the change is written."""
         with self.lock:
             while True:
                 seen = self._raw()
@@ -152,7 +153,10 @@ class Auth:
                 with held(self.path.with_name(self.path.name + ".lock")):
                     if self._raw() == seen:
                         self._save(data)
-                        return out
+                        break
+        if isinstance(out, OAuthError):
+            raise out
+        return out
 
     # -- clients --
 
@@ -243,10 +247,16 @@ class Auth:
     def refresh(self, client: dict, token: Any) -> dict:
         h, cid = _hash(token) if isinstance(token, str) else None, client["client_id"]
 
-        def rotate(data: dict) -> None:
+        def rotate(data: dict) -> OAuthError | None:
+            if h in data["used"] and data["used"][h]["client_id"] == cid:  # a replay, so the token was copied
+                for kind in ("access", "refresh"):
+                    data[kind] = {k: t for k, t in data[kind].items() if t["client_id"] != cid}
+                return OAuthError("invalid_grant", "the refresh token was already used; connect this assistant again")
             held = data["refresh"].pop(h, None)
             if held is None or held["expires_at"] < time.time() or held["client_id"] != cid:
                 raise OAuthError("invalid_grant", "the refresh token is unknown, used or expired")
+            data["used"][h] = held
+            return None
 
         self._change(rotate)
         return self._issue(client)
@@ -298,7 +308,7 @@ class Auth:
     def revoke_all(self) -> int:
         def clear(data: dict) -> int:
             count = len(data["clients"]) + len(data["keys"])
-            data.update(clients={}, access={}, refresh={}, keys={}, generation=data["generation"] + 1)
+            data.update(clients={}, access={}, refresh={}, used={}, keys={}, generation=data["generation"] + 1)
             return count
 
         count = self._change(clear)
