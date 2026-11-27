@@ -31,8 +31,9 @@ def parse_actor(text: str) -> dict:
     return actor
 
 
-def read_json(text: str) -> Any:
-    """A JSON argument: literal JSON, ``@path`` for a file, or ``-`` for stdin. Files may be JSON lines."""
+def read_json(text: str, text_ok: bool = False) -> Any:
+    """A JSON argument: literal JSON, ``@path`` for a file, or ``-`` for stdin. Files may be JSON lines.
+    With ``text_ok``, an argument that isn't JSON is taken as text."""
     if text == "-":
         raw, where = sys.stdin.read(), "stdin"
     elif text.startswith("@"):
@@ -46,6 +47,8 @@ def read_json(text: str) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as first:
+        if where == "argument" and text_ok:
+            return raw
         if where != "argument":
             try:
                 return [json.loads(line) for line in raw.splitlines() if line.strip()]
@@ -72,7 +75,7 @@ def _port(text: str) -> int:
 
 
 def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
-    kwargs: dict[str, Any] = {"help": p.help}
+    kwargs: dict[str, Any] = {"help": p.help + (" Use @path for a file." if p.type == "json" else "")}
     if p.type == "integer":
         kwargs["type"] = int
     if p.choices:
@@ -213,7 +216,8 @@ def _main(argv: Sequence[str] | None) -> int:
         for p in cmd.params:
             value = getattr(args, p.name, None)
             if value is not None and p.type == "json":
-                value = read_json(value)
+                kinds = (p.schema or {}).get("type")
+                value = read_json(value, kinds == "string" or isinstance(kinds, list) and "string" in kinds)
             values[p.name] = value
         ctx = Context(actor=actor, path=db_path())
         try:

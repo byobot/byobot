@@ -443,8 +443,8 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
     "import activities",
     "Import your own activities, with the muscles they work and the equipment they need, so the app can "
     "suggest swaps. Activities you already have are kept unless you say replace.",
-    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list. "
-          "Use @path for a file.", required=True, positional=True, schema={"type": ["object", "array"]}),
+    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
+          required=True, positional=True, schema={"type": ["object", "array"]}),
     Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
     read_only=False,
