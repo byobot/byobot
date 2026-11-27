@@ -342,6 +342,7 @@ class Auth:
 # -- HTTP --------------------------------------------------------------------
 
 MAX_FORM = 8192
+API = "/api/v1"
 QUERY_TIMEOUT_S = 20
 
 
@@ -412,15 +413,15 @@ class Handler(serve.Handler):
                   "/.well-known/oauth-protected-resource/mcp": self.resource_metadata,
                   "/.well-known/oauth-authorization-server": self.server_metadata,
                   "/oauth/authorize": self.authorize_page, "/mcp": self.mcp_not_allowed,
-                  "/api/openapi.json": self.api_spec, "/api/tools": self.api_tools}
+                  f"{API}/openapi.json": self.api_spec, f"{API}/tools": self.api_tools}
         self._guard(routes.get(self._route(), self.not_found))
 
     def do_POST(self) -> None:  # noqa: N802
         routes = {"/oauth/register": self.register, "/oauth/authorize": self.approve, "/oauth/token": self.token,
                   "/mcp": self.mcp}
         route = self._route()
-        if route.startswith("/api/tools/"):
-            self._guard(lambda: self.api_call(route[len("/api/tools/"):]))
+        if route.startswith(f"{API}/tools/"):
+            self._guard(lambda: self.api_call(route[len(f"{API}/tools/"):]))
             return
         self._guard(routes.get(route, self.not_found))
 
@@ -646,7 +647,7 @@ def openapi(base: str) -> dict:
     """An OpenAPI 3.1 description of the JSON API: one POST per tool, its body the tool's arguments."""
     paths = {}
     for tool in mcp.tools():
-        paths[f"/api/tools/{tool['name']}"] = {"post": {
+        paths[f"{API}/tools/{tool['name']}"] = {"post": {
             "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
             "description": tool["description"][:300],
             "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
@@ -700,7 +701,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke:
         cmd = clipboard() if copy else None
         key = Auth(remote_dir() / "oauth.json").create_key(api_key, READ if read_only else FULL)
         base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
-        out = {"name": api_key, "openapi": base + "/api/openapi.json", "mcp": base + "/mcp"}
+        out = {"name": api_key, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
         if cmd:
             subprocess.run(cmd, input=key.encode(), check=True)
             out["copied"] = True

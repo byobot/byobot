@@ -395,17 +395,17 @@ def test_api_key_names_are_checked(auth):
 # -- the plain JSON API -----------------------------------------------------------
 
 def test_openapi_describes_every_tool(running):
-    resp, raw = request(running, "GET", "/api/openapi.json")
+    resp, raw = request(running, "GET", "/api/v1/openapi.json")
     spec = json.loads(raw)
     assert resp.status == 200 and spec["openapi"] == "3.1.0" and spec["servers"] == [{"url": BASE}]
     assert {p.rsplit("/", 1)[1] for p in spec["paths"]} == {t["name"] for t in remote.mcp.tools()}
-    assert spec["paths"]["/api/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
+    assert spec["paths"]["/api/v1/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
         "required"] == ["sql"]
 
 
 def test_the_api_needs_a_key(running):
-    assert request(running, "GET", "/api/tools")[0].status == 401
-    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"},
+    assert request(running, "GET", "/api/v1/tools")[0].status == 401
+    assert request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT 1"},
                    {"Authorization": "Bearer byobot_wrong"})[0].status == 401
 
 
@@ -413,17 +413,17 @@ def test_the_api_needs_a_key(running):
 def test_an_api_key_calls_tools(running, header):
     key = running.auth.create_key("example_assistant")
     auth = {header: f"Bearer {key}" if header == "Authorization" else key}
-    resp, raw = request(running, "GET", "/api/tools", headers=auth)
+    resp, raw = request(running, "GET", "/api/v1/tools", headers=auth)
     assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
-    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "plank",
-                                                            "payload": {"name": "Plank"}}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "plank",
+                                                               "payload": {"name": "Plank"}}, auth)
     assert resp.status == 200, raw
-    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
     [row] = json.loads(raw)["rows"]
     assert row["actor_id"].startswith("example_assistant#key:")
-    resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/query", {}, auth)
     assert resp.status == 400 and json.loads(raw)["error"] == "invalid"
-    assert request(running, "POST", "/api/tools/nope", {}, auth)[0].status == 404
+    assert request(running, "POST", "/api/v1/tools/nope", {}, auth)[0].status == 404
 
 
 def test_an_api_key_also_works_for_mcp(running):
@@ -435,12 +435,12 @@ def test_an_api_key_also_works_for_mcp(running):
 def test_a_read_only_key_reads_but_does_not_write(running):
     key = running.auth.create_key("example_assistant", remote.READ)
     auth = {"X-API-Key": key}
-    names = {t["name"] for t in json.loads(request(running, "GET", "/api/tools", headers=auth)[1])["tools"]}
+    names = {t["name"] for t in json.loads(request(running, "GET", "/api/v1/tools", headers=auth)[1])["tools"]}
     assert "query" in names and "log" not in names
-    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "plank",
-                                                            "payload": {"name": "Plank"}}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "plank",
+                                                               "payload": {"name": "Plank"}}, auth)
     assert resp.status == 403 and json.loads(raw)["error"] == "forbidden"
-    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 200
+    assert request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 200
     assert "log" not in {t["name"] for t in json.loads(rpc(running, key, "tools/list")[1])["result"]["tools"]}
 
 
@@ -457,7 +457,7 @@ def test_remote_api_key_prints_a_working_key(capsys, auth):
 
     assert main(["remote", "--api-key", "example_assistant"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["openapi"].endswith("/api/openapi.json")
+    assert out["openapi"].endswith("/api/v1/openapi.json")
     assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
     assert main(["remote", "--api-key", "Bad Name"]) == 1
 
