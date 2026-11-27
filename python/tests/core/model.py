@@ -117,7 +117,7 @@ class ModelReplica:
         """`read`: the write was made from the record's current version, and names only that one; `on` names it."""
         record = key(kind, rid)
         cur = self.current(record) if read and on is None else None
-        if read and self._unread(record):
+        if op != "erase" and kind != "source_record" and self._unread(record):
             raise Refused(f"{record} holds a version written by a newer byobot")
         prior = after if after is not None else frozenset({on}) if on else frozenset({cur.id}) if cur \
             else frozenset(self.by_record.get(record, ()))
