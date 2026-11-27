@@ -817,8 +817,8 @@ def _header(event: dict) -> str:
 
 def _content(event: dict, blank: bool = False) -> str:
     """What makes two deliveries of a source event the same; `blank` leaves out what erase blanks."""
-    return jcs([event["record"], event["op"], event.get("kind_version"), event["prev"],
-                {} if blank else event["payload"]])
+    return jcs([event.get("record"), event.get("op"), event.get("kind_version"), event.get("prev"),
+                {} if blank else event.get("payload")])
 
 
 def _envelope(row: sqlite3.Row) -> dict:
@@ -845,8 +845,10 @@ def _text(x: Any) -> str:
 
 def _canonical(event: dict) -> str:
     try:
-        return jcs(event)
-    except (TypeError, ValueError):
+        text = jcs(event)
+        text.encode("utf-8")
+        return text
+    except (TypeError, ValueError, RecursionError):
         return ""
 
 
