@@ -8,6 +8,7 @@ import difflib
 import getpass
 import json
 import os
+import sqlite3
 import sys
 import time
 import webbrowser
@@ -21,7 +22,7 @@ from byobot import __version__, credentials, library, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
-from byobot.core.store import Store, ddl, query
+from byobot.core.store import Store, busy, ddl, query
 from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
                          sync_folder_warning)
 
@@ -108,7 +109,12 @@ def run(name: str, ctx: Context, args: dict) -> Any:
                 raise ValidationFailed(f"{p.name} must be from {p.bounds[0]} to {p.bounds[1]}")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
-    return cmd.handler(ctx, **clean)
+    try:
+        return cmd.handler(ctx, **clean)
+    except sqlite3.OperationalError as exc:
+        if not busy(exc):
+            raise
+        raise ByobotError("the store is busy with a long write in another process; try again in a moment") from None
 
 
 def _object(name: str, value: Any) -> dict:
