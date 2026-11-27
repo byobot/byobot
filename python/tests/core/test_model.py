@@ -167,7 +167,7 @@ def workout(wid: str, start: str, end: str, updated: str, distance: float | None
 
 
 def health_workout(sid: str, start: str, end: str, distance: float) -> dict:
-    return {"source": "apple-health", "source_id": sid, "type": "HKWorkoutTypeIdentifier", "start": start,
+    return {"source": "apple_health", "source_id": sid, "type": "HKWorkoutTypeIdentifier", "start": start,
             "end": end, "value": "running", "raw": {"distance_m": distance, "heart_rate_avg_bpm": 148}}
 
 
@@ -196,12 +196,12 @@ def test_one_workout_from_three_sources_is_one_occurrence_with_gaps_filled():
                   "ended_at": "2026-03-02T11:00:00.000Z"}}, at(0), H)
     phone.ingest("whoop", {"workout": [workout("w1", "2026-03-02T10:02:00.000Z", "2026-03-02T10:58:00.000Z",
                                                at(59))]}, at(59))
-    phone.ingest("apple-health", [health_workout("h1", "2026-03-02T10:01:00.000Z", "2026-03-02T10:59:00.000Z",
+    phone.ingest("apple_health", [health_workout("h1", "2026-03-02T10:01:00.000Z", "2026-03-02T10:59:00.000Z",
                                                  9000)], at(59))
     [o] = phone.occurrences()
     assert o["start"].startswith("2026-03-02T10:00:00")
     assert o["metrics"] == {"duration_s": "3360", "distance_m": "9000", "heart_rate": "150"}
-    assert o["provenance"] == {"duration_s": "whoop", "distance_m": "apple-health", "heart_rate": "whoop"}
+    assert o["provenance"] == {"duration_s": "whoop", "distance_m": "apple_health", "heart_rate": "whoop"}
 
 
 def test_back_to_back_workouts_overlapping_a_minute_stay_two():

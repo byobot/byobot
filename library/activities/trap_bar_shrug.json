@@ -1,5 +1,4 @@
 {
-  "id": "trap_bar_shrug",
   "name": "Trap Bar Shrug",
   "load_type": "barbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "traps"
-    ],
-    "synergists": []
+    ]
   }
 }

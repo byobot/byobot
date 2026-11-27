@@ -1,5 +1,4 @@
 {
-  "id": "barbell_back_squat",
   "name": "Barbell Back Squat",
   "load_type": "barbell",
   "equipment": [
@@ -16,7 +15,6 @@
     "main": [
       "glutes",
       "quads"
-    ],
-    "synergists": []
+    ]
   }
 }

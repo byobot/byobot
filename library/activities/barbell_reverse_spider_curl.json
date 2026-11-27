@@ -1,5 +1,4 @@
 {
-  "id": "barbell_reverse_spider_curl",
   "name": "Barbell Reverse Spider Curl",
   "load_type": "barbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "biceps"
-    ],
-    "synergists": []
+    ]
   }
 }

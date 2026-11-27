@@ -443,7 +443,7 @@ def test_logged_parts_get_ids_and_observations_a_modality(tmp_path):
 def test_samples_deleted_by_id_alone_are_found_by_their_source(tmp_path):
     from byobot.core import sources
 
-    sample = {"source": "apple-health", "source_id": "h1", "type": "HKQuantityTypeIdentifierBodyMass",
+    sample = {"source": "apple_health", "source_id": "h1", "type": "HKQuantityTypeIdentifierBodyMass",
               "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": 80, "unit": "kg"}
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         assert {k: len(v) for k, v in sources.ingest_samples(s, [sample]).items()} == {"apple_health": 1}

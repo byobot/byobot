@@ -1,5 +1,4 @@
 {
-  "id": "machine_chest_press",
   "name": "Machine Chest Press",
   "load_type": "machine",
   "movement_type": "compound",

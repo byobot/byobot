@@ -115,28 +115,6 @@ OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
                 ("source_record", "observations"): "source_record_id"}
 
 
-# (kind, version) -> the step that lifts a payload of that version to the next, so reducers and edits only ever
-# see the version this install writes. A version whose old payloads are still valid needs none.
-UPCASTS: dict[tuple[str, int], Callable[[dict], dict]] = {}
-
-
-def upcast(c: Contract, kind: str, version: int | None, payload: dict) -> dict:
-    """`payload`, written at kind version `version`, as this install's version of the kind holds it."""
-    for v in range(version or 1, c.version(kind) or 1):
-        if (kind, v) in UPCASTS:
-            payload = UPCASTS[(kind, v)](payload)
-    return payload
-
-
-def lowest(c: Contract, kind: str, payload: dict) -> int:
-    """The lowest version of `kind` that holds `payload`: after its last reshape, and at least the version that
-    added each field it uses. Writers write this, so installs that know only older versions still read it."""
-    spec = c.registry["kinds"].get(kind, {})
-    since = spec.get("since", {})
-    floor = max((v + 1 for k, v in UPCASTS if k == kind), default=spec.get("reshaped", 1))
-    return min(max([floor, *(since.get(f, 1) for f in payload)]), c.version(kind) or 1)
-
-
 def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload: dict | None) -> None:
     """Replace one record's rows: from `payload`, or none when it isn't live."""
     for table in TABLES.get(kind, ()):

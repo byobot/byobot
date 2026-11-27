@@ -1,5 +1,4 @@
 {
-  "id": "assisted_dip",
   "name": "Assisted Dip",
   "load_type": "machine",
   "movement_type": "compound",

@@ -55,10 +55,10 @@ def build() -> dict:
     samples = {"samples": [{"source": "apple_health", "source_id": "8f2e1c3a-0000-4000-8000-000000000001",
                             "type": "HKQuantityTypeIdentifierBodyMass", "start": "2026-11-22T07:00:00-05:00",
                             "end": "2026-11-22T07:00:00-05:00", "value": 82.4, "unit": "kg"}]}
-    plan = {"from": "2026-11-22", "to": "2026-12-05", "activities": [], "locations": [], "settings": [], "plans": [],
-            "planned_sessions": [], "overlays": [], "sessions": [], "efforts": [], "hlc": "1795131000000-000001",
-            "erased": [], "kind_versions": {"effort": 1}, "received": {RELAY: "1795131000000-000000"},
-            "rejected": []}
+    plan = {"from": "2026-11-22", "to": "2026-12-05", "since": "2026-11-22", "activities": [], "locations": [],
+            "settings": [], "plans": [], "planned_sessions": [], "overlays": [], "sessions": [], "efforts": [],
+            "store_id": STORE, "hlc": "1795131000000-000001", "removed": [], "erased": [],
+            "kind_versions": {"effort": 1}, "received": {RELAY: "1795131000000-000000"}, "rejected": []}
     relay_messages = [{"events": {"events": [event], "kinds": {"effort": 1}}}, {"samples": samples}]
     seg_path = segment.name("segment", 1, 1, RELAY)
     seg = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))

@@ -24,8 +24,8 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
   ``POST /v1/samples``     push samples read from Apple Health, and the ones it says were deleted
 
   Pushed events must carry the paired device's id as their ``device_id`` and
-  that device's user as their ``actor`` (``human`` / ``me``), and write only the records a person writes.
-  Anything else is rejected. Pushing the same event twice is harmless, so a phone can retry freely.
+  that device's user as their ``actor`` (``human`` / ``me``), and not write what only a connector writes.
+  Anything else is rejected; a kind this byobot doesn't know yet is stored for a newer one. Pushing the same event twice is harmless, so a phone can retry freely.
 
   Calls that need a token are refused before the body is read. Plan and status
   reads are stopped if they run longer than a few seconds.

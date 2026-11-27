@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_incline_one_arm_lateral_raise",
   "name": "Dumbbell Incline One Arm Lateral Raise",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "side_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

@@ -1,5 +1,4 @@
 {
-  "id": "barbell_sumo_deadlift",
   "name": "Barbell Sumo Deadlift",
   "load_type": "barbell",
   "movement_type": "compound",

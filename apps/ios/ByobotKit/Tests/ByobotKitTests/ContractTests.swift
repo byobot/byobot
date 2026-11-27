@@ -136,8 +136,8 @@ final class ContractTests: XCTestCase {
               case .object(let defs)? = doc["$defs"], case .object(let window)? = defs["plan_window"],
               case .object(let properties)? = window["properties"],
               case .array(let required)? = window["required"] else { return XCTFail("plan_window not found") }
-        let full = PlanWindow(from: "2026-11-01", to: "2026-11-30", storeId: "0193a0b0-0000-7000-8000-00000000c001",
-                              hlc: "0000000000001-000000", erased: [], kindVersions: [:], received: [:], rejected: [])
+        let full = PlanWindow(from: "2026-11-01", to: "2026-11-30", since: "2026-09-02", storeId: "0193a0b0-0000-7000-8000-00000000c001",
+                              hlc: "0000000000001-000000", removed: [], erased: [], kindVersions: [:], received: [:], rejected: [])
         guard case .object(let written) = try Payloads.encode(full) else { return XCTFail("not an object") }
         XCTAssertEqual(Set(written.keys), Set(properties.keys))
         guard case .object(let bare) = try Payloads.encode(PlanWindow(from: "2026-11-01", to: "2026-11-30")) else {

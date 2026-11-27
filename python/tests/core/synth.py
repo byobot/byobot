@@ -244,11 +244,11 @@ class _Gen:
             raw = {"duration_s": (ended - began).total_seconds(), "heart_rate_avg_bpm": rng.randint(110, 160)}
             if distance:
                 raw["distance_m"] = distance
-            sample = {"source": "apple-health", "source_id": hid, "type": "HKWorkoutTypeIdentifier",
+            sample = {"source": "apple_health", "source_id": hid, "type": "HKWorkoutTypeIdentifier",
                       "start": stamp(began, timedelta(0)), "end": stamp(ended, timedelta(0)), "value": HEALTHKIT[sport],
                       "raw": raw}
-            self.add(ended + timedelta(hours=2), "ingest", self.phone(d), "apple-health", [sample])
-            truth["sources"].append(("apple-health", hid))
+            self.add(ended + timedelta(hours=2), "ingest", self.phone(d), "apple_health", [sample])
+            truth["sources"].append(("apple_health", hid))
         if truth["sources"] or logged_by:
             self.p.workouts.append(truth)
 
@@ -285,11 +285,11 @@ class _Gen:
         rng = self.rng
         at = self.at(d, 7.2)
         weight = round(80 + 2 * rng.gauss(0, 1) - d * 0.002, 1)
-        samples = [{"source": "apple-health", "source_id": f"weigh-{d}-{t}", "type": t, "start": stamp(at, timedelta(0)),
+        samples = [{"source": "apple_health", "source_id": f"weigh-{d}-{t}", "type": t, "start": stamp(at, timedelta(0)),
                     "end": stamp(at, timedelta(0)), "value": v, "unit": u}
                    for t, v, u in (("HKQuantityTypeIdentifierBodyMass", weight, "kg"),
                                    ("HKQuantityTypeIdentifierBodyFatPercentage", round(rng.uniform(14, 19), 1), "%"))]
-        self.add(at, "ingest", self.phone(d), "apple-health", samples)
+        self.add(at, "ingest", self.phone(d), "apple_health", samples)
 
 
 def _offset_text(off: timedelta) -> str:

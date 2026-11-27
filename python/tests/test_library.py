@@ -1,6 +1,7 @@
 """Checks every file in library/, the activity library that ships with byobot."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -30,9 +31,11 @@ def test_movement_types_are_compound_or_isolation():
 @pytest.mark.parametrize("path", FILES, ids=[f.stem for f in FILES])
 def test_library_activity(path):
     activity = json.loads(path.read_text(encoding="utf-8"))
-    payload = {k: v for k, v in activity.items() if k != "id"}
-    assert CONTRACT.payload_errors("activity", payload, activity["id"]) == []
-    assert activity["id"] == path.stem, "the file name is the activity id"
+    assert re.fullmatch(r"[a-z][a-z0-9]*(_[a-z0-9]+)*", path.stem), "name the file by its id: lowercase words joined by underscores"
+    assert CONTRACT.payload_errors("activity", activity, path.stem) == []
+    assert "id" not in activity, "the file name is the id"
+    assert not any(v in ([], {}) for v in [*activity.values(), *activity.get("targets", {}).values()]), \
+        "leave out empty lists"
     targets = activity.get("targets", {})
     main, synergists = targets.get("main", []), targets.get("synergists", [])
     assert set(main) | set(synergists) <= set(VOCABULARY["muscles"]), "use muscles from vocabulary.json"

@@ -45,7 +45,7 @@ struct WorkoutView: View {
         .sheet(item: $logForm) { form in
             NavigationStack {
                 LogEffortView(planned: form.slot.effort, round: form.slot.round,
-                              activity: model.plan?.activity(form.slot.activityId), previous: nil,
+                              activity: model.book.activity(form.slot.activityId),
                               editing: form.editing, prefill: form.editing == nil ? form.values : nil,
                               onSave: saver(form))
             }
@@ -58,11 +58,11 @@ struct WorkoutView: View {
             }
         }
         .sheet(item: $summary, onDismiss: { dismiss() }) { summary in
-            NavigationStack { SummaryView(summary: summary, names: { model.plan?.activity($0)?.name ?? $0 }) }
+            NavigationStack { SummaryView(summary: summary, names: { model.book.activity($0)?.name ?? $0 }) }
         }
         .sheet(isPresented: $unplanned) {
             NavigationStack {
-                LogEffortView(planned: nil, round: nil, activity: nil, previous: nil)
+                LogEffortView(planned: nil, round: nil, activity: nil)
             }
             .environmentObject(model)
         }
@@ -127,7 +127,7 @@ struct WorkoutView: View {
                     Section("Also logged") {
                         ForEach(extras) { effort in
                             VStack(alignment: .leading) {
-                                Text(model.plan?.activity(effort.activityId)?.name ?? effort.activityId)
+                                Text(model.book.activity(effort.activityId)?.name ?? effort.activityId)
                                 Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                             }
                             .swipeActions { Button("Undo", role: .destructive) { model.undo(effort) } }

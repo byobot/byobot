@@ -1,5 +1,4 @@
 {
-  "id": "ez_bar_lying_triceps_extension",
   "name": "EZ Barbell Lying Triceps Extension",
   "load_type": "barbell",
   "equipment": [
@@ -16,7 +15,6 @@
   "targets": {
     "main": [
       "triceps"
-    ],
-    "synergists": []
+    ]
   }
 }

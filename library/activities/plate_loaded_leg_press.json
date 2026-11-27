@@ -1,5 +1,4 @@
 {
-  "id": "plate_loaded_leg_press",
   "name": "Leg Press (Plate-Loaded)",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

@@ -12,6 +12,15 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            if model.demo {
+                Section {
+                    Button("Leave the demo", role: .destructive) { model.leaveDemo() }
+                } header: {
+                    Text("Demo")
+                } footer: {
+                    Text("You're looking at sample data. Leaving drops it and everything logged here, so you can pair.")
+                }
+            }
             if let server = model.server {
                 Section("Laptop") {
                     LabeledContent("Name", value: server.name)
@@ -39,6 +48,17 @@ struct SettingsView: View {
                 Text("Drive sync")
             } footer: {
                 Text("Syncs with your Mac through your own Google Drive when the laptop is out of reach. Everything is encrypted on this phone first.")
+            }
+            if !model.book.conflicts.isEmpty {
+                Section {
+                    ForEach(model.book.conflicts) { conflict in
+                        NavigationLink(ConflictView.title(conflict)) { ConflictView(conflict: conflict) }
+                    }
+                } header: {
+                    Text("Conflicts")
+                } footer: {
+                    Text("Two devices or your coach changed these at once. Pick the version to keep.")
+                }
             }
             Section {
                 LabeledContent("Waiting to send", value: String(model.state.pending.count))

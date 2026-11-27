@@ -1,5 +1,4 @@
 {
-  "id": "t_bar_row_chest_supported",
   "name": "T-Bar Row (Chest Supported)",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

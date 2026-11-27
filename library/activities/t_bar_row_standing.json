@@ -1,5 +1,4 @@
 {
-  "id": "t_bar_row_standing",
   "name": "T-Bar Row (Standing)",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

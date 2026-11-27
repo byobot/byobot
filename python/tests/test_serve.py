@@ -126,13 +126,12 @@ def test_plan_window_is_contract_shaped(store):
 
 
 def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
-    spec = Contract.shipped().registry["kinds"]["effort"]
-    hub = Store(tmp_path / "hub.db", contract=Contract.shipped().newer(2, {"effort": {**spec, "version": 2,
-                                                                                    "since": {"tempo": 2}}}))
+    hub = Store(tmp_path / "hub.db")
     payload = {"activity_id": "x.barbell_back_squat", "metrics": {"reps": {"value": 5}},
                "time": {"start": "2026-11-23T07:40:00-05:00"}}
-    [plain, fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload},
-                                           {"kind": "effort", "payload": {**payload, "tempo": "fast"}}])
+    [plain] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
+    hub.use(Contract.shipped().newer(2))
+    [fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
     entries = {e["id"]: e["kind_version"] for e in serve._entries(hub, "effort", [plain["record"]["id"],
                                                                                fast["record"]["id"]])}
     assert entries == {plain["record"]["id"]: 1, fast["record"]["id"]: 2}
@@ -143,18 +142,21 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     assert serve.accept_events(hub, PHONE, edits[1:], ME, {"effort": 2})[0]["status"] == "accepted"
 
 
-def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
+def test_plan_window_sends_the_library_activities_it_names(byobot_home, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
     (lib / "vocabulary.json").write_text("{}")
-    dip = {"id": "dip", "name": "Dip", "targets": {"main": ["triceps"]},
-           "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
+    dip = {"name": "Dip", "targets": {"main": ["triceps"]}, "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
     (lib / "activities" / "dip.json").write_text(json.dumps(dip))
+    (lib / "activities" / "push_up.json").write_text(json.dumps({"name": "Push-up"}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     with Store(byobot_home / "lib.db") as s:
+        assert serve.plan_window(s, "2026-11-22", "2026-11-28")["activities"] == []  # the app ships the library
+        write(s, ("location", "example_gym", {"name": "Example gym"}),
+              ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
+              ("planned_session", LOWER, {**lift("2026-11-23", "Lower A"), "blocks": [{"efforts": [{"activity_id": "dip"}]}]}))
         window = serve.plan_window(s, "2026-11-22", "2026-11-28")
-    assert window["activities"] == [{"id": "dip", "payload": {k: v for k, v in dip.items() if k != "id"}, "prev": [],
-                                     "kind_version": 1, "library": True}]
+    assert window["activities"] == [{"id": "dip", "payload": dip, "prev": [], "kind_version": 1, "library": True}]
     assert sync_errors("plan_window", window) == []
 
 
@@ -177,33 +179,83 @@ def test_plan_window_shows_a_conflict(store):
     for name in ("Upper A (phone)", "Upper A (coach)"):
         store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
                           "payload": {**payload, "name": name}}])
-    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    window = serve.plan_window(store, "2026-11-22", "2026-12-05")
+    assert sync_errors("plan_window", window) == []
+    [entry] = [s for s in window["planned_sessions"] if s["id"] == UPPER]
     assert entry["conflict"] is True and entry["prev"] == [store.record("planned_session", UPPER)["current"]]
+    assert {v["event_id"] for v in entry["versions"]} == set(store.record("planned_session", UPPER)["heads"])
+    assert sorted(v["payload"]["name"] for v in entry["versions"]) == ["Upper A (coach)", "Upper A (phone)"]
+    assert all(v["actor"] == ME and v["ts"] for v in entry["versions"])
     store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": entry["prev"],
                       "payload": {**entry["payload"], "notes": "from the phone"}}])
     assert store.record("planned_session", UPPER)["conflict"]  # a phone edit keeps the conflict
 
 
-def test_plan_window_outside_the_dates_is_empty(store):
+def test_a_phone_resolves_a_conflict_by_naming_every_version(store):
+    seed(store)
+    tips, payload = store.record("planned_session", UPPER)["tips"], store.get("planned_session", UPPER)["payload"]
+    for name in ("Upper A (phone)", "Upper A (coach)"):
+        store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
+                          "payload": {**payload, "name": name}}])
+    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    kept = next(v for v in entry["versions"] if v["payload"]["name"] == "Upper A (phone)")
+    resolve = _event("planned_session", UPPER, kept["payload"], prev=[v["event_id"] for v in entry["versions"]])
+    assert serve.accept_events(store, PHONE, [resolve], ME)[0]["status"] == "accepted"
+    assert not store.record("planned_session", UPPER)["conflict"]
+    assert store.get("planned_session", UPPER)["payload"]["name"] == "Upper A (phone)"
+    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    assert "versions" not in entry and "conflict" not in entry
+
+
+def test_plan_window_outside_the_dates_still_brings_the_last_time(store):
     seed(store)
     window = serve.plan_window(store, "2030-01-01", "2030-01-07")
-    assert window["planned_sessions"] == [] and window["efforts"] == [] and window["sessions"] == []
+    assert window["planned_sessions"] == [] and window["since"] == "2029-11-02"
+    assert [s["id"] for s in window["sessions"]] == [DONE] and len(window["efforts"]) == 1
+
+
+def squats(store, visits, activity="x.barbell_back_squat"):
+    for i, (day, location) in enumerate(visits):
+        sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
+        write(store, ("session", sid, {"name": "Squats", "location_id": location,
+                                       "time": {"start": f"{day}T08:00:00Z"}}),
+              *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
+                  "activity_id": activity, "round": n, "time": {"start": f"{day}T08:0{n}:00Z"},
+                  "links": {"part_of": {"kind": "session", "id": sid}},
+                  "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
 
 
 def test_plan_window_brings_the_last_two_times_at_each_location(store):
     seed(store)
-    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel_gym")]):
-        sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
-        write(store, ("session", sid, {"name": "Squats", "location_id": location,
-                                       "time": {"start": f"2026-11-{day}T08:00:00Z"}}),
-              *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
-                  "activity_id": "x.barbell_back_squat", "round": n, "time": {"start": f"2026-11-{day}T08:0{n}:00Z"},
-                  "links": {"part_of": {"kind": "session", "id": sid}},
-                  "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
+    squats(store, [("2026-07-10", "home"), ("2026-07-12", "home"), ("2026-07-14", "home"), ("2026-07-15", "hotel_gym")])
     window = serve.plan_window(store, "2026-11-25", "2026-11-30")
     ours = [e["id"][-2:] for e in window["efforts"] if e["id"].startswith("0193a0b0-0000-7000-8000-0000000006")]
     assert ours == ["11", "12", "21", "22", "31", "32"] and len(window["efforts"]) == 7  # and the seeded gym visit
     assert [p["id"] for p in window["planned_sessions"]] == [UPPER]
+
+
+def test_plan_window_brings_the_last_time_of_an_exercise_the_plan_doesnt_have(store):
+    seed(store)
+    write(store, ("activity", "x.cable_fly", {"name": "Cable fly"}))
+    squats(store, [("2026-06-01", "home"), ("2026-06-03", "example_gym")], activity="x.cable_fly")
+    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    flies = [e for e in window["efforts"] if e["payload"]["activity_id"] == "x.cable_fly"]
+    assert len(flies) == 4  # each gym's last time, for a swap or an exercise added on the day
+    sessions = {s["id"] for s in window["sessions"]}
+    assert {e["payload"]["links"]["part_of"]["id"] for e in flies} <= sessions
+
+
+def test_plan_window_carries_the_history_before_it(store):
+    seed(store)
+    squats(store, [("2026-09-20", "home"), ("2026-09-30", "home"), ("2026-10-10", "home")])
+    write(store, ("effort", None, {"activity_id": "x.barbell_back_squat", "time": {"start": "2026-10-11T08:00:00Z"},
+                                   "metrics": {"reps": {"value": 3}}}), actor=ME)
+    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    assert window["since"] == "2026-09-26"
+    days = sorted(s["payload"]["time"]["start"][:10] for s in window["sessions"])
+    assert days == ["2026-09-30", "2026-10-10", "2026-11-23"]  # the one before since is no longer a last time
+    assert any("links" not in e["payload"] for e in window["efforts"])  # and a set outside a session
+    assert sync_errors("plan_window", window) == []
 
 
 # -- over HTTPS ----------------------------------------------------------------

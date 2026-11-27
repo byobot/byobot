@@ -6,17 +6,18 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import date, timedelta
 from typing import Any
 
 from ..util import ValidationFailed
-from . import reducers, sources
-from .commands import AUTHORED
+from . import sources
 from .contract import sync_errors
 from .store import Store, busy
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
-KINDS = (*AUTHORED, "overlay")
+NAMED_KINDS = ("location", "setting")  # kinds a phone writes under an id it picks, not a fresh UUID
+CONNECTOR_KINDS = ("source_record",)  # a phone writes any other kind; one this byobot doesn't know is stored for later
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
 EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
@@ -33,11 +34,7 @@ def _needs(store: Store, event: dict) -> float:
     """The kind version an app must know to change a record on top of this event."""
     if event["op"] != "put":
         return 1
-    if not store.contract.understands(event):
-        return float("inf")
-    kind = event["record"]["kind"]
-    return reducers.lowest(store.contract, kind, reducers.upcast(store.contract, kind, event.get("kind_version"),
-                                                                 event["payload"]))
+    return event["kind_version"] if store.contract.understands(event) else float("inf")
 
 
 def _too_new(store: Store, event: dict, kinds: dict) -> bool:
@@ -55,7 +52,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
     """Accept a device's events one by one, in order. Retrying an event already accepted is harmless.
 
     ``device_id`` and ``actor`` are the authenticated device's. An event that names another device or actor, or
-    writes a record a person doesn't write, is rejected and not written. So is a put on top of a version newer
+    writes a record only a connector writes, is rejected and not written. A kind this byobot doesn't know is stored,
+    unprojected, for a newer one. So is a put on top of a version newer
     than ``kinds``, the app's kind versions (all 1 when it sends none).
     """
     results = []
@@ -83,10 +81,13 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) 
         reason = "events must be authored by the paired device that pushes them"
     elif event.get("actor") != actor:
         reason = "events must be authored by the paired device's user"
-    elif record.get("kind") not in KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
+    elif record.get("kind") in CONNECTOR_KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
         reason = "a phone writes only what a person writes"
     elif _too_new(store, event, kinds):
         reason = "a newer byobot wrote this record; update the app to change it"
+    elif event.get("op") == "put" and store.event(event.get("id")) is None and \
+            store._erase_of(record.get("kind"), record.get("id")):
+        reason = "this id was erased; choose another"
     else:
         outcome, reason = store.accept(event)
         return {**result, "status": outcome, **({"reason": reason} if reason else {})}
@@ -111,8 +112,7 @@ def accept_samples(store: Store, body: Any) -> dict:
     deleted = body.get("deleted", []) if isinstance(body, dict) else None
     if not isinstance(samples, list) or not isinstance(deleted, list) or len(samples) + len(deleted) > MAX_BATCH:
         raise ValidationFailed(f"send {{samples: [...], deleted: [...]}} with at most {MAX_BATCH} in all")
-    if any(not isinstance(s, dict) or sources.SAMPLE_SOURCES.get(s.get("source"), s.get("source")) != "apple_health"
-           for s in samples + deleted):
+    if any(not isinstance(s, dict) or s.get("source") != "apple_health" for s in samples + deleted):
         raise ValidationFailed("a phone sends only apple_health samples")
     written = sources.ingest_samples(store, samples, deleted)
     return {"written": sum(len(e) for e in written.values()),
@@ -122,16 +122,26 @@ def accept_samples(store: Store, body: Any) -> dict:
 # -- what a relay reads --------------------------------------------------------
 
 PLAN_SETTINGS = ("equipment", "current_location", "home_zone")
+HISTORY_DAYS = 60
 
 
 def _entry(store: Store, kind: str, rid: str) -> dict | None:
-    """A live record as the phone keeps it: its payload, and the version a change to it names as prev."""
+    """A live record as the phone keeps it: its payload, and the version a change to it names as prev. In a conflict,
+    every current version too, so the phone can show them and resolve it."""
     found = store.get(kind, rid)
     if found is None:
         return None
-    return {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
-            "kind_version": reducers.lowest(store.contract, kind, found["payload"]),
-            **({"conflict": True} if found["conflict"] else {})}
+    entry = {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
+             "kind_version": found["event"]["kind_version"]}
+    if found["conflict"]:
+        heads = [store.event(h) for h in store.record(kind, rid)["heads"]]
+        entry |= {"conflict": True, "versions": [_version(store, h) for h in heads if h]}
+    return entry
+
+
+def _version(store: Store, event: dict) -> dict:
+    return {"event_id": event["id"], **({"payload": event["payload"]} if event["op"] == "put" else {}),
+            "actor": event["actor"], "ts": event["ts"]}
 
 
 def _entries(store: Store, kind: str, ids) -> list[dict]:
@@ -141,11 +151,14 @@ def _entries(store: Store, kind: str, ids) -> list[dict]:
 def plan_window(store: Store, start: str, end: str, device_id: str | None = None) -> dict:
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
-    Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions, the sessions and efforts already logged against them, and the efforts of the last two times
-    each planned activity was done at each location.
+    Activities (yours, and the library's that the rest names, with an empty prev; the app ships the library),
+    locations, the settings a workout reads, plans, planned sessions, and what was logged: the sessions against the
+    planned ones, those of the ``HISTORY_DAYS`` before ``start`` through ``end``, and those holding the last two
+    times each activity was done at each location, all with their efforts, and efforts logged outside a session in
+    those days.
 
-    Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
+    Beside them: the removed records a phone would name by an id it picks, so it picks another or names the removal
+    as prev; this store's id and clock, the erased records a phone may hold, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
     """
     with store.snapshot():
@@ -154,38 +167,62 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
 
 def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> dict:
     ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
+    planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
+                  "ORDER BY scheduled_on, name, id", start, end)
+    plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
+                "(SELECT value FROM json_each(?))) OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) "
+                "ORDER BY starts_on, id", json.dumps(planned), end, start)
+    since = _since(start)
+    window, recent = json.dumps(planned), json.dumps(_recent_efforts(store))
+    sessions = ids("SELECT id FROM sessions WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
+                   "OR (local_date >= ? AND local_date <= ?) "
+                   "OR id IN (SELECT session_id FROM efforts WHERE id IN (SELECT value FROM json_each(?))) "
+                   "ORDER BY start_ms, id", window, since, end, recent)
+    efforts = ids("SELECT id FROM efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
+                  "OR session_id IN (SELECT value FROM json_each(?)) "
+                  "OR (session_id IS NULL AND local_date >= ? AND local_date <= ?) "
+                  "OR id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id",
+                  window, json.dumps(sessions), since, end, recent)
     activities = []
-    for r in store.rows("SELECT id, source FROM activities ORDER BY id"):
+    for r in store.rows("SELECT id, source FROM activities WHERE source = 'store' OR id IN (SELECT activity_id FROM "
+                        "planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) UNION SELECT "
+                        "activity_id FROM efforts WHERE id IN (SELECT value FROM json_each(?))) ORDER BY id",
+                        (window, json.dumps(efforts))):
         if r["source"] == "store":
             activities += _entries(store, "activity", [r["id"]])
         else:
             row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
             payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
             activities.append({"id": r["id"], "payload": payload, "prev": [],
-                               "kind_version": reducers.lowest(store.contract, "activity", payload), "library": True})
-    planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
-                  "ORDER BY scheduled_on, name, id", start, end)
-    plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
-                "(SELECT value FROM json_each(?))) OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) "
-                "ORDER BY starts_on, id", json.dumps(planned), end, start)
-    window = json.dumps(planned)
-    sessions = ids("SELECT id FROM sessions WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                   "ORDER BY start_ms, id", window)
-    efforts = ids("SELECT id FROM efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                  "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
-                  json.dumps(sessions))
-    efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
-    return {"from": start, "to": end, "activities": activities,
+                               "kind_version": store.contract.version("activity"), "library": True})
+    return {"from": start, "to": end, "since": since, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
             "sessions": _entries(store, "session", sessions),
-            "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
+            "efforts": _entries(store, "effort", efforts), "removed": _removed(store),
+            **_device_state(store, device_id)}
+
+
+def _removed(store: Store) -> list[dict]:
+    rows = store.conn.execute("SELECT kind, id, heads FROM records WHERE live = 0 AND erased = 0 AND heads != '[]' "
+                              "AND kind IN (SELECT value FROM json_each(?)) ORDER BY kind, id",
+                              (json.dumps(NAMED_KINDS),))
+    return [{"kind": r["kind"], "id": r["id"], "prev": json.loads(r["heads"])} for r in rows]
+
+
+def _since(start: str) -> str:
+    """The first day of logged history the plan carries."""
+    try:
+        return (date.fromisoformat(start) - timedelta(days=HISTORY_DAYS)).isoformat()
+    except ValueError:
+        return start
 
 
 def _device_state(store: Store, device_id: str | None) -> dict:
     received = store.received(device_id) if device_id else None
-    return {"store_id": store.store_id, "hlc": store.hlc, "erased": [{"kind": k, "id": i} for k, i in store.erased() if k in KINDS],
+    erased = [{"kind": k, "id": i} for k, i in store.erased() if k not in CONNECTOR_KINDS]
+    return {"store_id": store.store_id, "hlc": store.hlc, "erased": erased,
             "kind_versions": {k: v["version"] for k, v in store.contract.registry["kinds"].items()},
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}
@@ -196,21 +233,18 @@ _ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment
 _JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 
 
-def _recent_efforts(store: Store, planned: list[str], times: int = 2) -> list[str]:
-    """Efforts from the last `times` occasions each planned activity was done, per location."""
+def _recent_efforts(store: Store, times: int = 2) -> list[str]:
+    """Efforts from the last `times` occasions each activity was done, per location."""
     rows = store.conn.execute("""
-        WITH wanted AS (
-          SELECT DISTINCT activity_id FROM planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?))),
-        done AS (
+        WITH done AS (
           SELECT e.id, e.activity_id, e.start_ms, coalesce(e.location_id, s.location_id, '') AS location_id,
                  coalesce(e.session_id, e.local_date) AS occasion
-          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id
-          WHERE e.activity_id IN (SELECT activity_id FROM wanted)),
+          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id),
         occasions AS (
           SELECT activity_id, location_id, occasion, dense_rank() OVER (
             PARTITION BY activity_id, location_id ORDER BY max(start_ms) DESC, occasion DESC) AS n
           FROM done GROUP BY activity_id, location_id, occasion)
         SELECT d.id FROM done d JOIN occasions o ON o.activity_id = d.activity_id AND o.occasion = d.occasion
           AND o.location_id = d.location_id
-        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (json.dumps(planned), times))
+        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (times,))
     return [r[0] for r in rows]

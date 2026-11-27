@@ -1,5 +1,4 @@
 {
-  "id": "plate_loaded_single_leg_press",
   "name": "Single Leg Press (Plate-Loaded)",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

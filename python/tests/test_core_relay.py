@@ -25,6 +25,16 @@ def test_a_device_writes_only_what_its_person_writes(store):
     assert [r["status"] for r in relay.accept_events(store, PHONE, sent)] == ["accepted"] + ["rejected"] * 6
 
 
+def test_a_kind_this_byobot_doesnt_know_is_kept_for_a_newer_one(store):
+    note = event(kind="note", payload={"text": "felt strong"})
+    assert relay.accept_events(store, PHONE, [note]) == [{"index": 0, "id": note["id"], "status": "stored_unprojected"}]
+    assert store.event(note["id"]) == note
+    store.accept({**event(kind="note", op="erase"), "record": note["record"], "device_id": "example-laptop",
+                  "actor": {"kind": "human", "id": "me"}, "prev": [note["id"]]})
+    assert {"kind": "note", "id": note["record"]["id"]} in relay.plan_window(store, "2026-11-23", "2026-11-23",
+                                                                              PHONE)["erased"]
+
+
 def test_a_push_is_counted_and_retrying_it_is_harmless(store):
     body = {"events": [event(), event(device_id="another-device")]}
     first = relay.push_events(store, PHONE, body)
@@ -45,8 +55,9 @@ def test_a_device_sends_only_apple_health_samples(store):
     sample = {"source": "apple_health", "source_id": "S1", "type": "HKQuantityTypeIdentifierBodyMass",
               "start": "2026-11-23T07:00:00Z", "value": 80.1, "unit": "kg"}
     assert relay.accept_samples(store, {"samples": [sample]})["written"] == 1
-    with pytest.raises(ValidationFailed):
-        relay.accept_samples(store, {"samples": [{**sample, "source": "whoop"}]})
+    for other in ("whoop", "apple-health"):
+        with pytest.raises(ValidationFailed):
+            relay.accept_samples(store, {"samples": [{**sample, "source": other}]})
     with pytest.raises(ValidationFailed):
         relay.accept_samples(store, {"samples": [sample] * (relay.MAX_BATCH + 1)})
 
@@ -63,6 +74,25 @@ def test_the_plan_carries_the_store_id_hub_clock_and_kind_versions(store):
     assert window["store_id"] == store.store_id
     assert window["hlc"] == store.hlc == hlc.format((1795000000000, 0))
     assert window["kind_versions"]["effort"] == store.contract.version("effort")
+
+
+def test_the_plan_names_a_removed_location_so_a_phone_doesnt_reuse_its_id(store):
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}},
+                             {"kind": "location", "id": "example_park", "payload": {"name": "Example park"}}])
+    removed = commands.remove(store, ME, "location", "example_gym")
+    commands.erase(store, ME, "location", "example_park")
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
+    assert sync_errors("plan_window", window) == []
+    assert window["removed"] == [{"kind": "location", "id": "example_gym", "prev": [removed["id"]]}]
+
+    again = {**event(kind="location", payload={"name": "Example gym"}), "prev": [removed["id"]]}
+    again["record"]["id"] = "example_gym"
+    erased = {**event(kind="location", payload={"name": "Example park"})}
+    erased["record"]["id"] = "example_park"
+    results = relay.accept_events(store, PHONE, [again, erased])
+    assert [r["status"] for r in results] == ["accepted", "rejected"]
+    assert results[1]["reason"] == "this id was erased; choose another"
+    assert not store.record("location", "example_gym")["conflict"]
 
 
 def test_the_plan_names_what_was_erased(store):

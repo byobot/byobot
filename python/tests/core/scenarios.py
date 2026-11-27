@@ -59,12 +59,12 @@ def whoop_sleep(sid: str, cycle: int, start: str, end: str, updated: str, perfor
 
 
 def health_workout(sid: str, start: str, end: str, distance: float) -> dict:
-    return {"source": "apple-health", "source_id": sid, "type": "HKWorkoutTypeIdentifier", "start": start,
+    return {"source": "apple_health", "source_id": sid, "type": "HKWorkoutTypeIdentifier", "start": start,
             "end": end, "value": "running", "raw": {"distance_m": distance, "heart_rate_avg_bpm": 148}}
 
 
 def weight(sid: str, at: str, kg: float, modified: str | None = None) -> dict:
-    sample = {"source": "apple-health", "source_id": sid, "type": "HKQuantityTypeIdentifierBodyMass", "start": at, "end": at,
+    sample = {"source": "apple_health", "source_id": sid, "type": "HKQuantityTypeIdentifierBodyMass", "start": at, "end": at,
               "value": kg, "unit": "kg"}
     if modified:
         sample["raw"] = {"modified_at": modified}

@@ -1,5 +1,4 @@
 {
-  "id": "cable_pull_through",
   "name": "Cable Pull Through",
   "load_type": "cable",
   "movement_type": "isolation",

@@ -34,6 +34,9 @@ targets:
         PRODUCT_NAME: Byobot
         INFOPLIST_FILE: Support/Info.plist
         CODE_SIGN_ENTITLEMENTS: Support/Byobot.entitlements
+        # Empty, as free Personal Team signing has no App Groups. For a widget or watch app, with a paid team set
+        # this to group.<your bundle id> and CODE_SIGN_ENTITLEMENTS to Support/ByobotGroup.entitlements.
+        BYOBOT_APP_GROUP: ""
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO

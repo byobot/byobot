@@ -50,7 +50,7 @@ private struct HistoryDetail: View {
             Section {
                 ForEach(model.book.efforts(inSession: session.id)) { effort in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.plan?.activity(effort.activityId)?.name ?? effort.activityId)
+                        Text(model.book.activity(effort.activityId)?.name ?? effort.activityId)
                         Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                         if let notes = effort.notes {
                             Text(notes).font(.caption).foregroundStyle(.secondary)

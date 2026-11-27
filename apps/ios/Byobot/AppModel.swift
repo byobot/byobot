@@ -63,16 +63,33 @@ final class AppModel: ObservableObject, SyncBook {
     var state: AppState { book.state }
     var plan: PlanWindow? { book.state.plan }
     var server: PairedServer? { book.state.server }
-    /// Paired with a laptop, joined through Drive, or both.
-    var connected: Bool { server != nil || cloudStore != nil }
+    /// Paired with a laptop, joined through Drive, or both, or looking around the demo.
+    var connected: Bool { server != nil || cloudStore != nil || demo }
+    var demo: Bool { book.state.demo == true }
+
+    /// Sample data to look around with, such as for App Review. Nothing syncs.
+    func startDemo() {
+        change {
+            $0.state.demo = true
+            $0.applyPlan(Demo.window(today: LocalDate.today()))
+        }
+    }
+
+    /// Back to pairing, keeping nothing from the demo.
+    func leaveDemo() {
+        rest = nil
+        stopClock()
+        change { $0.state = AppState() }
+    }
 
     // MARK: Saving
 
-    /// The state lives in Application Support, excluded from device backups: health data stays on
-    /// the phone and your laptop, never in iCloud.
+    /// The state lives in Application Support, the App Group's when the build names one, excluded from device
+    /// backups: health data stays on the phone and your laptop, never in iCloud.
     nonisolated static func stateFile() -> URL {
         let fm = FileManager.default
-        var dir = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+        var dir = groupDirectory()
+            ?? (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
             ?? fm.temporaryDirectory
         dir.appendPathComponent("byobot", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -80,6 +97,15 @@ final class AppModel: ObservableObject, SyncBook {
         values.isExcludedFromBackup = true
         try? dir.setResourceValues(values)
         return dir.appendingPathComponent("state.json")
+    }
+
+    /// Application Support in the App Group set by `BYOBOT_APP_GROUP`, so a widget or watch app can read it.
+    nonisolated static func groupDirectory() -> URL? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ByobotAppGroup") as? String, !group.isEmpty,
+              let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            return nil
+        }
+        return container.appendingPathComponent("Library/Application Support", isDirectory: true)
     }
 
     func save() {
@@ -137,6 +163,7 @@ final class AppModel: ObservableObject, SyncBook {
     }
 
     func pair(hosts: [String], port: Int, code: String, fingerprint: String) async throws {
+        if demo { leaveDemo() }
         let client = SyncClient(hosts: hosts, port: port, fingerprint: fingerprint)
         leaving += 1
         do {
@@ -152,10 +179,6 @@ final class AppModel: ObservableObject, SyncBook {
                 Keychain.deleteToken(for: old.deviceId)
             }
             change {
-                // The same laptop's store keeps its device id through a backup restore: what it lacks goes again.
-                if $0.state.storeId == nil, old?.deviceId == response.server.deviceId {
-                    $0.state.storeId = response.server.storeId
-                }
                 $0.paired(storeId: response.server.storeId)
                 $0.state.server = PairedServer(hosts: hosts, port: port, fingerprint: fingerprint,
                                                deviceId: response.server.deviceId, name: response.server.name,
@@ -193,6 +216,7 @@ final class AppModel: ObservableObject, SyncBook {
         if let store = book.state.storeId, store != pending.code.storeID {
             throw CloudError("That code is for another logbook than the one this phone syncs with.")
         }
+        if demo { leaveDemo() }
         let tokens = try await GoogleSignInSheet().signIn(clientID: client)
         CloudSetup.keep(tokens)
         let identity = try CloudSetup.identity(for: state.deviceId)
@@ -332,16 +356,12 @@ final class AppModel: ObservableObject, SyncBook {
             if let read {
                 UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
                 UserDefaults.standard.set(read.days, forKey: "healthDays")
-                UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
                 change { $0.state.lastHealthSyncAt = Timestamp.now() }
             }
         }
         // Away from the laptop, Drive reaching the Mac is enough: no need to say the laptop is out of reach.
         message = healthError ?? cloudError ?? (cloudOK ? nil : laptopError)
     }
-
-    /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
-    private static let healthReads = 3
 
     /// What Apple Health has new since the last send, with the anchors to keep once it's sent.
     private struct HealthRead {
@@ -357,15 +377,14 @@ final class AppModel: ObservableObject, SyncBook {
         healthNeedsAccess = await health.needsAccess()
         // Look back a month past the last send, so readings an app wrote late still arrive.
         // Sending a reading twice changes nothing on the laptop.
-        let current = UserDefaults.standard.integer(forKey: "healthReads") >= Self.healthReads
-        let last = current ? state.lastHealthSyncAt.flatMap(Timestamp.date) : nil
+        let last = state.lastHealthSyncAt.flatMap(Timestamp.date)
         let now = Date()
         let yearAgo = now.addingTimeInterval(-365 * 86_400)
-        let anchors = current ? (UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]) : [:]
+        let anchors = UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let sent = current ? (UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]) : [:]
+        let sent = UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]
         let totals = try await health.dailyTotals(since: from)
         let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
         return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
@@ -453,6 +472,11 @@ final class AppModel: ObservableObject, SyncBook {
 
     func addLocation(name: String) {
         change { $0.addLocation(name: name) }
+    }
+
+    func resolve(_ conflict: Conflict, keeping version: ConflictVersion) {
+        change { $0.resolve(conflict, keeping: version) }
+        Task { await sync() }
     }
 
     func startClock(_ slots: [Slot], for planned: PlannedSession) {

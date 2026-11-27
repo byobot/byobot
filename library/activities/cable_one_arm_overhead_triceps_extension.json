@@ -1,5 +1,4 @@
 {
-  "id": "cable_one_arm_overhead_triceps_extension",
   "name": "Cable One Arm Overhead Triceps Extension",
   "load_type": "cable",
   "movement_type": "isolation",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "triceps"
-    ],
-    "synergists": []
+    ]
   }
 }

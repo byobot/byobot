@@ -11,6 +11,8 @@ public struct MetricField: Identifiable, Equatable, Sendable {
     /// What the person typed.
     public var text: String
     public var unit: String?
+    /// What the set had logged, and the text and unit it showed as; written back as it was unless they change.
+    public var logged: (measure: Measure, text: String, unit: String?)?
 
     public var id: String { name }
     public var spec: MetricSpec? { MetricRegistry.spec(name) }
@@ -27,6 +29,11 @@ public struct MetricField: Identifiable, Equatable, Sendable {
         self.target = target
         self.text = text
         self.unit = unit
+    }
+
+    public static func == (a: MetricField, b: MetricField) -> Bool {
+        a.name == b.name && a.target == b.target && a.text == b.text && a.unit == b.unit
+            && a.logged?.measure == b.logged?.measure && a.logged?.text == b.logged?.text && a.logged?.unit == b.logged?.unit
     }
 }
 
@@ -69,6 +76,7 @@ public enum EffortForm {
             let i = fields.firstIndex { $0.name == name }!
             fields[i].text = measure.value?.text ?? measure.startingNumber.map(formatNumber) ?? ""
             fields[i].unit = measure.unit ?? fields[i].unit
+            fields[i].logged = (measure, fields[i].text, fields[i].unit)
         }
         return fields
     }
@@ -99,6 +107,7 @@ public enum EffortForm {
     }
 
     static func measure(_ field: MetricField) throws -> Measure? {
+        if let logged = field.logged, field.text == logged.text, field.unit == logged.unit { return logged.measure }
         let text = field.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         guard let spec = field.spec else {

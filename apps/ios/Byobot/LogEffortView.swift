@@ -23,7 +23,7 @@ struct LogEffortView: View {
     @State private var error: String?
     @State private var performedAt: Date
 
-    init(planned: PlannedEffort?, round: Int?, activity: Activity?, previous: PerformedEffort?,
+    init(planned: PlannedEffort?, round: Int?, activity: Activity?,
          editing: PerformedEffort? = nil, prefill: Metrics? = nil, onSave: ((Metrics, Side?, String) -> Void)? = nil) {
         self.planned = planned
         self.onSave = onSave
@@ -40,13 +40,6 @@ struct LogEffortView: View {
         }
         var fields = prefill.map { EffortForm.fields(planned: planned, activity: activity, filledFrom: $0) }
             ?? EffortForm.fields(planned: planned, activity: activity)
-        // Proposal: a later round starts from what you did in the round before.
-        for (i, field) in fields.enumerated() {
-            if let last = previous?.metrics?[field.name], let value = last.value {
-                fields[i].text = value.text
-                fields[i].unit = last.unit ?? field.unit
-            }
-        }
         if planned == nil && fields.isEmpty {
             fields = ["reps", "load"].map { EffortForm.field(name: $0, target: nil) }
         }
@@ -113,7 +106,7 @@ struct LogEffortView: View {
     }
 
     private func save() {
-        let activityId = planned?.activityId ?? ActivityId.make(activityText, known: model.plan?.activities ?? [])
+        let activityId = planned?.activityId ?? ActivityId.make(activityText, known: model.book.library)
         guard !activityId.isEmpty else {
             error = "Name the activity."
             return

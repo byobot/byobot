@@ -72,20 +72,31 @@ extension Logbook {
     /// Add a location by name and train there from now on.
     @discardableResult
     public mutating func addLocation(name: String) -> Location {
-        let erased = (state.plan?.erased ?? []).filter { $0.kind == "location" }.map(\.id)
-        let id = LocationId.make(name, taken: Set(locations.map(\.id) + erased))  // an erased id can't be written again
+        let id = LocationId.make(name, taken: takenLocationIds)
         let payload = LocationPayload(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
         let event = put("location", id, payload)
         setLocation(id)
-        return Location(id: id, payload: payload, prev: [event.id])
+        return Location(id: id, payload: payload, prev: event.map { [$0.id] } ?? [])
+    }
+
+    /// Ids a new location can't have: live ones, removed or erased ones, and ones this app can't read.
+    var takenLocationIds: Set<String> {
+        let plan = state.plan
+        let unread = (plan?.unread["locations"] ?? []).compactMap { entry -> String? in
+            guard case .object(let fields) = entry, case .string(let id)? = fields["id"] else { return nil }
+            return id
+        }
+        return Set(locations.map(\.id) + unread + (plan?.removed ?? []).filter { $0.kind == "location" }.map(\.id)
+                   + (plan?.erased ?? []).filter { $0.kind == "location" }.map(\.id))
     }
 
     /// Where you're training. During a session it moves the whole session, sets already logged included.
     public mutating func setLocation(_ id: String?) {
         if id != pickedLocationId { setCurrentLocation(id) }
-        guard var session = activeSession, session.locationId != id else { return }
+        guard let before = activeSession, before.locationId != id else { return }
+        var session = before
         session.payload.locationId = id
-        put("session", session.id, session.payload)
+        put("session", session.id, session.payload, over: before)
     }
 
     /// Where a set happened: its own location, else its session's.

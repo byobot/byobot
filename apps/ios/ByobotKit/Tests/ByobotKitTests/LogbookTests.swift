@@ -16,6 +16,7 @@ func makeLogbook(plan: PlanWindow? = nil) -> Logbook {
     var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"),
                        origin: Origin(app: "byobot_ios", version: "0.1.0", device: "Example iPhone"),
                        clock: { clock.read() })
+    book.shipped = []  // the fixture plan carries the library its tests use
     if let plan { book.applyPlan(plan) }
     return book
 }
@@ -137,18 +138,21 @@ final class LogbookTests: XCTestCase {
         let a = book.logEffort(activityId: "run", metrics: ["distance": .exact(5, unit: "km")])
         book.logEffort(activityId: "run", metrics: ["distance": .exact(1, unit: "km")])
         book.logEffort(activityId: "run", metrics: ["distance": .exact(2, unit: "km")])
+        book.logEffort(activityId: "run", metrics: ["distance": .exact(3, unit: "km")])
         let sent = book.pendingEvents
-        XCTAssertEqual(sent.count, 4)
+        XCTAssertEqual(sent.count, 5)
         let response = EventsResponse(results: [
             EventResult(index: 0, id: sent[0].id, status: .accepted),
             EventResult(index: 1, id: sent[1].id, status: .duplicate),
             EventResult(index: 2, id: sent[2].id, status: .storedUnprojected),
             EventResult(index: 3, id: sent[3].id, status: .rejected, reason: "nope"),
+            EventResult(index: 4, id: sent[4].id, status: .other("held_for_review")),
         ], accepted: 1, duplicate: 1, storedUnprojected: 1, rejected: 1)
         // Written while the push was in flight: stays pending.
         book.logEffort(activityId: "run", metrics: [:])
         book.applyPush(response, sent: sent)
-        XCTAssertEqual(book.pendingEvents.count, 1)
+        XCTAssertEqual(book.pendingEvents.map(\.id).first, sent[4].id, "an answer this app doesn't know is retried")
+        XCTAssertEqual(book.pendingEvents.count, 2)
         XCTAssertEqual(book.state.rejected.map(\.eventId), [sent[3].id])
         XCTAssertEqual(book.state.rejected.map(\.reason), ["nope"])
         XCTAssertEqual(book.localEfforts.first?.id, a.id)
@@ -233,7 +237,6 @@ final class LogbookTests: XCTestCase {
         ack(&book)
         let events = book.state.events
         var window = try Fixtures.window()
-        XCTAssertEqual(book.applyPlan(window), 0, "an older laptop says nothing about what it holds")
         window.received = [book.state.deviceId: events[0].hlc]
         XCTAssertEqual(book.applyPlan(window), 2)
         XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
@@ -291,43 +294,6 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id], "the new store gets only what's waiting")
     }
 
-    func testAnInstallPairedBeforeTheStoreIdWasKeptSendsNothingOld() throws {
-        var book = makeLogbook()
-        book.logEffort(activityId: "run", metrics: [:])
-        ack(&book)
-        book.paired(storeId: "store-b")  // learned from the laptop it's paired with now
-        var window = try Fixtures.window()
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0, "it may have sent those to another store")
-    }
-
-    func testAnOlderInstallBackOnItsRestoredLaptopGetsWhatItLost() throws {
-        var book = makeLogbook()
-        for _ in 0..<3 { book.logEffort(activityId: "run", metrics: [:]) }
-        ack(&book)
-        let events = book.state.events
-        book.paired(storeId: "store-a")  // its own laptop is gone; this one was restored from a backup
-        var window = try Fixtures.window()
-        window.received = [book.state.deviceId: events[0].hlc]
-        XCTAssertEqual(book.applyPlan(window), 2)
-        XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
-        ack(&book)
-        book.paired(storeId: "store-b")
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0, "once it knows its store, another one gets nothing old")
-    }
-
-    func testAnOlderInstallMovingOnBeforeItsFirstPlanSendsNothingOld() throws {
-        var book = makeLogbook()
-        book.logEffort(activityId: "run", metrics: [:])
-        ack(&book)
-        book.paired(storeId: "store-a")
-        book.paired(storeId: "store-b")
-        var window = try Fixtures.window()
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0)
-    }
-
     /// A new laptop set up as start `serve`, pair, then restore the backup: pairing again sends what the old
     /// laptop took after the backup, and nothing that went only to the empty store.
     func testPairingAgainAfterARestoreSendsWhatTheBackupMissed() throws {
@@ -378,6 +344,28 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.logged(for: planned)[pullUp.id]?[1], "the laptop holds it and took it back")
     }
 
+    func testThePlansHistoryGivesLastTimeForAnExerciseNotInThePlan() throws {
+        var window = try Fixtures.window()
+        window.since = "2026-09-26"
+        window.efforts = [PerformedEffort(id: "old-fly", activityId: "x.cable_fly", performedAt: "2026-06-01T08:00:00Z",
+                                          locationId: "hotel", metrics: ["load": .exact(20, unit: "kg")])]
+        let book = makeLogbook(plan: window)
+        XCTAssertEqual(book.lastTime("x.cable_fly", at: "hotel").efforts.map(\.id), ["old-fly"])
+    }
+
+    func testASetTheLaptopRemovedFromItsHistoryLeavesThePhone() throws {
+        var book = makeLogbook(plan: try Fixtures.window())
+        let set = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: try XCTUnwrap(book.state.events.last).hlc]
+        book.applyPlan(window)
+        XCTAssertEqual(book.efforts(of: "run").map(\.id), [set.id], "a plan without history can't speak for it")
+        window.since = "2026-09-26"
+        book.applyPlan(window)
+        XCTAssertEqual(book.efforts(of: "run"), [], "its day is in the plan's history, and the laptop no longer has it")
+    }
+
     func testThePhoneKeepsWhatIsWaitingAndAMonthOfWhatWasSent() throws {
         let clock = TickingClock()
         var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: { clock.read() })
@@ -405,6 +393,33 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.state.rejected.first?.eventId, "refused-50")
     }
 
+    func testAConflictShowsEachVersionAndKeepingOneNamesThemAll() throws {
+        var window = try Fixtures.window()
+        let i = try XCTUnwrap(window.plannedSessions.firstIndex { $0.id == "sess-upper" })
+        guard case .object(var coach) = Payloads.json(window.plannedSessions[i].payload) else { return XCTFail() }
+        coach["name"] = .string("Upper superset (coach)")
+        window.plannedSessions[i].conflict = true
+        window.plannedSessions[i].versions = [
+            ConflictVersion(eventId: "v-phone", payload: Payloads.json(window.plannedSessions[i].payload),
+                            actor: Actor(kind: .human, id: "me"), ts: "2026-11-23T08:00:00Z"),
+            ConflictVersion(eventId: "v-coach", payload: .object(coach), actor: Actor(kind: .agent, id: "example-coach"),
+                            ts: "2026-11-23T08:01:00Z"),
+        ]
+        var book = makeLogbook(plan: window)
+        let conflict = try XCTUnwrap(book.conflicts.first)
+        XCTAssertEqual(book.conflicts.count, 1)
+        XCTAssertEqual(conflict.recordId, "sess-upper")
+        XCTAssertEqual(conflict.fields, ["name"])
+        let kept = book.resolve(conflict, keeping: conflict.versions[1])
+        XCTAssertEqual(kept.prev, ["v-phone", "v-coach"])
+        XCTAssertEqual(kept.payload, .object(coach))
+        XCTAssertEqual(book.conflicts, [], "resolved here, waiting to send")
+        var other = makeLogbook(plan: window)
+        let removed = other.resolve(conflict, keeping: ConflictVersion(eventId: "v-phone", actor: Actor(kind: .human, id: "me"),
+                                                                       ts: "2026-11-23T08:02:00Z"))
+        XCTAssertEqual(removed.op, .retract, "a version without a payload removed the record")
+    }
+
     func testAnErasedLocationIsNoLongerWhereYouAre() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         book.setLocation("hotel")
@@ -414,6 +429,19 @@ final class LogbookTests: XCTestCase {
         window.settings = [Setting(id: "current_location", payload: SettingPayload(value: .string("hotel")), prev: ["e1"])]
         book.applyPlan(window)
         XCTAssertNil(book.currentLocationId)
+    }
+
+    func testANewLocationTakesAnIdNoLongerInUse() throws {
+        var window = try Fixtures.window()
+        window.removed = [RemovedRecord(kind: "location", id: "example_gym", prev: ["e-removed"]),
+                          RemovedRecord(kind: "setting", id: "equipment", prev: ["e-cleared"])]
+        window.erased = [ErasedRecord(kind: "location", id: "example_gym_2")]
+        window.unread["locations"] = [.object(["id": .string("example_gym_3"), "payload": .string("newer")])]
+        var book = makeLogbook(plan: window)
+        book.setEquipment(["barbell"])
+        XCTAssertEqual(book.pendingEvents.last?.prev, ["e-cleared"], "a change names the removal")
+        XCTAssertEqual(book.addLocation(name: "Example gym").id, "example_gym_4")
+        XCTAssertEqual(book.prev("location", "example_gym"), ["e-removed"])
     }
 
     func testCorrectingASetKeepsItsTimeAndRound() throws {
@@ -482,6 +510,37 @@ final class LogbookTests: XCTestCase {
         XCTAssertFalse(book.canUndo(remote.id))
     }
 
+    func testCorrectingOneFieldLeavesTheRestAsWritten() throws {
+        let planned = try plannedSession()
+        let base = remote(planned.blocks[0].efforts[0].id, metrics: [
+            "reps": .exact(8), "load": .exact(102.0583, unit: "kg"),
+            "distance": Measure(value: .number(60), min: 55, max: 65, unit: "m")])
+        guard case .object(var entry) = Payloads.json(base), case .object(var payload)? = entry["payload"] else {
+            return XCTFail("a record encodes as an object")
+        }
+        payload["grip"] = .string("wide")
+        entry["payload"] = .object(payload)
+        let pulled = try Payloads.decode(PerformedEffort.self, .object(entry))
+        var book = makeLogbook(plan: try window(efforts: [pulled]))
+
+        var fields = EffortForm.fields(planned: nil, activity: book.activity("pull_up"), filledFrom: pulled.metrics)
+        let reps = try XCTUnwrap(fields.firstIndex { $0.name == "reps" })
+        fields[reps].text = "7"
+        let metrics = try EffortForm.metrics(from: fields)
+        XCTAssertEqual(metrics["load"], pulled.metrics?["load"], "not rounded to what the field shows")
+        XCTAssertEqual(metrics["distance"], pulled.metrics?["distance"], "the estimate keeps its bounds")
+
+        book.editEffort(pulled, metrics: metrics, side: nil, notes: nil)
+        guard case .object(let written)? = book.pendingEvents.last?.payload,
+              case .object(let measures)? = written["metrics"] else { return XCTFail("an effort payload") }
+        XCTAssertEqual(written.string("grip"), "wide", "a field this app doesn't know stays")
+        XCTAssertEqual(measures["reps"], Payloads.json(Measure.exact(7)))
+        XCTAssertEqual(measures["load"], Payloads.json(Measure.exact(102.0583, unit: "kg")))
+
+        book.undoEffort(id: pulled.id)
+        XCTAssertEqual(book.pendingEvents.last?.payload, entry["payload"], "undo writes back exactly what was there")
+    }
+
     func testASetANewerAppWroteIsLeftAsItIs() throws {
         let planned = try plannedSession()
         var remote = remote(planned.blocks[0].efforts[0].id, metrics: ["reps": .exact(8)])
@@ -492,10 +551,27 @@ final class LogbookTests: XCTestCase {
         XCTAssertTrue(book.pendingEvents.isEmpty, "changing it here would drop what this app can't read")
     }
 
+    func testEveryWriteLeavesARecordANewerAppWroteAsItIs() throws {
+        let newer = { (kind: String) in (KindVersion.all[kind] ?? 1) + 1 }
+        var home = Location(id: "home", payload: LocationPayload(name: "Home"), prev: ["e1"])
+        home.kindVersion = newer("location")
+        var here = Setting(id: "current_location", payload: SettingPayload(value: .string("home")), prev: ["e2"])
+        here.kindVersion = newer("setting")
+        var window = try Fixtures.window()
+        window.locations = [home]
+        window.settings = [here]
+        var book = makeLogbook(plan: window)
+        book.setEquipment(["barbell"])
+        book.setLocation(nil)
+        XCTAssertEqual(book.pendingEvents, [])
+        XCTAssertEqual(book.currentLocationId, "home")
+    }
+
     func testValuesFromANewerByobotStillRead() throws {
-        XCTAssertEqual(try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8)), [.left, .unknown])
-        XCTAssertFalse(Side.allCases.contains(.unknown))
-        XCTAssertEqual(KindVersion.lowest("effort", .object(["round": .number(1)])), 1)
+        let sides = try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8))
+        XCTAssertEqual(sides, [.left, .other("diagonal")])
+        XCTAssertFalse(Side.allCases.contains(.other("diagonal")))
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(sides), as: UTF8.self), #"["left","diagonal"]"#)
     }
 
     func testThePulledVersionWinsOnceThePhoneHasSynced() throws {

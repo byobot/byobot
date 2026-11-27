@@ -1,5 +1,4 @@
 {
-  "id": "hanging_leg_raise",
   "name": "Hanging Leg Raise",
   "load_type": "bodyweight",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "abs"
-    ],
-    "synergists": []
+    ]
   }
 }

@@ -29,17 +29,7 @@
         "required": ["version", "description"],
         "properties": {
           "version": { "type": "integer", "minimum": 1, "description": "The newest kind version this registry describes." },
-          "description": { "type": "string", "minLength": 1 },
-          "reshaped": {
-            "type": "integer",
-            "minimum": 2,
-            "description": "The latest kind version that changed the shape of earlier payloads. Writers write at least this version."
-          },
-          "since": {
-            "type": "object",
-            "description": "The kind version that added each payload field added after version 1. A writer writes the lowest version that holds its payload, so older installs still read it.",
-            "additionalProperties": { "type": "integer", "minimum": 2 }
-          }
+          "description": { "type": "string", "minLength": 1 }
         }
       }
     },

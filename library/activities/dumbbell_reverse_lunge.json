@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_reverse_lunge",
   "name": "Dumbbell Reverse Lunge",
   "load_type": "dumbbell",
   "movement_type": "compound",
@@ -13,7 +12,6 @@
     "main": [
       "glutes",
       "quads"
-    ],
-    "synergists": []
+    ]
   }
 }

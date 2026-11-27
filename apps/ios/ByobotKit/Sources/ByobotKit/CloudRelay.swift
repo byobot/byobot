@@ -338,10 +338,12 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             if let planPath, path <= planPath { return }  // never step back to an older plan
             guard let data = try await folder.read(path),
                   let found = try? Cloud.readSegment(data, path: path, storeID: storeID, key: key,
-                                                     signPublic: keeperSign),
-                  let value = found.messages.first(where: { $0["plan"] != nil })?["plan"],
-                  let window = try? Payloads.decode(PlanWindow.self, value) else { continue }
-            plan = window
+                                                     signPublic: keeperSign) else { continue }
+            // Receipts count even when the plan beside them is one this app can't read; it keeps its last plan.
+            if let value = found.messages.first(where: { $0["plan"] != nil })?["plan"],
+               let window = try? Payloads.decode(PlanWindow.self, value) {
+                plan = window
+            }
             planPath = path
             receipts = found.messages.first(where: { $0["receipts"] != nil })?["receipts"]
                 .flatMap { try? Payloads.decode([String: Receipt].self, $0) } ?? [:]
@@ -350,7 +352,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     }
 
     mutating func applyPlan(_ plan: PlanWindow) {
-        let erased = Set((plan.erased ?? []).map { RecordRef(kind: $0.kind, id: $0.id) })
+        let erased = Set(plan.erased.map { RecordRef(kind: $0.kind, id: $0.id) })
         guard !erased.isEmpty else { return }
         events = events.filter { !erased.contains($0.value.record) }
     }

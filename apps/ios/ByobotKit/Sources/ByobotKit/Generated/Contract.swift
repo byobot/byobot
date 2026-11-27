@@ -13,108 +13,277 @@ public enum ContractVersion {
 /// Measurements by code (`reps`, `load`, ..., or your own `x.name`).
 public typealias Metrics = [String: Measure]
 
-public enum ActorKind: String, Codable, CaseIterable, Hashable, Sendable {
+public enum ActorKind: Codable, CaseIterable, Hashable, Sendable {
     case human
     case agent
     case connector
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [ActorKind] = [.human, .agent, .connector]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "human": self = .human
+        case "agent": self = .agent
+        case "connector": self = .connector
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .human: return "human"
+        case .agent: return "agent"
+        case .connector: return "connector"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
 /// All but `rejected` mean the server has it, so the app can forget it. `rejected` will not change on retry.
-public enum EventStatus: String, Codable, CaseIterable, Hashable, Sendable {
+public enum EventStatus: Codable, CaseIterable, Hashable, Sendable {
     case accepted
     case duplicate
-    case storedUnprojected = "stored_unprojected"
+    case storedUnprojected
     case rejected
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [EventStatus] = [.accepted, .duplicate, .storedUnprojected, .rejected]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "accepted": self = .accepted
+        case "duplicate": self = .duplicate
+        case "stored_unprojected": self = .storedUnprojected
+        case "rejected": self = .rejected
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .accepted: return "accepted"
+        case .duplicate: return "duplicate"
+        case .storedUnprojected: return "stored_unprojected"
+        case .rejected: return "rejected"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
 /// How the value was obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
-public enum Modality: String, Codable, CaseIterable, Hashable, Sendable {
+public enum Modality: Codable, CaseIterable, Hashable, Sendable {
     case sensed
-    case selfReported = "self_reported"
+    case selfReported
     case estimated
     case derived
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [Modality] = [.sensed, .selfReported, .estimated, .derived]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "sensed": self = .sensed
+        case "self_reported": self = .selfReported
+        case "estimated": self = .estimated
+        case "derived": self = .derived
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .sensed: return "sensed"
+        case .selfReported: return "self_reported"
+        case .estimated: return "estimated"
+        case .derived: return "derived"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
 /// `put` writes the record's whole content; `retract` removes it, as any edit would; `erase` destroys its content everywhere.
-public enum Op: String, Codable, CaseIterable, Hashable, Sendable {
+public enum Op: Codable, CaseIterable, Hashable, Sendable {
     case put
     case retract
     case erase
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [Op] = [.put, .retract, .erase]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "put": self = .put
+        case "retract": self = .retract
+        case "erase": self = .erase
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .put: return "put"
+        case .retract: return "retract"
+        case .erase: return "erase"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
-public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
+public enum OverlayEffect: Codable, CaseIterable, Hashable, Sendable {
     case correct
     case exclude
-    case sameAs = "same_as"
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    case sameAs
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "correct": self = .correct
+        case "exclude": self = .exclude
+        case "same_as": self = .sameAs
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .correct: return "correct"
+        case .exclude: return "exclude"
+        case .sameAs: return "same_as"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
-public enum RecordStatus: String, Codable, CaseIterable, Hashable, Sendable {
+public enum RecordStatus: Codable, CaseIterable, Hashable, Sendable {
     case planned
-    case inProgress = "in_progress"
+    case inProgress
     case completed
     case skipped
     case cancelled
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [RecordStatus] = [.planned, .inProgress, .completed, .skipped, .cancelled]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "planned": self = .planned
+        case "in_progress": self = .inProgress
+        case "completed": self = .completed
+        case "skipped": self = .skipped
+        case "cancelled": self = .cancelled
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .planned: return "planned"
+        case .inProgress: return "in_progress"
+        case .completed: return "completed"
+        case .skipped: return "skipped"
+        case .cancelled: return "cancelled"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
-public enum Side: String, Codable, CaseIterable, Hashable, Sendable {
+public enum Side: Codable, CaseIterable, Hashable, Sendable {
     case left
     case right
     case both
-    /// A value from a newer byobot, so one new value doesn't stop a whole read.
-    case unknown
+    /// A value from a newer byobot, kept as written so it goes back unchanged.
+    case other(String)
 
     public static let allCases: [Side] = [.left, .right, .both]
 
+    public init(rawValue: String) {
+        switch rawValue {
+        case "left": self = .left
+        case "right": self = .right
+        case "both": self = .both
+        default: self = .other(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .left: return "left"
+        case .right: return "right"
+        case .both: return "both"
+        case .other(let value): return value
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -757,7 +926,7 @@ public struct SyncStatus: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.
+/// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write op put or retract of any kind but source_record. A kind the laptop doesn't know yet is stored, unprojected, for a newer byobot.
 public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     public var events: [Event]
     /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.
@@ -952,6 +1121,25 @@ public struct ErasedRecord: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct RemovedRecord: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var kind: String
+    public var id: String
+    /// The events that removed it.
+    public var prev: [String]
+
+    public init(kind: String, id: String, prev: [String]) {
+        self.kind = kind
+        self.id = id
+        self.prev = prev
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+        case prev
+    }
+}
+
 /// An event the hub refused. Sending it again won't change that.
 public struct Rejection: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
@@ -965,6 +1153,30 @@ public struct Rejection: Codable, Equatable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id
         case reason
+    }
+}
+
+/// One current version of a record in conflict.
+public struct ConflictVersion: Codable, Equatable, Hashable, Sendable {
+    public var eventId: String
+    /// What it holds; absent when this version removed the record.
+    public var payload: JSONValue?
+    public var actor: Actor
+    /// When its author wrote it, for display.
+    public var ts: String
+
+    public init(eventId: String, payload: JSONValue? = nil, actor: Actor, ts: String) {
+        self.eventId = eventId
+        self.payload = payload
+        self.actor = actor
+        self.ts = ts
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case eventId = "event_id"
+        case payload
+        case actor
+        case ts
     }
 }
 
@@ -1129,12 +1341,6 @@ public enum KindVersion {
         "source_record": 1,
         "overlay": 1,
     ]
-
-    /// The kind version that added each payload field added after version 1.
-    public static let since: [String: [String: Int]] = [:]
-
-    /// The latest kind version that changed the shape of earlier payloads.
-    public static let reshaped: [String: Int] = [:]
 }
 
 /// Namespaces for ids derived from other ids (UUIDv5).

@@ -219,7 +219,7 @@
         },
         "conflict": {
           "const": true,
-          "description": "Two writers changed it at once; this is the version reads show."
+          "description": "Two writers changed it at once; this is the version reads show. `versions` holds them all."
         },
         "library": {
           "const": true,
@@ -230,8 +230,42 @@
           "minimum": 1,
           "maximum": 1000,
           "description": "The kind version its payload needs (1 when absent). An app that knows a lower one leaves the record as it is."
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/version"
+          },
+          "description": "In a conflict, every current version, the one shown included. A write that names all their events as `prev` resolves it."
         }
       }
+    },
+    "version": {
+      "description": "One current version of a record in conflict.",
+      "type": "object",
+      "required": [
+        "event_id",
+        "actor",
+        "ts"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "payload": {
+          "type": "object",
+          "description": "What it holds; absent when this version removed the record."
+        },
+        "actor": {
+          "$ref": "event.schema.json#/$defs/actor"
+        },
+        "ts": {
+          "$ref": "common.schema.json#/$defs/timestamp",
+          "description": "When its author wrote it, for display."
+        }
+      },
+      "additionalProperties": false
     },
     "erased_record": {
       "type": "object",
@@ -247,6 +281,32 @@
           "$ref": "common.schema.json#/$defs/id"
         }
       }
+    },
+    "removed_record": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "prev"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "prev": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/uuid"
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "description": "The events that removed it."
+        }
+      },
+      "additionalProperties": false
     },
     "rejection": {
       "description": "An event the hub refused. Sending it again won't change that.",
@@ -276,7 +336,15 @@
         "plans",
         "planned_sessions",
         "sessions",
-        "efforts"
+        "efforts",
+        "since",
+        "store_id",
+        "hlc",
+        "removed",
+        "erased",
+        "kind_versions",
+        "received",
+        "rejected"
       ],
       "properties": {
         "from": {
@@ -284,6 +352,10 @@
         },
         "to": {
           "$ref": "common.schema.json#/$defs/date"
+        },
+        "since": {
+          "$ref": "common.schema.json#/$defs/date",
+          "description": "The first day of logged history the plan carries: sessions on or after it through `to`, and their efforts."
         },
         "activities": {
           "type": "array",
@@ -321,14 +393,14 @@
           "items": {
             "$ref": "#/$defs/entry"
           },
-          "description": "Sessions logged against the planned sessions in the window."
+          "description": "Sessions logged against the planned sessions in the window, those from `since` through `to`, and those holding the last two times each activity was done at each location."
         },
         "efforts": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/entry"
           },
-          "description": "Efforts logged against them, and those of the last two times each planned activity was done at each location."
+          "description": "The efforts of those sessions, those logged against the planned sessions, and those outside a session from `since` through `to`."
         },
         "store_id": {
           "$ref": "common.schema.json#/$defs/uuid",
@@ -338,12 +410,19 @@
           "$ref": "common.schema.json#/$defs/hlc",
           "description": "The hub's clock. The app writes its next events after it."
         },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/removed_record"
+          },
+          "description": "Locations and settings that were removed, not erased. A new one takes another id; a change to one names `prev`."
+        },
         "erased": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/erased_record"
           },
-          "description": "Records a person writes that were erased. The app drops what it holds of them."
+          "description": "Erased records, but source records. The app drops what it holds of them."
         },
         "kind_versions": {
           "$ref": "#/$defs/kinds",
@@ -369,7 +448,7 @@
       }
     },
     "events_request": {
-      "description": "POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.",
+      "description": "POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write op put or retract of any kind but source_record. A kind the laptop doesn't know yet is stored, unprojected, for a newer byobot.",
       "type": "object",
       "required": [
         "events"

@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_concentration_curl",
   "name": "Dumbbell Concentration Curl",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "biceps"
-    ],
-    "synergists": []
+    ]
   }
 }

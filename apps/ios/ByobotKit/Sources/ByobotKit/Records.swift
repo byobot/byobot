@@ -10,7 +10,7 @@ import Foundation
 @dynamicMemberLookup
 public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
-    public var payload: Payload
+    public var payload: Payload { didSet { raw = nil } }
     public var prev: [String]
     /// Two writers changed it at once; this is the version reads show.
     public var conflict: Bool?
@@ -18,20 +18,60 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public var library: Bool?
     /// The kind version its payload needs (1 when absent). Above this app's, the app leaves the record as it is.
     public var kindVersion: Int?
+    /// In a conflict, every current version, the one shown included.
+    public var versions: [ConflictVersion]?
+    /// The payload as written, fields this app doesn't know included, until `payload` changes here.
+    public internal(set) var raw: JSONValue?
 
     public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil,
-                kindVersion: Int? = nil) {
+                kindVersion: Int? = nil, versions: [ConflictVersion]? = nil, raw: JSONValue? = nil) {
         self.id = id
         self.payload = payload
         self.prev = prev
         self.conflict = conflict
         self.library = library
         self.kindVersion = kindVersion
+        self.versions = versions
+        self.raw = raw
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, payload, prev, conflict, library
+        case id, payload, prev, conflict, library, versions
         case kindVersion = "kind_version"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        payload = try c.decode(Payload.self, forKey: .payload)
+        prev = try c.decodeIfPresent([String].self, forKey: .prev) ?? []
+        conflict = try c.decodeIfPresent(Bool.self, forKey: .conflict)
+        library = try c.decodeIfPresent(Bool.self, forKey: .library)
+        kindVersion = try c.decodeIfPresent(Int.self, forKey: .kindVersion)
+        versions = try c.decodeIfPresent([ConflictVersion].self, forKey: .versions)
+        raw = try c.decode(JSONValue.self, forKey: .payload)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        if let raw { try c.encode(raw, forKey: .payload) } else { try c.encode(payload, forKey: .payload) }
+        try c.encode(prev, forKey: .prev)
+        try c.encodeIfPresent(conflict, forKey: .conflict)
+        try c.encodeIfPresent(library, forKey: .library)
+        try c.encodeIfPresent(kindVersion, forKey: .kindVersion)
+        try c.encodeIfPresent(versions, forKey: .versions)
+    }
+
+    public static func == (a: Record, b: Record) -> Bool {
+        a.id == b.id && a.payload == b.payload && a.prev == b.prev && a.conflict == b.conflict
+            && a.library == b.library && a.kindVersion == b.kindVersion && a.versions == b.versions
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(payload)
+        hasher.combine(prev)
     }
 
     public subscript<T>(dynamicMember path: KeyPath<Payload, T>) -> T {
@@ -41,18 +81,6 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public subscript<T>(dynamicMember path: WritableKeyPath<Payload, T>) -> T {
         get { payload[keyPath: path] }
         set { payload[keyPath: path] = newValue }
-    }
-}
-
-extension KindVersion {
-    /// The lowest version of `kind` that holds `payload`. Writes are stamped with it, so installs that know only
-    /// older versions still read them.
-    public static func lowest(_ kind: String, _ payload: JSONValue) -> Int {
-        var version = reshaped[kind] ?? 1
-        if case .object(let fields) = payload, let added = since[kind] {
-            for key in fields.keys { version = max(version, added[key] ?? 1) }
-        }
-        return min(version, all[kind] ?? 1)
     }
 }
 
@@ -73,28 +101,34 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var settings: [Setting]
     public var plans: [Plan]
     public var plannedSessions: [PlannedSession]
-    /// Sessions logged against the planned sessions.
+    /// Sessions logged against the planned sessions, those from `since` on, and those holding the last two times
+    /// each activity was done at each location.
     public var sessions: [PerformedSession]
-    /// Efforts logged against them, and the last two times each planned activity was done at each location.
+    /// The efforts of those sessions and of the planned ones, and those outside a session from `since` on.
     public var efforts: [PerformedEffort]
-    // Older laptops send none of these.
+    /// The first day of logged history the plan carries.
+    public var since: String
     /// The laptop's store as of this read; it changes when the laptop is restored from another store's backup.
-    public var storeId: String?
+    public var storeId: String
     /// The laptop's clock.
-    public var hlc: String?
-    /// Records a person writes that were erased, so the phone drops what it holds of them.
-    public var erased: [ErasedRecord]?
-    public var kindVersions: [String: Int]?
+    public var hlc: String
+    /// Locations and settings removed, not erased: a new one takes another id, a change names their `prev`.
+    public var removed: [RemovedRecord]
+    /// Erased records a phone may hold, so it drops what it holds of them.
+    public var erased: [ErasedRecord]
+    public var kindVersions: [String: Int]
     /// The latest of this phone's events the laptop holds; empty when it holds none.
-    public var received: [String: String]?
+    public var received: [String: String]
     /// This phone's events the laptop refused.
-    public var rejected: [Rejection]?
+    public var rejected: [Rejection]
+    /// Entries this app can't read, by the list they came in, kept as sent: one newer entry doesn't drop the plan.
+    public var unread: [String: [JSONValue]] = [:]
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
-                sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
-                storeId: String? = nil, hlc: String? = nil, erased: [ErasedRecord]? = nil,
-                kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
+                sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [], since: String? = nil,
+                storeId: String = "", hlc: String = "", removed: [RemovedRecord] = [], erased: [ErasedRecord] = [],
+                kindVersions: [String: Int] = [:], received: [String: String] = [:], rejected: [Rejection] = []) {
         self.from = from
         self.to = to
         self.activities = activities
@@ -104,8 +138,10 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.plannedSessions = plannedSessions
         self.sessions = sessions
         self.efforts = efforts
+        self.since = since ?? from
         self.storeId = storeId
         self.hlc = hlc
+        self.removed = removed
         self.erased = erased
         self.kindVersions = kindVersions
         self.received = received
@@ -113,10 +149,80 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case from, to, activities, locations, settings, plans, sessions, efforts, hlc, erased, received, rejected
+        case from, to, since, activities, locations, settings, plans, sessions, efforts, hlc, removed, erased, received
+        case rejected
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
         case storeId = "store_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var unread: [String: [JSONValue]] = [:]
+        func entries<P: Codable & Hashable & Sendable>(_ key: CodingKeys) throws -> [Record<P>] {
+            let items = try c.decode([Lenient<Record<P>>].self, forKey: key)
+            let skipped = items.compactMap(\.raw)
+            if !skipped.isEmpty { unread[key.stringValue] = skipped }
+            return items.compactMap(\.value)
+        }
+        from = try c.decode(String.self, forKey: .from)
+        to = try c.decode(String.self, forKey: .to)
+        activities = try entries(.activities)
+        locations = try entries(.locations)
+        settings = try entries(.settings)
+        plans = try entries(.plans)
+        plannedSessions = try entries(.plannedSessions)
+        sessions = try entries(.sessions)
+        efforts = try entries(.efforts)
+        since = try c.decode(String.self, forKey: .since)
+        storeId = try c.decode(String.self, forKey: .storeId)
+        hlc = try c.decode(String.self, forKey: .hlc)
+        removed = try c.decode([RemovedRecord].self, forKey: .removed)
+        erased = try c.decode([ErasedRecord].self, forKey: .erased)
+        kindVersions = try c.decode([String: Int].self, forKey: .kindVersions)
+        received = try c.decode([String: String].self, forKey: .received)
+        rejected = try c.decode([Rejection].self, forKey: .rejected)
+        self.unread = unread
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        func entries<P: Codable & Hashable & Sendable>(_ records: [Record<P>], _ key: CodingKeys) throws {
+            guard let kept = unread[key.stringValue], !kept.isEmpty else { return try c.encode(records, forKey: key) }
+            try c.encode(records.map { Payloads.json($0) } + kept, forKey: key)
+        }
+        try c.encode(from, forKey: .from)
+        try c.encode(to, forKey: .to)
+        try entries(activities, .activities)
+        try entries(locations, .locations)
+        try entries(settings, .settings)
+        try entries(plans, .plans)
+        try entries(plannedSessions, .plannedSessions)
+        try entries(sessions, .sessions)
+        try entries(efforts, .efforts)
+        try c.encode(since, forKey: .since)
+        try c.encode(storeId, forKey: .storeId)
+        try c.encode(hlc, forKey: .hlc)
+        try c.encode(removed, forKey: .removed)
+        try c.encode(erased, forKey: .erased)
+        try c.encode(kindVersions, forKey: .kindVersions)
+        try c.encode(received, forKey: .received)
+        try c.encode(rejected, forKey: .rejected)
+    }
+}
+
+/// One item of a list read leniently: the value, or what was sent when this app can't read it.
+struct Lenient<T: Decodable>: Decodable {
+    var value: T?
+    var raw: JSONValue?
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let value = try? c.decode(T.self) {
+            self.value = value
+        } else {
+            raw = try c.decode(JSONValue.self)
+        }
     }
 }
 
@@ -151,6 +257,26 @@ enum Payloads {
 
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
         try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
+    }
+
+    /// `raw` with only what changed from `old` to `new`: fields this app doesn't know, and values it didn't
+    /// touch, stay exactly as written.
+    static func patch(_ raw: JSONValue, from old: JSONValue, to new: JSONValue) -> JSONValue {
+        guard case .object(var out) = raw, case .object(let before) = old, case .object(let after) = new else {
+            return old == new ? raw : new
+        }
+        for key in Set(before.keys).union(after.keys) where before[key] != after[key] {
+            guard let value = after[key] else {
+                out[key] = nil
+                continue
+            }
+            if let was = before[key], let kept = out[key] {
+                out[key] = patch(kept, from: was, to: value)
+            } else {
+                out[key] = value
+            }
+        }
+        return .object(out)
     }
 }
 

@@ -1,5 +1,4 @@
 {
-  "id": "cable_straight_bar_curl",
   "name": "Cable Curl (Straight Bar)",
   "load_type": "cable",
   "movement_type": "isolation",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "biceps"
-    ],
-    "synergists": []
+    ]
   }
 }

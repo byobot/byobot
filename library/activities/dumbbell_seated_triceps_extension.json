@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_seated_triceps_extension",
   "name": "Dumbbell Seated Triceps Extension",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "triceps"
-    ],
-    "synergists": []
+    ]
   }
 }

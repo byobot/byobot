@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_incline_rear_lateral_raise",
   "name": "Dumbbell Incline Rear Lateral Raise",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "rear_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

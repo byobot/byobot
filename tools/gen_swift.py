@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Generate the app's Swift types from the byobot JSON Schema contract.
 
-    python tools/gen_swift.py            # write apps/ios/ByobotKit/Sources/ByobotKit/Generated/Contract.swift
-    python tools/gen_swift.py --check    # fail if the committed file is out of date (CI runs this)
+    python tools/gen_swift.py            # write apps/ios/ByobotKit/Sources/ByobotKit/Generated/*.swift
+    python tools/gen_swift.py --check    # fail if a committed file is out of date (CI runs this)
 
 schema/v1 is the source of truth; the Swift file is never edited by hand. Record kinds become payload
 structs (a header kind gets the header's fields it allows), the envelope and sync messages become structs,
-and registry.json becomes the code registry, kind versions and id namespaces.
+and registry.json becomes the code registry, kind versions and id namespaces. library/activities becomes the
+library the app ships.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "schema" / "v1"
 OUT = ROOT / "apps" / "ios" / "ByobotKit" / "Sources" / "ByobotKit" / "Generated" / "Contract.swift"
+LIBRARY = ROOT / "library" / "activities"
+LIBRARY_OUT = OUT.with_name("Library.swift")
 
 FILES = {"common": "common.schema.json", "records": "records.schema.json", "event": "event.schema.json",
          "sync": "sync.schema.json"}
@@ -59,7 +62,9 @@ TYPES: dict[tuple[str, str | None], str] = {
     ("sync", "samples_request"): "SamplesRequest",
     ("sync", "samples_response"): "SamplesResponse",
     ("sync", "erased_record"): "ErasedRecord",
+    ("sync", "removed_record"): "RemovedRecord",
     ("sync", "rejection"): "Rejection",
+    ("sync", "version"): "ConflictVersion",
 }
 
 # Enums and objects declared inline on a property: (file, definition, property) -> Swift name.
@@ -118,12 +123,6 @@ def doc(text: str | None, indent: str = "") -> list[str]:
     if not text:
         return []
     return [f"{indent}/// {line}".rstrip() for line in text.splitlines()]
-
-
-def swift_dict(d: dict) -> str:
-    if not d:
-        return "[:]"
-    return "[" + ", ".join(f"{json.dumps(k)}: {swift_dict(v) if isinstance(v, dict) else v}" for k, v in d.items()) + "]"
 
 
 def number(x) -> str:
@@ -262,16 +261,22 @@ class Generator:
 
     def enum(self, name: str, values: list[str], description: str | None) -> list[str]:
         lines = doc(description)
-        lines.append(f"public enum {name}: String, Codable, CaseIterable, Hashable, Sendable {{")
-        for raw in values:
-            case = ident(camel(raw))
-            lines.append(f"    case {case}" + (f' = "{raw}"' if case.strip("`") != raw else ""))
-        cases = ", ".join(f".{ident(camel(raw))}" for raw in values)
-        lines += ["    /// A value from a newer byobot, so one new value doesn't stop a whole read.", "    case unknown", "",
-                  f"    public static let allCases: [{name}] = [{cases}]", "",
+        lines.append(f"public enum {name}: Codable, CaseIterable, Hashable, Sendable {{")
+        cases = [(ident(camel(raw)), raw) for raw in values]
+        lines += [f"    case {case}" for case, _ in cases]
+        lines += ["    /// A value from a newer byobot, kept as written so it goes back unchanged.", "    case other(String)", "",
+                  f"    public static let allCases: [{name}] = [{', '.join(f'.{c}' for c, _ in cases)}]", "",
+                  "    public init(rawValue: String) {", "        switch rawValue {"]
+        lines += [f"        case {swift_string(raw)}: self = .{case}" for case, raw in cases]
+        lines += ["        default: self = .other(rawValue)", "        }", "    }", "",
+                  "    public var rawValue: String {", "        switch self {"]
+        lines += [f"        case .{case}: return {swift_string(raw)}" for case, raw in cases]
+        lines += ["        case .other(let value): return value", "        }", "    }", "",
                   "    public init(from decoder: any Decoder) throws {",
-                  "        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown",
-                  "    }", "}"]
+                  "        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))", "    }", "",
+                  "    public func encode(to encoder: any Encoder) throws {",
+                  "        var container = encoder.singleValueContainer()",
+                  "        try container.encode(rawValue)", "    }", "}"]
         return lines
 
     def registry(self) -> list[str]:
@@ -281,12 +286,7 @@ class Generator:
         lines = ["/// The payload version each kind is written at.", "public enum KindVersion {",
                  "    public static let all: [String: Int] = ["]
         lines += [f"        {json.dumps(k)}: {v['version']}," for k, v in reg["kinds"].items()]
-        since = {k: v["since"] for k, v in reg["kinds"].items() if v.get("since")}
-        reshaped = {k: v["reshaped"] for k, v in reg["kinds"].items() if "reshaped" in v}
-        lines += ["    ]", "", "    /// The kind version that added each payload field added after version 1.",
-                  f"    public static let since: [String: [String: Int]] = {swift_dict(since)}", "",
-                  "    /// The latest kind version that changed the shape of earlier payloads.",
-                  f"    public static let reshaped: [String: Int] = {swift_dict(reshaped)}", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
+        lines += ["    ]", "}", "", "/// Namespaces for ids derived from other ids (UUIDv5).", "public enum Namespace {"]
         lines += [f"    public static let {camel(k)} = {json.dumps(v)}" for k, v in reg["namespaces"].items()]
         lines += ["}", "", "/// Settings this contract knows, by record id.",
                   "public enum SettingId: String, CaseIterable, Sendable {"]
@@ -346,20 +346,41 @@ class Generator:
         return "\n\n".join("\n".join(b) for b in (header, *enums, *blocks)) + "\n"
 
 
+def library() -> str:
+    """The library's activities as plan entries, one per line, so the plan sends only those it names."""
+    entries = [json.dumps({"id": f.stem, "payload": json.loads(f.read_text(encoding="utf-8")), "library": True},
+                          ensure_ascii=False, separators=(",", ":")) for f in sorted(LIBRARY.glob("*.json"))]
+    return "\n".join([
+        "// Generated by tools/gen_swift.py from library/activities. Do not edit by hand:",
+        "// change the library and run `python tools/gen_swift.py`.",
+        "//",
+        "// Copyright The byobot Authors. Licensed under Apache-2.0.",
+        "",
+        "extension ActivityLibrary {",
+        "    /// The activities byobot shipped with this app. The plan sends those it names, newer ones included.",
+        "    public static let bundled: [Activity] = decode(#\"\"\"",
+        "    [",
+        *(f"    {e}," for e in entries[:-1]), *(f"    {e}" for e in entries[-1:]),
+        "    ]",
+        "    \"\"\"#)",
+        "}",
+        "",
+    ])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--check", action="store_true", help="Fail if the generated file is out of date.")
+    parser.add_argument("--check", action="store_true", help="Fail if a generated file is out of date.")
     args = parser.parse_args()
-    text = Generator(load()).generate()
-    if args.check:
-        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
-        if current != text:
-            sys.stderr.write(f"{OUT.relative_to(ROOT)} is out of date; run `python tools/gen_swift.py`\n")
-            return 1
-        return 0
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(text, encoding="utf-8")
-    print(f"wrote {OUT.relative_to(ROOT)}")
+    for out, text in ((OUT, Generator(load()).generate()), (LIBRARY_OUT, library())):
+        if args.check:
+            if (out.read_text(encoding="utf-8") if out.exists() else "") != text:
+                sys.stderr.write(f"{out.relative_to(ROOT)} is out of date; run `python tools/gen_swift.py`\n")
+                return 1
+            continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"wrote {out.relative_to(ROOT)}")
     return 0
 
 

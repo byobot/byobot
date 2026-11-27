@@ -1,7 +1,7 @@
 """The activity library that ships with byobot.
 
 ``library/`` at the repository root holds one ``activities/<id>.json`` per
-activity and ``vocabulary.json``, the muscle, load type, equipment and movement
+activity, its payload named by its id, and ``vocabulary.json``, the muscle, load type, equipment and movement
 type names library files use. Built packages carry a copy in ``byobot/_library``. ``BYOBOT_LIBRARY``
 points at another library directory.
 """
@@ -32,7 +32,7 @@ def library_dir() -> Path:
 @lru_cache(maxsize=8)
 def _read(root: Path) -> tuple[tuple[dict, ...], dict]:
     files = sorted((root / "activities").glob("*.json")) if (root / "activities").is_dir() else []
-    activities = tuple(json.loads(f.read_text(encoding="utf-8")) for f in files)
+    activities = tuple({"id": f.stem, **json.loads(f.read_text(encoding="utf-8"))} for f in files)
     vocab_file = root / "vocabulary.json"
     vocabulary = json.loads(vocab_file.read_text(encoding="utf-8")) if vocab_file.is_file() else {}
     return activities, vocabulary
