@@ -127,6 +127,13 @@ def test_a_correction_must_use_the_registry(store):
         commands.correct(store, ME, w1, {"metrics": {"heart_rate": {"value": 150, "unit": "kg"}}})
 
 
+def test_a_corrected_start_past_the_source_end_is_refused(store):
+    sources.ingest(store, "whoop", [("workout", "w1", workout())])
+    w1 = sources.record_id(store, "whoop", "workout", "w1")
+    with pytest.raises(ValidationFailed):
+        commands.correct(store, ME, w1, {"time": {"start": "2026-03-02T17:00:00Z"}})
+
+
 def test_a_rebuild_reads_the_same_as_writing_incrementally(store):
     sources.ingest(store, "whoop", [("recovery", "7", recovery()), ("workout", "w1", workout())])
     sources.ingest(store, "apple_health", [("workout", "h1", health())])

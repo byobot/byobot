@@ -9,6 +9,8 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..util import Conflict, NotFound, ValidationFailed
+from . import mappers
+from .contract import instant
 from .store import Store, stamp
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
@@ -140,7 +142,23 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
     if not fields:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
     fields = _times(store, fields)
+    _time_order(store, target, fields.get("time"))
     return _overlay(store, actor, "correct", target, {"fields": fields}, found)
+
+
+def _time_order(store: Store, target: str, time: Any) -> None:
+    """Refuse a corrected start or end that, with the source's other end, runs backwards."""
+    source = store.get("source_record", target)
+    if not isinstance(time, dict) or source is None:
+        return
+    try:
+        session = mappers.read(source["payload"], lambda *_: None)["session"]
+        merged = {**(session or {}).get("time", {}), **time}
+        backwards = "end" in merged and instant(merged["end"]) < instant(merged["start"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return
+    if backwards:
+        raise ValidationFailed("the corrected time would end before it starts; correct both start and end")
 
 
 def exclude(store: Store, actor: dict, target: str, notes: str | None = None) -> dict:
