@@ -11,7 +11,8 @@ OWN = {
     "byobot.HeartRateVariabilityRMSSD": "hrv_rmssd", "byobot.SkinTemperature": "skin_temperature",
     "byobot.SleepLightDuration": "sleep_light_duration", "byobot.SleepDeepDuration": "sleep_deep_duration",
     "byobot.SleepREMDuration": "sleep_rem_duration", "byobot.SleepAwakeDuration": "sleep_awake_duration",
-    "byobot.SleepPerformance": "sleep_performance", "byobot.RecoveryScore": "recovery_score", "byobot.Strain": "strain",
+    "byobot.WhoopSleepPerformance": "whoop_sleep_performance", "byobot.WhoopRecoveryScore": "whoop_recovery_score",
+    "byobot.WhoopStrain": "whoop_strain",
 }
 UNITS = {"count/min": "/min", "degC": "Cel", "ml/kg*min": "mL/(kg.min)", "mmHg": "mm[Hg]", "count": None}
 # Workouts become sessions, not observations.
