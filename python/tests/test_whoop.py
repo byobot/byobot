@@ -59,7 +59,7 @@ def test_connect_signs_in_and_keeps_the_tokens():
                         wait=lambda state: "example-code")
     assert out == {"connected": True, "scopes": whoop.SCOPES.split()}
     query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(opened[0]).query))
-    assert query["redirect_uri"] == whoop.REDIRECT and query["scope"] == whoop.SCOPES and len(query["state"]) == 8
+    assert query["redirect_uri"] == whoop.REDIRECT and query["scope"] == whoop.SCOPES and len(query["state"]) >= 43
     form = fake.requests[0][3]
     assert form["grant_type"] == ["authorization_code"] and form["code"] == ["example-code"]
     assert form["client_secret"] == ["example-secret"] and form["redirect_uri"] == [whoop.REDIRECT]
