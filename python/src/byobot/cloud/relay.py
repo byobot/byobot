@@ -117,6 +117,13 @@ class Relay:
             return {"removed": True}
         listing = self.folder.list()
         moved = self._adopt(listing)
+        if self.removed:  # no keeper reads what it left in the folder now
+            for path in listing:
+                if path.startswith(f"segments/{self.device_id}/") or path == files.device_path(self.device_id):
+                    try:
+                        self.folder.delete(path)
+                    except ByobotError:
+                        pass
         if self.removed or self.key is None:
             return {"removed": self.removed, "joined": False}
         self._read_plan(listing)

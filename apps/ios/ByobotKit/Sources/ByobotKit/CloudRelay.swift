@@ -235,6 +235,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         guard !removed else { return Report(epoch: epoch, written: 0, pending: events.count, removed: true) }
         let listing = try await folder.list()
         let moved = try await adopt(folder, listing, identity)
+        if removed {  // no keeper reads what it left in the folder now
+            for path in listing.keys where path.hasPrefix("segments/\(deviceID)/") || path == Cloud.devicePath(deviceID) {
+                try? await folder.delete(path)
+            }
+        }
         guard !removed, key != nil else {
             return Report(epoch: epoch, written: 0, pending: events.count, removed: removed)
         }

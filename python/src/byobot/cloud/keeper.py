@@ -667,6 +667,12 @@ class Keeper:
         listing = [p for p in self.folder.list() if p != path]
         for p in listing:
             self.folder.delete(p)
+        if hasattr(self.folder, "refresh"):  # what the listing hadn't shown yet
+            self.folder.refresh()
+            late = [p for p in self.folder.list() if p != path and p not in listing]
+            for p in late:
+                self.folder.delete(p)
+            listing += late
         with self.store._tx():
             for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
