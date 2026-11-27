@@ -1,8 +1,10 @@
 {
   "id": "ez_bar_incline_triceps_extension",
   "name": "EZ Barbell Incline Triceps Extension",
+  "load_type": "barbell",
   "equipment": [
-    "ez_barbell"
+    "bench",
+    "ez_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

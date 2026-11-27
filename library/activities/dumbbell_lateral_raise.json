@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_lateral_raise",
   "name": "Dumbbell Lateral Raise",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

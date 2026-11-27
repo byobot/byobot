@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_hyperextension",
   "name": "Hyperextension (With Dumbbell)",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 2,
   "resistance_curve": {

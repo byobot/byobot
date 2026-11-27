@@ -1,9 +1,7 @@
 {
   "id": "cable_straight_bar_curl",
   "name": "Cable Curl (Straight Bar)",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

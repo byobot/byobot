@@ -1,9 +1,7 @@
 {
   "id": "machine_hip_thrust",
   "name": "Machine Hip Thrust",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

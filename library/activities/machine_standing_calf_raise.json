@@ -1,9 +1,7 @@
 {
   "id": "machine_standing_calf_raise",
   "name": "Machine Standing Calf Raise",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

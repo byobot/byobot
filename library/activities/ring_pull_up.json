@@ -1,8 +1,9 @@
 {
   "id": "ring_pull_up",
   "name": "Ring Pull-Up",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "rings"
   ],
   "movement_type": "compound",
   "fatigue": 3,

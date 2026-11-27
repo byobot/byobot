@@ -1,8 +1,10 @@
 {
   "id": "smith_machine_decline_bench_press",
   "name": "Smith Machine Decline Bench Press",
+  "load_type": "plate_loaded_machine",
   "equipment": [
-    "plates"
+    "bench",
+    "smith_machine"
   ],
   "movement_type": "compound",
   "fatigue": 3,

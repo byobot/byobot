@@ -1,9 +1,7 @@
 {
   "id": "machine_lat_pullover",
   "name": "Machine Lat Pullover",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

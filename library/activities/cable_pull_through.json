@@ -1,9 +1,7 @@
 {
   "id": "cable_pull_through",
   "name": "Cable Pull Through",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 2,
   "resistance_curve": {

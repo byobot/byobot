@@ -1,9 +1,7 @@
 {
   "id": "cable_bent_over_one_arm_lateral_raise",
   "name": "Cable Bent Over One Arm Lateral Raise",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

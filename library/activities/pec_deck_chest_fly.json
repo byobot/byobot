@@ -1,9 +1,7 @@
 {
   "id": "pec_deck_chest_fly",
   "name": "Pec Deck Chest Fly",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

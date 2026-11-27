@@ -1,8 +1,9 @@
 {
   "id": "trap_bar_shrug",
   "name": "Trap Bar Shrug",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "trap_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 3,

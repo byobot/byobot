@@ -1,9 +1,7 @@
 {
   "id": "machine_standing_leg_curl",
   "name": "Machine Standing Leg Curl",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

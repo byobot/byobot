@@ -1,9 +1,7 @@
 {
   "id": "cable_one_arm_lat_pulldown",
   "name": "Cable One Arm Lat Pulldown",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

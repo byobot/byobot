@@ -1,9 +1,7 @@
 {
   "id": "cable_straight_bar_pushdown",
   "name": "Cable Pushdown (With Straight Bar)",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

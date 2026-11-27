@@ -1,9 +1,7 @@
 {
   "id": "cable_hammer_curl",
   "name": "Cable Hammer Curl",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

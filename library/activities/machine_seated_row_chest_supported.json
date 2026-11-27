@@ -1,9 +1,7 @@
 {
   "id": "machine_seated_row_chest_supported",
   "name": "Machine Seated Row (Chest Supported)",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

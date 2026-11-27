@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_single_leg_calf_raise_with_block",
   "name": "Single Leg Dumbbell Calf Raise (With Block)",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

@@ -1,8 +1,9 @@
 {
   "id": "ring_muscle_up",
   "name": "Ring Muscle-Up",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "rings"
   ],
   "movement_type": "compound",
   "fatigue": 3,

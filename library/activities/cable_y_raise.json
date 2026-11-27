@@ -1,9 +1,7 @@
 {
   "id": "cable_y_raise",
   "name": "Cable Y-Raise",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

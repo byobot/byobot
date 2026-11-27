@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_incline_row",
   "name": "Dumbbell Incline Row",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "compound",
   "fatigue": 3,

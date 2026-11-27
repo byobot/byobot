@@ -1,8 +1,9 @@
 {
   "id": "ez_bar_curl",
   "name": "EZ Barbell Curl",
+  "load_type": "barbell",
   "equipment": [
-    "ez_barbell"
+    "ez_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

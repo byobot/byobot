@@ -1,8 +1,9 @@
 {
   "id": "barbell_standing_overhead_press",
   "name": "Barbell Standing Overhead Press",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "rack"
   ],
   "movement_type": "compound",
   "fatigue": 3,

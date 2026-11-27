@@ -1,9 +1,7 @@
 {
   "id": "machine_seated_shoulder_press",
   "name": "Machine Seated Shoulder Press",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

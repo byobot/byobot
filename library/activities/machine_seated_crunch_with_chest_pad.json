@@ -1,9 +1,7 @@
 {
   "id": "machine_seated_crunch_with_chest_pad",
   "name": "Machine Seated Crunch (With Chest Pad)",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

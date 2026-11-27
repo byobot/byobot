@@ -1,9 +1,7 @@
 {
   "id": "assisted_pull_up",
   "name": "Assisted Pull-Up",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {
