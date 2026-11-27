@@ -24,12 +24,12 @@ from .snapshot import diff, equal
 from .test_durability import held_bytes
 
 REPLICAS = ("laptop", "phone", "tablet")
-ACTIVITIES = ("row", "squat")
+ACTIVITIES = ("x.row", "x.squat")
 EFFORTS = ("e1", "e2", "e3")
 SESSIONS = ("s1", "s2")
 WORKOUTS = ("9a1b0000-0000-4000-8000-0000000000a1", "9a1b0000-0000-4000-8000-0000000000a2")
 EDITABLE = [("effort", i) for i in EFFORTS] + [("session", i) for i in SESSIONS] + [
-    ("activity", "row"), ("location", "example-gym"), ("plan", "p1"), ("planned_session", "ps1")]
+    ("activity", "x.row"), ("location", "example_gym"), ("plan", "p1"), ("planned_session", "ps1")]
 
 replica = st.integers(0, len(REPLICAS) - 1)
 
@@ -127,12 +127,12 @@ class Logbook(RuleBasedStateMachine):
             record["planned_session_id"] = "ps1"
         if inline:
             rid = f"{sid}x"
-            record["efforts"] = [{"id": rid, "activity_id": "row", "notes": self._mark(f"effort/{rid}")}]
+            record["efforts"] = [{"id": rid, "activity_id": "x.row", "notes": self._mark(f"effort/{rid}")}]
         self._author(r, {"intent": "log_session", "record": record})
 
     @rule(r=replica, name=st.sampled_from(("Home", "Gym")))
     def define_location(self, r, name):
-        self._author(r, {"intent": "define_location", "record": {"id": "example-gym", "name": name}})
+        self._author(r, {"intent": "define_location", "record": {"id": "example_gym", "name": name}})
 
     @rule(r=replica)
     def define_plan(self, r):
@@ -141,8 +141,8 @@ class Logbook(RuleBasedStateMachine):
 
     @rule(r=replica, swap=st.booleans(), rounds=st.integers(1, 4), again=st.booleans())
     def plan_session(self, r, swap, rounds, again):
-        blocks = [{"rounds": rounds, "efforts": [{"activity_id": "squat" if swap else "row"}]},
-                  {"rounds": 3, "efforts": [{"activity_id": "row"}]}]
+        blocks = [{"rounds": rounds, "efforts": [{"activity_id": "x.squat" if swap else "x.row"}]},
+                  {"rounds": 3, "efforts": [{"activity_id": "x.row"}]}]
         record = {"id": "ps1", "scheduled_on": "2026-03-04", "name": "Legs", "plan_id": "p1"}
         if again:
             self._author(r, {"intent": "replan_session", "record": {**record, "blocks": blocks}}, AGENT)
