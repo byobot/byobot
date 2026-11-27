@@ -160,6 +160,8 @@ class Store:
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
+            # Another process may have created the store while this one waited for the write lock.
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
             if version == 0:
                 self._set("store_id", uuid7())
                 self._set("store_key", secrets.token_hex(32))
