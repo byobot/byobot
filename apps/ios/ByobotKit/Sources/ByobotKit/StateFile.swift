@@ -17,6 +17,7 @@ public struct StateFile: Sendable {
     }
 
     public struct Locked: LocalizedError {
+        public init() {}
         public var errorDescription: String? {
             "Couldn't read what this phone keeps, so nothing is saved until you open the app again."
         }
