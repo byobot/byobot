@@ -40,6 +40,8 @@ def test_recover_says_so_when_a_checkpoint_part_is_missing(store, tmp_path):
     keeper = Keeper.setup(store, folder, clock, recovery=True)
     folder.delete(segment.name("checkpoint", keeper.epoch, 0))
     fresh = Store(tmp_path / "new-mac.db")
+    mine = fresh.device_id
     with pytest.raises(ByobotError, match="can't be read"):
         Keeper.recover(fresh, folder, keeper.recovery_code, clock)
     assert not fresh.conn.execute("SELECT 1 FROM cloud_meta").fetchone()  # it can run again
+    assert fresh.device_id == mine

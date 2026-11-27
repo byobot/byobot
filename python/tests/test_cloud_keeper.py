@@ -59,6 +59,7 @@ def joined(keeper, folder, device_id=PHONE):
 
 
 def test_setup_starts_an_epoch_and_only_once(store, folder, keeper):
+    assert keeper.device_id == store.device_id  # the Mac has one id, on the hub and in Drive
     listing = folder.list()
     assert files.epoch_path(1) in listing and any(p.startswith("plan/0001-") for p in listing)
     with pytest.raises(ByobotError, match="already"):

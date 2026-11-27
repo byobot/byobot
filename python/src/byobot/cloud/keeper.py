@@ -18,7 +18,7 @@ from .. import __version__
 from ..core import relay as rules
 from ..core import sources
 from ..core.store import Store
-from ..util import ByobotError, ValidationFailed, uuid7
+from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
@@ -34,9 +34,9 @@ NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
         self.store, self.folder, self.clock = store, folder, clock
-        if self._get("device_id") is None:
+        if self._get("identity") is None:
             raise ByobotError("the cloud logbook isn't set up for this store; run byobot cloud setup")
-        self.device_id = self._get("device_id")
+        self.device_id = store.device_id  # the keeper is the Mac, by the one id it has
         self.identity = Identity.from_private(json.loads(self._get("identity")))
         self.recovery_code: str | None = None
 
@@ -47,21 +47,21 @@ class Keeper:
               recovery: bool = False) -> Keeper:
         """Make this store the folder's keeper and start the first epoch. With ``recovery``, ``recovery_code`` on
         the result is shown once and opens every later epoch's recovery key."""
-        if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
+        if is_keeper(store):
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
         if any(p.startswith("epochs/") for p in listing) and not _closed(folder, listing):
             raise ByobotError("this cloud folder already has a keeper; run `byobot cloud recover` with the recovery code instead")
         identity = Identity.generate()
         code = recovery_code() if recovery else None
-        meta = [("device_id", uuid7()), ("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
+        meta = [("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
                 ("checkpoint_position", "0")]
         if code:
             meta.append(("recovery_key", b64(recovery_key(code, store.store_id))))
         with store._tx():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
             store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES "
-                               "(?, 'keeper', ?, ?, 1, 1)", (meta[0][1], identity.public()["box"],
+                               "(?, 'keeper', ?, ?, 1, 1)", (store.device_id, identity.public()["box"],
                                                              identity.public()["sign"]))
         keeper = cls(store, folder, clock)
         keeper.start_epoch()
@@ -72,7 +72,7 @@ class Keeper:
     def recover(cls, store: Store, folder: Folder, code: str, clock: Callable[[], float] = time.time) -> Keeper:
         """Become the keeper again from the folder and the recovery code: on a new Mac with an empty store, or on
         one restored from an export of this store. Reads every epoch the code opens, then starts a new one."""
-        if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
+        if is_keeper(store):
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
         opened: dict[int, dict] = {}
@@ -113,10 +113,12 @@ class Keeper:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
         else:
             store.adopt(store_id, top["store_key"])
-        meta = [("device_id", top["device_id"]), ("identity", json.dumps(identity.private())), ("epoch", n),
+        meta = [("identity", json.dumps(identity.private())), ("epoch", n),
                 ("seq", _top_seq(listing, top["device_id"])), ("checkpoint_position", 0),
                 ("recovery_key", b64(recovery_key(code, store_id)))]
+        mine = store.device_id
         with store._tx():
+            store._set("device_id", top["device_id"])  # this Mac takes the keeper's place, and its id
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
@@ -135,6 +137,7 @@ class Keeper:
                 for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown",
                               "cloud_refused"):
                     store.conn.execute(f"DELETE FROM {table}")
+                store._set("device_id", mine)
             raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
                               f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
                               "from an export instead, or upgrade byobot and run `byobot cloud recover` again")
@@ -753,9 +756,9 @@ def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> b
     """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
     last ``every`` seconds. A try stamped in the future (the clock ran ahead) counts as due. Reads only, so a store
     without Drive sync is left as it is."""
-    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('device_id', 'off', 'tried_at')"))
+    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('identity', 'off', 'tried_at')"))
     since = clock() - float(meta.get("tried_at", 0))
-    return "device_id" in meta and "off" not in meta and (since >= every or since < 0)
+    return "identity" in meta and "off" not in meta and (since >= every or since < 0)
 
 
 def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
@@ -765,7 +768,7 @@ def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
 
 def is_keeper(store: Store) -> bool:
     """Whether this store keeps a cloud folder."""
-    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone() is not None
+    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'identity'").fetchone() is not None
 
 
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
