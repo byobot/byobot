@@ -304,7 +304,7 @@ class Keeper:
         if not join:
             return {}
         if self.clock() > join["expires"]:
-            return self._joined({"join": "expired"}, listing)
+            return self._joined({"join": "expired"}, listing, join)
         secret = unb64(join["secret"])
         active = {d["id"] for d in self.devices()}  # a removed phone may answer a new code with the same id
         valid = []
@@ -326,7 +326,7 @@ class Keeper:
         if not valid:
             return {}
         if len(valid) > 1:
-            return self._joined({"join": "refused: two devices answered one code; show a new code"}, listing)
+            return self._joined({"join": "refused: two devices answered one code; show a new code"}, listing, join)
         device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
         path = files.key_path(self.epoch, device["id"])
         try:  # the code stays good until the phone's key is in the folder
@@ -340,19 +340,23 @@ class Keeper:
                 landed = None
             if landed != device:
                 raise
-        return self._joined({"join": "admitted", "device": device["id"]}, listing, device)
+        return self._joined({"join": "admitted", "device": device["id"]}, listing, join, device)
 
-    def _joined(self, outcome: dict, listing: dict[str, str], device: dict | None = None) -> dict:
+    def _joined(self, outcome: dict, listing: dict[str, str], join: dict, device: dict | None = None) -> dict:
         """End ``join``: enrol the device if one was admitted, or one whose key file a sync cut short already
         wrote, keep the outcome for `cloud join`, and delete the device files no one admitted, so those phones can
-        answer a new code."""
+        answer a new code. A newer code shown meanwhile is left as it is."""
         if device is None and (device := self._sealed(listing)):
             outcome = {"join": "admitted", "device": device["id"]}
         with self.store._tx():
             if device:
                 self._take(device)
-            self._unset("join")
-            self._set("last_join", json.dumps(outcome))
+            replaced = json.loads(self._get("join") or "null") != join
+            if not replaced:
+                self._unset("join")
+                self._set("last_join", json.dumps(outcome))
+        if replaced:
+            return outcome
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
         for path in listing:
             if path.startswith("devices/") and path.endswith(".json") and path[8:-5] not in known:

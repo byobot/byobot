@@ -985,7 +985,8 @@ def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
     from byobot.cloud import drive
 
     keeper = _keeper(ctx)
-    code = keeper.join_code()
+    with _lock(keeper.store):  # a sync in `serve` ending the last code doesn't unset this one
+        code = keeper.join_code()
     ios = (credentials.load(drive.NAME) or {}).get("ios_client_id")
     link = code["link"] + (f"&client={ios}" if ios else "")
     out = {"link": link, "expires": datetime.fromtimestamp(code["expires"]).astimezone().isoformat(timespec="seconds")}
