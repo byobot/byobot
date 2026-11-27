@@ -38,3 +38,16 @@ def test_keychain_account_names_the_profile(monkeypatch):
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
     credentials.load("example")
     assert [c[c.index("-a") + 1] for c in calls] == ["example", "alex/example"]
+
+
+def test_each_save_writes_its_own_temporary_file(byobot_home, monkeypatch):
+    temps, replace = [], os.replace
+    monkeypatch.setattr(credentials.os, "replace", lambda a, b: temps.append(a) or replace(a, b))
+    credentials.save("example", {"n": 1})
+    credentials.save("example", {"n": 2})
+    assert len(set(temps)) == 2
+    monkeypatch.setattr(credentials.os, "replace", lambda a, b: (_ for _ in ()).throw(OSError("busy")))
+    with pytest.raises(OSError):
+        credentials.save("example", {"n": 3})
+    assert [p.name for p in (byobot_home / "credentials").iterdir()] == ["example.json"]
+    assert credentials.load("example") == {"n": 2}
