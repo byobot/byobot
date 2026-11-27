@@ -146,10 +146,10 @@ def short_fingerprint(fp: str) -> str:
 
 # -- port --------------------------------------------------------------------
 
-def choose_port(host: str) -> int:
+def choose_port() -> int:
     """The port this profile used last, else 8765 for the default profile, else a free one from 8767 to 8779 or
     8880 to 8979 (8780 to 8879 are remote's). The port is kept, so a paired phone keeps finding its laptop."""
-    return util.choose_port("serve", host, DEFAULT_PORT, [*range(8767, 8780), *range(8880, 8980)])
+    return util.choose_port("serve", DEFAULT_PORT, [*range(8767, 8780), *range(8880, 8980)])
 
 
 def server_name() -> str:
@@ -678,7 +678,8 @@ class CloudPoller(threading.Thread):
 
 def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool | None = None, tls: bool = True,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> tuple[Server, dict]:
-    """Build a server (not yet serving). ``pair=None`` opens pairing only when no device is paired yet."""
+    """Build a server (not yet serving). ``pair=None`` opens pairing only when no device is paired yet. It listens on
+    every interface by default, so a phone on the same network can reach it."""
     db = db or db_path()
     with Store(db) as store:
         device_id = store.device_id
@@ -710,7 +711,7 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
         sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
         sys.stderr.flush()
 
-    port = port or choose_port(host)
+    port = port or choose_port()
     try:
         server, info = make_server(host, port, pair=pair, log=log)
     except OSError as exc:
