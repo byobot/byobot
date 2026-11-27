@@ -422,12 +422,10 @@ def test_queries_read_and_refuse_writes_the_key_and_token_hashes(tmp_path):
 
 
 def test_queries_read_only_documented_tables_and_columns(tmp_path):
-    from byobot.cloud.keeper import DDL as CLOUD_DDL
-
     with Store(tmp_path / "s.db", wall=Wall()) as s:
-        s.conn.executescript(CLOUD_DDL + "CREATE TABLE stray (secret TEXT);")
+        s.conn.executescript("CREATE TABLE stray (secret TEXT);")
         cloud = [r[0] for r in s.conn.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'cloud_%'")]
-    assert cloud
+    assert len(cloud) == 6
     for table in [*cloud, "stray"]:
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", f"SELECT * FROM {table}")

@@ -70,6 +70,15 @@ CREATE TABLE IF NOT EXISTS peers (
 CREATE TABLE IF NOT EXISTS rejections (
   device_id TEXT NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (device_id, event_id));
+CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_devices (
+  id TEXT PRIMARY KEY, class TEXT NOT NULL, box TEXT NOT NULL, sign TEXT NOT NULL, joined_epoch INTEGER NOT NULL,
+  moved_epoch INTEGER NOT NULL, last_seq INTEGER, removed INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
+  PRIMARY KEY (path, line));
 """
 PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
 
@@ -733,13 +742,14 @@ def ddl() -> str:
 
 
 _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
-# The store's own key and the paired devices' token hashes stay out of queries.
-_UNREADABLE = {("meta", None), ("peers", "token_sha256")}
+# The store's own key, the paired devices' token hashes and Drive sync's keys and bookkeeping stay out of queries.
+_UNREADABLE = {("meta", None), ("peers", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
+               ("cloud_devices", None), ("cloud_read", None), ("cloud_shown", None), ("cloud_refused", None)}
 
 
 @functools.cache
 def _readable() -> dict[str, frozenset[str]]:
-    """The tables, views and columns `ddl()` documents; anything else in the file, such as Drive keys, stays out."""
+    """The tables, views and columns `ddl()` documents, less those kept out; anything else in the file stays out."""
     conn = sqlite3.connect(":memory:")
     try:
         conn.executescript(ddl())

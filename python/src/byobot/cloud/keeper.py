@@ -2,7 +2,7 @@
 
 Each sync it admits a device that joined with the current join code, reads every segment it hasn't read
 (a relay's through the same accept rules as the hub, its own in full), publishes what it holds that the folder
-doesn't show yet, and publishes the plan when it changed. Its cloud state lives in the store, beside ``peers``.
+doesn't show yet, and publishes the plan when it changed. Its cloud state lives in the store's ``cloud_`` tables.
 """
 
 from __future__ import annotations
@@ -31,23 +31,9 @@ MISSING_S = 30  # past Drive's change-feed lag
 SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
 NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
 
-DDL = """
-CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_devices (
-  id TEXT PRIMARY KEY, class TEXT NOT NULL, box TEXT NOT NULL, sign TEXT NOT NULL, joined_epoch INTEGER NOT NULL,
-  moved_epoch INTEGER NOT NULL, last_seq INTEGER, removed INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
-  PRIMARY KEY (path, line));
-"""
-
-
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
         self.store, self.folder, self.clock = store, folder, clock
-        _tables(store)
         if self._get("device_id") is None:
             raise ByobotError("the cloud logbook isn't set up for this store; run byobot cloud setup")
         self.device_id = self._get("device_id")
@@ -61,7 +47,6 @@ class Keeper:
               recovery: bool = False) -> Keeper:
         """Make this store the folder's keeper and start the first epoch. With ``recovery``, ``recovery_code`` on
         the result is shown once and opens every later epoch's recovery key."""
-        _tables(store)
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
@@ -87,7 +72,6 @@ class Keeper:
     def recover(cls, store: Store, folder: Folder, code: str, clock: Callable[[], float] = time.time) -> Keeper:
         """Become the keeper again from the folder and the recovery code: on a new Mac with an empty store, or on
         one restored from an export of this store. Reads every epoch the code opens, then starts a new one."""
-        _tables(store)
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
@@ -765,18 +749,10 @@ def _when(stamp: str | None) -> str | None:
     return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
 
 
-def _tables(store: Store) -> None:
-    for statement in DDL.strip().split(";"):
-        if statement.strip():
-            store.conn.execute(statement)
-
-
 def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:
     """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
     last ``every`` seconds. A try stamped in the future (the clock ran ahead) counts as due. Reads only, so a store
     without Drive sync is left as it is."""
-    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cloud_meta'").fetchone():
-        return False
     meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('device_id', 'off', 'tried_at')"))
     since = clock() - float(meta.get("tried_at", 0))
     return "device_id" in meta and "off" not in meta and (since >= every or since < 0)
@@ -789,7 +765,6 @@ def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
 
 def is_keeper(store: Store) -> bool:
     """Whether this store keeps a cloud folder."""
-    _tables(store)
     return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone() is not None
 
 

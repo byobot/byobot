@@ -103,7 +103,7 @@ def test_a_store_without_drive_sync_is_left_as_it_is(tmp_path):
     ctx = Context(actor=CLI)
     run("init", ctx, {})
     run("status", ctx, {})
-    assert not ctx.store().conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'cloud_meta'").fetchone()
+    assert not ctx.store().conn.execute("SELECT 1 FROM cloud_meta").fetchone()
     ctx.close()
 
 
