@@ -5,6 +5,7 @@ from pathlib import Path
 from byobot import commands
 from byobot.cloud.drive import UpstreamError
 from byobot.commands import run
+from byobot.serve import CloudPoller
 from byobot.util import sync_folder_warning
 
 from test_cloud_auto import age, phone  # noqa: F401 - fixtures
@@ -62,7 +63,7 @@ def test_status_warns_about_a_synced_home(tmp_path, monkeypatch):
     ctx.close()
 
 
-def test_status_doesnt_wait_on_drive_again_right_after_a_failed_sync(phone, monkeypatch):  # noqa: F811
+def test_status_shows_a_background_sync_failure_without_asking_drive(phone, monkeypatch):  # noqa: F811
     ctx, _ = phone
 
     def unreachable(store, quick=False):
@@ -71,7 +72,7 @@ def test_status_doesnt_wait_on_drive_again_right_after_a_failed_sync(phone, monk
     commands._folders.clear()
     monkeypatch.setattr(commands, "_drive_folder", unreachable)
     age(ctx)
-    assert run("cloud status", ctx, {})["error"] == "can't reach Google Drive: offline"
+    CloudPoller(ctx.path, [].append).poll()
 
     def never(store, quick=False):
         raise AssertionError("asked Drive again")
