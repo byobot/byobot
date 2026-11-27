@@ -1143,18 +1143,6 @@ def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = Non
 
 
 @command(
-    "cloud compact",
-    "Rewrite the Drive copy into a new epoch now. The old files are deleted once every device has moved.",
-    read_only=False,
-    mcp=False,
-)
-def _cloud_compact(ctx: Context) -> dict:
-    keeper = _keeper(ctx)
-    with sync.lock(keeper.store):
-        return {"epoch": keeper.compact()}
-
-
-@command(
     "cloud rotate",
     "Sign the Drive copy with new keys from a new epoch on; every phone follows on its next sync. For a Mac "
     "whose keys may have leaked.",
