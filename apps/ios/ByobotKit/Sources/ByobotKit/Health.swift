@@ -145,7 +145,7 @@ public enum HealthMapping {
 
     /// A day's total keyed on its type and local date. It carries when it was read, so a later read of a day
     /// still under way is a new revision of the same record.
-    public static func sample(_ d: DailyTotal, readAt: Date, calendar: Calendar = .current) -> Sample? {
+    public static func sample(_ d: DailyTotal, readAt: Date, calendar: Calendar = .contract) -> Sample? {
         guard let spec = spec(d.type), d.value.isFinite, d.value > 0, d.value <= (spec.maximum ?? .infinity),
               d.end > d.start else { return nil }
         let day = calendar.dateComponents([.year, .month, .day], from: d.start)

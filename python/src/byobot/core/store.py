@@ -9,6 +9,7 @@ Accepting an event re-derives only that record, so cost doesn't grow with histor
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import secrets
 import sqlite3
@@ -130,7 +131,7 @@ class Store:
                 raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
                                   "aside to start a new store, and import your sources again")
             raise ByobotError(f"{self.path} was written by a newer byobot (store version {version}); upgrade byobot")
-        reshaped = version != 0 and self._get("shape") != reducers.SHAPE
+        reshaped = version != 0 and self._get("shape") != self._shape(self.contract)
         with self._tx():
             if reshaped:
                 reducers.drop(self.conn)
@@ -142,22 +143,14 @@ class Store:
                 self._set("store_key", secrets.token_hex(32))
                 self._set("device_id", device_id or f"device-{secrets.token_hex(4)}")
                 self._set("hlc", hlc.format((0, 0)))
-                self._set("contract", self.contract.fingerprint())
+                self._set("shape", self._shape(self.contract))
+                reducers.seed_library(self.conn)
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
-            if not reshaped:
-                self._set("shape", reducers.SHAPE)
-            if self._get("library") != library.fingerprint():
-                reducers.seed_library(self.conn)
-                self._set("library", library.fingerprint())
-        if reshaped:  # the new shape is recorded with the rebuild, so one cut short runs again on the next open
-            with self._tx():
-                self.rebuild()
-                self._set("shape", reducers.SHAPE)
-        self._repair_clock()
-        if self._get("contract") != self.contract.fingerprint():
+        if reshaped:
             self.use(self.contract)
+        self._repair_clock()
 
     def _repair_clock(self) -> None:
         """A store that took a clock reading past the ceiling before such events were refused writes after the
@@ -444,44 +437,25 @@ class Store:
             self._set("store_id", store_id)
             self._set("store_key", store_key)
 
+    @staticmethod
+    def _shape(contract: Contract) -> str:
+        """Everything derived tables are computed from besides the logbook: their DDL and rules, the contract
+        and the library. Any change rebuilds them."""
+        return hashlib.sha256(jcs([reducers.SHAPE, contract.fingerprint(), library.fingerprint()]).encode()).hexdigest()
+
     def use(self, contract: Contract) -> None:
-        """Switch to another contract (an upgrade or a downgrade) and re-derive every record it reads differently."""
+        """Switch to another contract (an upgrade or a downgrade) and re-derive every record. The new shape is
+        recorded with the rebuild, so one cut short runs again on the next open."""
         self.contract = contract
         with self._tx():
-            unread = {r[0]: (r[1], r[2]) for r in self.conn.execute("SELECT * FROM unprojected")}
-            now = {}
+            self.conn.execute("DELETE FROM unprojected")
             for row in self.conn.execute("SELECT e.id, e.kind, e.record_id, e.op, e.kind_version, l.id FROM events e "
-                                         "LEFT JOIN later_events l ON l.id = e.id"):
+                                         "LEFT JOIN later_events l ON l.id = e.id").fetchall():
                 probe = {"record": {"kind": row[1], "id": row[2]}, "op": row[3], "kind_version": row[4]}
                 if row[5] is not None or not contract.understands(probe):
-                    now[row[0]] = (row[1], row[2])
-            changed = {unread.get(i) or now.get(i) for i in set(unread) ^ set(now)}
-            for kind in self._versions_changed(contract):  # their records now read through an upcast
-                changed |= {tuple(r) for r in self.conn.execute("SELECT kind, id FROM records WHERE live AND kind = ?",
-                                                                (kind,))}
-            if self._units_changed(contract):
-                changed |= {tuple(r) for r in self.conn.execute(
-                    "SELECT kind, id FROM records WHERE live AND kind IN ('planned_session', 'session', 'effort', "
-                    "'observation')")}
-            self.conn.execute("DELETE FROM unprojected")
-            self.conn.executemany("INSERT INTO unprojected VALUES (?, ?, ?)", [(i, *r) for i, r in now.items()])
-            for kind, rid in sorted(changed):
-                self._reindex(kind, rid)
-            self._set("contract", contract.fingerprint())
-
-    def _versions_changed(self, contract: Contract) -> set[str]:
-        try:
-            was = json.loads(self._get("contract") or "[{}]")[0]
-        except ValueError:
-            was = {}
-        now = json.loads(contract.fingerprint())[0]
-        return {k for k in set(was) | set(now) if was.get(k) != now.get(k)}
-
-    def _units_changed(self, contract: Contract) -> bool:
-        try:
-            return json.loads(self._get("contract") or "[]")[2:] != json.loads(contract.fingerprint())[2:]
-        except ValueError:
-            return True
+                    self.conn.execute("INSERT INTO unprojected VALUES (?, ?, ?)", (row[0], row[1], row[2]))
+            self.rebuild()
+            self._set("shape", self._shape(contract))
 
     def rebuild(self) -> None:
         """Re-derive every record from the logbook. A repair tool: accepting never needs it."""
