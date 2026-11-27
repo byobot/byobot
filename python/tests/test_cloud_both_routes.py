@@ -105,7 +105,7 @@ def hub(byobot_home):
 
 class Routes:
     """The phone with both routes. A deletion of a sample the keeper hasn't read yet goes by the cloud relay, which
-    drops a sample not yet sent and holds the deletion of one in flight; anything else may go either way."""
+    drops a sample not yet sent; anything else may go either way."""
 
     def __init__(self, hub, store, tmp_path):
         self.hub, self.store = hub, store
@@ -135,7 +135,7 @@ class Routes:
             self.keeper.sync()
         self.relay.sync()
         r = self.relay
-        assert r.events == {} and r.samples == [] and r.sent == {} and r.held == []
+        assert r.events == {} and r.samples == [] and r.sent == {}
 
 
 def weighed(source_id="W1"):
@@ -173,12 +173,12 @@ def test_a_week_through_both_routes_lands_as_through_the_hub(hub, store, tmp_pat
     assert held(store) == wanted
 
 
-def test_a_deletion_waits_for_its_sample_sent_the_other_way(hub, store, tmp_path):
+def test_a_deletion_of_a_sample_in_flight_goes_at_once(hub, store, tmp_path):
     phone = Routes(hub, store, tmp_path)
     phone.by_cloud("samples", {"samples": [weighed()]})
     phone.relay.sync()
     phone.by_hub("samples", deletion())
-    assert phone.relay.held and phone.relay.sync()["written"] == 0  # not sent before the keeper reads the sample
+    assert phone.relay.sync()["written"] == 1
     phone.settle()
     assert samples(store) == [] and store.rows("SELECT code FROM observations") == []
 

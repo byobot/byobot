@@ -104,7 +104,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     var sent: [String: Carried] = [:]
     /// Sample batches the keeper refused, with why.
     public private(set) var refused: [RefusedBatch] = []
-    /// Deletions waiting until the keeper reads the samples they delete.
+    /// Deletions an older app held back; they go on the next sync.
     public private(set) var held: [Deletion] = []
     /// Events the keeper read since they were last taken.
     var delivered: [String] = []
@@ -180,13 +180,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         return Set(delivered)
     }
 
-    /// Queues samples and deletions. A deletion of a sample not yet sent drops it; one of a sample in a segment the
-    /// keeper hasn't read waits for it, so the keeper never sees a deletion before its sample.
+    /// Queues samples and deletions. A deletion of a sample not yet sent drops it; the Mac keeps a deletion that
+    /// comes before its sample, so none waits.
     public mutating func send(_ batch: SampleBatch) {
         drop(Set(batch.deleted.map(\.sourceId)))
-        let flying = inFlight
-        held += batch.deleted.filter { flying.contains($0.sourceId) }
-        queue(SampleBatch(samples: batch.samples, deleted: batch.deleted.filter { !flying.contains($0.sourceId) }))
+        queue(batch)
     }
 
     /// The source ids of samples in segments the keeper hasn't read yet.
@@ -206,13 +204,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         samples.removeAll { $0.size == 0 }
     }
 
-    /// Queues the held deletions whose samples the keeper has read, or that will never reach it.
     mutating func release() {
+        guard !held.isEmpty else { return }
         drop(Set(held.map(\.sourceId)))
-        let flying = inFlight
-        let ready = held.filter { !flying.contains($0.sourceId) }
-        held.removeAll { !flying.contains($0.sourceId) }
-        queue(SampleBatch(deleted: ready))
+        queue(SampleBatch(deleted: held))
+        held = []
     }
 
     mutating func queue(_ batch: SampleBatch) {
