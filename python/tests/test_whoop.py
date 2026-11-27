@@ -267,9 +267,11 @@ def test_import_keeps_each_record_and_reads_it_toward_the_morning(monkeypatch, s
     assert found["whoop_recovery_score"]["started_at"] == "2026-11-20T11:00:00.000Z"  # when you woke
     assert found["sleep_deep_duration"]["value"] == 5400 and found["oxygen_saturation"]["value"] == 96.5
     assert review(store, 1, "2026-11-22")["recovery"] == [
-        {"date": "2026-11-20", "asleep_h": 7.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68, "resting_hr_bpm": 52,
-         "respiratory_rate_bpm": 15.2, "skin_temp_c": 33.4, "sleep_performance_pct": 91, "spo2_pct": 96.5,
-         "strain": 12.7}]
+        {"date": "2026-11-20", "asleep": {"value": 7.5, "unit": "h"}, "hrv_rmssd": {"value": 61.2, "unit": "ms"},
+         "oxygen_saturation": {"value": 96.5, "unit": "%"}, "respiratory_rate": {"value": 15.2, "unit": "/min"},
+         "resting_heart_rate": {"value": 52, "unit": "/min"}, "skin_temperature": {"value": 33.4, "unit": "Cel"},
+         "whoop_recovery_score": {"value": 68, "unit": "%"}, "whoop_sleep_performance": {"value": 91, "unit": "%"},
+         "whoop_strain": {"value": 12.7}}]
     assert {r["actor_kind"] for r in store.rows("SELECT actor_kind FROM events")} == {"connector"}
 
 

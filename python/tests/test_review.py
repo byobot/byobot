@@ -78,8 +78,9 @@ def test_review_shows_recovery_and_imported_workouts(store):
           ("workout", "w1", scored({"id": "w1", "start": "2026-11-20T17:00:00Z", "end": "2026-11-20T17:45:00Z",
                                     "timezone_offset": "-05:00", "sport_name": "running"})))
     out = review(store, 1, "2026-11-22")
-    assert out["recovery"] == [{"date": "2026-11-20", "asleep_h": 3.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68,
-                                "strain": 12.7}]
+    assert out["recovery"] == [{"date": "2026-11-20", "asleep": {"value": 3.5, "unit": "h"},
+                                "hrv_rmssd": {"value": 61.2, "unit": "ms"},
+                                "whoop_recovery_score": {"value": 68, "unit": "%"}, "whoop_strain": {"value": 12.7}}]
     assert out["sessions"] == [{"date": "2026-11-20", "name": "running", "metrics": {"duration": "45 min"},
                                 "sources": ["whoop"]}]
 
@@ -132,10 +133,12 @@ def test_review_takes_each_metric_from_one_source(store):
     ])
     out = review(store, 1, "2026-11-22")
     assert out["recovery"] == [
-        {"date": "2026-11-20", "asleep_h": 2.0, "hrv_rmssd_ms": 61, "resting_hr_bpm": 48},
-        {"date": "2026-11-21", "asleep_h": 6.0, "hrv_sdnn_ms": 55},
+        {"date": "2026-11-20", "asleep": {"value": 2.0, "unit": "h"}, "hrv_rmssd": {"value": 61, "unit": "ms"},
+         "resting_heart_rate": {"value": 48, "unit": "/min"}},
+        {"date": "2026-11-21", "asleep": {"value": 6.0, "unit": "h"}, "hrv_sdnn": {"value": 55, "unit": "ms"}},
     ]
-    assert out["body"] == [{"date": "2026-11-20", "body_fat_pct": 18.4, "weight_kg": 82.4}]
+    assert out["body"] == [{"date": "2026-11-20", "body_fat_percentage": {"value": 18.4, "unit": "%"},
+                            "body_mass": {"value": 82.4, "unit": "kg"}}]
 
 
 def test_your_own_measurement_comes_first(capsys, store):
@@ -145,7 +148,7 @@ def test_your_own_measurement_comes_first(capsys, store):
     assert cli(capsys, "log", "observation",
                '{"code": "body_mass", "value": 81.5, "unit": "kg", "time": {"start": "2026-11-20T08:00:00"}}')[0] == 0
     assert cli(capsys, "review", "--weeks", "1", "--until", "2026-11-22")[1]["body"] == [
-        {"date": "2026-11-20", "weight_kg": 81.5}]
+        {"date": "2026-11-20", "body_mass": {"value": 81.5, "unit": "kg"}}]
 
 
 def test_review_shows_activity_mobility_and_vitals(store):
@@ -172,9 +175,11 @@ def test_review_shows_activity_mobility_and_vitals(store):
     whoop(store, ("recovery", "8", scored({"cycle_id": 8, "created_at": at("2026-11-21T07:00:00")},
                                           skin_temp_celsius=33.4)))
     out = review(store, 1, "2026-11-22")
-    assert out["activity"] == [{"date": "2026-11-20", "avg_hr_bpm": 71.4, "exercise_min": 42, "steps": 9412,
-                                "walk_run_km": 7.2}]
-    assert out["mobility"] == [{"date": "2026-11-20", "walking_speed_kmh": 4.7}]
-    assert out["vitals"] == [{"date": "2026-11-20", "bp_systolic_mmhg": 118}]
-    assert out["body"] == [{"date": "2026-11-20", "waist_cm": 82}]
-    assert [(d["date"], d["skin_temp_c"]) for d in out["recovery"]] == [("2026-11-21", 33.4), ("2026-11-22", 35.1)]
+    assert out["activity"] == [{"date": "2026-11-20", "distance_walking_running": {"value": 7.2, "unit": "km"},
+                                "exercise_time": {"value": 42, "unit": "min"},
+                                "heart_rate": {"value": 71.4, "unit": "/min"}, "step_count": {"value": 9412}}]
+    assert out["mobility"] == [{"date": "2026-11-20", "walking_speed": {"value": 4.7, "unit": "km/h"}}]
+    assert out["vitals"] == [{"date": "2026-11-20", "blood_pressure_systolic": {"value": 118, "unit": "mm[Hg]"}}]
+    assert out["body"] == [{"date": "2026-11-20", "waist_circumference": {"value": 82, "unit": "cm"}}]
+    assert [{k: v["value"] for k, v in d.items() if k != "date"} | {"date": d["date"]} for d in out["recovery"]] == [
+        {"date": "2026-11-21", "skin_temperature": 33.4}, {"date": "2026-11-22", "sleeping_wrist_temperature": 35.1}]

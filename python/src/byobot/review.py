@@ -38,39 +38,36 @@ def _round(x):
     return int(x) if isinstance(x, float) and x.is_integer() else x
 
 
-# Code -> review key, and the factor from the code's own unit. A day keeps its latest value, except MEAN keys,
-# which average.
-RECOVERY = {"whoop_recovery_score": ("recovery_pct", 1), "hrv_rmssd": ("hrv_rmssd_ms", 1), "hrv_sdnn": ("hrv_sdnn_ms", 1),
-            "resting_heart_rate": ("resting_hr_bpm", 1), "whoop_sleep_performance": ("sleep_performance_pct", 1),
-            "whoop_strain": ("strain", 1), "skin_temperature": ("skin_temp_c", 1),
-            "sleeping_wrist_temperature": ("skin_temp_c", 1), "respiratory_rate": ("respiratory_rate_bpm", 1),
-            "oxygen_saturation": ("spo2_pct", 1)}
-BODY = {"body_mass": ("weight_kg", 1), "body_fat_percentage": ("body_fat_pct", 1),
-        "lean_body_mass": ("lean_mass_kg", 1), "vo2_max": ("vo2max", 1), "body_mass_index": ("bmi", 1),
-        "waist_circumference": ("waist_cm", 100), "height": ("height_cm", 100)}
-ACTIVITY = {"step_count": ("steps", 1), "distance_walking_running": ("walk_run_km", 0.001),
-            "distance_cycling": ("cycling_km", 0.001), "distance_swimming": ("swimming_km", 0.001),
-            "flights_climbed": ("flights", 1), "active_energy": ("active_kcal", 1),
-            "basal_energy": ("resting_kcal", 1), "exercise_time": ("exercise_min", 1 / 60),
-            "stand_time": ("stand_min", 1 / 60), "heart_rate": ("avg_hr_bpm", 1),
-            "walking_heart_rate_average": ("walking_hr_bpm", 1),
-            "heart_rate_recovery_one_minute": ("hr_recovery_1min_bpm", 1)}
-MOBILITY = {"walking_speed": ("walking_speed_kmh", 3.6), "walking_step_length": ("step_length_cm", 100),
-            "walking_double_support_percentage": ("double_support_pct", 1),
-            "walking_asymmetry_percentage": ("walking_asymmetry_pct", 1),
-            "walking_steadiness": ("walking_steadiness_pct", 1),
-            "six_minute_walk_test_distance": ("six_minute_walk_m", 1), "stair_ascent_speed": ("stair_up_kmh", 3.6),
-            "stair_descent_speed": ("stair_down_kmh", 3.6)}
-VITALS = {"blood_pressure_systolic": ("bp_systolic_mmhg", 1), "blood_pressure_diastolic": ("bp_diastolic_mmhg", 1),
-          "blood_glucose": ("glucose_mg_dl", 1), "body_temperature": ("body_temp_c", 1)}
+# Code -> the unit a review shows it in, as the registry spells units, and the factor from the code's own unit. A
+# day keeps its latest value, except MEAN codes, which average.
+RECOVERY = {"whoop_recovery_score": ("%", 1), "hrv_rmssd": ("ms", 1), "hrv_sdnn": ("ms", 1),
+            "resting_heart_rate": ("/min", 1), "whoop_sleep_performance": ("%", 1), "whoop_strain": (None, 1),
+            "skin_temperature": ("Cel", 1), "sleeping_wrist_temperature": ("Cel", 1),
+            "respiratory_rate": ("/min", 1), "oxygen_saturation": ("%", 1)}
+BODY = {"body_mass": ("kg", 1), "body_fat_percentage": ("%", 1), "lean_body_mass": ("kg", 1),
+        "vo2_max": ("mL/(kg.min)", 1), "body_mass_index": ("kg/m2", 1), "waist_circumference": ("cm", 100),
+        "height": ("cm", 100)}
+ACTIVITY = {"step_count": (None, 1), "distance_walking_running": ("km", 0.001), "distance_cycling": ("km", 0.001),
+            "distance_swimming": ("km", 0.001), "flights_climbed": (None, 1), "active_energy": ("kcal", 1),
+            "basal_energy": ("kcal", 1), "exercise_time": ("min", 1 / 60), "stand_time": ("min", 1 / 60),
+            "heart_rate": ("/min", 1), "walking_heart_rate_average": ("/min", 1),
+            "heart_rate_recovery_one_minute": ("/min", 1)}
+MOBILITY = {"walking_speed": ("km/h", 3.6), "walking_step_length": ("cm", 100),
+            "walking_double_support_percentage": ("%", 1), "walking_asymmetry_percentage": ("%", 1),
+            "walking_steadiness": ("%", 1), "six_minute_walk_test_distance": ("m", 1),
+            "stair_ascent_speed": ("km/h", 3.6), "stair_descent_speed": ("km/h", 3.6)}
+VITALS = {"blood_pressure_systolic": ("mm[Hg]", 1), "blood_pressure_diastolic": ("mm[Hg]", 1),
+          "blood_glucose": ("mg/dL", 1), "body_temperature": ("Cel", 1)}
 KEYS = {**RECOVERY, **BODY, **ACTIVITY, **MOBILITY, **VITALS}
-MEAN = {k for k, _ in (*MOBILITY.values(), *VITALS.values())} | {"hr_recovery_1min_bpm"}
+ASLEEP_KEY = "asleep"  # time asleep in a night, from its stages, in hours
+UNITS = {**{k: unit for k, (unit, _) in KEYS.items()}, ASLEEP_KEY: "h"}
+MEAN = {*MOBILITY, *VITALS, "heart_rate_recovery_one_minute"}
 # Measured overnight, so they count toward the morning, like sleep.
 OVERNIGHT = {"sleeping_wrist_temperature"}
 ASLEEP = ("sleep_light_duration", "sleep_deep_duration", "sleep_rem_duration")
 ASLEEP_STAGES = ("asleep_unspecified", "asleep_core", "asleep_deep", "asleep_rem")
-# Keys that measure the same thing, so a day takes them from one source.
-SAME = {"hrv_sdnn_ms": "hrv", "hrv_rmssd_ms": "hrv"}
+# Codes that measure the same thing, so a day takes them from one source.
+SAME = {"hrv_sdnn": "hrv", "hrv_rmssd": "hrv", "sleeping_wrist_temperature": "skin_temperature"}
 
 
 def _night(ended_at: str) -> str:
@@ -80,7 +77,7 @@ def _night(ended_at: str) -> str:
 
 
 def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
-    """Each day's values by review key, each from one source: yours, then sources in source_priority order.
+    """Each day's values by code, each from one source: yours, then sources in source_priority order.
 
     A source's night of sleep comes from the one device that recorded the most of it.
     """
@@ -104,29 +101,30 @@ def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
         if r["std_value"] is None:
             continue
         if r["code"] in ASLEEP:
-            day, key, value = _night(r["ended_at"] or r["started_at"]), "asleep_h", r["std_value"] / 3600
+            day, key, value = _night(r["ended_at"] or r["started_at"]), ASLEEP_KEY, r["std_value"] / 3600
         else:
-            key, factor = KEYS[r["code"]]
+            key, (_, factor) = r["code"], KEYS[r["code"]]
             day = _night(r["ended_at"] or r["started_at"]) if r["code"] in OVERNIGHT else r["local_date"]
             value = r["std_value"] * factor
         found[(day, SAME.get(key, key))][rank].append((key, value))
     for (day, rank), devices in nights.items():
-        if not found[(day, "asleep_h")][rank]:
-            found[(day, "asleep_h")][rank].append(("asleep_h", max(devices.values()) / 3600))
+        if not found[(day, ASLEEP_KEY)][rank]:
+            found[(day, ASLEEP_KEY)][rank].append((ASLEEP_KEY, max(devices.values()) / 3600))
     days: dict[str, dict] = defaultdict(dict)
     for (day, _), ranks in found.items():
         values: dict[str, list] = defaultdict(list)
         for key, value in ranks[min(ranks)]:
             values[key].append(value)
         for key, v in values.items():
-            days[day][key] = sum(v) if key == "asleep_h" else sum(v) / len(v) if key in MEAN else v[-1]
+            days[day][key] = sum(v) if key == ASLEEP_KEY else sum(v) / len(v) if key in MEAN else v[-1]
     return days
 
 
 def _by_day(days: dict[str, dict], keys: set[str], first: str, last: str) -> list[dict]:
     out = []
     for d in sorted(days):
-        values = {k: round(v, 1) for k, v in sorted(days[d].items()) if k in keys}
+        values = {k: {"value": round(v, 1), **({"unit": UNITS[k]} if UNITS[k] else {})}
+                  for k, v in sorted(days[d].items()) if k in keys}
         if values and first <= d <= last:
             out.append({"date": d, **values})
     return out
@@ -207,10 +205,10 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
         },
         "exercises": exercises,
         "weekly_sets_per_muscle": {w: dict(sorted(m.items())) for w, m in sorted(weekly.items())},
-        "recovery": _by_day(daily, {*(k for k, _ in RECOVERY.values()), "asleep_h"}, first, last),
-        "body": _by_day(daily, {k for k, _ in BODY.values()}, first, last),
-        "activity": _by_day(daily, {k for k, _ in ACTIVITY.values()}, first, last),
-        "mobility": _by_day(daily, {k for k, _ in MOBILITY.values()}, first, last),
-        "vitals": _by_day(daily, {k for k, _ in VITALS.values()}, first, last),
+        "recovery": _by_day(daily, {*RECOVERY, ASLEEP_KEY}, first, last),
+        "body": _by_day(daily, set(BODY), first, last),
+        "activity": _by_day(daily, set(ACTIVITY), first, last),
+        "mobility": _by_day(daily, set(MOBILITY), first, last),
+        "vitals": _by_day(daily, set(VITALS), first, last),
         "upcoming": [p for p in planned if p["scheduled_on"] >= last],
     }
