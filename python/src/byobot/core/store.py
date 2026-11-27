@@ -32,36 +32,30 @@ STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 MAX_REJECTIONS = 1000  # per device, newest kept
 TOO_BIG = "a number too large to store"
-COLUMNS = ("id", "kind", "record_id", "op", "kind_version", "hlc", "ts", "device_id", "actor_kind", "actor_id",
-           "actor_model", "prev", "batch", "reverts", "redacted_by", "payload")
-OPTIONAL = ("kind_version", "batch", "reverts", "redacted_by")
-SELECT_EVENTS = "SELECT e.*, l.envelope AS later FROM events e LEFT JOIN later_events l ON l.id = e.id"
+SELECT_EVENTS = "SELECT header, payload, redacted_by FROM events"
 
+# Each event is kept once: `header` is the event as received less its payload; the other columns are read from it.
 DDL = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events (
-  seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, record_id TEXT NOT NULL,
-  op TEXT NOT NULL, kind_version INTEGER, hlc TEXT NOT NULL, ts TEXT NOT NULL, device_id TEXT NOT NULL,
-  actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, actor_model TEXT, prev TEXT NOT NULL, batch TEXT,
-  reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
+  seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE,
+  kind TEXT AS (json_extract(header, '$.record.kind')), record_id TEXT AS (json_extract(header, '$.record.id')),
+  op TEXT AS (json_extract(header, '$.op')), kind_version INTEGER AS (json_extract(header, '$.kind_version')),
+  hlc TEXT AS (json_extract(header, '$.hlc')), ts TEXT AS (json_extract(header, '$.ts')),
+  device_id TEXT AS (json_extract(header, '$.device_id')),
+  actor_kind TEXT AS (json_extract(header, '$.actor.kind')), actor_id TEXT AS (json_extract(header, '$.actor.id')),
+  actor_model TEXT AS (json_extract(header, '$.actor.model')), prev TEXT AS (json_extract(header, '$.prev')),
+  batch TEXT AS (json_extract(header, '$.batch')), reverts TEXT AS (json_extract(header, '$.reverts')),
+  redacted_by TEXT, payload TEXT NOT NULL, header TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_record ON events (kind, record_id);
 CREATE INDEX IF NOT EXISTS events_batch ON events (batch) WHERE batch IS NOT NULL;
 CREATE INDEX IF NOT EXISTS events_device ON events (device_id, hlc);
-DROP TRIGGER IF EXISTS events_append_only_update;
+CREATE INDEX IF NOT EXISTS events_erase ON events (kind, record_id) WHERE op = 'erase';
 CREATE TRIGGER IF NOT EXISTS events_redact_only BEFORE UPDATE ON events
   WHEN OLD.op = 'erase' OR NEW.payload != '{}' OR NEW.redacted_by IS NULL OR NEW.seq IS NOT OLD.seq
-    OR NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind OR NEW.record_id IS NOT OLD.record_id OR NEW.op IS NOT OLD.op
-    OR NEW.kind_version IS NOT OLD.kind_version OR NEW.hlc IS NOT OLD.hlc OR NEW.ts IS NOT OLD.ts
-    OR NEW.device_id IS NOT OLD.device_id OR NEW.actor_kind IS NOT OLD.actor_kind OR NEW.actor_id IS NOT OLD.actor_id
-    OR NEW.actor_model IS NOT OLD.actor_model OR NEW.prev IS NOT OLD.prev OR NEW.batch IS NOT OLD.batch
-    OR NEW.reverts IS NOT OLD.reverts
+    OR NEW.id IS NOT OLD.id OR NEW.header IS NOT OLD.header
   BEGIN SELECT RAISE(ABORT, 'events are append-only; erase only blanks payloads'); END;
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete BEFORE DELETE ON events
-  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
-CREATE TABLE IF NOT EXISTS later_events (id TEXT PRIMARY KEY, envelope TEXT NOT NULL);
-CREATE TRIGGER IF NOT EXISTS later_events_append_only_update BEFORE UPDATE ON later_events
-  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
-CREATE TRIGGER IF NOT EXISTS later_events_append_only_delete BEFORE DELETE ON later_events
   BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TABLE IF NOT EXISTS records (
   kind TEXT NOT NULL, id TEXT NOT NULL, current TEXT, live INTEGER NOT NULL DEFAULT 0,
@@ -70,14 +64,23 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS records_conflict ON records (conflict) WHERE conflict = 1;
 CREATE TABLE IF NOT EXISTS unprojected (event_id TEXT PRIMARY KEY, kind TEXT NOT NULL, record_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL, seen_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS peers (
-  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
-  last_seen_at TEXT, revoked_at TEXT);
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY, name TEXT, last_seen_at TEXT,
+  token_sha256 TEXT UNIQUE, paired_at TEXT, revoked_at TEXT,
+  class TEXT, box TEXT, sign TEXT, joined_epoch INTEGER, moved_epoch INTEGER, last_seq INTEGER,
+  removed INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS rejections (
   device_id TEXT NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (device_id, event_id));
+CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
+  PRIMARY KEY (path, line));
 """
-PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
+# One row per device: paired with the hub when it has a token, in Drive sync when it has a class.
+PEER_COLUMNS = "id AS device_id, name, paired_at, last_seen_at, revoked_at"
 
 
 def _local_now() -> datetime:
@@ -247,21 +250,21 @@ class Store:
     # -- the logbook ----------------------------------------------------------
 
     def event(self, event_id: str) -> dict | None:
-        row = self.conn.execute(f"{SELECT_EVENTS} WHERE e.id = ?", (event_id,)).fetchone()
+        row = self.conn.execute(f"{SELECT_EVENTS} WHERE id = ?", (event_id,)).fetchone()
         return row and _envelope(row)
 
     def events(self, since: int = 0, limit: int = -1) -> list[dict]:
         """Every event after arrival position `since`, in arrival order: at most `limit` (-1 for all)."""
-        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE e.seq > ? ORDER BY e.seq LIMIT ?",
+        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE seq > ? ORDER BY seq LIMIT ?",
                                                         (since, limit))]
 
     def history(self, kind: str, rid: str) -> list[dict]:
         """One record's events, in arrival order."""
         return [_envelope(r) for r in self.conn.execute(
-            f"{SELECT_EVENTS} WHERE e.kind = ? AND e.record_id = ? ORDER BY e.seq", (kind, rid))]
+            f"{SELECT_EVENTS} WHERE kind = ? AND record_id = ? ORDER BY seq", (kind, rid))]
 
     def batch(self, batch_id: str) -> list[dict]:
-        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE e.batch = ? ORDER BY e.seq",
+        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE batch = ? ORDER BY seq",
                                                         (batch_id,))]
 
     def position(self) -> int:
@@ -365,20 +368,9 @@ class Store:
         return None
 
     def _insert(self, e: dict) -> None:
-        if later(e):  # the columns hold what v1 reads; the rest of the envelope is kept beside it as received
-            actor = e["actor"] if isinstance(e.get("actor"), dict) else {}
-            e = {k: e.get(k) for k in ("id", "record", "op", "hlc", "prev", "payload", "redacted_by")} | {
-                "ts": _text(e.get("ts")), "device_id": _text(e.get("device_id")),
-                "actor": {"kind": _text(actor.get("kind")), "id": _text(actor.get("id"))},
-                "envelope": {k: v for k, v in e.items() if k not in ("payload", "redacted_by")}}
-            if not isinstance(e["redacted_by"], str):
-                e["redacted_by"] = None
-            self.conn.execute("INSERT INTO later_events VALUES (?, ?)", (e["id"], jcs(e["envelope"])))
-        actor = e["actor"]
-        self.conn.execute(f"INSERT INTO events ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", (
-            e["id"], e["record"]["kind"], e["record"]["id"], e["op"], e.get("kind_version"), e["hlc"], e["ts"],
-            e["device_id"], actor["kind"], actor["id"], actor.get("model"), jcs(e["prev"]), e.get("batch"),
-            e.get("reverts"), e.get("redacted_by"), jcs(e["payload"])))
+        redacted_by = e.get("redacted_by") if isinstance(e.get("redacted_by"), str) else None
+        self.conn.execute("INSERT INTO events (id, redacted_by, payload, header) VALUES (?, ?, ?, ?)",
+                          (e["id"], redacted_by, jcs(e["payload"]), _header(e)))
         seen = hlc.parse(e["hlc"])
         floor = hlc.parse(self._get("hlc"))
         if seen > floor:
@@ -387,13 +379,13 @@ class Store:
         if hlc.runaway(seen, hlc.millis(wall)):
             self.conn.execute("INSERT INTO clocks VALUES (?, ?, ?) ON CONFLICT (device_id) DO UPDATE SET "
                               "hlc = max(hlc, excluded.hlc), seen_at = excluded.seen_at",
-                              (e["device_id"], e["hlc"], stamp(wall)))
+                              (_text(e.get("device_id")), e["hlc"], stamp(wall)))
 
     # -- the record index ------------------------------------------------------
 
     def _reindex(self, kind: str, rid: str) -> None:
-        rows = self.conn.execute(f"{SELECT_EVENTS} WHERE e.kind = ? AND e.record_id = ?", (kind, rid)).fetchall()
-        events = {r["id"]: _envelope(r) for r in rows}
+        rows = self.conn.execute(f"{SELECT_EVENTS} WHERE kind = ? AND record_id = ?", (kind, rid)).fetchall()
+        events = {e["id"]: e for e in map(_envelope, rows)}
         erased = any(e["op"] == "erase" for e in events.values())
         # a redacted event whose erase isn't held yet takes no part, so a forged one can't blank a live record
         versions = {i: e for i, e in events.items()
@@ -487,11 +479,11 @@ class Store:
         self.contract = contract
         with self._tx():
             self.conn.execute("DELETE FROM unprojected")
-            for row in self.conn.execute("SELECT e.id, e.kind, e.record_id, e.op, e.kind_version, l.id FROM events e "
-                                         "LEFT JOIN later_events l ON l.id = e.id").fetchall():
-                probe = {"record": {"kind": row[1], "id": row[2]}, "op": row[3], "kind_version": row[4]}
-                if row[5] is not None or not contract.understands(probe):
-                    self.conn.execute("INSERT INTO unprojected VALUES (?, ?, ?)", (row[0], row[1], row[2]))
+            for (header,) in self.conn.execute("SELECT header FROM events").fetchall():
+                event = json.loads(header)
+                if not contract.understands(event):
+                    self.conn.execute("INSERT INTO unprojected VALUES (?, ?, ?)",
+                                      (event["id"], event["record"]["kind"], event["record"]["id"]))
             self.rebuild()
             self._set("shape", self._shape(contract))
 
@@ -532,13 +524,13 @@ class Store:
 
     def records(self, kind: str | None = None) -> list[dict]:
         """Every live record, current version, in kind then id order."""
-        sql = ("SELECT e.*, NULL AS later, r.conflict AS r_conflict, r.tips != r.heads AS r_newer FROM records r "
-               "JOIN events e ON e.id = r.current WHERE r.live = 1" + (" AND r.kind = ?" if kind else "") +
-               " ORDER BY r.kind, r.id")
+        sql = ("SELECT e.header, e.payload, e.redacted_by, r.kind, r.id, r.conflict AS r_conflict, "
+               "r.tips != r.heads AS r_newer FROM records r JOIN events e ON e.id = r.current WHERE r.live = 1" +
+               (" AND r.kind = ?" if kind else "") + " ORDER BY r.kind, r.id")
         out = []
         for r in self.conn.execute(sql, (kind,) if kind else ()):
             event = _envelope(r)
-            out.append({"kind": r["kind"], "id": r["record_id"], "conflict": bool(r["r_conflict"]),
+            out.append({"kind": r["kind"], "id": r["id"], "conflict": bool(r["r_conflict"]),
                         "newer": bool(r["r_newer"]), "payload": event["payload"], "event": event})
         return out
 
@@ -622,13 +614,15 @@ class Store:
         at = stamp(self.wall())
         with self._tx():
             self.conn.execute(
-                "INSERT INTO peers VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT (device_id) DO UPDATE SET "
-                "name = excluded.name, token_sha256 = excluded.token_sha256, paired_at = excluded.paired_at, "
-                "last_seen_at = excluded.last_seen_at, revoked_at = NULL", (device_id, name, token_sha256, at, at))
+                "INSERT INTO devices (id, name, token_sha256, paired_at, last_seen_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET name = excluded.name, token_sha256 = excluded.token_sha256, "
+                "paired_at = excluded.paired_at, last_seen_at = excluded.last_seen_at, revoked_at = NULL",
+                (device_id, name, token_sha256, at, at))
         return self.peer(device_id)
 
     def peer(self, device_id: str) -> dict | None:
-        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers WHERE device_id = ?", (device_id,)).fetchone()
+        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM devices WHERE id = ? AND token_sha256 IS NOT NULL",
+                                (device_id,)).fetchone()
         return dict(row) if row else None
 
     def peer_for_token(self, token_sha256: Any) -> dict | None:
@@ -636,8 +630,8 @@ class Store:
         in constant time, so the check doesn't stop at the first byte that differs or the first peer that fits."""
         offered = token_sha256 if isinstance(token_sha256, str) else ""
         found = None
-        for device_id, stored in self.conn.execute(
-                "SELECT device_id, token_sha256 FROM peers WHERE revoked_at IS NULL").fetchall():
+        for device_id, stored in self.conn.execute("SELECT id, token_sha256 FROM devices WHERE token_sha256 IS NOT "
+                                                   "NULL AND revoked_at IS NULL").fetchall():
             if len(stored) == len(offered) and secrets.compare_digest(stored, offered):
                 found = device_id
         if found is None:
@@ -645,7 +639,7 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=0")
         try:
             with self._tx():
-                self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+                self.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (stamp(self.wall()), found))
         except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
             pass
         finally:
@@ -653,7 +647,8 @@ class Store:
         return self.peer(found)
 
     def peers(self) -> list[dict]:
-        return [dict(r) for r in self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers ORDER BY paired_at DESC")]
+        return [dict(r) for r in self.conn.execute(
+            f"SELECT {PEER_COLUMNS} FROM devices WHERE token_sha256 IS NOT NULL ORDER BY paired_at DESC")]
 
     def received(self, device_id: str) -> str | None:
         """The clock reading of the latest event this store holds from a device."""
@@ -685,7 +680,7 @@ class Store:
         if not self.peer(device_id):
             raise NotFound(f"no paired device {device_id}")
         with self._tx():
-            self.conn.execute("UPDATE peers SET revoked_at = coalesce(revoked_at, ?) WHERE device_id = ?",
+            self.conn.execute("UPDATE devices SET revoked_at = coalesce(revoked_at, ?) WHERE id = ?",
                               (stamp(self.wall()), device_id))
             self.conn.execute("DELETE FROM rejections WHERE device_id = ?", (device_id,))
         return self.peer(device_id)
@@ -750,18 +745,19 @@ def ddl() -> str:
 
 
 _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
-# The store's own key and the paired devices' token hashes stay out of queries.
-_UNREADABLE = {("meta", None), ("peers", "token_sha256")}
+# The store's own key, the paired devices' token hashes and Drive sync's keys and bookkeeping stay out of queries.
+_UNREADABLE = {("meta", None), ("devices", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
+               ("cloud_read", None), ("cloud_shown", None), ("cloud_refused", None)}
 
 
 @functools.cache
 def _readable() -> dict[str, frozenset[str]]:
-    """The tables, views and columns `ddl()` documents; anything else in the file, such as Drive keys, stays out."""
+    """The tables, views and columns `ddl()` documents, less those kept out; anything else in the file stays out."""
     conn = sqlite3.connect(":memory:")
     try:
         conn.executescript(ddl())
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type IN ('table', 'view')")]
-        found = {t: frozenset(c[1].lower() for c in conn.execute(f"PRAGMA table_info({t})")
+        found = {t: frozenset(c[1].lower() for c in conn.execute(f"PRAGMA table_xinfo({t})")
                               if (t, c[1]) not in _UNREADABLE) | {"rowid"}
                  for t in tables if (t, None) not in _UNREADABLE}
     finally:
@@ -838,20 +834,9 @@ def _content(event: dict, blank: bool = False) -> str:
 
 
 def _envelope(row: sqlite3.Row) -> dict:
-    if row["later"] is not None:
-        e = {**json.loads(row["later"]), "payload": json.loads(row["payload"])}
-        if row["redacted_by"] is not None:
-            e["redacted_by"] = row["redacted_by"]
-        return e
-    e = {"id": row["id"], "schema_version": 1, "record": {"kind": row["kind"], "id": row["record_id"]},
-         "op": row["op"], "hlc": row["hlc"], "ts": row["ts"], "device_id": row["device_id"],
-         "actor": {"kind": row["actor_kind"], "id": row["actor_id"]}, "prev": json.loads(row["prev"]),
-         "payload": json.loads(row["payload"])}
-    if row["actor_model"] is not None:
-        e["actor"]["model"] = row["actor_model"]
-    for key in OPTIONAL:
-        if row[key] is not None:
-            e[key] = row[key]
+    e = {**json.loads(row["header"]), "payload": json.loads(row["payload"])}
+    if row["redacted_by"] is not None:
+        e["redacted_by"] = row["redacted_by"]
     return e
 
 

@@ -59,6 +59,7 @@ def joined(keeper, folder, device_id=PHONE):
 
 
 def test_setup_starts_an_epoch_and_only_once(store, folder, keeper):
+    assert keeper.device_id == store.device_id  # the Mac has one id, on the hub and in Drive
     listing = folder.list()
     assert files.epoch_path(1) in listing and any(p.startswith("plan/0001-") for p in listing)
     with pytest.raises(ByobotError, match="already"):
@@ -363,3 +364,21 @@ def test_a_rejoined_phone_starts_with_no_receipts_from_before(store, folder, kee
     keeper.sync()
     again.sync()
     assert store.event(sent["id"]) and not again.events
+
+
+def test_a_phone_on_the_hub_and_in_drive_is_one_device(store, folder, keeper):
+    store.pair(PHONE, "Example iPhone", "ab" * 32)
+    relay = joined(keeper, folder)
+    relay.log([event()])
+    relay.sync()
+    keeper.sync()
+    assert store.rows("SELECT id, name, class FROM devices ORDER BY class") == [
+        {"id": store.device_id, "name": None, "class": "keeper"}, {"id": PHONE, "name": "Example iPhone",
+                                                                    "class": "relay"}]
+    phone = keeper.local_status()["devices"][1]
+    assert phone["id"] == PHONE and phone["last_heard"] == store.peer(PHONE)["last_seen_at"]
+    store.unpair(PHONE)
+    assert keeper.device(PHONE)["removed"] == 0
+    keeper.forget()
+    assert store.peer(PHONE)["revoked_at"] and keeper.device(PHONE) is None
+    assert [d["id"] for d in keeper.devices()] == [store.device_id]

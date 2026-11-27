@@ -1,5 +1,6 @@
 """The core store and its commands, on small hand-made histories."""
 
+import json
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -253,6 +254,22 @@ def test_a_later_schema_version_is_kept_and_relayed_as_received_never_applied(pa
         assert c.accept({**ahead, "id": "019aa000-0000-7000-8000-0000000000de", "hlc": "bad"})[0] == "rejected"
 
 
+def test_each_event_is_kept_once_and_its_columns_read_from_it(pair):
+    a, b = pair
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    ahead = later(e, payload={"sets": 5}, actor="a newer shape")
+    b.accept_many([e, ahead])
+    tables = {r[0] for r in b.conn.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")}
+    assert "later_events" not in tables
+    rows = b.rows("SELECT id, kind, record_id, op, kind_version, actor_kind, prev, payload, header FROM events "
+                  "ORDER BY seq")
+    assert [r["id"] for r in rows] == [e["id"], ahead["id"]]
+    assert rows[0]["actor_kind"] == "human" and rows[1]["actor_kind"] is None and rows[1]["kind_version"] == 3
+    for row, event in zip(rows, (e, ahead)):
+        assert row["prev"] == json.dumps(event["prev"]) and json.loads(row["payload"]) == event["payload"]
+        assert json.loads(row["header"]) == {k: v for k, v in event.items() if k != "payload"}
+
+
 def test_an_erase_from_a_later_schema_version_is_honored(pair):
     a, b = pair
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
@@ -396,20 +413,19 @@ def test_queries_read_and_refuse_writes_the_key_and_token_hashes(tmp_path):
         s.pair("example-phone", "Example iPhone", "ab" * 32)
     found = query(tmp_path / "s.db", "SELECT count(*) AS n FROM efforts")
     assert found["rows"] == [{"n": 1}]
-    assert query(tmp_path / "s.db", "SELECT device_id FROM peers")["rows"] == [{"device_id": "example-phone"}]
-    for sql in ("SELECT * FROM meta", "SELECT token_sha256 FROM peers", "DELETE FROM efforts",
+    assert query(tmp_path / "s.db", "SELECT actor_kind FROM events")["rows"] == [{"actor_kind": "human"}]
+    assert query(tmp_path / "s.db", "SELECT id FROM devices")["rows"] == [{"id": "example-phone"}]
+    for sql in ("SELECT * FROM meta", "SELECT token_sha256 FROM devices", "DELETE FROM efforts",
                 "PRAGMA user_version", "ATTACH 'x.db' AS x"):
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", sql)
 
 
 def test_queries_read_only_documented_tables_and_columns(tmp_path):
-    from byobot.cloud.keeper import DDL as CLOUD_DDL
-
     with Store(tmp_path / "s.db", wall=Wall()) as s:
-        s.conn.executescript(CLOUD_DDL + "CREATE TABLE stray (secret TEXT);")
+        s.conn.executescript("CREATE TABLE stray (secret TEXT);")
         cloud = [r[0] for r in s.conn.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'cloud_%'")]
-    assert cloud
+    assert len(cloud) == 5
     for table in [*cloud, "stray"]:
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", f"SELECT * FROM {table}")

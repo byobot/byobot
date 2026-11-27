@@ -254,7 +254,7 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
         Keeper.recover(fresh, folder, "A" * 32, clock)
     again = Keeper.recover(fresh, folder, code, clock)
     assert {e["id"] for e in fresh.events()} >= wanted and fresh.store_id == store.store_id
-    assert again.device_id == keeper.device_id and again.epoch == 3
+    assert again.device_id == keeper.device_id == store.device_id == fresh.device_id and again.epoch == 3
     later = event(n=9)
     relay.log([later])
     relay.sync()

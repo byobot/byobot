@@ -2,7 +2,7 @@
 
 Each sync it admits a device that joined with the current join code, reads every segment it hasn't read
 (a relay's through the same accept rules as the hub, its own in full), publishes what it holds that the folder
-doesn't show yet, and publishes the plan when it changed. Its cloud state lives in the store, beside ``peers``.
+doesn't show yet, and publishes the plan when it changed. Its cloud state lives in the store's ``cloud_`` tables.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from urllib.parse import urlencode
 from .. import __version__
 from ..core import relay as rules
 from ..core import sources
-from ..core.store import Store
-from ..util import ByobotError, ValidationFailed, uuid7
+from ..core.store import Store, stamp
+from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
@@ -30,27 +30,18 @@ PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
 SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
 NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
-
-DDL = """
-CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_devices (
-  id TEXT PRIMARY KEY, class TEXT NOT NULL, box TEXT NOT NULL, sign TEXT NOT NULL, joined_epoch INTEGER NOT NULL,
-  moved_epoch INTEGER NOT NULL, last_seq INTEGER, removed INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
-  PRIMARY KEY (path, line));
-"""
-
+# A device in Drive sync is a row of the store's devices with a class; the hub may know it too.
+CLOUD_COLUMNS = "id, class, box, sign, joined_epoch, moved_epoch, last_seq, removed, last_seen_at"
+ENROL = ("INSERT INTO devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT "
+         "(id) DO UPDATE SET class = excluded.class, box = excluded.box, sign = excluded.sign, joined_epoch = "
+         "excluded.joined_epoch, moved_epoch = excluded.moved_epoch, last_seq = NULL, removed = 0")
 
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
         self.store, self.folder, self.clock = store, folder, clock
-        _tables(store)
-        if self._get("device_id") is None:
+        if self._get("identity") is None:
             raise ByobotError("the cloud logbook isn't set up for this store; run byobot cloud setup")
-        self.device_id = self._get("device_id")
+        self.device_id = store.device_id  # the keeper is the Mac, by the one id it has
         self.identity = Identity.from_private(json.loads(self._get("identity")))
         self.recovery_code: str | None = None
 
@@ -61,23 +52,21 @@ class Keeper:
               recovery: bool = False) -> Keeper:
         """Make this store the folder's keeper and start the first epoch. With ``recovery``, ``recovery_code`` on
         the result is shown once and opens every later epoch's recovery key."""
-        _tables(store)
-        if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
+        if is_keeper(store):
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
         if any(p.startswith("epochs/") for p in listing) and not _closed(folder, listing):
             raise ByobotError("this cloud folder already has a keeper; run `byobot cloud recover` with the recovery code instead")
         identity = Identity.generate()
         code = recovery_code() if recovery else None
-        meta = [("device_id", uuid7()), ("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
+        meta = [("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
                 ("checkpoint_position", "0")]
         if code:
             meta.append(("recovery_key", b64(recovery_key(code, store.store_id))))
         with store._tx():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
-            store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES "
-                               "(?, 'keeper', ?, ?, 1, 1)", (meta[0][1], identity.public()["box"],
-                                                             identity.public()["sign"]))
+            store.conn.execute(ENROL, (store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
+                                       1, 1))
         keeper = cls(store, folder, clock)
         keeper.start_epoch()
         keeper.recovery_code = code
@@ -87,8 +76,7 @@ class Keeper:
     def recover(cls, store: Store, folder: Folder, code: str, clock: Callable[[], float] = time.time) -> Keeper:
         """Become the keeper again from the folder and the recovery code: on a new Mac with an empty store, or on
         one restored from an export of this store. Reads every epoch the code opens, then starts a new one."""
-        _tables(store)
-        if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
+        if is_keeper(store):
             raise ByobotError("this store is already the cloud logbook's keeper")
         listing = folder.list()
         opened: dict[int, dict] = {}
@@ -129,16 +117,16 @@ class Keeper:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
         else:
             store.adopt(store_id, top["store_key"])
-        meta = [("device_id", top["device_id"]), ("identity", json.dumps(identity.private())), ("epoch", n),
+        meta = [("identity", json.dumps(identity.private())), ("epoch", n),
                 ("seq", _top_seq(listing, top["device_id"])), ("checkpoint_position", 0),
                 ("recovery_key", b64(recovery_key(code, store_id)))]
+        mine = store.device_id
         with store._tx():
+            store._set("device_id", top["device_id"])  # this Mac takes the keeper's place, and its id
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
-            store.conn.executemany(
-                "INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?)",
-                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
+            store.conn.executemany(ENROL, [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
         outcomes = dict(store.conn.execute("SELECT path, outcome FROM cloud_read"))
@@ -148,9 +136,10 @@ class Keeper:
                       if outcomes.get(p) != "read")
         if lost:  # nothing kept here, so it can run again
             with store._tx():
-                for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown",
-                              "cloud_refused"):
+                for table in ("cloud_meta", "cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                     store.conn.execute(f"DELETE FROM {table}")
+                _leave(store, "class IS NOT NULL")
+                store._set("device_id", mine)
             raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
                               f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
                               "from an export instead, or upgrade byobot and run `byobot cloud recover` again")
@@ -180,20 +169,20 @@ class Keeper:
 
     def devices(self, removed: bool = False) -> list[dict]:
         return [dict(r) for r in self.store.conn.execute(
-            "SELECT * FROM cloud_devices WHERE removed = ? ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
+            f"SELECT {CLOUD_COLUMNS} FROM devices WHERE class IS NOT NULL AND removed = ? "
+            "ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
 
     def device(self, device_id: str) -> dict | None:
-        row = self.store.conn.execute("SELECT * FROM cloud_devices WHERE id = ?", (device_id,)).fetchone()
+        row = self.store.conn.execute(f"SELECT {CLOUD_COLUMNS} FROM devices WHERE id = ? AND class IS NOT NULL",
+                                      (device_id,)).fetchone()
         return row and dict(row)
 
     def _enrol(self, device: dict, epoch: int) -> None:
-        self.store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) "
-                                "VALUES (?, ?, ?, ?, ?, ?)", (device["id"], device["class"], device["box"],
-                                                              device["sign"], epoch, epoch))
+        self.store.conn.execute(ENROL, (device["id"], device["class"], device["box"], device["sign"], epoch, epoch))
 
     def _rejoin(self, device: dict) -> None:
         """Take back a removed device. Its relay counts seqs from the start again, so its older files go unread."""
-        self.store.conn.execute("UPDATE cloud_devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
+        self.store.conn.execute("UPDATE devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
                                 "last_seq = NULL, removed = 0 WHERE id = ?",
                                 (device["box"], device["sign"], self.epoch, self.epoch, device["id"]))
         like = f"segments/{device['id']}/%"
@@ -463,11 +452,12 @@ class Keeper:
             with self.store._tx():
                 self._set("epoch_pending", "erase")  # it carried a record already erased here
         with self.store._tx():
-            self.store.conn.execute("UPDATE cloud_devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
+            self.store.conn.execute("UPDATE devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
                                     (where["epoch"], where["seq"], writer))
             if writer != self.device_id:
-                self._set(f"heard:{writer}", self.clock())
+                self.store.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?",
+                                        (stamp(datetime.fromtimestamp(self.clock()).astimezone()), writer))
         return "read"
 
     def _erased_samples(self, messages: list[dict]) -> bool:
@@ -630,7 +620,7 @@ class Keeper:
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
         with self.store._tx():  # until an epoch without it commits, running this again finishes the removal
-            self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self.store.conn.execute("UPDATE devices SET removed = 1 WHERE id = ?", (device_id,))
             self._set(f"removing:{device_id}", 1)
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
@@ -684,8 +674,8 @@ class Keeper:
         with self.store._tx():
             for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
-            self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
-            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
+            _leave(self.store, "class = 'relay'")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key IN ('join', 'last_join', "
                                     "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
                                     "OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
             self._set("epoch", n)
@@ -746,7 +736,7 @@ class Keeper:
         if self._newer():
             out["upgrade"] = "a device writes with a newer byobot; upgrade byobot on this Mac to read it"
         out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
-                           "last_heard": _when(synced if d["class"] == "keeper" else self._get(f"heard:{d['id']}"))}
+                           "last_heard": _when(synced) if d["class"] == "keeper" else d["last_seen_at"]}
                           for d in self.devices()]
         return out
 
@@ -765,21 +755,20 @@ def _when(stamp: str | None) -> str | None:
     return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
 
 
-def _tables(store: Store) -> None:
-    for statement in DDL.strip().split(";"):
-        if statement.strip():
-            store.conn.execute(statement)
+def _leave(store: Store, where: str) -> None:
+    """Take devices out of Drive sync; one the hub doesn't know goes altogether."""
+    store.conn.execute("UPDATE devices SET class = NULL, box = NULL, sign = NULL, joined_epoch = NULL, moved_epoch = "
+                       f"NULL, last_seq = NULL, removed = 0 WHERE {where}")
+    store.conn.execute("DELETE FROM devices WHERE class IS NULL AND token_sha256 IS NULL")
 
 
 def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:
     """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
     last ``every`` seconds. A try stamped in the future (the clock ran ahead) counts as due. Reads only, so a store
     without Drive sync is left as it is."""
-    if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cloud_meta'").fetchone():
-        return False
-    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('device_id', 'off', 'tried_at')"))
+    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('identity', 'off', 'tried_at')"))
     since = clock() - float(meta.get("tried_at", 0))
-    return "device_id" in meta and "off" not in meta and (since >= every or since < 0)
+    return "identity" in meta and "off" not in meta and (since >= every or since < 0)
 
 
 def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
@@ -789,8 +778,7 @@ def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
 
 def is_keeper(store: Store) -> bool:
     """Whether this store keeps a cloud folder."""
-    _tables(store)
-    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone() is not None
+    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'identity'").fetchone() is not None
 
 
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
