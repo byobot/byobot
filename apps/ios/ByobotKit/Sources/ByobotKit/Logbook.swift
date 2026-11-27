@@ -455,10 +455,11 @@ public struct Logbook: Sendable {
     }
 
     /// Record the laptop's answer to a push of `sent`. Whatever it kept is done; rejected events are set
-    /// aside with the reason, since sending them again won't help.
+    /// aside with the reason, since sending them again won't help. An answer this app doesn't know is retried.
     public mutating func applyPush(_ response: EventsResponse, sent: [Event]) {
         var done = Set<String>()
         for result in response.results where result.index >= 0 && result.index < sent.count {
+            if case .other = result.status { continue }
             let id = sent[result.index].id
             done.insert(id)
             if result.status == .rejected {

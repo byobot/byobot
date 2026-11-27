@@ -137,18 +137,21 @@ final class LogbookTests: XCTestCase {
         let a = book.logEffort(activityId: "run", metrics: ["distance": .exact(5, unit: "km")])
         book.logEffort(activityId: "run", metrics: ["distance": .exact(1, unit: "km")])
         book.logEffort(activityId: "run", metrics: ["distance": .exact(2, unit: "km")])
+        book.logEffort(activityId: "run", metrics: ["distance": .exact(3, unit: "km")])
         let sent = book.pendingEvents
-        XCTAssertEqual(sent.count, 4)
+        XCTAssertEqual(sent.count, 5)
         let response = EventsResponse(results: [
             EventResult(index: 0, id: sent[0].id, status: .accepted),
             EventResult(index: 1, id: sent[1].id, status: .duplicate),
             EventResult(index: 2, id: sent[2].id, status: .storedUnprojected),
             EventResult(index: 3, id: sent[3].id, status: .rejected, reason: "nope"),
+            EventResult(index: 4, id: sent[4].id, status: .other("held_for_review")),
         ], accepted: 1, duplicate: 1, storedUnprojected: 1, rejected: 1)
         // Written while the push was in flight: stays pending.
         book.logEffort(activityId: "run", metrics: [:])
         book.applyPush(response, sent: sent)
-        XCTAssertEqual(book.pendingEvents.count, 1)
+        XCTAssertEqual(book.pendingEvents.map(\.id).first, sent[4].id, "an answer this app doesn't know is retried")
+        XCTAssertEqual(book.pendingEvents.count, 2)
         XCTAssertEqual(book.state.rejected.map(\.eventId), [sent[3].id])
         XCTAssertEqual(book.state.rejected.map(\.reason), ["nope"])
         XCTAssertEqual(book.localEfforts.first?.id, a.id)
