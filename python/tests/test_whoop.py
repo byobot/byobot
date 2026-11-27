@@ -120,6 +120,19 @@ def test_a_refused_token_is_refreshed_once():
     assert whoop.Client(fake).request("GET", "/v2/cycle") == {"records": []}
 
 
+def test_a_request_has_a_timeout(monkeypatch):
+    connected()
+    seen = []
+
+    def urlopen(req, timeout=None):
+        seen.append(timeout)
+        return io.BytesIO(b'{"records": []}')
+    monkeypatch.setattr(whoop, "_urlopen", urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    whoop.Client().request("GET", "/v2/cycle")
+    assert seen == [whoop.TIMEOUT]
+
+
 def test_a_long_wait_or_a_refusal_is_not_tried_again(monkeypatch):
     connected()
     monkeypatch.setattr(time, "sleep", lambda s: pytest.fail("waited"))

@@ -40,6 +40,7 @@ NAME = "whoop"
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)", "Accept": "application/json"}
 SNAPSHOT = Path(__file__).with_name("whoop.schema.json")
 PAGE = 25
+TIMEOUT = 60
 TRIES = 5
 BUSY = {429, 500, 502, 503, 504}
 LONGEST_WAIT = 120  # WHOOP's limit is per minute; a longer Retry-After means try again later
@@ -189,9 +190,14 @@ def _retry_after(e: urllib.error.HTTPError, attempt: int) -> float:
         return min(2.0 ** attempt, 30.0) + random.random()
 
 
+_urlopen = urllib.request.urlopen
+
+
 class Client:
     def __init__(self, opener: Callable | None = None):
-        self.opener = opener or urllib.request.urlopen
+        opener = opener or urllib.request.urlopen
+        # Test fakes stand in for urlopen and take no timeout.
+        self.opener = (lambda req: opener(req, timeout=TIMEOUT)) if opener is _urlopen else opener
         self.stored = credentials.load(NAME)
         if self.stored is None:
             raise NotConnected("byobot isn't connected to WHOOP yet; run `byobot connect whoop` in a terminal")
