@@ -849,7 +849,7 @@ public struct PullResponse: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One sample as the app reads it from a health store.
+/// One sample as the app reads it from a health store. A Mac drops a field it doesn't know, so one a newer app adds changes no revision.
 public struct Sample: Codable, Equatable, Hashable, Sendable {
     /// Where the sample was read, such as apple_health.
     public var source: String
@@ -863,10 +863,12 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
     public var unit: String?
     /// The device or app that recorded it.
     public var device: String?
+    /// The bundle id of the app that wrote it to the health store, such as com.example.scale.
+    public var originApp: String?
     /// Anything else the health store gave, such as a workout's totals. A running total sent again during the day carries its `modified_at`.
     public var raw: JSONValue?
 
-    public init(source: String, sourceId: String, type: String, start: String, end: String? = nil, value: Scalar? = nil, unit: String? = nil, device: String? = nil, raw: JSONValue? = nil) {
+    public init(source: String, sourceId: String, type: String, start: String, end: String? = nil, value: Scalar? = nil, unit: String? = nil, device: String? = nil, originApp: String? = nil, raw: JSONValue? = nil) {
         self.source = source
         self.sourceId = sourceId
         self.type = type
@@ -875,6 +877,7 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
         self.value = value
         self.unit = unit
         self.device = device
+        self.originApp = originApp
         self.raw = raw
     }
 
@@ -887,6 +890,7 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
         case value
         case unit
         case device
+        case originApp = "origin_app"
         case raw
     }
 }

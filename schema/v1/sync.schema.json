@@ -490,7 +490,7 @@
       }
     },
     "sample": {
-      "description": "One sample as the app reads it from a health store.",
+      "description": "One sample as the app reads it from a health store. A Mac drops a field it doesn't know, so one a newer app adds changes no revision.",
       "type": "object",
       "required": [
         "source",
@@ -535,6 +535,11 @@
           "type": "string",
           "maxLength": 200,
           "description": "The device or app that recorded it."
+        },
+        "origin_app": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "The bundle id of the app that wrote it to the health store, such as com.example.scale."
         },
         "raw": {
           "type": "object",
