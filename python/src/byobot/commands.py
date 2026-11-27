@@ -458,7 +458,7 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
             kept.append(rid)
             continue
         (replaced if found else added).append(rid)
-        changes.append({"kind": "activity", "id": rid, "op": "put", "payload": payload})
+        changes.append({"kind": "activity", "id": rid, "op": "put", "payload": payload, "create": not found})
     if changes:
         store.write(ctx.actor, changes)
     return {"added": added, "replaced": replaced, "kept": kept}

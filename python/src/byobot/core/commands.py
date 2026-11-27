@@ -98,14 +98,11 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     for r in records:
         _authored(r["kind"])
         rid = r.get("id") or store.new_record_id(r["kind"])
-        found = store.record(r["kind"], rid)
-        if found and (found["live"] or found["erased"]):
-            raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
         payload = r["payload"]
         if r["kind"] == "planned_session" and isinstance(payload, dict):
             payload = _parts(rid, payload, [])
         payload = _written(store, r["kind"], payload)
-        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload})
+        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload, "create": True})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
     return store.write(actor, changes)

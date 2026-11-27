@@ -682,7 +682,8 @@ class Store:
     # -- writing ---------------------------------------------------------------
 
     def write(self, actor: dict, changes: list[dict]) -> list[dict]:
-        """Author events, all or none. Each change is {kind, id, op, payload?, reverts?, prev?}."""
+        """Author events, all or none. Each change is {kind, id, op, payload?, reverts?, prev?, create?}; a create
+        is refused if the record is live or erased by the time it is written."""
         batch = self.new_id() if len(changes) > 1 else None
         written = []
         with self._tx():
@@ -703,6 +704,8 @@ class Store:
     def _event(self, actor: dict, change: dict, batch: str | None) -> dict:
         kind, rid, op = change["kind"], change["id"], change["op"]
         found = self.record(kind, rid)
+        if change.get("create") and found and (found["live"] or found["erased"]):
+            raise Conflict(f"{kind} {rid} {'was erased' if found['erased'] else 'already exists'}")
         if found and kind != "source_record" and op != "erase" and not set(found["tips"]) <= set(found["heads"]):
             raise Conflict(f"{kind} {rid} holds a version written by a newer byobot; upgrade to change it")
         prev = change.get("prev")
