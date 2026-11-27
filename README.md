@@ -85,6 +85,8 @@ byobot cloud status    # devices, when each was last heard from, the folder's si
 
 Erasing a record with Drive sync on rewrites the folder under a new key. Once every device has moved to it, the old files and keys are deleted outright, so the record is gone from Drive's folder and from every device that synced. What Google keeps on its own systems after a delete isn't documented, but anything left is encrypted with a key that only a device you removed with `byobot cloud remove` may still hold. `byobot cloud status` names any device the cleanup still waits on, and `byobot cloud remove` retires one that won't come back. Exports made before the erase still hold the data.
 
+If this Mac's keys or the recovery code may have leaked, `byobot cloud rotate` signs the folder with new keys from a new epoch on, and phones follow on their next sync; `--recovery` also replaces the recovery code.
+
 ## Import from WHOOP
 
 byobot talks to WHOOP's API directly, through your own app. Create one at [developer.whoop.com](https://developer.whoop.com) with the scopes `read:recovery`, `read:cycles`, `read:sleep` and `read:workout`, and the redirect URL `http://localhost:8766/whoop/callback`. Then:

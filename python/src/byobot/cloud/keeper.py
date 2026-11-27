@@ -277,10 +277,40 @@ class Keeper:
             self._unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
-                                                          len(parts)))
+                                                          len(parts), previous=self._previous()))
         with self.store._tx():
             self._unset("starting")
+            self._unset("previous_identity")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
+        return n
+
+    def _previous(self) -> Identity | None:
+        """The keys the keeper signed with before `rotate`, until an epoch file hands over from them."""
+        kept = self._get("previous_identity")
+        return Identity.from_private(json.loads(kept)) if kept else None
+
+    def rotate(self, recovery: bool = False) -> int:
+        """Sign with new keys from a new epoch on, whose file the old keys hand over to, so every phone follows.
+        With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted."""
+        new = Identity.generate()
+        code = recovery_code() if recovery else None
+        with self.store._tx():  # a retry of a rotation cut short still hands over from the keys phones trust
+            if self._get("previous_identity") is None:
+                self._set("previous_identity", json.dumps(self.identity.private()))
+            self._set("identity", json.dumps(new.private()))
+            if code:
+                self._set("recovery_key", b64(recovery_key(code, self.store.store_id)))
+            self.store.conn.execute("UPDATE devices SET box = ?, sign = ? WHERE id = ?",
+                                    (new.public()["box"], new.public()["sign"], self.device_id))
+        self.identity = new
+        self.folder.delete(files.device_path(self.device_id))
+        n = self.start_epoch()
+        if code:
+            for path in self.folder.list():
+                if path.endswith(f"/{files.RECOVERY}.key") and path != files.recovery_path(n):
+                    self.folder.delete(path)
+        self._publish_device()
+        self.recovery_code = code
         return n
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
@@ -660,7 +690,7 @@ class Keeper:
         keeper = [{"device_id": self.device_id, "device_class": "keeper", **self.identity.public()}]
         try:
             self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
-                                               closed=True))
+                                               previous=self._previous(), closed=True))
         except ByobotError:  # an older byobot began this close, without the mark
             body = files.read_epoch(self.folder.read(path) or b"", self.identity.public()["sign"],
                                     self.store.store_id, n)
@@ -680,8 +710,8 @@ class Keeper:
                 self.store.conn.execute(f"DELETE FROM {table}")
             _leave(self.store, "class = 'relay'")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key IN ('join', 'last_join', "
-                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
-                                    "OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing', "
+                                    "'previous_identity') OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
             self._set("epoch", n)
             self._set("checkpoint_position", 0)
             self._set("closed", 1)

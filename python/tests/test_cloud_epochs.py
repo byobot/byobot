@@ -5,8 +5,8 @@ import json
 import pytest
 
 from byobot.cloud import keeper as keeper_module
-from byobot.cloud import segment
-from byobot.cloud.crypto import CloudError, recovery_code
+from byobot.cloud import files, segment
+from byobot.cloud.crypto import CloudError, Identity, recovery_code
 from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.cloud.relay import Relay
@@ -315,3 +315,64 @@ def test_a_start_cut_short_whose_key_file_the_folder_doesnt_list_yet_runs_again(
     keeper.sync()
     relay.sync()
     assert relay.epoch == keeper.epoch == 2 and relay.key == keeper.key(2)
+
+
+def test_a_rotation_hands_over_to_new_keys_and_phones_follow(store, folder, keeper):
+    relay = joined(keeper, folder)
+    old = keeper.identity
+    n = keeper.rotate()
+    new = keeper.identity.public()["sign"]
+    assert new != old.public()["sign"] and keeper.device(keeper.device_id)["sign"] == new
+    relay.sync()
+    assert relay.epoch == n and relay.keeper_sign == new and relay.plan is not None
+    sent = event()
+    relay.log([sent])
+    relay.sync()
+    keeper.sync()
+    assert store.event(sent["id"])
+    devices = [{"device_id": d["id"], "device_class": d["class"], "box": d["box"], "sign": d["sign"]}
+               for d in keeper.devices()]
+    folder.create(files.epoch_path(n + 1), files.epoch_file(old, store.store_id, n + 1, keeper.device_id, devices, 0))
+    folder.create(files.epoch_path(n + 2), files.epoch_file(Identity.generate(), store.store_id, n + 2,
+                                                            keeper.device_id, devices, 0, previous=old))
+    relay.sync()
+    assert relay.epoch == n and relay.keeper_sign == new  # the old keys can't take trust back
+
+
+def test_a_phone_away_for_two_rotations_follows_both(store, folder, keeper):
+    relay = joined(keeper, folder)
+    keeper.rotate()
+    n = keeper.rotate()
+    relay.sync()
+    assert relay.epoch == n and relay.keeper_sign == keeper.identity.public()["sign"]
+
+
+def test_a_rotation_cut_short_still_hands_over_from_the_keys_phones_trust(store, folder, keeper, monkeypatch):
+    relay = joined(keeper, folder)
+    create = folder.create
+
+    def lost(path, data):
+        if path.startswith("epochs/"):
+            raise OSError("offline")
+        create(path, data)
+
+    monkeypatch.setattr(folder, "create", lost)
+    for _ in range(2):
+        with pytest.raises(OSError):
+            keeper.rotate()
+    monkeypatch.setattr(folder, "create", create)
+    keeper.sync()
+    relay.sync()
+    assert relay.epoch == keeper.epoch and relay.keeper_sign == keeper.identity.public()["sign"]
+    assert keeper._previous() is None
+
+
+def test_a_new_recovery_code_retires_the_old_one(store, folder, keeper, tmp_path, clock):
+    old = keeper.recovery_code
+    n = keeper.rotate(recovery=True)
+    assert keeper.recovery_code not in (None, old)
+    assert [p for p in folder.list() if p.endswith("/recovery.key")] == [files.recovery_path(n)]
+    with pytest.raises(ByobotError, match="recovery code"):
+        Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
+    again = Keeper.recover(Store(tmp_path / "b.db"), folder, keeper.recovery_code, clock)
+    assert again.identity.public() == keeper.identity.public()

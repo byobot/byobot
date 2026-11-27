@@ -66,6 +66,8 @@ def test_setup_join_sync_status_remove_and_compact(cloud, fake, tmp_path):
     assert status["on"] and [d["class"] for d in status["devices"]] == ["keeper", "relay"]
     assert run("cloud remove", ctx, {"device_id": PHONE})["epoch"] == 2
     assert run("cloud compact", ctx, {})["epoch"] == 3
+    rotated = run("cloud rotate", ctx, {"recovery": True})
+    assert rotated["epoch"] == 4 and rotated["recovery_code"].startswith("A")
     again = run("cloud setup", ctx, {})
     assert again["keeper"] == "already"
     ctx.close()

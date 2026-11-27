@@ -1173,6 +1173,25 @@ def _cloud_compact(ctx: Context) -> dict:
 
 
 @command(
+    "cloud rotate",
+    "Sign the Drive copy with new keys from a new epoch on; every phone follows on its next sync. For a Mac "
+    "whose keys may have leaked.",
+    Param("recovery", "boolean", "Also make a new recovery code, shown once; the old one stops working.",
+          default=False),
+    read_only=False,
+    mcp=False,
+)
+def _cloud_rotate(ctx: Context, recovery: bool = False) -> dict:
+    keeper = _keeper(ctx)
+    with _lock(keeper.store):
+        out = {"epoch": keeper.rotate(recovery=recovery)}
+    if keeper.recovery_code:
+        out["recovery_code"] = keeper.recovery_code
+        out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
+    return out
+
+
+@command(
     "cloud off",
     "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
     "setup` turns it on again.",
