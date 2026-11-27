@@ -130,4 +130,34 @@ final class SyncTests: XCTestCase {
             XCTAssertEqual($0 as? SyncClientError, .server(status: 403, error: "wrong_code", message: "that code is not right"))
         }
     }
+
+    /// The hub's answers in sync.json's `exchanges`, which `byobot serve`'s tests get from a real hub: each request
+    /// the hub takes decodes as the app's request type, and each error becomes the client error the app shows.
+    func testTheSharedExchanges() throws {
+        let exchanges = try Fixtures.cases("schema/fixtures/v1/sync.json", key: "exchanges")
+        XCTAssertGreaterThanOrEqual(exchanges.count, 10)
+        for x in exchanges {
+            let name = x.string("name") ?? "?"
+            let path = try XCTUnwrap(x.string("path"), name)
+            let url = try XCTUnwrap(SyncClient.url(host: "laptop.local", port: 8765, path: path), name)
+            XCTAssertEqual(url.absoluteString, "https://laptop.local:8765" + path, name)
+            guard case .number(let code)? = x["status"] else { return XCTFail("\(name): bad fixture") }
+            let status = Int(code)
+            if status == 200, x.string("method") == "POST", let body = x["body"] {
+                switch path {
+                case "/v1/pair": try decode(PairRequest.self, body, roundTrip: false, name)
+                case "/v1/events": try decode(EventsRequest.self, body, roundTrip: false, name)
+                case "/v1/samples": try decode(SamplesRequest.self, body, roundTrip: false, name)
+                default: XCTFail("\(name): no request type for \(path)")
+                }
+            }
+            guard let error = x.string("error") else { continue }
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            let body = Data(#"{"error": "\#(error)", "message": "m"}"#.utf8)
+            let want: SyncClientError = status == 401 ? .unauthorized : .server(status: status, error: error, message: "m")
+            XCTAssertThrowsError(try SyncClient.decode(data: body, response: response) as SyncStatus, name) {
+                XCTAssertEqual($0 as? SyncClientError, want, name)
+            }
+        }
+    }
 }
