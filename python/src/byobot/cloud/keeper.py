@@ -371,7 +371,8 @@ class Keeper:
         except CloudError as exc:
             return str(exc)
         refused: list[tuple[int, str]] = []
-        apply(self.store, writer, device["class"], messages, self._shown, lambda i, why: refused.append((i, why)))
+        shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
+        apply(self.store, writer, device["class"], messages, shown, lambda i, why: refused.append((i, why)))
         with self.store._tx():
             self.store.conn.executemany("INSERT OR REPLACE INTO cloud_refused VALUES (?, ?, ?)",
                                         [(path, i, why) for i, why in refused])
