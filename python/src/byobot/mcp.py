@@ -151,7 +151,8 @@ class Server:
         except ByobotError as exc:
             body = exc.to_dict()
             return _result(mid, {"content": [{"type": "text", "text": json.dumps(body, indent=2)}], "isError": True})
-        out: dict[str, Any] = {"content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}]}
+        text = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False)
+        out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
         if isinstance(result, dict) and self.protocol >= "2025-06-18":
             out["structuredContent"] = result
         out["isError"] = cmd.name == "validate" and not result["valid"]

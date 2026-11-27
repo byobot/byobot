@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import math
 import secrets
 import sqlite3
 import sys
@@ -758,8 +759,9 @@ def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000, s
             if time.monotonic() > deadline:
                 raise ValidationFailed(f"query stopped after {seconds:g} s; narrow it or add a LIMIT") from None
             raise ValidationFailed(f"query refused: {exc}") from None
-        return {"columns": columns, "rows": [dict(zip(columns, r)) for r in fetched[:limit]],
-                "truncated": len(fetched) > limit}
+        rows = [{c: None if isinstance(v, float) and not math.isfinite(v) else v for c, v in zip(columns, r)}
+                for r in fetched[:limit]]  # JSON has no Infinity or NaN
+        return {"columns": columns, "rows": rows, "truncated": len(fetched) > limit}
     finally:
         conn.close()
 
