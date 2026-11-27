@@ -316,67 +316,6 @@ def test_a_start_cut_short_whose_key_file_the_folder_doesnt_list_yet_runs_again(
     assert relay.epoch == keeper.epoch == 2 and relay.key == keeper.key(2)
 
 
-def test_a_rotation_hands_over_to_new_keys_and_phones_follow(store, folder, keeper):
-    relay = joined(keeper, folder)
-    old = keeper.identity
-    n = keeper.rotate()
-    new = keeper.identity.public()["sign"]
-    assert new != old.public()["sign"] and keeper.device(keeper.device_id)["sign"] == new
-    relay.sync()
-    assert relay.epoch == n and relay.keeper_sign == new and relay.plan is not None
-    sent = event()
-    relay.log([sent])
-    relay.sync()
-    keeper.sync()
-    assert store.event(sent["id"])
-    devices = [{"device_id": d["id"], "device_class": d["class"], "box": d["box"], "sign": d["sign"]}
-               for d in keeper.devices()]
-    folder.create(files.epoch_path(n + 1), files.epoch_file(old, store.store_id, n + 1, keeper.device_id, devices, 0))
-    folder.create(files.epoch_path(n + 2), files.epoch_file(Identity.generate(), store.store_id, n + 2,
-                                                            keeper.device_id, devices, 0, previous=old))
-    relay.sync()
-    assert relay.epoch == n and relay.keeper_sign == new  # the old keys can't take trust back
-
-
-def test_a_phone_away_for_two_rotations_follows_both(store, folder, keeper):
-    relay = joined(keeper, folder)
-    keeper.rotate()
-    n = keeper.rotate()
-    relay.sync()
-    assert relay.epoch == n and relay.keeper_sign == keeper.identity.public()["sign"]
-
-
-def test_a_rotation_cut_short_still_hands_over_from_the_keys_phones_trust(store, folder, keeper, monkeypatch):
-    relay = joined(keeper, folder)
-    create = folder.create
-
-    def lost(path, data):
-        if path.startswith("epochs/"):
-            raise OSError("offline")
-        create(path, data)
-
-    monkeypatch.setattr(folder, "create", lost)
-    for _ in range(2):
-        with pytest.raises(OSError):
-            keeper.rotate()
-    monkeypatch.setattr(folder, "create", create)
-    keeper.sync()
-    relay.sync()
-    assert relay.epoch == keeper.epoch and relay.keeper_sign == keeper.identity.public()["sign"]
-    assert keeper._previous() is None
-
-
-def test_a_new_recovery_code_retires_the_old_one(store, folder, keeper, tmp_path, clock):
-    old = keeper.recovery_code
-    n = keeper.rotate(recovery=True)
-    assert keeper.recovery_code not in (None, old)
-    assert [p for p in folder.list() if p.endswith("/recovery.key")] == [files.recovery_path(n)]
-    with pytest.raises(ByobotError, match="recovery code"):
-        Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
-    again = Keeper.recover(Store(tmp_path / "b.db"), folder, keeper.recovery_code, clock)
-    assert again.identity.public() == keeper.identity.public()
-
-
 def moved(keeper, relay):
     """The relay writes in the keeper's epoch, so cleanup can run."""
     relay.sync()
@@ -386,55 +325,24 @@ def moved(keeper, relay):
     keeper.sync()
 
 
-def test_the_code_from_setup_still_opens_the_folder_after_a_rotation_and_cleanup(store, folder, keeper, tmp_path,
-                                                                                 clock):
+def test_the_code_from_setup_still_opens_the_folder_after_a_new_epoch_and_cleanup(store, folder, keeper, tmp_path,
+                                                                                  clock):
     code = keeper.recovery_code
     relay = joined(keeper, folder)
     keeper.sync()
-    n = keeper.rotate()
+    n = keeper.start_epoch()
     moved(keeper, relay)
     assert [p for p in folder.list() if p.endswith("/recovery.key")] == [files.recovery_path(n)]
     again = Keeper.recover(Store(tmp_path / "a.db"), folder, code, clock)
     assert again.epoch > n
 
 
-def test_a_new_code_cut_short_is_kept_and_shown_by_the_retry(store, folder, keeper, tmp_path, clock, monkeypatch):
-    relay = joined(keeper, folder)
-    keeper.sync()
-    create = folder.create
-
-    def lost(path, data):
-        if path.startswith("epochs/"):
-            raise OSError("offline")
-        create(path, data)
-
-    monkeypatch.setattr(folder, "create", lost)
-    with pytest.raises(OSError):
-        keeper.rotate(recovery=True)
-    made = keeper.unshown_code()
-    assert keeper.local_status()["recovery_code"].startswith("not shown yet")
-    monkeypatch.setattr(folder, "create", create)
-    keeper.rotate()  # without --recovery, it still finishes the code the cut-short try made
-    assert keeper.recovery_code == made
-    moved(keeper, relay)
-    Keeper.recover(Store(tmp_path / "a.db"), folder, made, clock)
-
-
-def test_a_code_a_newer_one_replaced_is_refused_while_its_files_remain(store, folder, keeper, tmp_path, clock,
-                                                                      monkeypatch):
-    old = keeper.recovery_code
-    monkeypatch.setattr(folder, "delete", lambda path: None)  # the old code's recovery keys stay
-    keeper.rotate(recovery=True)
-    with pytest.raises(ByobotError, match="newer recovery code"):
-        Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
-
-
-def test_cleanup_waits_on_a_phone_that_cant_follow_a_handover(store, folder, keeper, monkeypatch):
+def test_cleanup_waits_on_a_phone_that_cant_follow(store, folder, keeper, monkeypatch):
     relay = joined(keeper, folder)
     keeper.sync()
     relay.sync()
     old = relay.epoch
-    n = keeper.rotate()
+    n = keeper.start_epoch()
     follow = Relay._follow
     monkeypatch.setattr(Relay, "_follow", lambda self, listing: {})
     sent = event()
@@ -446,3 +354,4 @@ def test_cleanup_waits_on_a_phone_that_cant_follow_a_handover(store, folder, kee
     monkeypatch.setattr(Relay, "_follow", follow)
     moved(keeper, relay)
     assert relay.epoch == n and files.epoch_path(old) not in folder.list()
+

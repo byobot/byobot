@@ -9,13 +9,12 @@ import json
 import re
 from typing import Any
 
-from .crypto import (FORMAT, CloudError, Identity, b64, decrypt, dumps, encrypt, peek_document, read_document, seal,
-                     sign_document, unb64, unseal, verify)
+from .crypto import (FORMAT, CloudError, Identity, decrypt, dumps, encrypt, peek_document, read_document, seal,
+                     sign_document, unb64, unseal)
 from .segment import ID, MAX_EPOCH
 
 CLASSES = ("keeper", "relay")
 RECOVERY = "recovery"
-HANDOVER_DOMAIN = b"byobot-cloud handover 1\n"
 EPOCH_FILE = re.compile(r"epochs/([0-9]{10})\.json")
 
 
@@ -115,24 +114,16 @@ def read_device(data: bytes, store_id: str, device_id: str) -> dict:
 
 # -- epochs --------------------------------------------------------------------
 
-def _handover(store_id: str, epoch: int, keeper_key: str) -> bytes:
-    return f"{store_id}\n{epoch}\n{keeper_key}".encode()
-
-
 def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_device_id: str, devices: list[dict],
-               checkpoint: int, capabilities: list[str] = (), previous: Identity | None = None,
-               closed: bool = False) -> bytes:
+               checkpoint: int, capabilities: list[str] = (), closed: bool = False) -> bytes:
     """The keeper's signed record of an epoch: the devices that hold its key, its checkpoint's parts, and what the
-    keeper supports beyond this format. With ``previous``, the keeper's earlier identity hands trust to this one."""
+    keeper supports beyond this format."""
     if not 0 <= epoch <= MAX_EPOCH:
         raise ValueError("epoch out of range")
     key = keeper.public()["sign"]
     body = {"format": FORMAT, "store_id": store_id, "epoch": epoch, "keeper_device_id": keeper_device_id,
             "keeper_key": key, "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
             "capabilities": _capabilities(list(capabilities)), **({"closed": True} if closed else {})}
-    if previous is not None and previous.public()["sign"] != key:
-        body["handover"] = {"from": previous.public()["sign"],
-                            "sig": b64(previous.signature(HANDOVER_DOMAIN, _handover(store_id, epoch, key)))}
     return sign_document(keeper, body)
 
 
@@ -146,16 +137,10 @@ def is_closed(data: bytes | None) -> bool:
 
 
 def read_epoch(data: bytes, keeper_sign: str, store_id: str, epoch: int) -> dict:
-    """An epoch file signed with ``keeper_sign``, or with a new key that ``keeper_sign`` handed over to; the reader
-    then trusts the body's ``keeper_key`` from this epoch on."""
-    unverified = peek_document(data)
-    signer = unverified.get("keeper_key")
-    if unb64(signer, 32) != unb64(keeper_sign, 32):
-        handover = unverified.get("handover")
-        if not isinstance(handover, dict) or unb64(handover.get("from"), 32) != unb64(keeper_sign, 32):
-            raise CloudError("signed by another device, with no handover from the keeper")
-        verify(keeper_sign, HANDOVER_DOMAIN, _handover(store_id, epoch, signer), unb64(handover.get("sig"), 64))
-    body = read_document(data, signer)
+    """An epoch file signed with ``keeper_sign``."""
+    if unb64(peek_document(data).get("keeper_key"), 32) != unb64(keeper_sign, 32):
+        raise CloudError("signed by another device")
+    body = read_document(data, keeper_sign)
     _matches(body, store_id, epoch)
     if not isinstance(body.get("devices"), list) or not isinstance(body.get("checkpoint"), int) \
             or not isinstance(body.get("keeper_device_id"), str):
