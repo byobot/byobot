@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: list
-        run: echo "files=$(cd python && ls tests/core/test_*.py | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+        run: echo "files=$(cd python && ls tests/core/test_*.py tests/test_sync_simulator.py tests/test_crash.py | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
 
   soak:
     name: Soak ${{ matrix.file }}
