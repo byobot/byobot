@@ -230,3 +230,21 @@ def test_s10_a_swapped_exercise_gets_a_new_planned_effort(world):
     ids = [b["efforts"][0]["id"] for b in plan["blocks"]]
     assert ids[0] != "ps1.pe0" and ids[1] == "ps1.pe1" and len(set(ids)) == 2
     assert diff(world.snapshot("phone"), world.expected("phone")) == []
+
+
+def test_s10_a_reordered_or_inserted_exercise_keeps_its_logged_sets(world):
+    world.replica("phone")
+    for activity in ("barbell_back_squat", "lunge", "plank"):
+        world.author("phone", {"intent": "define_activity", "record": {"id": activity, "name": activity}})
+    world.author("phone", {"intent": "plan_session", "record": PLAN}, {"kind": "agent", "id": "example-agent"})
+    world.author("phone", {"intent": "log_effort", "record": {
+        "id": "e1", "activity_id": "lunge", "planned_effort_id": "ps1.pe1", "round": 1,
+        "performed_at": T("10:05"), "metrics": {"reps": {"value": 8}}}})
+    replanned = {**PLAN, "blocks": [{"rounds": 2, "efforts": [{"activity_id": "plank"}]},
+                                    {"rounds": 3, "efforts": [{"activity_id": "lunge"}]},
+                                    {"rounds": 3, "efforts": [{"activity_id": "barbell_back_squat"}]}]}
+    world.author("phone", {"intent": "replan_session", "record": replanned}, {"kind": "agent", "id": "example-agent"})
+    plan = world.snapshot("phone")["records"]["planned_session/ps1"]["fields"]
+    ids = [b["efforts"][0]["id"] for b in plan["blocks"]]
+    assert ids[1:] == ["ps1.pe1", "ps1.pe0"] and ids[0] not in ids[1:]
+    assert diff(world.snapshot("phone"), world.expected("phone")) == []
