@@ -225,25 +225,37 @@ class ModelReplica:
         return [self._write(at, actor, k, rid, "put", content, read=True) for k, rid, content in parts]
 
     def _replan(self, record: dict, at: str, actor: str) -> list[Write]:
-        """Re-planning keeps the ids of blocks and planned efforts it leaves out, by position; a planned effort's
-        only for the same activity."""
+        """Re-planning keeps the ids of blocks it leaves out by position, and of planned efforts: the one at the
+        same position if it's the same activity, else the first of that activity not kept yet."""
         old = self.fields(key("planned_session", record["id"])) or {"blocks": []}
         used = {e["id"] for b in old["blocks"] for e in b["efforts"]}
+        kept = {e["id"] for b in record["blocks"] for e in b["efforts"] if "id" in e}
+        given = [(bi, ei, e) for bi, b in enumerate(record["blocks"]) for ei, e in enumerate(b["efforts"])
+                 if "id" not in e]
+        ids = {}
+        for bi, ei, e in given:
+            was = old["blocks"][bi]["efforts"] if bi < len(old["blocks"]) else []
+            if ei < len(was) and was[ei].get("activity_id") == e.get("activity_id") and was[ei]["id"] not in kept:
+                ids[(bi, ei)] = was[ei]["id"]
+                kept.add(was[ei]["id"])
+        for bi, ei, e in given:
+            if (bi, ei) in ids:
+                continue
+            same = [o["id"] for b in old["blocks"] for o in b["efforts"]
+                    if o.get("activity_id") == e.get("activity_id") and o["id"] not in kept]
+            if same:
+                rid = same[0]
+            else:
+                rid, n = f"{record['id']}.{bi}.{ei}", 1
+                while rid in used | kept:
+                    n += 1
+                    rid = f"{record['id']}.{bi}.{ei}.{n}"
+            ids[(bi, ei)] = rid
+            kept.add(rid)
         blocks = []
         for bi, block in enumerate(record["blocks"]):
-            was = old["blocks"][bi] if bi < len(old["blocks"]) else {"efforts": []}
-            efforts = []
-            for ei, e in enumerate(block["efforts"]):
-                same = ei < len(was["efforts"]) and was["efforts"][ei].get("activity_id") == e.get("activity_id")
-                if same:
-                    rid = was["efforts"][ei]["id"]
-                else:
-                    rid, n = f"{record['id']}.{bi}.{ei}", 1
-                    while rid in used:
-                        n += 1
-                        rid = f"{record['id']}.{bi}.{ei}.{n}"
-                used.add(rid)
-                efforts.append({"id": rid, **e})
+            was = old["blocks"][bi] if bi < len(old["blocks"]) else {}
+            efforts = [{"id": ids[(bi, ei)], **e} if (bi, ei) in ids else e for ei, e in enumerate(block["efforts"])]
             blocks.append({"id": was.get("id", f"{record['id']}.{bi}"), **block, "efforts": efforts})
         content = {k: v for k, v in record.items() if k != "id"} | {"blocks": blocks}
         return [self._write(at, actor, "planned_session", record["id"], "put", content, read=True)]
