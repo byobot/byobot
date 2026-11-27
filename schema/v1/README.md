@@ -29,7 +29,7 @@ Derived ids are UUIDv5 over the [RFC 8785](https://www.rfc-editor.org/rfc/rfc878
 - Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`, or `["<record id>"]` with an empty `prev` when the deletion came before any revision. That one hides the record for good.
 - `overlay` record: `["<effect>", "<target kind>", "<target id>"]` in `overlay`, so there is one overlay per effect and target.
 
-The store key is 32 random bytes created with the store. It never enters the logbook; export and restore carry it, and paired devices receive it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
+The store key is 32 random bytes created with the store. It never enters the logbook and no phone receives it; export and restore carry it, as does the cloud recovery file, sealed to the recovery code. It keeps an erased source payload from being recovered by hashing guesses against event ids.
 
 ## Order and time
 
