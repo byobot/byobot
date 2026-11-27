@@ -86,8 +86,10 @@ def header(data: bytes) -> dict:
     return found
 
 
-def read(data: bytes, *, path: str, store_id: str, key: bytes, sign_public: str) -> tuple[dict, list[dict]]:
-    """A segment's header and messages, once its place, store, signature, key and length all check out."""
+def read(data: bytes, *, path: str, store_id: str, key: bytes, sign_public: str,
+         skip_unknown: bool = False) -> tuple[dict, list[dict]]:
+    """A segment's header and messages, once its place, store, signature, key and length all check out. With
+    ``skip_unknown``, a message a newer byobot added is left out instead of refusing the segment."""
     found = header(data)
     expected = parse_name(path)
     if expected is None or any(found[k] != v for k, v in expected.items()):
@@ -100,10 +102,10 @@ def read(data: bytes, *, path: str, store_id: str, key: bytes, sign_public: str)
     head, ciphertext, sig = data[:split], data[split:-64], data[-64:]
     verify(sign_public, DOMAIN, head + ciphertext, sig)
     body = decrypt(key, {"nonce": found["nonce"], "ciphertext": b64(ciphertext)}, head)
-    return found, _messages(body)
+    return found, _messages(body, skip_unknown)
 
 
-def _messages(body: bytes) -> list[dict]:
+def _messages(body: bytes, skip_unknown: bool = False) -> list[dict]:
     try:
         d = zlib.decompressobj(wbits=31)
         text = d.decompress(body, MAX_BODY)
@@ -116,8 +118,12 @@ def _messages(body: bytes) -> list[dict]:
             or lines[-1]["end"] != {"lines": len(lines) - 1}:
         raise CloudError("cut short")
     messages = lines[:-1]
-    if any(not isinstance(m, dict) or len(m) != 1 or next(iter(m)) not in MESSAGES for m in messages):
-        raise CloudError("holds a message this byobot doesn't know; upgrade byobot")
+    if any(not isinstance(m, dict) or len(m) != 1 for m in messages):
+        raise CloudError("not a readable segment body")
+    if skip_unknown:
+        return [m for m in messages if next(iter(m)) in MESSAGES]
+    if any(next(iter(m)) not in MESSAGES for m in messages):
+        raise CloudError("holds a message a newer byobot wrote; upgrade byobot")
     return messages
 
 

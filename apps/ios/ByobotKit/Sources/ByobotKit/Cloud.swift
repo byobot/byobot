@@ -119,7 +119,8 @@ public enum Cloud {
         return found
     }
 
-    /// A segment's header and messages, once its place, store, signature, key and length all check out.
+    /// A segment's header and the messages this byobot knows, once its place, store, signature, key and length all
+    /// check out.
     public static func readSegment(_ data: Data, path: String, storeID: String, key: Data,
                                    signPublic: String) throws -> (header: [String: JSONValue], messages: [[String: JSONValue]]) {
         let found = try header(data)
@@ -177,12 +178,11 @@ public enum Cloud {
               last["end"] == .object(["lines": .number(Double(values.count - 1))]) else {
             throw CloudError("cut short")
         }
-        return try values.dropLast().map { value -> [String: JSONValue] in
-            guard case .object(let message) = value, message.count == 1, let name = message.keys.first,
-                  messages.contains(name) else {
-                throw CloudError("holds a message this byobot doesn't know; upgrade byobot")
+        return try values.dropLast().compactMap { value -> [String: JSONValue]? in
+            guard case .object(let message) = value, message.count == 1, let name = message.keys.first else {
+                throw CloudError("not a readable segment body")
             }
-            return message
+            return messages.contains(name) ? message : nil  // a message a newer byobot added is left out
         }
     }
 

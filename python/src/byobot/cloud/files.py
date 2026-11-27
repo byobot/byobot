@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .crypto import (FORMAT, CloudError, Identity, decrypt, dumps, encrypt, read_document, seal, sign_document,
-                     unb64, unseal)
+from .crypto import (FORMAT, CloudError, Identity, decrypt, dumps, encrypt, peek_document, read_document, seal,
+                     sign_document, unb64, unseal)
 from .segment import ID, MAX_EPOCH
 
 CLASSES = ("keeper", "relay")
@@ -84,12 +84,22 @@ def read_device(data: bytes, store_id: str, device_id: str) -> dict:
 # -- epochs --------------------------------------------------------------------
 
 def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_id: str, devices: list[dict],
-               checkpoint: int) -> bytes:
+               checkpoint: int, closed: bool = False) -> bytes:
     """The keeper's signed record of an epoch: the devices that hold its key, and its checkpoint's parts."""
     if not 0 <= epoch <= MAX_EPOCH:
         raise ValueError("epoch out of range")
     return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch, "keeper": keeper_id,
-                                  "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint})
+                                  "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
+                                  **({"closed": True} if closed else {})})
+
+
+def is_closed(data: bytes | None) -> bool:
+    """Whether an epoch file says its folder was closed. Not verified, since a new keeper doesn't hold the old one's
+    key; only a folder holding nothing but epoch files is taken over on its word."""
+    try:
+        return peek_document(data or b"").get("closed") is True
+    except CloudError:
+        return False
 
 
 def read_epoch(data: bytes, keeper_sign: str, store_id: str, epoch: int) -> dict:
