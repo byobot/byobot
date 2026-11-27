@@ -373,6 +373,23 @@ def db(byobot_home):
     return Store(byobot_home / "byobot.db")
 
 
+def test_the_shared_exchanges_answer_as_the_fixture_says(server):
+    _, info, client, _ = server
+    wrong = "000000" if info["code"] != "000000" else "111111"
+    token = None
+    for x in SYNC["exchanges"]:
+        body = json.loads(json.dumps(x["body"]).replace("{code}", info["code"]).replace("{wrong}", wrong))
+        auth = {"none": "", "wrong": "not-a-token", "paired": token}[x["auth"]]
+        status, answer = client.call(x["method"], x["path"], body, token=auth)
+        assert status == x["status"], (x["name"], answer)
+        if "error" in x:
+            assert answer["error"] == x["error"] and sync_errors("error", answer) == [], x["name"]
+        else:
+            assert sync_errors(x["def"], answer) == [], x["name"]
+        if x.get("def") == "pair_response":
+            token = answer["token"]
+
+
 def test_certificate_is_made_once_and_kept(server, byobot_home):
     _, info, _, _ = server
     cert = byobot_home / "serve" / "cert.pem"

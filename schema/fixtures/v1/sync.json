@@ -1,5 +1,5 @@
 {
-  "description": "Conformance cases for sync.schema.json and the pairing link. `byobot serve` and the app both test against these.",
+  "description": "Conformance cases for sync.schema.json and the pairing link. `byobot serve` and the app both test against these. `exchanges` run in order against a fresh `byobot serve` that is open to pairing: `auth` is none, a token it never issued (wrong), or the token the pairing exchange returned (paired); `{code}` is the hub's pairing code and `{wrong}` any other. Each answers `status`, with `error` or a body that is a valid `def`.",
   "schema_version": 1,
   "cases": [
     {
@@ -1359,5 +1359,192 @@
     "description": "A hub certificate (base64 DER) and its pin: lowercase hex SHA-256 of its SubjectPublicKeyInfo DER.",
     "certificate": "MIIBHTCBxaADAgECAgEBMAoGCCqGSM49BAMCMBkxFzAVBgNVBAMMDmJ5b2JvdCBleGFtcGxlMB4XDTI2MDEwMTAwMDAwMFoXDTM1MTIzMDAwMDAwMFowGTEXMBUGA1UEAwwOYnlvYm90IGV4YW1wbGUwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARRXD1uueOWuQTT/sp/VP3NDMHpl783XcpRWtCmw7QDX0U2vjpQ8xj7+aVHWQKiIVAr7w1X4IxTsswKVvF9n5NUMAoGCCqGSM49BAMCA0cAMEQCIBQ/8iormmbC+UUHdSyfbfUWQ+1d+DC+mgre5R+VIGBlAiBRANpJ0Nv59gF7xTohtR2XNCWxRiQYnx0KZHxYAO4naQ==",
     "pin": "f1d59449b727165de732bf283338122b99628a615918fedc67d878fffcf47da7"
-  }
+  },
+  "exchanges": [
+    {
+      "name": "hello needs no token",
+      "method": "GET",
+      "path": "/v1/hello",
+      "auth": "none",
+      "body": null,
+      "status": 200,
+      "def": "hello"
+    },
+    {
+      "name": "status needs a paired token",
+      "method": "GET",
+      "path": "/v1/status",
+      "auth": "wrong",
+      "body": null,
+      "status": 401,
+      "error": "unauthorized"
+    },
+    {
+      "name": "the plan needs a paired token",
+      "method": "GET",
+      "path": "/v1/plan",
+      "auth": "wrong",
+      "body": null,
+      "status": 401,
+      "error": "unauthorized"
+    },
+    {
+      "name": "events need a paired token",
+      "method": "POST",
+      "path": "/v1/events",
+      "auth": "wrong",
+      "body": {
+        "events": []
+      },
+      "status": 401,
+      "error": "unauthorized"
+    },
+    {
+      "name": "a wrong pairing code",
+      "method": "POST",
+      "path": "/v1/pair",
+      "auth": "none",
+      "body": {
+        "code": "{wrong}",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Test phone"
+      },
+      "status": 403,
+      "error": "wrong_code"
+    },
+    {
+      "name": "a bad device id",
+      "method": "POST",
+      "path": "/v1/pair",
+      "auth": "none",
+      "body": {
+        "code": "{code}",
+        "device_id": "no spaces",
+        "name": "Test phone"
+      },
+      "status": 400,
+      "error": "invalid"
+    },
+    {
+      "name": "pairing with the code",
+      "method": "POST",
+      "path": "/v1/pair",
+      "auth": "none",
+      "body": {
+        "code": "{code}",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
+        "name": "Test phone"
+      },
+      "status": 200,
+      "def": "pair_response"
+    },
+    {
+      "name": "pairing again once paired",
+      "method": "POST",
+      "path": "/v1/pair",
+      "auth": "none",
+      "body": {
+        "code": "{code}",
+        "device_id": "0193a0b0-0000-7000-8000-00000000ab02",
+        "name": "Test phone"
+      },
+      "status": 403,
+      "error": "pairing_closed"
+    },
+    {
+      "name": "status",
+      "method": "GET",
+      "path": "/v1/status",
+      "auth": "paired",
+      "body": null,
+      "status": 200,
+      "def": "status"
+    },
+    {
+      "name": "the plan",
+      "method": "GET",
+      "path": "/v1/plan",
+      "auth": "paired",
+      "body": null,
+      "status": 200,
+      "def": "plan_window"
+    },
+    {
+      "name": "the plan for dates",
+      "method": "GET",
+      "path": "/v1/plan?from=2026-11-22&to=2026-12-05",
+      "auth": "paired",
+      "body": null,
+      "status": 200,
+      "def": "plan_window"
+    },
+    {
+      "name": "the plan for a date that isn't one",
+      "method": "GET",
+      "path": "/v1/plan?from=soon",
+      "auth": "paired",
+      "body": null,
+      "status": 400,
+      "error": "invalid"
+    },
+    {
+      "name": "no events",
+      "method": "POST",
+      "path": "/v1/events",
+      "auth": "paired",
+      "body": {
+        "events": [],
+        "kind_versions": {
+          "effort": 1
+        }
+      },
+      "status": 200,
+      "def": "events_response"
+    },
+    {
+      "name": "events in a body that isn't a request",
+      "method": "POST",
+      "path": "/v1/events",
+      "auth": "paired",
+      "body": {
+        "nope": []
+      },
+      "status": 400,
+      "error": "invalid"
+    },
+    {
+      "name": "events with kind version zero",
+      "method": "POST",
+      "path": "/v1/events",
+      "auth": "paired",
+      "body": {
+        "events": [],
+        "kind_versions": {
+          "effort": 0
+        }
+      },
+      "status": 400,
+      "error": "invalid"
+    },
+    {
+      "name": "no samples",
+      "method": "POST",
+      "path": "/v1/samples",
+      "auth": "paired",
+      "body": {
+        "samples": []
+      },
+      "status": 200,
+      "def": "samples_response"
+    },
+    {
+      "name": "an endpoint that isn't one",
+      "method": "GET",
+      "path": "/v1/nowhere",
+      "auth": "paired",
+      "body": null,
+      "status": 404,
+      "error": "not_found"
+    }
+  ]
 }
