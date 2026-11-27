@@ -54,8 +54,8 @@ class Command:
 
     @property
     def tool(self) -> str:
-        """The MCP tool name: `import activities` becomes `import-activities`."""
-        return self.name.replace(" ", "-")
+        """The MCP tool and API name: `cloud sync` becomes `cloud_sync`."""
+        return self.name.replace(" ", "_")
 
 
 @dataclass

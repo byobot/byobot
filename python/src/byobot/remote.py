@@ -668,7 +668,7 @@ def openapi(base: str) -> dict:
     paths = {}
     for tool in mcp.tools():
         paths[f"{API}/tools/{tool['name']}"] = {"post": {
-            "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
+            "operationId": tool["name"], "summary": tool["title"],
             "description": tool["description"][:300],
             "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
             "responses": responses}}

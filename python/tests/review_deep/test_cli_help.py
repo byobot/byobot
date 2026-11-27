@@ -12,13 +12,13 @@ from byobot import mcp  # noqa: E402
 
 
 def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
-    """CLI-11: import-activities tells agents "Use @path for a file", but only the CLI reads @path; over MCP and the
+    """CLI-11: import activities tells agents "Use @path for a file", but only the CLI reads @path; over MCP and the
     API the string is refused as "expected a list of activities"."""
     path = tmp_path / "activities.json"
     path.write_text(json.dumps([{"id": "x_example_carry", "name": "Example carry"}]))
-    tool = next(t for t in mcp.tools() if t["name"] == "import-activities")
+    tool = next(t for t in mcp.tools() if t["name"] == "import_activities")
     if "@path" in json.dumps(tool):
-        assert via_mcp("import-activities", {"activities": f"@{path}"})[0] == "ok"
+        assert via_mcp("import_activities", {"activities": f"@{path}"})[0] == "ok"
 
 
 def test_cli_a_text_value_is_taken_as_the_help_says(capsys):
