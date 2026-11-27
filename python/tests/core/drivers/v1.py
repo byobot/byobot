@@ -19,7 +19,7 @@ from byobot.core.store import Store
 
 from ..driver import Unsupported, parse
 from ..model import AUTHORED, NEW_IN
-from ..snapshot import canonical, empty, key, occurrence
+from ..snapshot import canonical, empty, key, num, occurrence
 
 NAMESPACE = uuid.UUID("6f1d3c52-8a27-4f0e-9b61-2d7c0e5a9f14")
 LOGS = {
@@ -274,15 +274,34 @@ class V1:
                 versions = {canonical(self._version(v)): self._version(v) for v in c["versions"]}
                 out["conflicts"][key(c["kind"], self.back(c["id"]))] = list(versions.values())
         out["erased"] = sorted(key(k, self.back(i)) for k, i in store.erased() if k in AUTHORED)
+        out["derived"] = {k: {"local_date": d, "metrics": {}} for k, d in self.local_dates(rep).items()}
+        for kind, oid, code, std in store.conn.execute(
+                "SELECT owner_kind, owner_id, code, std_value FROM metrics "
+                "WHERE owner_kind IN ('session', 'effort') AND part_id = ''"):
+            if std is not None:
+                out["derived"].setdefault(key(kind, self.back(oid)), {"metrics": {}})["metrics"][code] = num(std)
+        out["workouts"] = self.workouts(rep)
         return out
 
-    def occurrences(self, rep: Replica) -> list[dict]:
+    def workouts(self, rep: Replica) -> list[dict]:
+        """Occurrences with the provenance of each metric: you, or the source it came from."""
         conn, out = rep.store.conn, []
+        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health", "hume")}
         for oid, start, end in conn.execute("SELECT id, started_at, ended_at FROM occurrences"):
-            got = {code: v for code, v in conn.execute(
-                "SELECT code, std_value FROM occurrence_metrics WHERE occurrence_id = ?", (oid,))}
-            out.append(occurrence(start, end or start, {k: got.get(code) for k, (code, _) in FIELDS.items()}))
+            got, by = {}, {}
+            for code, v, from_kind, from_id, overlay in conn.execute(
+                    "SELECT code, std_value, from_kind, from_id, overlay_id FROM occurrence_metrics "
+                    "WHERE occurrence_id = ?", (oid,)):
+                got[code] = v
+                source = conn.execute("SELECT source FROM source_records WHERE id = ?", (from_id,)).fetchone()
+                by[code] = "you" if from_kind == "session" or overlay else named.get(source and source[0], "?")
+            o = occurrence(start, end or start, {k: got.get(code) for k, (code, _) in FIELDS.items()})
+            o["provenance"] = {k: by[code] for k, (code, _) in FIELDS.items() if got.get(code) is not None}
+            out.append(o)
         return sorted(out, key=canonical)
+
+    def occurrences(self, rep: Replica) -> list[dict]:
+        return sorted(({k: v for k, v in o.items() if k != "provenance"} for o in self.workouts(rep)), key=canonical)
 
     def source_history(self, rep: Replica, source: str, source_id: str) -> list[dict]:
         name = SOURCES.get(source, source)

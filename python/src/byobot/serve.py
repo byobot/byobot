@@ -45,6 +45,7 @@ import ssl
 import sys
 import threading
 import time
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from http import HTTPStatus
@@ -280,9 +281,15 @@ class Server(ThreadingHTTPServer):
         self.pairing_lock = threading.Lock()
         self.name = name
         self.log = log or (lambda line: None)
-        with Store(db) as store:
-            self.device_id, self.store_id = store.device_id, store.store_id
+        with Store(db):
+            pass
         super().__init__(address, Handler)
+
+    def ids(self) -> tuple[str, str]:
+        """This store's device and store ids, read now: a restore while serving takes on the backup's store id."""
+        with closing(sqlite3.connect(f"{self.db.resolve().as_uri()}?mode=ro", uri=True, timeout=5)) as conn:
+            meta = dict(conn.execute("SELECT key, value FROM meta WHERE key IN ('device_id', 'store_id')"))
+        return meta["device_id"], meta["store_id"]
 
     def finish_request(self, request: Any, client_address: Any) -> None:
         # Handshake and headers run in this request's thread. An idle cap means a client that
@@ -504,7 +511,8 @@ class Handler(BaseHTTPRequestHandler):
     # -- endpoints --
 
     def _server_info(self) -> dict:
-        return {"device_id": self.server.device_id, "store_id": self.server.store_id, "name": self.server.name}
+        device_id, store_id = self.server.ids()
+        return {"device_id": device_id, "store_id": store_id, "name": self.server.name}
 
     def hello(self) -> dict:
         pairing = self.server.pairing

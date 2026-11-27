@@ -31,6 +31,14 @@ def test_s7_a_corrected_weight_keeps_both_readings(world):
     assert [h["value"] for h in world.source_history("phone", "hume", "hume-1")] == [80.4, 80.1]
 
 
+def test_s7_an_older_revision_arriving_later_stays_older(world):
+    world.replica("phone")
+    world.ingest("phone", "hume", [weight("hume-1", T("07:00"), 80.1, T("09:00"))])
+    world.ingest("phone", "hume", [weight("hume-1", T("07:00"), 80.4, T("07:00"))])
+    assert [h["value"] for h in world.source_history("phone", "hume", "hume-1")] == [80.4, 80.1]
+    assert diff(world.snapshot("phone"), world.expected("phone")) == []
+
+
 def test_s7_resending_identical_data_changes_nothing(world):
     world.replica("laptop")
     batch = {"sleep": [SLEEP], "workout": [whoop_workout("9a1b0000-0000-4000-8000-000000000001", T("10:00"),
@@ -123,6 +131,24 @@ def test_s8_a_correction_survives_a_rescore(world):
     [one] = world.occurrences("laptop")
     assert one["metrics"]["distance_m"] == "10000"
     assert world.occurrences("laptop") == world.expected_occurrences("laptop")
+
+
+def test_s8_a_correction_shows_before_any_rescore(world):
+    world.replica("laptop")
+    world.ingest("laptop", "whoop", {"workout": [whoop_workout(WID, T("10:00"), T("11:00"), T("11:05"), distance=5000)]})
+    world.author("laptop", {"intent": "correct_import", "source": "whoop", "source_id": WID,
+                            "fields": {"distance_m": 10000}})
+    [one] = world.occurrences("laptop")
+    assert one["metrics"]["distance_m"] == "10000"
+    assert world.occurrences("laptop") == world.expected_occurrences("laptop")
+
+
+def test_s8_two_of_your_own_overlapping_sessions_stay_two(world):
+    world.replica("phone")
+    world.author("phone", session("s1", T("10:00"), T("11:00")))
+    world.author("phone", session("s2", T("10:15"), T("10:45")))
+    assert len(world.occurrences("phone")) == 2
+    assert world.occurrences("phone") == world.expected_occurrences("phone")
 
 
 def test_s8_an_import_after_undoing_your_session_still_counts_once(world):

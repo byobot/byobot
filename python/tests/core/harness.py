@@ -88,6 +88,8 @@ class World:
         native, model = intent, intent
         if intent["intent"] == "undo":
             target = self.changes[intent["change"]]
+            if not target.events and not target.writes:
+                return self._change(name, [], [], refused=True)
             if not target.events:
                 raise Unsupported("the driver wrote no event to undo")
             native = {"intent": "undo", "event": target.events[-1], "events": list(target.events)}
@@ -100,6 +102,7 @@ class World:
             events = self.driver.author(rep.state, native, at, actor)
         except (ByobotError, Refused):
             events = []
+        assert bool(events) == bool(writes), f"the store and the model disagree on refusing {intent}"
         return self._change(name, events, writes, refused=not writes)
 
     def ingest(self, name: str, source: str, batch: Any) -> Change:

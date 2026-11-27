@@ -19,7 +19,7 @@ SCHEMAS = {n: json.loads((V1 / f"{n}.schema.json").read_text()) for n in ("commo
 REG = json.loads((V1 / "registry.json").read_text())
 CASES = json.loads((FIXTURES / "cases.json").read_text())["cases"]
 IDS = json.loads((FIXTURES / "ids.json").read_text())
-RULES = {"time-order", "date-order", "range-order", "code-value", "part-ids", "self-reference", "derived-id"}
+RULES = {"time_order", "date_order", "range_order", "code_value", "part_ids", "self_reference", "derived_id"}
 
 _resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in SCHEMAS.values())
 EVENT = Draft202012Validator(SCHEMAS["event"], registry=_resources)
@@ -86,31 +86,31 @@ def code_ok(code, m):
 def broken_rules(event):
     broken = set()
     if event["id"] in event["prev"] or event.get("reverts") == event["id"]:
-        broken.add("self-reference")
+        broken.add("self_reference")
     if event["op"] != "put" or "redacted_by" in event:
         return broken
     kind, rid, p = event["record"]["kind"], event["record"]["id"], event["payload"]
     for t in (p.get("time"), p.get("fields", {}).get("time")):
         if t and "end" in t and instant(t["end"]) < instant(t["start"]):
-            broken.add("time-order")
+            broken.add("time_order")
     if kind == "plan" and "ends_on" in p and p["ends_on"] < p["starts_on"]:
-        broken.add("date-order")
+        broken.add("date_order")
     for metrics in measures(kind, p):
         for code, m in metrics.items():
             if "min" in m and "max" in m and m["min"] > m["max"]:
-                broken.add("range-order")
+                broken.add("range_order")
             if "value" in m and (m["value"] < m.get("min", m["value"]) or m["value"] > m.get("max", m["value"])):
-                broken.add("range-order")
+                broken.add("range_order")
             if not code_ok(code, m):
-                broken.add("code-value")
+                broken.add("code_value")
     if kind == "planned_session":
         parts = [b["id"] for b in p["blocks"]] + [e["id"] for b in p["blocks"] for e in b["efforts"]]
         if len(parts) != len(set(parts)):
-            broken.add("part-ids")
+            broken.add("part_ids")
     if kind == "source_record" and rid != derived("source_record", [p["source"], p["source_type"], p["source_id"]]):
-        broken.add("derived-id")
+        broken.add("derived_id")
     if kind == "overlay" and rid != derived("overlay", [p["effect"], p["target"]["kind"], p["target"]["id"]]):
-        broken.add("derived-id")
+        broken.add("derived_id")
     return broken
 
 
@@ -165,7 +165,7 @@ def test_fixtures_cover_every_kind_setting_outcome_and_rule():
 
 def test_rules_match_the_readme():
     readme = (V1 / "README.md").read_text().split("## Rules beyond the schemas")[1]
-    assert set(re.findall(r"^- `([a-z-]+)`:", readme, re.M)) == RULES
+    assert set(re.findall(r"^- `([a-z_]+)`:", readme, re.M)) == RULES
 
 
 def test_derived_ids():

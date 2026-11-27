@@ -68,8 +68,6 @@ final class WorkoutTests: XCTestCase {
         workout = book.workout(lower)
         XCTAssertEqual(workout.exercises.map(\.id), ["e-amrap", "e-warm", "e-squat"])
         XCTAssertEqual(workout.slots.first?.id, "e-amrap:1")
-        XCTAssertEqual(workout.changeNotes,
-                       "Changed the order: Barbell back squat, Barbell back squat, Barbell back squat.")
         let overlay = try XCTUnwrap(book.state.events.last)
         XCTAssertEqual(overlay.record, RecordRef(kind: "overlay", id: Logbook.rearrangeId(lower.id)))
         XCTAssertEqual(overlay.decoded(OverlayPayload.self),
@@ -92,20 +90,20 @@ final class WorkoutTests: XCTestCase {
         var workout = book.workout(upper)
         let slot = try XCTUnwrap(workout.next)
         XCTAssertEqual(slot.activityId, "lat_pulldown")
-        XCTAssertEqual(workout.notes(for: slot, nil), "In place of Pull-up: bar taken")
+        XCTAssertEqual(workout.notes(for: slot, nil), "bar taken", "only what you typed")
 
         let metrics = Prefill.asPlanned(slot, previous: nil, lastTime: nil)
         XCTAssertEqual(metrics, ["reps": .exact(6)], "the plan's load was for pull-ups")
         let set = book.logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id,
                                  round: slot.round, notes: workout.notes(for: slot, "felt easy"))
         XCTAssertEqual(set.plannedEffortId, "e-pullup")
-        XCTAssertEqual(set.notes, "In place of Pull-up: bar taken. felt easy")
+        XCTAssertEqual(set.notes, "bar taken. felt easy")
         workout = book.workout(upper)
         XCTAssertEqual(workout.exercises.first?.done, 1)
         XCTAssertEqual(workout.next?.id, "e-dip:1")
 
         let finished = try XCTUnwrap(book.finishSession(notes: "Good one"))
-        XCTAssertEqual(finished.notes, "Good one Swapped Pull-up for Lat pulldown (bar taken).")
+        XCTAssertEqual(finished.notes, "Good one", "the swap is in the logged set, not in generated words")
 
         book.swap("e-pullup", to: nil, for: upper.id)
         XCTAssertNil(book.changes(for: upper.id).swaps)
@@ -232,25 +230,25 @@ final class WorkoutTests: XCTestCase {
     func testANewLocationNeverTakesAnErasedId() throws {
         var book = try makeBook()
         var window = try window()
-        window.erased = [ErasedRecord(kind: "location", id: "home-gym")]
+        window.erased = [ErasedRecord(kind: "location", id: "home_gym")]
         book.applyPlan(window)
-        XCTAssertEqual(book.addLocation(name: "Home Gym").id, "home-gym-2")
+        XCTAssertEqual(book.addLocation(name: "Home Gym").id, "home_gym_2")
     }
 
     func testAddingLocations() throws {
         var book = try makeBook()
         XCTAssertEqual(book.locations, [])
         let home = book.addLocation(name: " Home Gym ")
-        XCTAssertEqual(home.id, "home-gym")
+        XCTAssertEqual(home.id, "home_gym")
         XCTAssertEqual(home.name, "Home Gym")
-        XCTAssertEqual(book.currentLocationId, "home-gym")
-        XCTAssertEqual(book.addLocation(name: "home gym!").id, "home-gym-2")
+        XCTAssertEqual(book.currentLocationId, "home_gym")
+        XCTAssertEqual(book.addLocation(name: "home gym!").id, "home_gym_2")
         XCTAssertEqual(book.addLocation(name: "Éxample").id, "xample")
         XCTAssertEqual(book.addLocation(name: "🏋️").id, "gym")
         var window = try window()
-        window.locations = [Location(id: "home-gym", payload: LocationPayload(name: "Garage"), prev: ["l1"])]
+        window.locations = [Location(id: "home_gym", payload: LocationPayload(name: "Garage"), prev: ["l1"])]
         book.applyPlan(window)
-        XCTAssertEqual(book.location("home-gym")?.name, "Home Gym", "this phone's newer name until it syncs")
+        XCTAssertEqual(book.location("home_gym")?.name, "Home Gym", "this phone's newer name until it syncs")
         XCTAssertEqual(book.locations.count, 4)
     }
 
@@ -260,9 +258,9 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(book.startSession(name: "Quick one").locationId, "home")
         book.finishSession()
         var lower = try session("sess-lower-a")
-        lower.locationId = "example-gym"
-        XCTAssertEqual(book.startSession(planned: lower).locationId, "example-gym")
-        XCTAssertEqual(book.state.locationId, "example-gym", "where you are now")
+        lower.locationId = "example_gym"
+        XCTAssertEqual(book.startSession(planned: lower).locationId, "example_gym")
+        XCTAssertEqual(book.state.locationId, "example_gym", "where you are now")
         XCTAssertFalse(book.plannedElsewhere(lower))
         book.setLocation("hotel")
         XCTAssertTrue(book.plannedElsewhere(lower))
@@ -297,7 +295,7 @@ final class WorkoutTests: XCTestCase {
         book.applyPlan(window)
         XCTAssertEqual(book.lastTime("barbell_back_squat", at: "home"),
                        LastTime(efforts: [window.efforts[0]], locationId: "home", elsewhere: false))
-        XCTAssertEqual(book.lastTime("barbell_back_squat", at: "new-gym"),
+        XCTAssertEqual(book.lastTime("barbell_back_squat", at: "new_gym"),
                        LastTime(efforts: [window.efforts[1]], locationId: "hotel", elsewhere: true))
         XCTAssertEqual(book.lastTime("barbell_back_squat", at: nil).efforts, [window.efforts[1]])
         XCTAssertEqual(book.lastTime("plank", at: "home"),
@@ -307,7 +305,7 @@ final class WorkoutTests: XCTestCase {
         var lower = try session("sess-lower-a")
         lower.locationId = "home"
         book.startSession(planned: lower)
-        book.setLocation("new-gym")
+        book.setLocation("new_gym")
         let squat = try XCTUnwrap(book.workout(lower).slots.first { $0.id == "e-squat:1" })
         XCTAssertEqual(book.asPlanned(squat, in: book.workout(lower))["load"], .exact(100, unit: "kg"),
                        "planned for home, and the hotel's 80 kg doesn't carry over to a new gym")
@@ -397,7 +395,7 @@ final class WorkoutTests: XCTestCase {
             book.logEffort(activityId: slot.activityId, metrics: ["reps": .exact(8)], plannedEffortId: slot.effort.id,
                            round: slot.round)
         }
-        let extra = book.logEffort(activityId: "face-pull", metrics: ["reps": .exact(15)])
+        let extra = book.logEffort(activityId: "face_pull", metrics: ["reps": .exact(15)])
         let performed = try XCTUnwrap(book.finishSession())
         let summary = book.workout(upper).summary(extras: [extra], performed: performed)
         XCTAssertEqual(summary.rows.map(\.exercise.id), ["e-pullup", "e-dip"])

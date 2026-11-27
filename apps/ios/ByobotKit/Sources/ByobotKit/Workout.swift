@@ -139,28 +139,10 @@ public struct Workout: Sendable {
         return slot.isTimed ? [slot] : nil
     }
 
-    /// Notes for a set: why it was swapped, then anything you wrote.
+    /// Notes for a set: only what you typed, the reason you gave for a swap and then your note.
     public func notes(for slot: Slot, _ extra: String?) -> String? {
-        let parts = [slot.swap.map { swap in
-            "In place of \(name(slot.effort.activityId))" + (swap.reason.map { ": \($0)" } ?? "")
-        }, extra?.isEmpty == false ? extra : nil].compactMap { $0 }
+        let parts = [slot.swap?.reason, extra].compactMap { $0?.isEmpty == false ? $0 : nil }
         return parts.isEmpty ? nil : parts.joined(separator: ". ")
-    }
-
-    /// What changed from the plan, for the session's notes, so your coach sees it.
-    public var changeNotes: String? {
-        var parts: [String] = []
-        let planned = session.blocks.flatMap { $0.efforts.map(\.id) }
-        let mine = ordered.map(\.effort.id)
-        if planned != mine {
-            parts.append("Changed the order: " + ordered.map { name($0.effort.activityId) }.joined(separator: ", ") + ".")
-        }
-        for item in ordered {
-            guard let swap = changes.swaps?[item.effort.id] else { continue }
-            parts.append("Swapped \(name(item.effort.activityId)) for \(name(swap.activityId))"
-                         + (swap.reason.map { " (\($0))" } ?? "") + ".")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 }
 

@@ -265,7 +265,7 @@
       }
     },
     "plan_window": {
-      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev. A hub older than `hlc`, `erased`, `kind_versions`, `received` and `rejected` sends none of them, and the app then skips what they drive.",
+      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev. A hub older than `store_id`, `hlc`, `erased`, `kind_versions`, `received` and `rejected` sends none of them, and the app then skips what they drive.",
       "type": "object",
       "required": [
         "from",
@@ -337,6 +337,10 @@
             "$ref": "#/$defs/entry"
           },
           "description": "Efforts logged against them, and those of the last two times each planned activity was done at each location."
+        },
+        "store_id": {
+          "$ref": "common.schema.json#/$defs/uuid",
+          "description": "The store's id as of this request. It changes when the laptop's store is restored from another store's backup; the app keeps what it has sent per store."
         },
         "hlc": {
           "$ref": "common.schema.json#/$defs/hlc",

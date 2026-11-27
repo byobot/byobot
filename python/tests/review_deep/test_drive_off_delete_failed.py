@@ -43,7 +43,7 @@ def test_a_failed_off_delete_leaves_keeper_and_phone_agreeing(store):
 def test_after_a_failed_off_delete_the_next_epoch_still_starts(store):
     keeper, relay = _off_delete_fails_partway(store)
     keeper.sync()
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
-    commands.erase(store, ME, "location", "example-gym")
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Gym"}}])
+    commands.erase(store, ME, "location", "example_gym")
     report = keeper.sync()  # an erase starts the next epoch, whose number the closed marker already took
     assert keeper.is_off or report.get("new_epoch"), report

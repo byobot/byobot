@@ -285,18 +285,18 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
 def test_planned_session_must_name_existing_records(capsys):
     for id, name in (("barbell_back_squat", "Barbell Back Squat"), ("hack_squat", "Hack Squat")):
         cli(capsys, "log", "activity", json.dumps({"name": name}), "--id", id)
-    session = {"scheduled_on": "2026-11-23", "name": "Legs", "location_id": "example-gym",
+    session = {"scheduled_on": "2026-11-23", "name": "Legs", "location_id": "example_gym",
                "links": {"part_of": {"kind": "plan", "id": P1}},
                "blocks": [{"efforts": [{"activity_id": "barbell_back_squat"}, {"activity_id": "back_squat"}]}]}
     code, out, err = cli(capsys, "log", "planned_session", json.dumps(session))
     assert code != 0
     details = json.loads(err)["details"]
     assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["barbell_back_squat", "hack_squat"]},
-                       {"kind": "location", "id": "example-gym"}, {"kind": "plan", "id": P1}]
+                       {"kind": "location", "id": "example_gym"}, {"kind": "plan", "id": P1}]
     assert cli(capsys, "query", "SELECT count(*) AS n FROM planned_sessions")[1]["rows"] == [{"n": 0}]
 
     session["blocks"][0]["efforts"].pop()
-    batch = [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}},
+    batch = [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}},
              {"kind": "plan", "id": P1, "payload": {"name": "Block", "starts_on": "2026-11-23"}},
              {"kind": "planned_session", "payload": session}]
     assert cli(capsys, "log", "batch", json.dumps(batch))[0] == 0
