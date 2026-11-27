@@ -108,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
                 gp = sub.add_parser(group, help=f"{group.capitalize()}: {', '.join(_members(group))}.")
                 groups[group] = gp.add_subparsers(dest="subcommand", metavar="<command>")
             where = groups[group]
-        p = where.add_parser(name, help=cmd.summary, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
+        shown = {} if cmd.hidden else {"help": cmd.summary}  # a parser added with no help is left out of the list
+        p = where.add_parser(name, **shown, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
         for param in cmd.params:
             _add_param(p, param)
     return parser

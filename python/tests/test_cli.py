@@ -259,6 +259,7 @@ def test_schema(capsys):
 def test_rebuild_and_status(capsys):
     cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")
     assert cli(capsys, "rebuild")[1]["counts"]["activities"] == 1
+    assert "rebuild" not in build_parser().format_help()
     assert cli(capsys, "status")[1]["counts"]["events"] == 1
 
 

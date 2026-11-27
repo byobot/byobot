@@ -51,6 +51,7 @@ class Command:
     mcp: bool = True
     description: str = ""
     destructive: bool = False
+    hidden: bool = False  # left out of help: maintenance only
 
     @property
     def tool(self) -> str:
@@ -82,9 +83,9 @@ MAX_LIMIT = 1_000_000
 
 
 def command(name: str, summary: str, *params: Param, read_only: bool = True, cli: bool = True,
-            mcp: bool = True, description: str = "", destructive: bool = False) -> Callable:
+            mcp: bool = True, description: str = "", destructive: bool = False, hidden: bool = False) -> Callable:
     def register(fn: Callable) -> Callable:
-        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive)
+        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive, hidden)
         return fn
 
     return register
@@ -152,7 +153,7 @@ def _status(ctx: Context) -> dict:
             **({"warning": w} if (w := sync_folder_warning(home())) else {})}
 
 
-@command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False)
+@command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False, hidden=True)
 def _rebuild(ctx: Context) -> dict:
     ctx.store().rebuild()
     return {"counts": ctx.store().counts()}
