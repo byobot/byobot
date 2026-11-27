@@ -1004,7 +1004,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
                                    "account Drive sync uses, or run `byobot cloud off --delete` first to move "
                                    "Drive sync to another account")
         keeper.on()
-        return {"signed_in": True, "keeper": "already", **_sync(keeper)}
+        return _show_code(keeper, {"signed_in": True, "keeper": "already", **_sync(keeper)})
     folder = _drive_folder(store)
     others = drive.stores(folder.drive) - {store.store_id}
     if others and not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
@@ -1012,10 +1012,15 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
                                "run `byobot cloud recover` with its recovery code")
     with _lock(store):
         keeper = Keeper.setup(store, folder, recovery=recovery)
-    out = {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch}
-    if keeper.recovery_code:
-        out["recovery_code"] = keeper.recovery_code
+    return _show_code(keeper, {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch})
+
+
+def _show_code(keeper: Any, out: dict) -> dict:
+    """Add the recovery code that setup or `cloud rotate` made, once."""
+    if code := keeper.unshown_code():
+        out["recovery_code"] = code
         out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
+        keeper.code_shown()
     return out
 
 
@@ -1184,11 +1189,7 @@ def _cloud_compact(ctx: Context) -> dict:
 def _cloud_rotate(ctx: Context, recovery: bool = False) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
-        out = {"epoch": keeper.rotate(recovery=recovery)}
-    if keeper.recovery_code:
-        out["recovery_code"] = keeper.recovery_code
-        out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
-    return out
+        return _show_code(keeper, {"epoch": keeper.rotate(recovery=recovery)})
 
 
 @command(

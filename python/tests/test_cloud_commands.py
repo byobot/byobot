@@ -68,8 +68,9 @@ def test_setup_join_sync_status_remove_and_compact(cloud, fake, tmp_path):
     assert run("cloud compact", ctx, {})["epoch"] == 3
     rotated = run("cloud rotate", ctx, {"recovery": True})
     assert rotated["epoch"] == 4 and rotated["recovery_code"].startswith("A")
+    assert "recovery_code" not in run("cloud status", ctx, {})
     again = run("cloud setup", ctx, {})
-    assert again["keeper"] == "already"
+    assert again["keeper"] == "already" and "recovery_code" not in again
     ctx.close()
 
 

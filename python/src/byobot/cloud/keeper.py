@@ -62,14 +62,14 @@ class Keeper:
         meta = [("identity", json.dumps(identity.private())), ("epoch", "0"), ("seq", "1"),
                 ("checkpoint_position", "0")]
         if code:
-            meta.append(("recovery_key", b64(recovery_key(code, store.store_id))))
+            meta += [("recovery_key", b64(recovery_key(code, store.store_id))), ("recovery_unshown", code)]
         with store._tx():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
             store.conn.execute(ENROL, (store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
                                        1, 1))
         keeper = cls(store, folder, clock)
         keeper.start_epoch()
-        keeper.recovery_code = code
+        keeper.recovery_code = keeper.unshown_code()
         return keeper
 
     @classmethod
@@ -81,11 +81,10 @@ class Keeper:
         listing = folder.list()
         opened: dict[int, dict] = {}
         store_id, wrong = None, False
-        for path in (p for p in listing if p.startswith("keys/") and p.endswith("/recovery.key")):
-            data = folder.read(path) or b""
+        for epoch in _recovery_epochs(listing):
+            data = folder.read(files.recovery_path(epoch)) or b""
             try:
                 found = json.loads(data)["store_id"]
-                epoch = int(path.split("/")[1])
                 opened[epoch] = files.open_recovery(data, recovery_key(code, found), found, epoch)
                 store_id = found
             except (ValueError, KeyError, TypeError, CloudError) as exc:
@@ -103,6 +102,9 @@ class Keeper:
                 continue
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
+        if any(e > n and files.epoch_path(e) in listing for e in _recovery_epochs(listing)):
+            raise ByobotError("a newer recovery code replaced that one; use the code `byobot cloud rotate --recovery` "
+                              "showed last")
         top = opened[n]
         devices = {d["device_id"]: d for d in epoch_body["devices"]}
         for path in listing:  # admitted since the epoch file was written: only a key file names them
@@ -291,15 +293,18 @@ class Keeper:
 
     def rotate(self, recovery: bool = False) -> int:
         """Sign with new keys from a new epoch on, whose file the old keys hand over to, so every phone follows.
-        With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted."""
+        With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted
+        once the new epoch is in. A retry of a rotation cut short keeps the code it made, which was never shown."""
         new = Identity.generate()
-        code = recovery_code() if recovery else None
+        pending = self.unshown_code() if self._get("previous_identity") else None
+        code = pending or (recovery_code() if recovery else None)
         with self.store._tx():  # a retry of a rotation cut short still hands over from the keys phones trust
             if self._get("previous_identity") is None:
                 self._set("previous_identity", json.dumps(self.identity.private()))
             self._set("identity", json.dumps(new.private()))
             if code:
                 self._set("recovery_key", b64(recovery_key(code, self.store.store_id)))
+                self._set("recovery_unshown", code)
             self.store.conn.execute("UPDATE devices SET box = ?, sign = ? WHERE id = ?",
                                     (new.public()["box"], new.public()["sign"], self.device_id))
         self.identity = new
@@ -312,6 +317,14 @@ class Keeper:
         self._publish_device()
         self.recovery_code = code
         return n
+
+    def unshown_code(self) -> str | None:
+        """A recovery code setup or `rotate` made that no command has shown yet, as one was cut short."""
+        return self._get("recovery_unshown")
+
+    def code_shown(self) -> None:
+        with self.store._tx():
+            self._unset("recovery_unshown")
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
         """Whether epoch ``n``'s file is in the folder, read directly since a listing can lag behind an upload."""
@@ -763,6 +776,8 @@ class Keeper:
         synced = self._get("synced_at")
         out: dict[str, Any] = {"store_id": self.store.store_id, "epoch": self.epoch,
                                "synced_at": _when(synced), "recovery": bool(self._get("recovery_key"))}
+        if self.unshown_code():
+            out["recovery_code"] = "not shown yet; run `byobot cloud rotate --recovery` for a new one"
         if self.is_off:
             out["off"] = True
         if self._get("error"):
@@ -844,6 +859,10 @@ def _closed(folder: Folder, listing: dict[str, str]) -> bool:
     """Whether `cloud off --delete` left this folder: nothing in it but epoch files, the newest marked closed."""
     epochs = sorted(p for p in listing if is_epoch_file(p))
     return bool(epochs) and len(epochs) == len(listing) and files.is_closed(folder.read(epochs[-1]))
+
+
+def _recovery_epochs(listing: dict[str, str]) -> list[int]:
+    return [e for p in listing if p.endswith(f"/{files.RECOVERY}.key") and (e := _epoch_of(p)) is not None]
 
 
 def _epoch_of(path: str) -> int | None:
