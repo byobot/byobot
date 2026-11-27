@@ -9,7 +9,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shutil
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any, NoReturn, Sequence
 
@@ -18,6 +21,21 @@ from byobot.commands import REGISTRY, Context, Param, run
 from byobot.util import ByobotError, NotFound, ValidationFailed, db_path, home, profile, utf8_stdio
 
 DEFAULT_ACTOR = "human:me"
+
+# `byobot --help` lists the commands in the order someone needs them.
+SECTIONS = {
+    "start": ("init", "status", "connect", "disconnect", "import", "serve", "mcp"),
+    "training data": ("log", "list", "review", "query", "effort", "swap"),
+    "fixing": ("edit", "remove", "undo", "conflicts", "resolve", "correct", "exclude", "same_as", "versions", "erase"),
+    "setup": ("devices", "cloud", "remote", "export", "restore", "schema", "validate"),
+}
+GROUPS = {
+    "effort": "What you did of one activity",
+    "swap": "Activities that can stand in for one another",
+    "devices": "Phones paired with `byobot serve`",
+    "cloud": "Google Drive sync",
+    "remote": "Assistants on your phone, over the internet",
+}
 
 
 def parse_actor(text: str) -> dict:
@@ -86,18 +104,29 @@ def _members(group: str) -> list[str]:
     return [c.name.split(" ", 1)[1] for c in REGISTRY.values() if c.cli and c.name.startswith(group + " ")]
 
 
+def _overview(lines: dict[str, str]) -> str:
+    """The commands by section, each with the first clause of its summary."""
+    width = shutil.get_terminal_size().columns - 2
+    out = ["byobot: bring your own bot. Your health data in one local store, for the agent of your choice."]
+    for section, names in SECTIONS.items():
+        out.append(f"\n{section}:")
+        for name in names:
+            short = (lines[name] if name in GROUPS else re.split(r"[.:] ", lines[name], maxsplit=1)[0]).rstrip(".")
+            out.append(textwrap.fill(short, width, initial_indent=f"  {name:<12}", subsequent_indent=" " * 14))
+    return "\n".join(out)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = Parser(
-        prog="byobot",
-        description="byobot: bring your own bot. Your health data in one local store, for the agent of your choice.",
-    )
+    parser = Parser(prog="byobot", usage="%(prog)s [options] <command> ...",
+                    formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"byobot {__version__}")
     parser.add_argument("--home", help="Use this byobot home instead of $BYOBOT_HOME or ~/.byobot.")
     parser.add_argument("--profile", help="Use this person's profile, with its own store and sign-ins. "
                                           "Default: $BYOBOT_PROFILE, else the default profile.")
     parser.add_argument("--actor", help=f"Who is acting, as KIND:ID[:MODEL]. Default: $BYOBOT_ACTOR or {DEFAULT_ACTOR}.")
-    sub = parser.add_subparsers(dest="command", metavar="<command>")
+    sub = parser.add_subparsers(dest="command", metavar="<command>", help=argparse.SUPPRESS)
     groups: dict[str, Any] = {}
+    lines: dict[str, str] = {}
     for cmd in REGISTRY.values():
         if not cmd.cli:
             continue
@@ -105,13 +134,17 @@ def build_parser() -> argparse.ArgumentParser:
         if " " in cmd.name:
             group, name = cmd.name.split(" ", 1)
             if group not in groups:
-                gp = sub.add_parser(group, help=f"{group.capitalize()}: {', '.join(_members(group))}.")
+                lines[group] = f"{GROUPS[group]}: {', '.join(_members(group))}."
+                gp = sub.add_parser(group, help=lines[group], description=lines[group])
                 groups[group] = gp.add_subparsers(dest="subcommand", metavar="<command>")
             where = groups[group]
+        elif not cmd.hidden:
+            lines[name] = cmd.summary
         shown = {} if cmd.hidden else {"help": cmd.summary}  # a parser added with no help is left out of the list
         p = where.add_parser(name, **shown, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
         for param in cmd.params:
             _add_param(p, param)
+    parser.description = _overview(lines)
     return parser
 
 

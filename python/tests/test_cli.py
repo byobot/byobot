@@ -35,6 +35,14 @@ def test_cli_commands_come_from_the_registry():
     assert set(sub.choices) == {c.name.split(" ")[0] for c in REGISTRY.values() if c.cli}
 
 
+def test_help_lists_every_command_once_by_section():
+    from byobot.cli import GROUPS, SECTIONS
+    listed = [n for names in SECTIONS.values() for n in names]
+    shown = {c.name.split(" ")[0] for c in REGISTRY.values() if c.cli and not c.hidden}
+    assert sorted(listed) == sorted(shown) and set(GROUPS) == {n for n in shown if n not in REGISTRY}
+    assert all(f"\n{section}:\n" in build_parser().format_help() for section in SECTIONS)
+
+
 def test_init_is_idempotent(capsys, byobot_home):
     code, first, _ = cli(capsys, "init")
     assert code == 0 and first["created"] is True and first["db"] == str(byobot_home / "byobot.db")
