@@ -42,7 +42,7 @@ jobs:
       - name: Install from the lock
         run: uv sync --locked --extra test --python ${{ matrix.python }}
       - name: Test
-        run: uv run --locked pytest -q
+        run: uv run --locked python -m pytest -q
 
   latest:
     name: Newest dependencies, Python ${{ matrix.python }} on ${{ matrix.os }}
