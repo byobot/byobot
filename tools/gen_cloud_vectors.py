@@ -51,7 +51,7 @@ def build() -> dict:
              "kind_version": 1, "hlc": "1795131000000-000000", "ts": "2026-11-21T07:10:30-05:00", "device_id": RELAY,
              "actor": {"kind": "human", "id": "me"}, "prev": [],
              "payload": {"activity_id": "barbell_back_squat", "time": {"start": "2026-11-21T07:10:00-05:00"},
-                         "modality": "self_reported", "metrics": {"reps": {"value": 5}, "rpe": {"value": 7.5}}}}
+                         "metrics": {"reps": {"value": 5}, "rpe": {"value": 7.5}}}}
     samples = {"samples": [{"source": "apple_health", "source_id": "8f2e1c3a-0000-4000-8000-000000000001",
                             "type": "HKQuantityTypeIdentifierBodyMass", "start": "2026-11-22T07:00:00-05:00",
                             "end": "2026-11-22T07:00:00-05:00", "value": 82.4, "unit": "kg"}]}

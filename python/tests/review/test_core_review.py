@@ -21,11 +21,11 @@ class Wall:
 
 
 def session(start="2026-03-02T09:00:00-05:00", end="2026-03-02T10:00:00-05:00", name="lift"):
-    return {"name": name, "time": {"start": start, "end": end}, "modality": "self_reported"}
+    return {"name": name, "time": {"start": start, "end": end}}
 
 
 def effort(sid, reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T09:10:00-05:00"}, "modality": "self_reported",
+    return {"activity_id": "row", "time": {"start": "2026-03-02T09:10:00-05:00"},
             "links": {"part_of": {"kind": "session", "id": sid}}, "metrics": {"reps": {"value": reps}}}
 
 
@@ -54,7 +54,7 @@ def test_a_rebuild_cut_short_after_an_upgrade_is_finished_on_the_next_open(tmp_p
 
 
 def _effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
+    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
             "metrics": {"reps": {"value": reps}}}
 
 
@@ -68,11 +68,6 @@ def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session
     commands.erase(one, ME, "session", sa, with_efforts=True)
     assert one.get("effort", rid) is not None, "an effort now in session b was erased with session a"
 
-
-
-def _effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
-            "metrics": {"reps": {"value": reps}}}
 
 
 def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):

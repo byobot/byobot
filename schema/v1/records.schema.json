@@ -2,17 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/records.schema.json",
   "title": "byobot records, v1",
-  "description": "The payload a `put` carries for each record kind, at kind version 1. Every payload may carry the header fields (`time`, `modality`, `origin`, `status`, `links`, `attachments`); each kind says which it needs. The record's id is in the event, never in the payload.",
+  "description": "The payload a `put` carries for each record kind, at kind version 1. Every payload may carry the header fields (`time`, `origin`, `status`, `links`, `attachments`); each kind says which it needs. The record's id is in the event, never in the payload.",
   "$defs": {
     "header": {
       "description": "What every kind can say about the thing written.",
       "type": "object",
       "properties": {
         "time": { "$ref": "common.schema.json#/$defs/time" },
-        "modality": {
-          "description": "How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.",
-          "enum": ["sensed", "self_reported", "estimated", "derived"]
-        },
         "origin": {
           "description": "The app and device that captured it, which may differ from the actor that wrote it.",
           "type": "object",
@@ -50,11 +46,12 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "media_type", "bytes"],
+            "required": ["id", "media_type", "bytes", "sha256"],
             "properties": {
               "id": { "$ref": "common.schema.json#/$defs/id" },
               "media_type": { "type": "string", "pattern": "^[a-z]+/[a-z0-9][a-z0-9.+-]{0,126}$" },
-              "bytes": { "type": "integer", "minimum": 0 }
+              "bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "description": "The file's SHA-256, lowercase hex.", "type": "string", "pattern": "^[0-9a-f]{64}$" }
             }
           }
         }
@@ -64,7 +61,6 @@
       "not": {
         "anyOf": [
           { "required": ["time"] },
-          { "required": ["modality"] },
           { "required": ["origin"] },
           { "required": ["status"] },
           { "required": ["links"] },
@@ -172,6 +168,7 @@
       "allOf": [{ "$ref": "#/$defs/header" }],
       "required": ["scheduled_on", "name", "blocks"],
       "properties": {
+        "time": false,
         "scheduled_on": { "$ref": "common.schema.json#/$defs/date" },
         "name": { "$ref": "common.schema.json#/$defs/name" },
         "location_id": { "$ref": "common.schema.json#/$defs/slug" },
@@ -184,14 +181,13 @@
           "not": { "anyOf": [{ "required": ["answers"] }, { "required": ["derived_from"] }] }
         }
       },
-      "not": { "anyOf": [{ "required": ["time"] }, { "required": ["modality"] }] },
       "unevaluatedProperties": false
     },
     "session": {
       "description": "A session that happened, or is happening (`in_progress`). Its efforts are their own records pointing at it. `links.answers` names the planned session it carries out; `links.part_of` its plan.",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/header" }],
-      "required": ["time", "modality"],
+      "required": ["time"],
       "properties": {
         "name": { "$ref": "common.schema.json#/$defs/name" },
         "location_id": { "$ref": "common.schema.json#/$defs/slug" },
@@ -212,7 +208,7 @@
       "description": "One effort done, such as one set. `time.start` is when it started. `links.part_of` names its session; without one it stands alone, as a tennis match can. `links.answers` names the planned effort it carries out, as a part of its planned session.",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/header" }],
-      "required": ["activity_id", "time", "modality"],
+      "required": ["activity_id", "time"],
       "properties": {
         "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
         "round": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Which round of the planned block." },
@@ -240,6 +236,10 @@
       "required": ["code", "time", "modality"],
       "properties": {
         "code": { "$ref": "common.schema.json#/$defs/code" },
+        "modality": {
+          "description": "How the value was obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.",
+          "enum": ["sensed", "self_reported", "estimated", "derived"]
+        },
         "value": { "type": ["number", "string", "boolean"] },
         "min": { "type": "number" },
         "max": { "type": "number" },

@@ -25,7 +25,7 @@ class Wall:
 
 
 def effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
+    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
             "metrics": {"reps": {"value": reps}}}
 
 
@@ -110,7 +110,7 @@ def test_undo_writes_the_previous_version_back_and_undo_of_a_log_removes(pair):
 
 def test_undo_takes_back_a_whole_batch(pair):
     a, _ = pair
-    session = {"time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported"}
+    session = {"time": {"start": "2026-03-02T10:00:00-05:00"}}
     written = commands.log(a, ME, [{"kind": "session", "payload": session}, {"kind": "effort", "payload": effort()}])
     undone = commands.undo(a, ME, written[-1]["id"])
     assert [u["op"] for u in undone] == ["retract", "retract"] and len({u["batch"] for u in undone}) == 1
@@ -145,7 +145,7 @@ def test_unknown_kinds_and_versions_are_kept_then_projected_after_an_upgrade(pai
     meal = {**e, "id": "019aa000-0000-7000-8000-0000000000bb", "record": {"kind": "meal", "id": e["record"]["id"]}}
     assert [o for o, _ in b.accept_many([newer, meal])] == ["stored_unprojected"] * 2
     assert b.get("effort", e["record"]["id"]) is None
-    b.use(Contract.shipped().newer(2, {"meal": {"category": "act", "version": 2, "description": "A meal."}}))
+    b.use(Contract.shipped().newer(2, {"meal": {"version": 2, "description": "A meal."}}))
     assert b.get("effort", e["record"]["id"])["payload"]["bar_speed"] == {"value": 0.6}
     assert b.get("meal", e["record"]["id"]) is not None
 
@@ -264,7 +264,8 @@ def test_an_erase_from_a_later_schema_version_is_honored(pair):
 
 def test_an_estimate_keeps_its_bounds_and_attachments(pair):
     a, _ = pair
-    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113}]
+    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113,
+              "sha256": "0c9a0bd1b7a2d5a9e6a8d1b4f3e2c1a09f8e7d6c5b4a39281706f5e4d3c2b1a0"}]
     [o] = commands.log(a, ME, [{"kind": "observation", "payload": {
         "code": "body_mass", "value": 180, "min": 176, "max": 184, "unit": "[lb_av]", "modality": "estimated",
         "time": {"start": "2026-03-02T10:00:00-05:00"}, "attachments": photo}}])
@@ -287,8 +288,7 @@ def test_local_dates_and_offsets_come_from_the_record(pair):
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {
         **effort(), "time": {"start": "2026-11-21T00:30:00+05:00"}}}])
     [walk] = commands.log(a, ME, [{"kind": "session", "payload": {
-        "time": {"start": "2026-03-08T01:30:00-05:00", "end": "2026-03-08T03:30:00-04:00"},
-        "modality": "self_reported"}}])
+        "time": {"start": "2026-03-08T01:30:00-05:00", "end": "2026-03-08T03:30:00-04:00"}}}])
     row = a.conn.execute("SELECT local_date, offset_min FROM efforts WHERE id = ?", (late["record"]["id"],)).fetchone()
     assert tuple(row) == ("2026-11-21", 300)
     start, end = a.conn.execute("SELECT start_ms, end_ms FROM sessions WHERE id = ?",
@@ -428,14 +428,16 @@ def test_an_older_store_is_refused_with_what_to_do(tmp_path):
         Store(tmp_path / "old.db")
 
 
-def test_logged_parts_get_ids_and_timed_records_a_modality(tmp_path):
+def test_logged_parts_get_ids_and_observations_a_modality(tmp_path):
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         [e] = commands.log(s, ME, [{"kind": "planned_session", "payload": {
             "scheduled_on": "2026-03-03", "name": "Legs", "blocks": [{"efforts": [{"activity_id": "row"}]}]}}])
         block = e["payload"]["blocks"][0]
         assert block["id"] == f"{e['record']['id']}.0" and block["efforts"][0]["id"] == f"{e['record']['id']}.0.0"
         [e] = commands.log(s, ME, [{"kind": "effort", "payload": {"activity_id": "row"}}])
-        assert e["payload"]["modality"] == "self_reported" and "start" in e["payload"]["time"]
+        assert "modality" not in e["payload"] and "start" in e["payload"]["time"]
+        [o] = commands.log(s, ME, [{"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg"}}])
+        assert o["payload"]["modality"] == "self_reported"
 
 
 def test_samples_deleted_by_id_alone_are_found_by_their_source(tmp_path):

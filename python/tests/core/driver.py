@@ -17,7 +17,7 @@ INTENTS = (
     "log_effort", "edit", "undo", "remove", "resolve", "correct_import", "same_as", "erase",
 )
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
-SOURCES = ("whoop", "apple-health", "hume")
+SOURCES = ("whoop", "apple-health")
 
 
 class Unsupported(Exception):

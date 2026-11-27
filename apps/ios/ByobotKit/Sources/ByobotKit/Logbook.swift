@@ -170,7 +170,7 @@ public struct Logbook: Sendable {
             Links(partOf: p.planId.map { Ref(kind: "plan", id: $0) }, answers: Ref(kind: "planned_session", id: p.id))
         }
         let id = UUID7.make(at: clock())
-        let payload = SessionPayload(time: now(), modality: .selfReported, origin: origin, status: .inProgress,
+        let payload = SessionPayload(time: now(), origin: origin, status: .inProgress,
                                      links: links, name: planned?.name ?? name, locationId: location)
         let event = put("session", id, payload)
         state.activeSessionId = id
@@ -189,7 +189,7 @@ public struct Logbook: Sendable {
         let partOf = session.map { Ref(kind: "session", id: $0) }
         let links = partOf == nil && answers == nil ? nil : Links(partOf: partOf, answers: answers)
         let id = UUID7.make(at: clock())
-        let payload = EffortPayload(time: now(), modality: .selfReported, origin: origin, status: .completed,
+        let payload = EffortPayload(time: now(), origin: origin, status: .completed,
                                     links: links, activityId: activityId, round: round, side: side,
                                     metrics: metrics.isEmpty ? nil : metrics, notes: notes?.isEmpty == true ? nil : notes)
         let event = put("effort", id, payload)

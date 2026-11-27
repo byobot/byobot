@@ -8,52 +8,42 @@
   },
   "kinds": {
     "activity": {
-      "category": "definition",
       "version": 1,
       "description": "What you do: an exercise, a run, a stretch, a sport."
     },
     "location": {
-      "category": "definition",
       "version": 1,
       "description": "Where you train."
     },
     "setting": {
-      "category": "definition",
       "version": 1,
       "description": "One setting, named by its id."
     },
     "plan": {
-      "category": "plan",
       "version": 1,
       "description": "A training plan over a span of days."
     },
     "planned_session": {
-      "category": "plan",
       "version": 1,
       "description": "A session to do on a day, with its blocks and planned efforts."
     },
     "session": {
-      "category": "act",
       "version": 1,
       "description": "A session that happened."
     },
     "effort": {
-      "category": "act",
       "version": 1,
       "description": "One effort done, such as a set."
     },
     "observation": {
-      "category": "observation",
       "version": 1,
       "description": "One measured value."
     },
     "source_record": {
-      "category": "observation",
       "version": 1,
       "description": "One revision of a source's record, as the source gave it."
     },
     "overlay": {
-      "category": "note",
       "version": 1,
       "description": "Your intent about a record that isn't yours."
     }

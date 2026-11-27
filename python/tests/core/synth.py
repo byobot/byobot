@@ -285,11 +285,11 @@ class _Gen:
         rng = self.rng
         at = self.at(d, 7.2)
         weight = round(80 + 2 * rng.gauss(0, 1) - d * 0.002, 1)
-        samples = [{"source": "hume", "source_id": f"hume-{d}-{t}", "type": t, "start": stamp(at, timedelta(0)),
+        samples = [{"source": "apple-health", "source_id": f"weigh-{d}-{t}", "type": t, "start": stamp(at, timedelta(0)),
                     "end": stamp(at, timedelta(0)), "value": v, "unit": u}
                    for t, v, u in (("HKQuantityTypeIdentifierBodyMass", weight, "kg"),
                                    ("HKQuantityTypeIdentifierBodyFatPercentage", round(rng.uniform(14, 19), 1), "%"))]
-        self.add(at, "ingest", self.phone(d), "hume", samples)
+        self.add(at, "ingest", self.phone(d), "apple-health", samples)
 
 
 def _offset_text(off: timedelta) -> str:

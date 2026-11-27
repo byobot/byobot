@@ -24,7 +24,7 @@ class Wall:
 
 
 def effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
+    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
             "metrics": {"reps": {"value": reps}}}
 
 

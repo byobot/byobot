@@ -82,7 +82,7 @@ extension Record where Payload == EffortPayload {
          part: String? = nil, round: Int? = nil, locationId: String? = nil, metrics: Metrics? = nil) {
         let links = Links(partOf: session.map { Ref(kind: "session", id: $0) },
                           answers: planned.map { Ref(kind: "planned_session", id: $0, part: part) })
-        self.init(id: id, payload: EffortPayload(time: RecordTime(start: performedAt), modality: .selfReported,
+        self.init(id: id, payload: EffortPayload(time: RecordTime(start: performedAt),
                                                  status: .completed,
                                                  links: session == nil && planned == nil ? nil : links,
                                                  activityId: activityId, round: round, locationId: locationId,

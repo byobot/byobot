@@ -97,12 +97,12 @@ def whoop_workout(raw: dict, related: Related) -> dict:
                         "metrics": metrics}}
 
 
-# -- samples: Apple Health, Hume -------------------------------------------------
+# -- samples: Apple Health -------------------------------------------------------
 
 
 def sample(raw: dict, related: Related) -> dict:
     found = telemetry.observation(raw)
-    return {"observations": [{k: v for k, v in found.items() if k != "modality"}] if found else []}
+    return {"observations": [found] if found else []}
 
 
 # HealthKit activity types whose words alone don't read well. Others become their words: crossTraining -> cross training.
@@ -151,7 +151,6 @@ MAPPERS: dict[tuple[str, str], tuple[Callable[[dict], str], Callable[[dict, Rela
     ("apple_health", "quantity_sample"): (_sample_revised, sample),
     ("apple_health", "category_sample"): (_sample_revised, sample),
     ("apple_health", "workout"): (_sample_revised, health_workout),
-    ("hume", "quantity_sample"): (_sample_revised, sample),
 }
 
 

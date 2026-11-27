@@ -102,7 +102,7 @@ def phone_events(n: int, offset: int = 0) -> list[dict]:
              "record": {"kind": "effort", "id": f"0193a0b0-0000-7000-9000-0000000{offset + i:05d}"},
              "hlc": f"{1795400000000 + 1000 * (offset + i)}-000000", "ts": "2026-11-23T08:00:00-05:00",
              "device_id": PHONE, "actor": ME, "prev": [], "kind_version": 1,
-             "payload": {"activity_id": "barbell_back_squat", "modality": "self_reported",
+             "payload": {"activity_id": "barbell_back_squat",
                          "time": {"start": "2026-11-23T07:40:00-05:00"}, "metrics": {"reps": {"value": 5}}}}
             for i in range(n)]
 
@@ -155,9 +155,9 @@ def seed(root: Path, op: str) -> None:
         sources.ingest(store, "whoop", workouts(5))
         commands.log(store, ME, [
             {"kind": "session", "id": SESSION, "payload": {
-                "name": "Example session", "modality": "self_reported", "time": {"start": "2026-03-02T07:30:00-05:00"}}},
+                "name": "Example session", "time": {"start": "2026-03-02T07:30:00-05:00"}}},
             *({"kind": "effort", "id": f"0193a0b0-0000-7000-a000-00000000000{i}", "payload": {
-                "activity_id": "barbell_back_squat", "modality": "self_reported",
+                "activity_id": "barbell_back_squat",
                 "time": {"start": f"2026-03-02T07:4{i}:00-05:00"}, "notes": "example-secret-note",
                 "links": {"part_of": {"kind": "session", "id": SESSION}},
                 "metrics": {"reps": {"value": 5}, "load": {"value": 100 + i, "unit": "kg"}}}} for i in range(4))])

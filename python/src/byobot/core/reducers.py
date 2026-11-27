@@ -33,14 +33,14 @@ CREATE TABLE IF NOT EXISTS planned_efforts (
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, plan_id TEXT, planned_session_id TEXT, name TEXT, location_id TEXT,
   started_at TEXT NOT NULL, ended_at TEXT, start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL,
-  local_date TEXT NOT NULL, zone TEXT, status TEXT, modality TEXT NOT NULL);
+  local_date TEXT NOT NULL, zone TEXT, status TEXT);
 CREATE INDEX IF NOT EXISTS sessions_start ON sessions (start_ms);
 CREATE INDEX IF NOT EXISTS sessions_day ON sessions (local_date);
 CREATE TABLE IF NOT EXISTS efforts (
   id TEXT PRIMARY KEY, session_id TEXT, activity_id TEXT NOT NULL, planned_session_id TEXT,
   planned_effort_id TEXT, round INTEGER, side TEXT, location_id TEXT, performed_at TEXT NOT NULL, ended_at TEXT,
   start_ms INTEGER NOT NULL, end_ms INTEGER, offset_min INTEGER NOT NULL, local_date TEXT NOT NULL, zone TEXT,
-  status TEXT, modality TEXT NOT NULL);
+  status TEXT);
 CREATE INDEX IF NOT EXISTS efforts_start ON efforts (start_ms);
 CREATE INDEX IF NOT EXISTS efforts_day ON efforts (local_date);
 CREATE INDEX IF NOT EXISTS efforts_session ON efforts (session_id);
@@ -101,7 +101,7 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-RULES = 7  # raise when records are derived differently, so stores rebuild on open
+RULES = 8  # raise when records are derived differently, so stores rebuild on open
 SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
@@ -251,19 +251,18 @@ def _planned_session(conn, c, rid, p):
 
 
 def _session(conn, c, rid, p):
-    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    conn.execute("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, _link(p, "part_of").get("id"), _link(p, "answers").get("id"), p.get("name"), p.get("location_id"),
-        *_when(p["time"]), p.get("status"), p["modality"]))
+        *_when(p["time"]), p.get("status")))
     _metrics(conn, c, "session", rid, p.get("metrics"))
 
 
 def _effort(conn, c, rid, p):
     answers = _link(p, "answers")
     start, end, start_ms, end_ms, offset, day, zone = _when(p["time"])
-    conn.execute("INSERT INTO efforts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+    conn.execute("INSERT INTO efforts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
         rid, _link(p, "part_of").get("id"), p["activity_id"], answers.get("id"), answers.get("part"), p.get("round"),
-        p.get("side"), p.get("location_id"), start, end, start_ms, end_ms, offset, day, zone, p.get("status"),
-        p["modality"]))
+        p.get("side"), p.get("location_id"), start, end, start_ms, end_ms, offset, day, zone, p.get("status")))
     _metrics(conn, c, "effort", rid, p.get("metrics"))
 
 

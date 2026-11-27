@@ -105,7 +105,8 @@ class V1:
             start = p.pop("started_at" if kind == "session" else "performed_at", None)
             end = p.pop("ended_at", None)
             p["time"] = {"start": start, **({"end": end} if end else {})}
-            p.setdefault("modality", SELF)
+            if kind == "meal":
+                p.setdefault("modality", SELF)
         if kind in ("planned_session", "session") and "plan_id" in p:
             links["part_of"] = self.ref("plan", p.pop("plan_id"))
         if kind == "session" and "planned_session_id" in p:
@@ -138,8 +139,6 @@ class V1:
             p["started_at" if kind == "session" else "performed_at"] = t["start"]
             if "end" in t:
                 p["ended_at"] = t["end"]
-            if p.get("modality") == SELF:
-                p.pop("modality")
         if "part_of" in links:
             p[{"plan": "plan_id", "session": "session_id"}[links["part_of"]["kind"]]] = self.back(links["part_of"]["id"])
         if "answers" in links:
@@ -291,7 +290,7 @@ class V1:
     def workouts(self, rep: Replica) -> list[dict]:
         """Occurrences with the provenance of each metric: you, or the source it came from."""
         conn, out = rep.store.conn, []
-        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health", "hume")}
+        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health")}
         for oid, start, end in conn.execute("SELECT id, started_at, ended_at FROM occurrences"):
             got, by = {}, {}
             for code, v, from_kind, from_id, overlay in conn.execute(
@@ -341,7 +340,7 @@ class V1:
 
     def upgrade(self, rep: Replica, version: int) -> None:
         contract = Contract.shipped().newer(
-            version, {k: {"category": "act", "version": v, "description": k} for k, v in NEW_IN.items()
+            version, {k: {"version": v, "description": k} for k, v in NEW_IN.items()
                       if v <= version})
         contract.schemas = copy.deepcopy(contract.schemas)  # the newer install knows the field it added
         contract.schemas["records"]["$defs"]["effort"]["properties"]["x_new_field"] = {"type": "integer"}

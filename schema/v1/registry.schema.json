@@ -26,9 +26,8 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["category", "version", "description"],
+        "required": ["version", "description"],
         "properties": {
-          "category": { "enum": ["definition", "plan", "act", "observation", "note"] },
           "version": { "type": "integer", "minimum": 1, "description": "The newest kind version this registry describes." },
           "description": { "type": "string", "minLength": 1 },
           "reshaped": {

@@ -39,12 +39,12 @@ class Phone:
         for day in range(7):
             date = f"2026-11-{23 + day:02d}"
             sid = uuid7()
-            session = self.event("session", sid, {"name": f"Day {day}", "modality": "self_reported",
+            session = self.event("session", sid, {"name": f"Day {day}",
                                                   "time": {"start": f"{date}T07:30:00-05:00"}})
             sets = []
             for n in range(4):
                 sets.append(self.event("effort", uuid7(), {
-                    "activity_id": "barbell_back_squat", "modality": "self_reported",
+                    "activity_id": "barbell_back_squat",
                     "time": {"start": f"{date}T07:{40 + n}:00-05:00"},
                     "links": {"part_of": {"kind": "session", "id": sid}},
                     "metrics": {"reps": {"value": 5}, "load": {"value": 100 + 5 * n, "unit": "kg"}}}))

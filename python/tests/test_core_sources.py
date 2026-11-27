@@ -216,7 +216,7 @@ def test_revision_times_compare_as_instants(store):
 
 def test_without_revision_times_the_last_written_is_current(store):
     def weight(kg):
-        return {"source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+        return {"source": "apple_health", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
                 "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": kg, "unit": "kg"}
 
     for kg in (80.1, 80.2, 80.3, 80.4):
@@ -226,7 +226,7 @@ def test_without_revision_times_the_last_written_is_current(store):
 
 def test_a_changed_sample_without_a_revision_time_is_current_even_when_the_clock_went_back(store):
     def weight(kg):
-        return {"source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+        return {"source": "apple_health", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
                 "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": kg, "unit": "kg"}
 
     sources.ingest_samples(store, [weight(80.1)])
@@ -234,7 +234,7 @@ def test_a_changed_sample_without_a_revision_time_is_current_even_when_the_clock
     store.wall.at -= timedelta(hours=1)
     sources.ingest_samples(store, [weight(80.3)])
     assert seen_value(store, "body_mass") == 80.3
-    assert sources.ingest_samples(store, [weight(80.3)]) == {"hume": []}  # the same content again writes nothing
+    assert sources.ingest_samples(store, [weight(80.3)]) == {"apple_health": []}  # the same content again writes nothing
 
 
 def seen_value(store, code):
