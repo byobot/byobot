@@ -678,7 +678,8 @@ class CloudPoller(threading.Thread):
 
 def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool | None = None, tls: bool = True,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> tuple[Server, dict]:
-    """Build a server (not yet serving). ``pair=None`` opens pairing only when no device is paired yet."""
+    """Build a server (not yet serving). ``pair=None`` opens pairing only when no device is paired yet. It listens on
+    every interface by default, so a phone on the same network can reach it."""
     db = db or db_path()
     with Store(db) as store:
         device_id = store.device_id
