@@ -113,7 +113,7 @@ class Keeper:
                 except CloudError:
                     continue
                 devices.setdefault(d["device_id"], d)
-        if store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+        if not store.is_empty():
             if store.store_id != store_id or store.store_key.hex() != top["store_key"]:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
         else:
@@ -728,8 +728,7 @@ class Keeper:
         return len(listing)
 
     def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
-        last_erase = self.store.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
-        if last_erase > int(self._get("checkpoint_position")):
+        if self.store.last_erase() > int(self._get("checkpoint_position")):
             return "erase"
         if self._get("epoch_pending"):
             return self._get("epoch_pending")

@@ -958,7 +958,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
         return _show_code(keeper, {"signed_in": True, "keeper": "already", **_sync(keeper)})
     folder = sync.drive_folder(store)
     others = drive.stores(folder.drive) - {store.store_id}
-    if others and not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+    if others and store.is_empty():
         raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
                                "run `byobot cloud recover` with its recovery code")
     with sync.lock(store):
@@ -996,7 +996,7 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
 
     store = ctx.store()
     folder = sync.drive_folder(store)
-    if not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():  # a new computer: find the logbook
+    if store.is_empty():  # a new computer: find the logbook
         found = sorted(drive.stores(folder.drive))
         if len(found) > 1:
             raise ValidationFailed("your Google Drive holds more than one byobot logbook; restore the right one from "

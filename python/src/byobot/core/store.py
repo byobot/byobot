@@ -274,6 +274,13 @@ class Store:
     def position(self) -> int:
         return self.conn.execute("SELECT coalesce(max(seq), 0) FROM events").fetchone()[0]
 
+    def is_empty(self) -> bool:
+        return self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone() is None
+
+    def last_erase(self) -> int:
+        """The position of the latest erase, or 0."""
+        return self.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
+
     def accept(self, event: Any) -> tuple[str, str]:
         """Take in one event from anywhere. Returns (outcome, reason); never raises for bad input."""
         return self.accept_many([event])[0]
@@ -464,7 +471,7 @@ class Store:
     def adopt(self, store_id: str, store_key: str) -> None:
         """Become a replica of another store: take its id and key. Only an empty store can, since events made with
         the old key no longer verify."""
-        if self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+        if not self.is_empty():
             raise Conflict("only an empty store can join another")
         with self.transaction():
             self._set("store_id", store_id)
