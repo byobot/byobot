@@ -517,6 +517,7 @@ class Handler(serve.Handler):
         initializing = isinstance(message, dict) and message.get("method") == "initialize"
         session = None if initializing else self._session(client)
         server = mcp.Server()
+        server.quiet_errors = True
         server.client = session["client"] if session else {"name": client["client_name"]}
         if session:
             server.protocol = session["protocol"]
@@ -578,6 +579,7 @@ class Handler(serve.Handler):
         if not isinstance(args, dict):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
         server = mcp.Server()
+        server.quiet_errors = True
         server.client = {"name": client["client_name"]}
         server.ctx = Context(actor={}, path=self.server.db)
         try:
