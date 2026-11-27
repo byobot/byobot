@@ -64,7 +64,8 @@ class Keeper:
         _tables(store)
         if store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'device_id'").fetchone():
             raise ByobotError("this store is already the cloud logbook's keeper")
-        if any(p.startswith("epochs/") for p in folder.list()):
+        listing = folder.list()
+        if any(p.startswith("epochs/") for p in listing) and not _closed(folder, listing):
             raise ByobotError("this cloud folder already has a keeper; run `byobot cloud recover` with the recovery code instead")
         identity = Identity.generate()
         code = recovery_code() if recovery else None
@@ -663,7 +664,8 @@ class Keeper:
             self._set("closing", n)
         path = files.epoch_path(n)
         keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
-        self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0))
+        self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
+                                           closed=True))
         listing = [p for p in self.folder.list() if p != path]
         for p in listing:
             self.folder.delete(p)
@@ -803,6 +805,12 @@ def _parts(events: list[dict]) -> list[list[dict]]:
         parts[-1].append(e)
         size += n
     return parts
+
+
+def _closed(folder: Folder, listing: dict[str, str]) -> bool:
+    """Whether `cloud off --delete yes` left this folder: nothing in it but epoch files, the newest marked closed."""
+    epochs = sorted(p for p in listing if is_epoch_file(p))
+    return bool(epochs) and len(epochs) == len(listing) and files.is_closed(folder.read(epochs[-1]))
 
 
 def _epoch_of(path: str) -> int | None:

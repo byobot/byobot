@@ -170,8 +170,10 @@ class Drive(oauth.Session):
 
 
 def stores(drive: Drive) -> set[str]:
-    """Every store with a byobot logbook in this Google account's hidden app folder."""
+    """Every store with a byobot logbook in this Google account's hidden app folder. A folder `cloud off --delete
+    yes` closed holds only epoch files, and isn't one."""
     found: set[str] = set()
+    other: set[str] = set()
     params = {"spaces": "appDataFolder", "pageSize": 1000, "fields": "nextPageToken,files(name,appProperties)"}
     while True:
         page = drive.json("GET", "/files", params)
@@ -179,8 +181,10 @@ def stores(drive: Drive) -> set[str]:
             store = (f.get("appProperties") or {}).get(STORE)
             if store and f.get("name", "").startswith(f"{store}/epochs/"):
                 found.add(store)
+            elif store:
+                other.add(store)
         if not page.get("nextPageToken"):
-            return found
+            return found & other
         params["pageToken"] = page["nextPageToken"]
 
 
