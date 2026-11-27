@@ -35,7 +35,7 @@ def test_setup_again_with_another_google_account_doesnt_strand_the_phone(monkeyp
     client.write_text(json.dumps({"installed": {"client_id": "cid.apps.example", "client_secret": "s"}}))
     ctx = Context(actor=CLI)
     run("cloud setup", ctx, {"client_file": str(client), "ios_client_id": "ios.apps.example"})
-    link = run("cloud join", ctx, {"wait": "no"})["link"]
+    link = run("cloud join", ctx, {"wait": False})["link"]
     phone = Relay.join(DriveFolder(ctx.store().store_id, Drive(first, sleep=lambda s: None),
                                    journal=tmp_path / "phone.json"), link, PHONE)
     run("cloud sync", ctx, {})

@@ -35,5 +35,5 @@ def test_a_nap_does_not_replace_the_nights_sleep_performance(store):
                                     ("sleep", NAP, nap)])
     [day] = review(store, 1, "2026-11-22")["recovery"]
     assert day["date"] == "2026-11-20"
-    assert day["sleep_performance_pct"] == 91, day  # the night's, as the WHOOP app shows it
-    assert day["respiratory_rate_bpm"] == 15.2, day
+    assert day["whoop_sleep_performance"]["value"] == 91, day  # the night's, as the WHOOP app shows it
+    assert day["respiratory_rate"]["value"] == 15.2, day
