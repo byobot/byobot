@@ -50,11 +50,12 @@ def _local(ts: Any, zone: tzinfo | None) -> Any:
     force then is written with it. A time in UTC ("Z") is the same instant in the home zone, if one is set."""
     if not isinstance(ts, str):
         return ts
+    utc = ts.endswith(("Z", "z"))
     try:
-        at = datetime.fromisoformat(ts)
+        at = datetime.fromisoformat(ts[:-1] + "+00:00" if utc else ts)
     except ValueError:
         return ts
-    if at.tzinfo and zone and ts.upper().endswith("Z"):
+    if at.tzinfo and zone and utc:
         return stamp(at.astimezone(zone))
     if at.tzinfo:
         return ts
