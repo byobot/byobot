@@ -228,7 +228,7 @@ def test_correct_and_exclude_an_import(capsys):
     code, out, _ = cli(capsys, "correct", rid, '{"value": 81.9, "unit": "kg"}')
     assert code == 0, out
     assert cli(capsys, "list", "observation")[1]["items"][0]["value"] == 81.9
-    assert cli(capsys, "exclude", rid, "--notes", "wrong person")[0] == 0
+    assert cli(capsys, "exclude", rid, "--reason", "wrong person")[0] == 0
     assert cli(capsys, "list", "observation")[1]["count"] == 0
     assert cli(capsys, "correct", "missing", '{"value": 1}')[0] != 0
 

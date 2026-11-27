@@ -382,12 +382,12 @@ def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
     "exclude",
     "Leave something a source imported out of every read, such as a wrong weigh-in. `undo` brings it back.",
     Param("record_id", "string", "The source record's id.", required=True, positional=True),
-    Param("notes", "string", "Why, in a few words."),
+    Param("reason", "string", "Why, in a few words."),
     read_only=False,
 )
-def _exclude(ctx: Context, record_id: str, notes: str | None = None) -> dict:
+def _exclude(ctx: Context, record_id: str, reason: str | None = None) -> dict:
     _source_record(ctx.store(), record_id)
-    return {"event": core.exclude(ctx.store(), ctx.actor, record_id, notes)}
+    return {"event": core.exclude(ctx.store(), ctx.actor, record_id, reason)}
 
 
 @command(
