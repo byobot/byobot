@@ -37,30 +37,30 @@ def _needs(store: Store, event: dict) -> float:
     return event["kind_version"] if store.contract.understands(event) else float("inf")
 
 
-def _too_new(store: Store, event: dict, kinds: dict) -> bool:
+def _too_new(store: Store, event: dict, kind_versions: dict) -> bool:
     """Whether a pushed put names as prev a version its app doesn't know, whose fields the app would drop."""
     prev = event.get("prev")
     if event.get("op") != "put" or not isinstance(prev, list):
         return False
-    known = kinds.get(event["record"].get("kind"), 1)
+    known = kind_versions.get(event["record"].get("kind"), 1)
     held = [store.event(p) for p in prev if isinstance(p, str)]
     return any(h and h["record"] == event["record"] and _needs(store, h) > known for h in held)
 
 
 def accept_events(store: Store, device_id: str, events: list, actor: dict = PERSON,
-                  kinds: dict | None = None) -> list[dict]:
+                  kind_versions: dict | None = None) -> list[dict]:
     """Accept a device's events one by one, in order. Retrying an event already accepted is harmless.
 
     ``device_id`` and ``actor`` are the authenticated device's. An event that names another device or actor, or
     writes a record only a connector writes, is rejected and not written. A kind this byobot doesn't know is stored,
     unprojected, for a newer one. So is a put on top of a version newer
-    than ``kinds``, the app's kind versions (all 1 when it sends none).
+    than ``kind_versions``, the app's kind versions (all 1 when it sends none).
     """
     results = []
     for i, event in enumerate(events):
         try:
             with store._tx():  # an event and its refusal, or the end of an earlier one, commit together
-                result = _settle(store, device_id, event, actor, kinds or {})
+                result = _settle(store, device_id, event, actor, kind_versions or {})
                 if isinstance(result["id"], str) and EVENT_ID.fullmatch(result["id"]):
                     store.note_rejections(device_id, [
                         (result["id"], result.get("reason", "") if result["status"] == "rejected" else None)])
@@ -72,7 +72,7 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
     return results
 
 
-def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) -> dict:
+def _settle(store: Store, device_id: str, event: Any, actor: dict, kind_versions: dict) -> dict:
     result: dict[str, Any] = {"id": event.get("id") if isinstance(event, dict) else None}
     record = event.get("record") if isinstance(event, dict) else None
     if not isinstance(event, dict) or not isinstance(record, dict):
@@ -83,7 +83,7 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) 
         reason = "events must be authored by the paired device's user"
     elif record.get("kind") in CONNECTOR_KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
         reason = "a phone writes only what a person writes"
-    elif _too_new(store, event, kinds):
+    elif _too_new(store, event, kind_versions):
         reason = "a newer byobot wrote this record; update the app to change it"
     elif event.get("op") == "put" and store.event(event.get("id")) is None and \
             store._erase_of(record.get("kind"), record.get("id")):
@@ -95,14 +95,14 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) 
 
 
 def push_events(store: Store, device_id: str, body: Any, actor: dict = PERSON) -> dict:
-    """An events request ({events, kinds}) from a device, and its answer: a result per event and the counts."""
+    """An events request ({events, kind_versions}) from a device, and its answer: a result per event and the counts."""
     events = body.get("events") if isinstance(body, dict) else None
     if not isinstance(events, list) or len(events) > MAX_BATCH:
         raise ValidationFailed(f"send {{events: [...]}} with at most {MAX_BATCH} events")
-    kinds = body.get("kinds", {})
-    if sync_errors("kinds", kinds):
-        raise ValidationFailed("kinds must map each kind to the version the app knows")
-    results = accept_events(store, device_id, events, actor, kinds)
+    kind_versions = body.get("kind_versions", {})
+    if sync_errors("kind_versions", kind_versions):
+        raise ValidationFailed("kind_versions must map each kind to the version the app knows")
+    results = accept_events(store, device_id, events, actor, kind_versions)
     return {"results": results, **{s: sum(r["status"] == s for r in results) for s in OUTCOMES}}
 
 
@@ -223,7 +223,7 @@ def _device_state(store: Store, device_id: str | None) -> dict:
     received = store.received(device_id) if device_id else None
     erased = [{"kind": k, "id": i} for k, i in store.erased() if k not in CONNECTOR_KINDS]
     return {"store_id": store.store_id, "hlc": store.hlc, "erased": erased,
-            "kind_versions": {k: v["version"] for k, v in store.contract.registry["kinds"].items()},
+            "kind_versions": store.contract.kind_versions(),
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}
 

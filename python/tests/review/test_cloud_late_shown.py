@@ -22,7 +22,7 @@ def test_an_event_read_late_from_a_retired_epoch_stays_in_the_folder(store, tmp_
     assert relay.epoch == 2 and relay.events == {}
     keeper.sync()  # every device moved: epoch 1's files, the set's segment among them, are deleted
     assert store.event(sent["id"])
-    assert not any(p.startswith("segments/") and "/0001-" in p for p in folder.list())
+    assert not any(p.startswith("segments/") and "/0000000001-" in p for p in folder.list())
 
     fresh = Store(tmp_path / "new-mac.db")
     Keeper.recover(fresh, folder, code, clock)

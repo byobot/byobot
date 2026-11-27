@@ -161,7 +161,7 @@ def test_cloud_off_can_delete_the_folder(phone, fake):
     relay.sync()
     assert run("cloud off", ctx, {"delete": True})["deleted"] > 0
     left = [n for n in fake.names() if n.startswith(store_id + "/")]
-    assert left == [f"{store_id}/epochs/0002.json"]  # only the notice that lists no phone
+    assert left == [f"{store_id}/epochs/0000000002.json"]  # only the notice that lists no phone
     relay.log([event(n=2)])
     assert relay.sync() == {"removed": True, "joined": False}
     assert [n for n in fake.names() if n.startswith(store_id + "/")] == left

@@ -12,12 +12,12 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Any, Callable
-from urllib.parse import urlencode
 
 from .. import __version__
 from ..core import relay as rules
 from ..core import sources
 from ..core.store import Store, stamp
+from ..link import pairing_link
 from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
@@ -94,7 +94,7 @@ class Keeper:
             raise ByobotError("that recovery code doesn't open this store")
         identity = epoch_body = None
         for n in sorted(opened, reverse=True):
-            identity = Identity.from_private(opened[n]["keeper"])
+            identity = Identity.from_private(opened[n]["keeper_private"])
             try:
                 epoch_body = files.read_epoch(folder.read(files.epoch_path(n)) or b"", identity.public()["sign"],
                                               store_id, n)
@@ -104,34 +104,34 @@ class Keeper:
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
         top = opened[n]
-        devices = {d["id"]: d for d in epoch_body["devices"]}
+        devices = {d["device_id"]: d for d in epoch_body["devices"]}
         for path in listing:  # admitted since the epoch file was written: only a key file names them
-            if path.startswith(f"keys/{n:04d}/") and not path.endswith("/recovery.key"):
+            if path.startswith(f"keys/{files.epoch_dir(n)}/") and not path.endswith("/recovery.key"):
                 try:
                     d = files.key_device(folder.read(path) or b"", identity.public()["sign"], store_id, n)
                 except CloudError:
                     continue
-                devices.setdefault(d["id"], d)
+                devices.setdefault(d["device_id"], d)
         if store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             if store.store_id != store_id or store.store_key.hex() != top["store_key"]:
                 raise ByobotError("this store isn't the one the cloud folder belongs to")
         else:
             store.adopt(store_id, top["store_key"])
         meta = [("identity", json.dumps(identity.private())), ("epoch", n),
-                ("seq", _top_seq(listing, top["device_id"])), ("checkpoint_position", 0),
+                ("seq", _top_seq(listing, top["keeper_device_id"])), ("checkpoint_position", 0),
                 ("recovery_key", b64(recovery_key(code, store_id)))]
         mine = store.device_id
         with store._tx():
-            store._set("device_id", top["device_id"])  # this Mac takes the keeper's place, and its id
+            store._set("device_id", top["keeper_device_id"])  # this Mac takes the keeper's place, and its id
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
-            store.conn.executemany(ENROL, [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
+            store.conn.executemany(ENROL, [(*(d[k] for k in files.DEVICE), n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
         outcomes = dict(store.conn.execute("SELECT path, outcome FROM cloud_read"))
         own = {p for p in listing if (w := segment.parse_name(p)) and w["kind"] != "plan" and w["epoch"] == n
-               and w.get("device_id", top["device_id"]) == top["device_id"]}
+               and w.get("device_id", top["keeper_device_id"]) == top["keeper_device_id"]}
         lost = sorted(p for p in own | {segment.name("checkpoint", n, i) for i in range(epoch_body["checkpoint"])}
                       if outcomes.get(p) != "read")
         if lost:  # nothing kept here, so it can run again
@@ -178,17 +178,17 @@ class Keeper:
         return row and dict(row)
 
     def _enrol(self, device: dict, epoch: int) -> None:
-        self.store.conn.execute(ENROL, (device["id"], device["class"], device["box"], device["sign"], epoch, epoch))
+        self.store.conn.execute(ENROL, (*(device[k] for k in files.DEVICE), epoch, epoch))
 
     def _rejoin(self, device: dict) -> None:
         """Take back a removed device. Its relay counts seqs from the start again, so its older files go unread."""
         self.store.conn.execute("UPDATE devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
                                 "last_seq = NULL, removed = 0 WHERE id = ?",
-                                (device["box"], device["sign"], self.epoch, self.epoch, device["id"]))
-        like = f"segments/{device['id']}/%"
+                                (device["box"], device["sign"], self.epoch, self.epoch, device["device_id"]))
+        like = f"segments/{device['device_id']}/%"
         self.store.conn.execute("DELETE FROM cloud_read WHERE path LIKE ?", (like,))
         self.store.conn.execute("DELETE FROM cloud_refused WHERE path LIKE ?", (like,))
-        self._set(f"rejoined:{device['id']}", self.epoch)
+        self._set(f"rejoined:{device['device_id']}", self.epoch)
 
     def _seq_floor(self, listing: dict[str, str]) -> None:
         """A run cut short after an upload leaves that file's seq behind; never write another file under it."""
@@ -218,7 +218,8 @@ class Keeper:
     def _leftover(self, path: str) -> bool:
         """A file of a start not yet committed, which a lagging listing hid from its cleanup; no device uses it."""
         n = int(self._get("starting") or 0)
-        return bool(n) and path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/"))
+        d = files.epoch_dir(n)
+        return bool(n) and path.startswith((f"keys/{d}/", f"checkpoints/{d}/"))
 
     def _segment(self, kind: str, seq: int, messages: list[dict], epoch: int | None = None) -> str:
         epoch = self.epoch if epoch is None else epoch
@@ -233,7 +234,7 @@ class Keeper:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
         listing = self.folder.list()
-        top = max([int(p[7:11]) for p in listing if is_epoch_file(p)] + [self.epoch])
+        top = max([files.epoch_number(p) for p in listing if is_epoch_file(p)] + [self.epoch])
         n = int(self._get("starting") or 0)
         if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
             n = max(n, top) + 1
@@ -242,18 +243,19 @@ class Keeper:
         key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
         self._seq_floor(listing)
+        d = files.epoch_dir(n)
         for path in listing:  # what a start cut short left behind; no device uses it yet
-            if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
+            if path.startswith((f"keys/{d}/", f"checkpoints/{d}/", f"plan/{d}-")):
                 self.folder.delete(path)
         with self.store._tx():
             self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
-        devices = [{k: d[k] for k in ("id", "class", "box", "sign")} for d in self.devices()]
+        devices = [_wire(d) for d in self.devices()]
         for d in devices:
-            if d["id"] != self.device_id:
-                self._write(files.key_path(n, d["id"]), files.key_file(self.identity, store_id, n, d, key))
+            if d["device_id"] != self.device_id:
+                self._write(files.key_path(n, d["device_id"]), files.key_file(self.identity, store_id, n, d, key))
         if self._get("recovery_key"):
-            content = {"epoch_key": b64(key), "store_key": self.store.store_key.hex(), "device_id": self.device_id,
-                       "keeper": self.identity.private()}
+            content = {"epoch_key": b64(key), "store_key": self.store.store_key.hex(),
+                       "keeper_device_id": self.device_id, "keeper_private": self.identity.private()}
             self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
                                                                     content))
         self.store.conn.execute("BEGIN")  # the checkpoint and its position from one snapshot
@@ -275,10 +277,40 @@ class Keeper:
             self._unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
-                                                          len(parts)))
+                                                          len(parts), previous=self._previous()))
         with self.store._tx():
             self._unset("starting")
+            self._unset("previous_identity")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
+        return n
+
+    def _previous(self) -> Identity | None:
+        """The keys the keeper signed with before `rotate`, until an epoch file hands over from them."""
+        kept = self._get("previous_identity")
+        return Identity.from_private(json.loads(kept)) if kept else None
+
+    def rotate(self, recovery: bool = False) -> int:
+        """Sign with new keys from a new epoch on, whose file the old keys hand over to, so every phone follows.
+        With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted."""
+        new = Identity.generate()
+        code = recovery_code() if recovery else None
+        with self.store._tx():  # a retry of a rotation cut short still hands over from the keys phones trust
+            if self._get("previous_identity") is None:
+                self._set("previous_identity", json.dumps(self.identity.private()))
+            self._set("identity", json.dumps(new.private()))
+            if code:
+                self._set("recovery_key", b64(recovery_key(code, self.store.store_id)))
+            self.store.conn.execute("UPDATE devices SET box = ?, sign = ? WHERE id = ?",
+                                    (new.public()["box"], new.public()["sign"], self.device_id))
+        self.identity = new
+        self.folder.delete(files.device_path(self.device_id))
+        n = self.start_epoch()
+        if code:
+            for path in self.folder.list():
+                if path.endswith(f"/{files.RECOVERY}.key") and path != files.recovery_path(n):
+                    self.folder.delete(path)
+        self._publish_device()
+        self.recovery_code = code
         return n
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
@@ -287,8 +319,9 @@ class Keeper:
 
     # -- joining -------------------------------------------------------------------
 
-    def join_code(self) -> dict:
-        """A one-time code a phone scans to join: valid ten minutes, for one device. It holds no key."""
+    def join_code(self, client: str | None = None) -> dict:
+        """A one-time code a phone scans to join: valid ten minutes, for one device. It holds no key. ``client`` is
+        the Google client id the phone signs in with."""
         secret = secrets.token_bytes(16)
         expires = self.clock() + JOIN_TTL_S
         sealed = self._sealed(self.folder.list()) if self.folder is not None and self._get("join") else None
@@ -297,10 +330,10 @@ class Keeper:
                 self._take(sealed)
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
             self._unset("last_join")
-        code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper": self.identity.public()["sign"],
+        code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper_key": self.identity.public()["sign"],
                 "expires": expires}
-        return {**code, "link": "byobot://cloud-join?" + urlencode(
-            {"store": code["store_id"], "secret": code["secret"], "keeper": code["keeper"]})}
+        return {**code, "link": pairing_link(store_id=code["store_id"], secret=code["secret"],
+                                             keeper_key=code["keeper_key"], client=client)}
 
     def _admit(self, listing: dict[str, str]) -> dict:
         join = json.loads(self._get("join") or "null")
@@ -323,15 +356,15 @@ class Keeper:
             except CloudError:
                 continue
             public = {"box": found["box"], "sign": found["sign"]}
-            if found["class"] == "relay" and proof_matches(secret, self.store.store_id, device_id, public,
-                                                           found.get("proof")):
+            if found["device_class"] == "relay" and proof_matches(secret, self.store.store_id, device_id, public,
+                                                                  found.get("proof")):
                 valid.append(found)
         if not valid:
             return {}
         if len(valid) > 1:
             return self._joined({"join": "refused: two devices answered one code; show a new code"}, listing, join)
-        device = {k: valid[0][k] for k in ("id", "class", "box", "sign")}
-        path = files.key_path(self.epoch, device["id"])
+        device = {k: valid[0][k] for k in files.DEVICE}
+        path = files.key_path(self.epoch, device["device_id"])
         try:  # the code stays good until the phone's key is in the folder
             self._write(path, files.key_file(self.identity, self.store.store_id, self.epoch, device,
                                              self.key(self.epoch)))
@@ -343,14 +376,14 @@ class Keeper:
                 landed = None
             if landed != device:
                 raise
-        return self._joined({"join": "admitted", "device": device["id"]}, listing, join, device)
+        return self._joined({"join": "admitted", "device": device["device_id"]}, listing, join, device)
 
     def _joined(self, outcome: dict, listing: dict[str, str], join: dict, device: dict | None = None) -> dict:
         """End ``join``: enrol the device if one was admitted, or one whose key file a sync cut short already
         wrote, keep the outcome for `cloud join`, and delete the device files no one admitted, so those phones can
         answer a new code. A newer code shown meanwhile is left as it is."""
         if device is None and (device := self._sealed(listing)):
-            outcome = {"join": "admitted", "device": device["id"]}
+            outcome = {"join": "admitted", "device": device["device_id"]}
         with self.store._tx():
             if device:
                 self._take(device)
@@ -370,7 +403,7 @@ class Keeper:
         """A device this epoch's key was sealed to that isn't in yet, if its device file still matches; any other
         such key file is deleted."""
         active = {d["id"] for d in self.devices()}
-        prefix = f"keys/{self.epoch:04d}/"
+        prefix = f"keys/{files.epoch_dir(self.epoch)}/"
         for path in listing:
             device_id = path[len(prefix):-len(".key")]
             if not path.startswith(prefix) or not path.endswith(".key") or path == files.recovery_path(self.epoch) \
@@ -383,13 +416,13 @@ class Keeper:
                                           self.store.store_id, device_id)
             except CloudError:
                 found = None
-            if found and sealed == {k: found[k] for k in ("id", "class", "box", "sign")}:
+            if found and sealed == {k: found[k] for k in files.DEVICE}:
                 return sealed
             self.folder.delete(path)
         return None
 
     def _take(self, device: dict) -> None:
-        if self.device(device["id"]):
+        if self.device(device["device_id"]):
             self._rejoin(device)
         else:
             self._enrol(device, self.epoch)
@@ -440,12 +473,12 @@ class Keeper:
                                        sign_public=device["sign"])
         except CloudError as exc:
             return str(exc)
-        refused: list[tuple[int, str]] = []
+        rejected: list[tuple[int, str]] = []
         shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
-        apply(self.store, writer, device["class"], messages, shown, lambda i, why: refused.append((i, why)))
+        apply(self.store, writer, device["class"], messages, shown, lambda i, why: rejected.append((i, why)))
         with self.store._tx():
             self.store.conn.executemany("INSERT OR REPLACE INTO cloud_refused VALUES (?, ?, ?)",
-                                        [(path, i, why) for i, why in refused])
+                                        [(path, i, why) for i, why in rejected])
         erased = set(self.store.erased())
         if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
                           for m in messages for e in _events(m)) or self._erased_samples(messages):
@@ -454,7 +487,7 @@ class Keeper:
         with self.store._tx():
             self.store.conn.execute("UPDATE devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
-                                    (where["epoch"], where["seq"], writer))
+                                    (where["epoch"], where.get("seq", 0), writer))
             if writer != self.device_id:
                 self.store.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?",
                                         (stamp(datetime.fromtimestamp(self.clock()).astimezone()), writer))
@@ -493,7 +526,7 @@ class Keeper:
         return len(events)
 
     def plan(self) -> dict:
-        """The plan window every relay reads, with each relay's latest event held and refused events."""
+        """The plan window every relay reads, with each relay's latest event held and rejected events."""
         today = self.store.wall().date()
         start, end = today - timedelta(days=PLAN_BEHIND), today + timedelta(days=PLAN_AHEAD)
         window = rules.plan_window(self.store, start.isoformat(), end.isoformat())
@@ -504,19 +537,19 @@ class Keeper:
 
     def receipts(self) -> dict:
         """Each relay's segments still in the folder that the keeper has read, by seq (a relay's seqs never repeat
-        across epochs), and the samples it refused."""
+        across epochs), and the samples messages it rejected."""
         out: dict[str, dict] = {d["id"]: {"read": []} for d in self.devices() if d["class"] == "relay"}
-        refused: dict[str, list] = {}
+        rejected: dict[str, list] = {}
         for path, line, why in self.store.conn.execute("SELECT * FROM cloud_refused ORDER BY path, line"):
-            refused.setdefault(path, []).append((line, why))
+            rejected.setdefault(path, []).append((line, why))
         for path, outcome in self.store.conn.execute("SELECT path, outcome FROM cloud_read WHERE path LIKE "
                                                      "'segments/%' ORDER BY path"):
             where = segment.parse_name(path)
             if where and where["device_id"] in out and outcome == "read":
                 mine = out[where["device_id"]]
                 mine["read"].append(where["seq"])
-                for line, why in refused.get(path, []):
-                    mine.setdefault("refused", []).append({"seq": where["seq"], "line": line, "reason": why})
+                for line, why in rejected.get(path, []):
+                    mine.setdefault("rejected", []).append({"seq": where["seq"], "line": line, "reason": why})
         return out
 
     def publish_plan(self) -> bool:
@@ -539,7 +572,8 @@ class Keeper:
     def _publish_device(self) -> None:
         path = files.device_path(self.device_id)
         if path not in self.folder.list():
-            self._write(path, files.device_file(self.store.store_id, {"id": self.device_id, "class": "keeper",
+            self._write(path, files.device_file(self.store.store_id, {"device_id": self.device_id,
+                                                                      "device_class": "keeper",
                                                                       **self.identity.public()}))
 
     # -- sync ----------------------------------------------------------------------
@@ -641,26 +675,26 @@ class Keeper:
 
     @property
     def is_closed(self) -> bool:
-        """Whether `cloud off --delete yes` closed the folder, so setup may start again in any account."""
+        """Whether `cloud off --delete` closed the folder, so setup may start again in any account."""
         return self._get("closed") is not None
 
     def forget(self) -> int:
         """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
-        n = int(self._get("closing") or 0) or max([int(p[7:11]) for p in self.folder.list() if is_epoch_file(p)]
-                                                  + [self.epoch]) + 1
+        n = int(self._get("closing") or 0) or max(
+            [files.epoch_number(p) for p in self.folder.list() if is_epoch_file(p)] + [self.epoch]) + 1
         with self.store._tx():  # sync finishes a close that failed partway, so phones and this Mac agree
             self._set("closing", n)
         path = files.epoch_path(n)
-        keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
+        keeper = [{"device_id": self.device_id, "device_class": "keeper", **self.identity.public()}]
         try:
             self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
-                                               closed=True))
+                                               previous=self._previous(), closed=True))
         except ByobotError:  # an older byobot began this close, without the mark
             body = files.read_epoch(self.folder.read(path) or b"", self.identity.public()["sign"],
                                     self.store.store_id, n)
-            if [d["id"] for d in body["devices"]] != [self.device_id] or body["checkpoint"]:
+            if [d["device_id"] for d in body["devices"]] != [self.device_id] or body["checkpoint"]:
                 raise
         listing = [p for p in self.folder.list() if p != path]
         for p in listing:
@@ -676,8 +710,8 @@ class Keeper:
                 self.store.conn.execute(f"DELETE FROM {table}")
             _leave(self.store, "class = 'relay'")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key IN ('join', 'last_join', "
-                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
-                                    "OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing', "
+                                    "'previous_identity') OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
             self._set("epoch", n)
             self._set("checkpoint_position", 0)
             self._set("closed", 1)
@@ -751,6 +785,11 @@ class Keeper:
         return out
 
 
+def _wire(row: dict) -> dict:
+    """A devices row as the files name it."""
+    return {"device_id": row["id"], "device_class": row["class"], "box": row["box"], "sign": row["sign"]}
+
+
 def _when(stamp: str | None) -> str | None:
     return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
 
@@ -802,7 +841,7 @@ def _parts(events: list[dict]) -> list[list[dict]]:
 
 
 def _closed(folder: Folder, listing: dict[str, str]) -> bool:
-    """Whether `cloud off --delete yes` left this folder: nothing in it but epoch files, the newest marked closed."""
+    """Whether `cloud off --delete` left this folder: nothing in it but epoch files, the newest marked closed."""
     epochs = sorted(p for p in listing if is_epoch_file(p))
     return bool(epochs) and len(epochs) == len(listing) and files.is_closed(folder.read(epochs[-1]))
 
@@ -812,9 +851,9 @@ def _epoch_of(path: str) -> int | None:
     found = segment.parse_name(path)
     if found:
         return found["epoch"]
+    if files.epoch_number(path) is not None:
+        return files.epoch_number(path)
     parts = path.split("/")
-    if parts[0] == "epochs" and len(parts) == 2 and parts[1][:4].isdigit():
-        return int(parts[1][:4])
     if parts[0] == "keys" and len(parts) == 3 and parts[1].isdigit():
         return int(parts[1])
     return None
@@ -828,9 +867,9 @@ def _events(message: dict) -> list[dict]:
 
 def apply(store: Store, writer: str, cls: str, messages: list[dict],
           shown: Callable[[list[str]], None] = lambda ids: None,
-          refused: Callable[[int, str], None] = lambda line, why: None) -> list[tuple[str, str]]:
+          rejected: Callable[[int, str], None] = lambda line, why: None) -> list[tuple[str, str]]:
     """Accept a verified segment's messages from its writer: a relay's through the hub's rules, the keeper's as
-    they are. One (outcome, reason) per event, in order; a refused samples message goes to ``refused``."""
+    they are. One (outcome, reason) per event, in order; a rejected samples message goes to ``rejected``."""
     out = []
     for line, m in enumerate(messages):
         name, body = next(iter(m.items()))
@@ -841,7 +880,7 @@ def apply(store: Store, writer: str, cls: str, messages: list[dict],
                 try:
                     rules.accept_samples(store, body)
                 except ValidationFailed as exc:
-                    refused(line, str(exc))
+                    rejected(line, str(exc))
             continue
         events = body.get("events") if isinstance(body, dict) else None
         if not isinstance(events, list):

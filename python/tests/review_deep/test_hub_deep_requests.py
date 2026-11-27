@@ -54,7 +54,7 @@ def test_a_sample_with_a_number_json_cannot_hold_is_refused_with_an_answer(runni
 def test_an_event_body_with_a_huge_integer_gets_an_answer(running):
     srv, info, client, _ = running
     pair(client, info)
-    body = b'{"events": [], "kinds": {}, "x": ' + b"9" * 5000 + b"}"
+    body = b'{"events": [], "kind_versions": {}, "x": ' + b"9" * 5000 + b"}"
     try:
         status, answer = client.raw("POST", "/v1/events", body)
     except ConnectionError as exc:

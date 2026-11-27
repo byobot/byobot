@@ -1001,7 +1001,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
             else:
                 credentials.delete(drive.NAME)
             raise ValidationFailed("that Google account doesn't hold this store's Drive folder; sign in with the "
-                                   "account Drive sync uses, or run `byobot cloud off --delete yes` first to move "
+                                   "account Drive sync uses, or run `byobot cloud off --delete` first to move "
                                    "Drive sync to another account")
         keeper.on()
         return {"signed_in": True, "keeper": "already", **_sync(keeper)}
@@ -1066,9 +1066,8 @@ def _cloud_join(ctx: Context, wait: bool = True) -> dict:
 
     keeper = _keeper(ctx)
     with _lock(keeper.store):  # a sync in `serve` ending the last code doesn't unset this one
-        code = keeper.join_code()
-    ios = (credentials.load(drive.NAME) or {}).get("ios_client_id")
-    link = code["link"] + (f"&client={ios}" if ios else "")
+        code = keeper.join_code((credentials.load(drive.NAME) or {}).get("ios_client_id"))
+    link = code["link"]
     out = {"link": link, "expires": datetime.fromtimestamp(code["expires"]).astimezone().isoformat(timespec="seconds")}
     if sys.stderr.isatty():
         sys.stderr.write("\nIn the byobot app, turn on Drive sync and scan this:\n\n")
@@ -1171,6 +1170,25 @@ def _cloud_compact(ctx: Context) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
         return {"epoch": keeper.compact()}
+
+
+@command(
+    "cloud rotate",
+    "Sign the Drive copy with new keys from a new epoch on; every phone follows on its next sync. For a Mac "
+    "whose keys may have leaked.",
+    Param("recovery", "boolean", "Also make a new recovery code, shown once; the old one stops working.",
+          default=False),
+    read_only=False,
+    mcp=False,
+)
+def _cloud_rotate(ctx: Context, recovery: bool = False) -> dict:
+    keeper = _keeper(ctx)
+    with _lock(keeper.store):
+        out = {"epoch": keeper.rotate(recovery=recovery)}
+    if keeper.recovery_code:
+        out["recovery_code"] = keeper.recovery_code
+        out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
+    return out
 
 
 @command(

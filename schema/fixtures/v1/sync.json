@@ -16,11 +16,12 @@
           "name": "example-laptop"
         },
         "pairing_open": true,
-        "kinds": {
+        "kind_versions": {
           "activity": 1,
           "effort": 1,
           "session": 1
-        }
+        },
+        "capabilities": []
       }
     },
     {
@@ -37,9 +38,10 @@
           "name": "example-laptop"
         },
         "pairing_open": true,
-        "kinds": {
+        "kind_versions": {
           "effort": 0
-        }
+        },
+        "capabilities": []
       }
     },
     {
@@ -56,7 +58,8 @@
           "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
           "name": "example-laptop"
         },
-        "pairing_open": true
+        "pairing_open": true,
+        "capabilities": []
       }
     },
     {
@@ -71,7 +74,8 @@
           "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
           "name": "example-laptop"
         },
-        "pairing_open": true
+        "pairing_open": true,
+        "capabilities": []
       }
     },
     {
@@ -105,6 +109,32 @@
         "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
         "name": "Example iPhone",
         "token": "x"
+      }
+    },
+    {
+      "name": "sync/pair-request-capabilities",
+      "def": "pair_request",
+      "valid": true,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000aa02",
+        "name": "Example iPhone",
+        "capabilities": [
+          "handover"
+        ]
+      }
+    },
+    {
+      "name": "sync/pair-request-bad-capability",
+      "def": "pair_request",
+      "valid": false,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000aa02",
+        "name": "Example iPhone",
+        "capabilities": [
+          "Hand Over"
+        ]
       }
     },
     {
@@ -958,7 +988,7 @@
             }
           }
         ],
-        "kinds": {
+        "kind_versions": {
           "effort": 1,
           "session": 1
         }
@@ -1243,7 +1273,7 @@
     {
       "name": "link/two-hosts",
       "valid": true,
-      "link": "byobot://pair?v=1&host=example-laptop.local&host=192.0.2.23&port=8765&code=042817&fp=a4MDGEnKSYddbOMtbD1ji6JSVQTXMWHWmFMjDKjrx_k",
+      "link": "byobot://pair?v=1&host=example-laptop.local&host=192.0.2.23&port=8765&code=042817&pin=a4MDGEnKSYddbOMtbD1ji6JSVQTXMWHWmFMjDKjrx_k",
       "expect": {
         "hosts": [
           "example-laptop.local",
@@ -1251,37 +1281,83 @@
         ],
         "port": 8765,
         "code": "042817",
-        "fp": "6b83031849ca49875d6ce32d6c3d638ba2525504d73161d69853230ca8ebc7f9"
+        "pin": "6b83031849ca49875d6ce32d6c3d638ba2525504d73161d69853230ca8ebc7f9"
       }
     },
     {
       "name": "link/ipv4-only",
       "valid": true,
-      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001&pin=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
       "expect": {
         "hosts": [
           "192.0.2.5"
         ],
         "port": 9000,
         "code": "000001",
-        "fp": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        "pin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
       }
     },
     {
       "name": "link/old-protocol",
       "valid": false,
-      "description": "A v0 server's link: the app asks to update byobot.",
-      "link": "byobot://pair?v=0&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      "description": "A link from a newer or older byobot: the app asks to update.",
+      "link": "byobot://pair?v=0&host=192.0.2.5&port=9000&code=000001&pin=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
     },
     {
-      "name": "link/no-fingerprint",
+      "name": "link/no-pin",
       "valid": false,
       "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001"
     },
     {
       "name": "link/other-scheme",
       "valid": false,
-      "link": "https://pair?v=1&host=192.0.2.5&port=9000&code=000001&fp=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      "link": "https://pair?v=1&host=192.0.2.5&port=9000&code=000001&pin=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    },
+    {
+      "name": "link/drive",
+      "valid": true,
+      "description": "Join a store through the cloud folder.",
+      "link": "byobot://pair?v=1&store_id=0193a0b0-0000-7000-8000-00000000a001&secret=AAECAwQFBgcICQoLDA0ODw&keeper_key=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8&provider=google&client=example.apps.googleusercontent.com",
+      "expect": {
+        "store_id": "0193a0b0-0000-7000-8000-00000000a001",
+        "secret": "AAECAwQFBgcICQoLDA0ODw==",
+        "keeper_key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+        "provider": "google",
+        "client": "example.apps.googleusercontent.com"
+      }
+    },
+    {
+      "name": "link/hub-and-drive",
+      "valid": true,
+      "link": "byobot://pair?v=1&host=192.0.2.5&port=9000&code=000001&pin=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&store_id=0193a0b0-0000-7000-8000-00000000a001&secret=AAECAwQFBgcICQoLDA0ODw&keeper_key=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8&provider=google",
+      "expect": {
+        "hosts": [
+          "192.0.2.5"
+        ],
+        "port": 9000,
+        "code": "000001",
+        "pin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "store_id": "0193a0b0-0000-7000-8000-00000000a001",
+        "secret": "AAECAwQFBgcICQoLDA0ODw==",
+        "keeper_key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+        "provider": "google",
+        "client": null
+      }
+    },
+    {
+      "name": "link/drive-unknown-provider",
+      "valid": false,
+      "link": "byobot://pair?v=1&store_id=0193a0b0-0000-7000-8000-00000000a001&secret=AAECAwQFBgcICQoLDA0ODw&keeper_key=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8&provider=other&client=example.apps.googleusercontent.com"
+    },
+    {
+      "name": "link/neither",
+      "valid": false,
+      "link": "byobot://pair?v=1"
     }
-  ]
+  ],
+  "pin": {
+    "description": "A hub certificate (base64 DER) and its pin: lowercase hex SHA-256 of its SubjectPublicKeyInfo DER.",
+    "certificate": "MIIBHTCBxaADAgECAgEBMAoGCCqGSM49BAMCMBkxFzAVBgNVBAMMDmJ5b2JvdCBleGFtcGxlMB4XDTI2MDEwMTAwMDAwMFoXDTM1MTIzMDAwMDAwMFowGTEXMBUGA1UEAwwOYnlvYm90IGV4YW1wbGUwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARRXD1uueOWuQTT/sp/VP3NDMHpl783XcpRWtCmw7QDX0U2vjpQ8xj7+aVHWQKiIVAr7w1X4IxTsswKVvF9n5NUMAoGCCqGSM49BAMCA0cAMEQCIBQ/8iormmbC+UUHdSyfbfUWQ+1d+DC+mgre5R+VIGBlAiBRANpJ0Nv59gF7xTohtR2XNCWxRiQYnx0KZHxYAO4naQ==",
+    "pin": "f1d59449b727165de732bf283338122b99628a615918fedc67d878fffcf47da7"
+  }
 }

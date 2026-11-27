@@ -80,7 +80,7 @@ def test_samples_not_yet_read_are_sent_again_in_a_new_epoch(store, folder, keepe
     assert relay.epoch == 2 and [r["kind"] for r in store.records("source_record")] == ["source_record"]
 
 
-def test_a_refused_sample_batch_comes_back_with_why(store, folder, keeper):
+def test_a_rejected_sample_batch_comes_back_with_why(store, folder, keeper):
     relay = joined(keeper, folder)
     bad = {"samples": [{**SAMPLES["samples"][0], "source": "whoop"}]}
     relay.log([event()])
@@ -89,9 +89,9 @@ def test_a_refused_sample_batch_comes_back_with_why(store, folder, keeper):
     relay.sync()
     keeper.sync()
     seq = relay.seq
-    assert keeper.receipts()[PHONE]["refused"] == [{"seq": seq, "line": 1,
+    assert keeper.receipts()[PHONE]["rejected"] == [{"seq": seq, "line": 1,
                                                     "reason": "a phone sends only apple_health samples"}]
     relay.sync()
-    assert relay.refused == [{"reason": "a phone sends only apple_health samples", "samples": {**bad, "deleted": []}}]
+    assert relay.rejected == [{"reason": "a phone sends only apple_health samples", "samples": {**bad, "deleted": []}}]
     assert relay.sent == {} and relay.samples == [] and relay.events == {}
     assert [r["kind"] for r in store.records("source_record")] == ["source_record"]

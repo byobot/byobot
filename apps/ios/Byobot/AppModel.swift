@@ -132,7 +132,8 @@ final class AppModel: ObservableObject, SyncBook {
     // MARK: Pairing
 
     func open(_ url: URL) {
-        if url.host == "cloud-join" {
+        let names = PairingLink.names(url.absoluteString)
+        if names.drive && !names.hub {
             do {
                 pendingCloud = CloudJoinLink(link: url.absoluteString, code: try CloudJoin(link: url.absoluteString))
             } catch {

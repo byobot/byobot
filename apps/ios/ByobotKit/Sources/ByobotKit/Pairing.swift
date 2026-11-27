@@ -1,16 +1,16 @@
-// The `byobot://pair` link that `byobot serve` shows as a QR code.
+// The `byobot://pair` link that `byobot serve` and `byobot cloud join` show as a QR code.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
 import Foundation
 
 /// Where the laptop is and how to trust it: hosts to try, a port, a one-time code, and the
-/// SHA-256 fingerprint of its certificate, which the app pins from then on.
+/// SHA-256 fingerprint of its public key, which the app pins from then on.
 public struct PairingLink: Equatable, Sendable {
     public var hosts: [String]
     public var port: Int
     public var code: String
-    /// Lowercase hex SHA-256 of the server certificate's DER bytes.
+    /// Lowercase hex SHA-256 of the server's public key as SubjectPublicKeyInfo DER.
     public var fingerprint: String
 
     public init(hosts: [String], port: Int, code: String, fingerprint: String) {
@@ -27,20 +27,15 @@ public struct PairingLink: Equatable, Sendable {
         case invalid(String)
     }
 
-    /// Parse `byobot://pair?v=1&host=...&host=...&port=8765&code=123456&fp=<base64url>`.
+    /// Parse the hub fields of `byobot://pair?v=1&host=...&host=...&port=8765&code=123456&pin=<base64url>`.
     public init(link: String) throws {
-        guard let parts = URLComponents(string: link), parts.scheme == "byobot", parts.host == "pair" else {
-            throw Problem.notAPairingLink
-        }
-        let items = parts.queryItems ?? []
+        let items = try Self.items(link)
         func first(_ name: String) throws -> String {
             guard let value = items.first(where: { $0.name == name })?.value, !value.isEmpty else {
                 throw Problem.missing(name)
             }
             return value
         }
-        guard let version = Int(try first("v")) else { throw Problem.invalid("v") }
-        guard version == ContractVersion.sync else { throw Problem.unsupportedProtocol(version) }
         let hosts = items.filter { $0.name == "host" }.compactMap(\.value).filter { !$0.isEmpty }
         guard !hosts.isEmpty else { throw Problem.missing("host") }
         guard let port = Int(try first("port")), (1...65535).contains(port) else { throw Problem.invalid("port") }
@@ -48,15 +43,36 @@ public struct PairingLink: Equatable, Sendable {
         guard code.count == 6, code.allSatisfy(\.isASCII), code.allSatisfy(\.isNumber) else {
             throw Problem.invalid("code")
         }
-        guard let fp = Self.hex(fromBase64URL: try first("fp")), fp.count == 64 else { throw Problem.invalid("fp") }
-        self.init(hosts: hosts, port: port, code: code, fingerprint: fp)
+        guard let pin = Self.data(fromBase64URL: try first("pin")), pin.count == 32 else { throw Problem.invalid("pin") }
+        self.init(hosts: hosts, port: port, code: code, fingerprint: pin.hex)
     }
 
-    static func hex(fromBase64URL text: String) -> String? {
+    /// The query of a `byobot://pair` link this app can read.
+    static func items(_ link: String) throws -> [URLQueryItem] {
+        guard let parts = URLComponents(string: link), parts.scheme == "byobot", parts.host == "pair" else {
+            throw Problem.notAPairingLink
+        }
+        let items = parts.queryItems ?? []
+        guard let v = items.first(where: { $0.name == "v" })?.value, let version = Int(v) else {
+            throw Problem.missing("v")
+        }
+        guard version == Self.version else { throw Problem.unsupportedProtocol(version) }
+        return items
+    }
+
+    /// The link format's version.
+    public static let version = 1
+
+    /// Whether a link names a hub, a Drive store, or both.
+    public static func names(_ link: String) -> (hub: Bool, drive: Bool) {
+        let names = Set((try? items(link))?.map(\.name) ?? [])
+        return (names.contains("host"), names.contains("store_id"))
+    }
+
+    static func data(fromBase64URL text: String) -> Data? {
         var b64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b64.count % 4 != 0 { b64 += "=" }
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return data.hex
+        return Data(base64Encoded: b64)
     }
 
     /// The link with only its hosts on this network, or nil when it has none. A link can come from
@@ -97,6 +113,11 @@ public struct PairingLink: Equatable, Sendable {
         return stride(from: 0, to: head.count, by: 4).map { String(head[$0..<Swift.min($0 + 4, head.count)]) }
             .joined(separator: " ")
     }
+}
+
+/// What this app supports beyond the protocol's version, by name. It tells the hub when pairing.
+public enum Capabilities {
+    public static let app: [String] = []
 }
 
 /// A paired laptop, as the app remembers it (the token lives in the keychain, not here).

@@ -50,26 +50,29 @@ public enum Cloud {
     static let magic = "byobot-segment"
     static let segmentDomain = Data("byobot-cloud segment 1\n".utf8)
     static let documentDomain = Data("byobot-cloud document 1\n".utf8)
+    static let handoverDomain = Data("byobot-cloud handover 1\n".utf8)
     static let sealInfo = Data("byobot-cloud seal 1".utf8)
     static let joinDomain = "byobot-cloud join 1"
     static let maxHeader = 1024
     static let maxBody = 32 * 1024 * 1024
     static let maxSeq = 9_999_999_999
-    static let maxEpoch = 9999
+    static let maxEpoch = 9_999_999_999
+    /// Epochs, seqs and parts are this many digits in file names.
+    static let digitCount = 10
 
     // MARK: names
 
     public static func segmentPath(kind: String, epoch: Int, seq: Int, deviceID: String? = nil) -> String {
         switch kind {
-        case "segment": return "segments/\(deviceID ?? "")/\(pad(epoch, 4))-\(pad(seq, 10)).seg"
-        case "checkpoint": return "checkpoints/\(pad(epoch, 4))/\(pad(seq, 10)).seg"
-        default: return "plan/\(pad(epoch, 4))-\(pad(seq, 10)).seg"
+        case "segment": return "segments/\(deviceID ?? "")/\(pad(epoch, digitCount))-\(pad(seq, digitCount)).seg"
+        case "checkpoint": return "checkpoints/\(pad(epoch, digitCount))/\(pad(seq, digitCount)).seg"
+        default: return "plan/\(pad(epoch, digitCount))-\(pad(seq, digitCount)).seg"
         }
     }
 
-    public static func epochPath(_ epoch: Int) -> String { "epochs/\(pad(epoch, 4)).json" }
+    public static func epochPath(_ epoch: Int) -> String { "epochs/\(pad(epoch, digitCount)).json" }
     public static func devicePath(_ deviceID: String) -> String { "devices/\(deviceID).json" }
-    public static func keyPath(_ epoch: Int, _ deviceID: String) -> String { "keys/\(pad(epoch, 4))/\(deviceID).key" }
+    public static func keyPath(_ epoch: Int, _ deviceID: String) -> String { "keys/\(pad(epoch, digitCount))/\(deviceID).key" }
 
     /// What a segment's path says its header holds, or nil if the path isn't a segment's.
     public static func parseName(_ path: String) -> SegmentName? {
@@ -78,17 +81,19 @@ public enum Cloud {
             guard name.hasSuffix(".seg") else { return nil }
             let stem = String(name.dropLast(4))
             if let first {
-                guard let seq = digits(stem, 10) else { return nil }
+                guard let seq = digits(stem, digitCount) else { return nil }
                 return (first, seq)
             }
             let halves = stem.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-            guard halves.count == 2, let epoch = digits(halves[0], 4), let seq = digits(halves[1], 10) else { return nil }
+            guard halves.count == 2, let epoch = digits(halves[0], digitCount), let seq = digits(halves[1], digitCount) else {
+                return nil
+            }
             return (epoch, seq)
         }
         if parts.count == 3, parts[0] == "segments", isID(parts[1]), case let (epoch, seq)? = numbered(parts[2], nil) {
             return SegmentName(kind: "segment", epoch: epoch, seq: seq, deviceID: parts[1])
         }
-        if parts.count == 3, parts[0] == "checkpoints", let epoch = digits(parts[1], 4),
+        if parts.count == 3, parts[0] == "checkpoints", let epoch = digits(parts[1], digitCount),
            case let (_, seq)? = numbered(parts[2], epoch) {
             return SegmentName(kind: "checkpoint", epoch: epoch, seq: seq, deviceID: nil)
         }
@@ -112,7 +117,8 @@ public enum Cloud {
             throw CloudError("written by a newer byobot; upgrade byobot")
         }
         guard let kind = text(found, "kind"), kinds.contains(kind), text(found, "store_id") != nil,
-              text(found, "device_id") != nil, int(found["epoch"]) != nil, int(found["seq"]) != nil else {
+              text(found, "device_id") != nil, int(found["epoch"]) != nil, int(found[counter(kind)]) != nil,
+              found["seq"] == nil || found["part"] == nil else {
             throw CloudError("not a byobot segment")
         }
         return found
@@ -124,7 +130,7 @@ public enum Cloud {
                                    signPublic: String) throws -> (header: [String: JSONValue], messages: [[String: JSONValue]]) {
         let found = try header(data)
         guard let expected = parseName(path), found["kind"] == .string(expected.kind),
-              int(found["epoch"]) == expected.epoch, int(found["seq"]) == expected.seq,
+              int(found["epoch"]) == expected.epoch, int(found[counter(expected.kind)]) == expected.seq,
               expected.deviceID == nil || text(found, "device_id") == expected.deviceID else {
             throw CloudError("moved or renamed")
         }
@@ -152,20 +158,20 @@ public enum Cloud {
         let head = try dumps(.object([
             "magic": .string(magic), "format": .number(Double(format)), "kind": .string(kind),
             "store_id": .string(storeID), "device_id": .string(deviceID), "epoch": .number(Double(epoch)),
-            "seq": .number(Double(seq)), "nonce": .string(nonce.base64EncodedString()),
+            counter(kind): .number(Double(seq)), "nonce": .string(nonce.base64EncodedString()),
         ])) + Data("\n".utf8)
-        let end: JSONValue = .object(["end": .object(["lines": .number(Double(messages.count))])])
         var plain = Data()
-        for line in messages + [end] { plain += try dumps(line) + Data("\n".utf8) }
-        let ciphertext = try seal(key, nonce: nonce, plain: try gzip(plain), aad: head)
+        for line in messages { plain += try dumps(line) + Data("\n".utf8) }
+        let ciphertext = try seal(key, nonce: nonce, plain: try deflate(plain), aad: head)
         let signature = try signer.sign.signature(for: segmentDomain + head + ciphertext)
         return head + ciphertext + signature
     }
 
     static func lines(_ body: Data) throws -> [[String: JSONValue]] {
-        guard let text = String(data: try gunzip(body), encoding: .utf8) else {
+        guard let text = String(data: try inflate(body), encoding: .utf8) else {
             throw CloudError("not a readable segment body")
         }
+        guard text.isEmpty || text.hasSuffix("\n") else { throw CloudError("cut short") }
         var values: [JSONValue] = []
         for line in text.components(separatedBy: "\n").dropLast() {
             guard let value = try? JSONValue.parse(Data(line.utf8)) else {
@@ -173,11 +179,7 @@ public enum Cloud {
             }
             values.append(value)
         }
-        guard case .object(let last)? = values.last, last.count == 1,
-              last["end"] == .object(["lines": .number(Double(values.count - 1))]) else {
-            throw CloudError("cut short")
-        }
-        return try values.dropLast().compactMap { value -> [String: JSONValue]? in
+        return try values.compactMap { value -> [String: JSONValue]? in
             guard case .object(let message) = value, message.count == 1, let name = message.keys.first else {
                 throw CloudError("not a readable segment body")
             }
@@ -188,27 +190,53 @@ public enum Cloud {
     // MARK: signed documents and files
 
     public static func readDocument(_ data: Data, signPublic: String) throws -> [String: JSONValue] {
+        let (raw, signature) = try document(data)
+        try verify(signPublic, documentDomain, raw, signature)
+        return try documentBody(raw)
+    }
+
+    static func document(_ data: Data) throws -> (raw: Data, signature: Data) {
         guard case .object(let doc)? = try? JSONValue.parse(data), doc["body"] != nil else {
             throw CloudError("not a byobot cloud file")
         }
         guard doc["format"] == .number(Double(format)) else {
             throw CloudError("written by a newer byobot; upgrade byobot")
         }
-        let raw = try unb64(doc["body"])
-        try verify(signPublic, documentDomain, raw, try unb64(doc["sig"], size: 64))
+        return (try unb64(doc["body"]), try unb64(doc["sig"], size: 64))
+    }
+
+    static func documentBody(_ raw: Data) throws -> [String: JSONValue] {
         guard case .object(let body)? = try? JSONValue.parse(raw) else { throw CloudError("not a byobot cloud file") }
         return body
     }
 
+    /// An epoch file signed with `keeperSign`, or with a new key that `keeperSign` handed over to; the reader then
+    /// trusts the body's `keeper_key` from this epoch on.
     public static func readEpoch(_ data: Data, keeperSign: String, storeID: String,
                                  epoch: Int) throws -> [String: JSONValue] {
-        var body = try readDocument(data, signPublic: keeperSign)
+        let unverified = try documentBody(try document(data).raw)
+        let pinned = try unb64(.string(keeperSign), size: 32)
+        guard try unb64(unverified["keeper_key"], size: 32) == pinned else {
+            guard case .object(let handover)? = unverified["handover"], let signer = text(unverified, "keeper_key"),
+                  try unb64(handover["from"], size: 32) == pinned else {
+                throw CloudError("signed by another device, with no handover from the keeper")
+            }
+            try verify(keeperSign, handoverDomain, Data("\(storeID)\n\(epoch)\n\(signer)".utf8),
+                       try unb64(handover["sig"], size: 64))
+            return try checkEpoch(try readDocument(data, signPublic: signer), storeID, epoch)
+        }
+        return try checkEpoch(try readDocument(data, signPublic: keeperSign), storeID, epoch)
+    }
+
+    static func checkEpoch(_ read: [String: JSONValue], _ storeID: String, _ epoch: Int) throws -> [String: JSONValue] {
+        var body = read
         try matches(body, storeID, epoch)
         guard case .array(let devices)? = body["devices"], int(body["checkpoint"]) != nil,
-              text(body, "keeper") != nil else {
+              text(body, "keeper_device_id") != nil else {
             throw CloudError("not a byobot epoch")
         }
         body["devices"] = .array(try devices.map { .object(try checkDevice($0)) })
+        _ = try checkCapabilities(body["capabilities"])
         return body
     }
 
@@ -218,7 +246,7 @@ public enum Cloud {
         let body = try readDocument(data, signPublic: keeperSign)
         try matches(body, storeID, epoch)
         let device = try checkDevice(body["device"])
-        guard device["id"] == .string(deviceID), device["box"] == .string(me.boxPublic) else {
+        guard device["device_id"] == .string(deviceID), device["box"] == .string(me.boxPublic) else {
             throw CloudError("sealed to another device")
         }
         guard case .object(let sealed)? = body["sealed"] else { throw CloudError("not a valid key or ciphertext") }
@@ -246,13 +274,14 @@ public enum Cloud {
 
     /// A device's public keys, plain. A relay's carries its join proof.
     public static func deviceFile(storeID: String, id: String, deviceClass: String, identity: CloudIdentity,
-                                  proof: String? = nil) throws -> Data {
+                                  proof: String? = nil, capabilities: [String] = Capabilities.app) throws -> Data {
         var body: [String: JSONValue] = try checkDevice(.object([
-            "id": .string(id), "class": .string(deviceClass), "box": .string(identity.boxPublic),
+            "device_id": .string(id), "device_class": .string(deviceClass), "box": .string(identity.boxPublic),
             "sign": .string(identity.signPublic),
         ]))
         body["format"] = .number(Double(format))
         body["store_id"] = .string(storeID)
+        body["capabilities"] = try checkCapabilities(.array(capabilities.map { .string($0) }))
         if let proof { body["proof"] = .string(proof) }
         return try dumps(.object(body))
     }
@@ -264,7 +293,8 @@ public enum Cloud {
         }
         guard text(body, "store_id") == storeID else { throw CloudError("from another store") }
         var device = try checkDevice(.object(body))
-        guard device["id"] == .string(deviceID) else { throw CloudError("moved or renamed") }
+        guard device["device_id"] == .string(deviceID) else { throw CloudError("moved or renamed") }
+        device["capabilities"] = try checkCapabilities(body["capabilities"])
         if let proof = text(body, "proof") { device["proof"] = .string(proof) }
         return device
     }
@@ -279,13 +309,27 @@ public enum Cloud {
     // MARK: helpers
 
     static func checkDevice(_ value: JSONValue?) throws -> [String: JSONValue] {
-        guard case .object(let device)? = value, let id = text(device, "id"), isID(id), id != "recovery",
-              let cls = text(device, "class"), ["keeper", "relay"].contains(cls) else {
+        guard case .object(let device)? = value, let id = text(device, "device_id"), isID(id), id != "recovery",
+              let cls = text(device, "device_class"), ["keeper", "relay"].contains(cls) else {
             throw CloudError("not a byobot device")
         }
         _ = try unb64(device["box"], size: 32)
         _ = try unb64(device["sign"], size: 32)
-        return ["id": .string(id), "class": .string(cls), "box": device["box"]!, "sign": device["sign"]!]
+        return ["device_id": .string(id), "device_class": .string(cls), "box": device["box"]!, "sign": device["sign"]!]
+    }
+
+    /// What a device supports beyond this format, by name; names it doesn't know a reader ignores.
+    static func checkCapabilities(_ value: JSONValue?) throws -> JSONValue {
+        func isName(_ value: JSONValue) -> Bool {
+            guard case .string(let name) = value else { return false }
+            let bytes = Array(name.utf8)
+            return (1...64).contains(bytes.count)
+                && bytes.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7A).contains($0) || $0 == 0x5F }
+        }
+        guard case .array(let names)? = value, names.count <= 64, names.allSatisfy(isName) else {
+            throw CloudError("not a byobot capability list")
+        }
+        return .array(names)
     }
 
     static func matches(_ body: [String: JSONValue], _ storeID: String, _ epoch: Int) throws {
@@ -357,6 +401,9 @@ public enum Cloud {
         return Int(n)
     }
 
+    /// The header field that numbers a file: a writer's seq, or a checkpoint's part.
+    static func counter(_ kind: String) -> String { kind == "checkpoint" ? "part" : "seq" }
+
     static func pad(_ n: Int, _ width: Int) -> String {
         let s = String(n)
         return String(repeating: "0", count: max(0, width - s.count)) + s
@@ -376,35 +423,19 @@ public enum Cloud {
         return bytes.dropFirst().allSatisfy { ok($0) || [0x2E, 0x5F, 0x3A, 0x2D].contains($0) }
     }
 
-    // MARK: gzip
+    // MARK: compression
 
-    static func gzip(_ data: Data) throws -> Data {
-        let deflated = try stream(Array(data), operation: COMPRESSION_STREAM_ENCODE).output
-        var out = Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF])
-        out += deflated
-        out += le32(crc32(Array(data))) + le32(UInt32(truncatingIfNeeded: data.count))
-        return out
+    /// Raw DEFLATE: the AEAD and the signature already cover the body, so it carries no checksum of its own.
+    static func deflate(_ data: Data) throws -> Data {
+        try stream(Array(data), operation: COMPRESSION_STREAM_ENCODE).output
     }
 
-    static func gunzip(_ data: Data) throws -> Data {
-        let b = [UInt8](data)
-        let unreadable = CloudError("not a readable segment body")
-        guard b.count >= 18, b[0] == 0x1F, b[1] == 0x8B, b[2] == 8 else { throw unreadable }
-        let flags = b[3]
-        var i = 10
-        if flags & 4 != 0 { i += 2 + (Int(b[i]) | Int(b[i + 1]) << 8) }
-        for flag in [UInt8(8), 16] where flags & flag != 0 {
-            while i < b.count, b[i] != 0 { i += 1 }
-            i += 1
-        }
-        if flags & 2 != 0 { i += 2 }
-        guard i + 8 <= b.count else { throw unreadable }
-        let (output, left) = try stream(Array(b[i..<(b.count - 8)]), operation: COMPRESSION_STREAM_DECODE)
-        guard left == 0 else { throw CloudError("cut short, or too large") }
-        let tail = b.count - 8
-        let crc = UInt32(b[tail]) | UInt32(b[tail + 1]) << 8 | UInt32(b[tail + 2]) << 16 | UInt32(b[tail + 3]) << 24
-        let size = UInt32(b[tail + 4]) | UInt32(b[tail + 5]) << 8 | UInt32(b[tail + 6]) << 16 | UInt32(b[tail + 7]) << 24
-        guard crc32(Array(output)) == crc, UInt32(truncatingIfNeeded: output.count) == size else { throw unreadable }
+    static func inflate(_ data: Data) throws -> Data {
+        let bytes = Array(data)
+        let (output, left) = try stream(bytes, operation: COMPRESSION_STREAM_DECODE)
+        // The decoder can swallow bytes after the stream's end, so one that also ends a byte sooner has extra bytes.
+        let endsSooner = (try? stream(Array(bytes.dropLast()), operation: COMPRESSION_STREAM_DECODE)) != nil
+        guard left == 0, !endsSooner else { throw CloudError("cut short, or too large") }
         return output
     }
 
@@ -441,21 +472,5 @@ public enum Cloud {
                 }
             }
         }
-    }
-
-    static let crcTable: [UInt32] = (0..<256).map { i -> UInt32 in
-        var c = UInt32(i)
-        for _ in 0..<8 { c = c & 1 != 0 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
-        return c
-    }
-
-    static func crc32(_ bytes: [UInt8]) -> UInt32 {
-        var c: UInt32 = 0xFFFF_FFFF
-        for b in bytes { c = crcTable[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8) }
-        return c ^ 0xFFFF_FFFF
-    }
-
-    static func le32(_ n: UInt32) -> Data {
-        Data([UInt8(n & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n >> 16 & 0xFF), UInt8(n >> 24 & 0xFF)])
     }
 }

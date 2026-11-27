@@ -50,10 +50,10 @@ final class CloudTests: XCTestCase {
         }
         let signer = testCase.string("signer") ?? keeper.string("sign") ?? ""
         if path.hasPrefix("epochs/") {
-            let epoch = Int(path.dropFirst(7).prefix(4)) ?? -1
+            let epoch = CloudRelay.epochNumber(path) ?? -1
             return .object(try Cloud.readEpoch(data, keeperSign: signer, storeID: store, epoch: epoch))
         }
-        let epoch = Int(path.dropFirst(5).prefix(4)) ?? -1
+        let epoch = Int(path.split(separator: "/")[1]) ?? -1
         if path.hasSuffix("recovery.key") {
             return .object(try Cloud.openRecovery(data, recoveryKey: bytes(v.inputs.string("recovery_key")),
                                                   storeID: store, epoch: epoch))
@@ -68,7 +68,7 @@ final class CloudTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(v.valid.count, 7)
         for c in v.valid {
             let name = c.string("name") ?? "?"
-            XCTAssertEqual(try openFile(v, c.string("path") ?? "", bytes(c.string("data"))), c["expect"], name)
+            XCTAssertEqual(try openFile(v, c.string("path") ?? "", bytes(c.string("data")), c), c["expect"], name)
         }
     }
 
@@ -98,8 +98,16 @@ final class CloudTests: XCTestCase {
         let relay = try relayIdentity(v), id = v.who("relay").string("id") ?? ""
         let proof = Cloud.joinProof(secret: bytes(v.inputs.string("join_secret")), storeID: v.store, deviceID: id,
                                     identity: relay)
-        let file = try Cloud.deviceFile(storeID: v.store, id: id, deviceClass: "relay", identity: relay, proof: proof)
-        let wanted = v.valid.first { $0.string("name") == "relay device file" }?.string("data")
+        let vector = v.valid.first { $0.string("name") == "relay device file" }
+        guard case .object(let expect)? = vector?["expect"], case .array(let names)? = expect["capabilities"] else {
+            return XCTFail("bad fixture")
+        }
+        let file = try Cloud.deviceFile(storeID: v.store, id: id, deviceClass: "relay", identity: relay, proof: proof,
+                                        capabilities: names.compactMap { name -> String? in
+                                            if case .string(let s) = name { return s }
+                                            return nil
+                                        })
+        let wanted = vector?.string("data")
         XCTAssertEqual(file.base64EncodedString(), wanted)
     }
 
@@ -113,7 +121,7 @@ final class CloudTests: XCTestCase {
         let data = try Cloud.writeSegment(kind: "segment", storeID: store, deviceID: "dev-1", epoch: 3, seq: 42,
                                           messages: messages, key: key, signer: me)
         let path = Cloud.segmentPath(kind: "segment", epoch: 3, seq: 42, deviceID: "dev-1")
-        XCTAssertEqual(path, "segments/dev-1/0003-0000000042.seg")
+        XCTAssertEqual(path, "segments/dev-1/0000000003-0000000042.seg")
         let found = try Cloud.readSegment(data, path: path, storeID: store, key: key, signPublic: me.signPublic)
         XCTAssertEqual(found.messages.map { JSONValue.object($0) }, messages)
         XCTAssertEqual(Cloud.parseName(path), SegmentName(kind: "segment", epoch: 3, seq: 42, deviceID: "dev-1"))
@@ -135,10 +143,11 @@ final class CloudTests: XCTestCase {
         XCTAssertEqual(found.messages.map { JSONValue.object($0) }, [plan])
     }
 
-    func testGzipRoundTripsAndRefusesOneCutShort() throws {
-        let text = Data(String(repeating: "{\"end\":{\"lines\":0}}\n", count: 500).utf8)
-        let packed = try Cloud.gzip(text)
-        XCTAssertEqual(try Cloud.gunzip(packed), text)
-        XCTAssertThrowsError(try Cloud.gunzip(packed.dropLast(20)))
+    func testDeflateRoundTripsAndRefusesOneCutShort() throws {
+        let text = Data(String(repeating: "{\"events\":{\"events\":[]}}\n", count: 500).utf8)
+        let packed = try Cloud.deflate(text)
+        XCTAssertEqual(try Cloud.inflate(packed), text)
+        XCTAssertThrowsError(try Cloud.inflate(packed.dropLast(20)))
+        XCTAssertThrowsError(try Cloud.inflate(packed + Data("more".utf8)))
     }
 }

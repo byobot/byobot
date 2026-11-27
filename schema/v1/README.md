@@ -55,7 +55,7 @@ Each delivered event gets one outcome:
 - `rejected`: a malformed envelope, a payload that breaks its kind's schema, or a rule below. Never for arrival order: an event whose `prev`, `reverts` or links name something not yet here is accepted.
 - `accepted`: anything else.
 
-A writer stamps a `put` with the kind version it writes. Sync servers and apps exchange the kind versions they know (`kinds` in `hello` and pushes), plan entries say the version their payload needs, and a server rejects a pushed `put` on top of a version the app doesn't know, so an older app never drops fields it can't see.
+A writer stamps a `put` with the kind version it writes. Sync servers and apps exchange the kind versions they know (`kind_versions` in `hello`, pushes and the plan), plan entries say the version their payload needs, and a server rejects a pushed `put` on top of a version the app doesn't know, so an older app never drops fields it can't see.
 
 Codes are open too. A code, unit or category value this replica's registry doesn't list is kept as written and not converted. Commands refuse them when writing; writers use registry codes or their own `x.` ones.
 

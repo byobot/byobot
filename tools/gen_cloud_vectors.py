@@ -22,7 +22,8 @@ sys.path.insert(0, str(ROOT / "python" / "src"))
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey  # noqa: E402
 
 from byobot.cloud import files, segment  # noqa: E402
-from byobot.cloud.crypto import Identity, b64, join_proof, recovery_key  # noqa: E402
+from byobot.cloud.crypto import (Identity, b64, join_proof, recovery_code, recovery_key,  # noqa: E402
+                                 sign_document)
 
 OUT = ROOT / "schema" / "fixtures" / "v1" / "cloud.json"
 STORE = "0193a0b0-0000-7000-8000-00000000c001"
@@ -40,11 +41,11 @@ def identity(label: str) -> Identity:
 
 
 def build() -> dict:
-    keeper, relay = identity("keeper"), identity("relay")
-    keeper_dev = {"id": KEEPER, "class": "keeper", **keeper.public()}
-    relay_dev = {"id": RELAY, "class": "relay", **relay.public()}
+    keeper, relay, rotated = identity("keeper"), identity("relay"), identity("rotated keeper")
+    keeper_dev = {"device_id": KEEPER, "device_class": "keeper", **keeper.public()}
+    relay_dev = {"device_id": RELAY, "device_class": "relay", **relay.public()}
     epoch_key, other_key, secret = fixed("epoch key"), fixed("other epoch key"), fixed("join secret", 16)
-    code = "-".join(base64.b32encode(fixed("recovery code", 20)).decode()[i:i + 4] for i in range(0, 32, 4))
+    code = recovery_code(fixed("recovery code", 20))
     rkey = recovery_key(code, STORE)
     event = {"id": "0193a0b0-0000-7000-8000-00000000e001", "schema_version": 1,
              "record": {"kind": "effort", "id": "0193a0b0-0000-7000-8000-00000000f001"}, "op": "put",
@@ -59,33 +60,47 @@ def build() -> dict:
             "settings": [], "plans": [], "planned_sessions": [], "overlays": [], "sessions": [], "efforts": [],
             "store_id": STORE, "hlc": "1795131000000-000001", "removed": [], "erased": [],
             "kind_versions": {"effort": 1}, "received": {RELAY: "1795131000000-000000"}, "rejected": []}
-    relay_messages = [{"events": {"events": [event], "kinds": {"effort": 1}}}, {"samples": samples}]
+    relay_messages = [{"events": {"events": [event], "kind_versions": {"effort": 1}}}, {"samples": samples}]
     seg_path = segment.name("segment", 1, 1, RELAY)
     seg = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))
     plan_path = segment.name("plan", 1, 2)
-    plan_messages = [{"plan": plan}, {"receipts": {RELAY: {"read": [1], "refused": [
+    plan_messages = [{"plan": plan}, {"receipts": {RELAY: {"read": [1], "rejected": [
         {"seq": 1, "line": 1, "reason": "a phone sends only apple_health samples"}]}}}]
     plan_seg = segment.write("plan", STORE, KEEPER, 1, 2, plan_messages, epoch_key, keeper, fixed("nonce 2", 12))
     cp_path = segment.name("checkpoint", 1, 0)
     cp = segment.write("checkpoint", STORE, KEEPER, 1, 0, [{"events": {"events": [event]}}], epoch_key, keeper,
                        fixed("nonce 3", 12))
-    recovery_content = {"epoch_key": b64(epoch_key), "store_key": fixed("store key").hex(), "device_id": KEEPER,
-                        "keeper": keeper.private()}
+    recovery_content = {"epoch_key": b64(epoch_key), "store_key": fixed("store key").hex(),
+                        "keeper_device_id": KEEPER, "keeper_private": keeper.private()}
 
     def tampered(data: bytes, old: bytes, new: bytes) -> bytes:
         assert data.count(old) == 1
         return data.replace(old, new)
 
+    rotated_dev = {"device_id": KEEPER, "device_class": "keeper", **rotated.public()}
+    handover = files.epoch_file(rotated, STORE, 2, KEEPER, [rotated_dev, relay_dev], 1, previous=keeper)
+    replayed = files.epoch_file(rotated, STORE, 3, KEEPER, [rotated_dev, relay_dev], 1)
+    replayed = json.loads(base64.b64decode(json.loads(replayed)["body"]))
+    replayed["handover"] = json.loads(base64.b64decode(json.loads(handover)["body"]))["handover"]
+    replayed = sign_document(rotated, replayed)
     newer = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))
     newer = tampered(newer, b'"format":1', b'"format":2')
     valid = [
         {"name": "relay device file", "path": files.device_path(RELAY), "def": "device_file",
          "data": files.device_file(STORE, relay_dev, join_proof(secret, STORE, RELAY, relay.public())),
-         "expect": {**relay_dev, "proof": join_proof(secret, STORE, RELAY, relay.public())}},
+         "expect": {**relay_dev, "capabilities": [], "proof": join_proof(secret, STORE, RELAY, relay.public())}},
         {"name": "epoch file", "path": files.epoch_path(1), "def": "signed",
          "data": files.epoch_file(keeper, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1),
-         "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper": KEEPER,
-                    "devices": [keeper_dev, relay_dev], "checkpoint": 1}},
+         "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper_device_id": KEEPER,
+                    "keeper_key": keeper.public()["sign"], "devices": [keeper_dev, relay_dev], "checkpoint": 1,
+                    "capabilities": []}},
+        {"name": "epoch file handed over to a new keeper key", "path": files.epoch_path(2), "def": "signed",
+         "data": handover, "expect": json.loads(base64.b64decode(json.loads(handover)["body"]))},
+        {"name": "epoch key sealed to the relay by the new keeper key", "path": files.key_path(2, RELAY),
+         "def": "signed", "signer": rotated.public()["sign"],
+         "data": files.key_file(rotated, STORE, 2, relay_dev, fixed("second epoch key"),
+                                X25519PrivateKey.from_private_bytes(fixed("second ephemeral"))),
+         "expect": {"epoch_key": b64(fixed("second epoch key"))}},
         {"name": "epoch key sealed to the relay", "path": files.key_path(1, RELAY), "def": "signed",
          "data": files.key_file(keeper, STORE, 1, relay_dev, epoch_key,
                                 X25519PrivateKey.from_private_bytes(fixed("ephemeral"))),
@@ -117,16 +132,20 @@ def build() -> dict:
         {"name": "newer format", "path": seg_path, "data": newer, "error": "upgrade byobot"},
         {"name": "epoch file signed by a relay", "path": files.epoch_path(1),
          "data": files.epoch_file(relay, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1), "error": "signed"},
+        {"name": "epoch file handed over by a relay", "path": files.epoch_path(2),
+         "data": files.epoch_file(rotated, STORE, 2, KEEPER, [rotated_dev, relay_dev], 1, previous=relay),
+         "error": "no handover"},
+        {"name": "handover from another epoch", "path": files.epoch_path(3), "data": replayed, "error": "signed"},
         {"name": "recovery key opened with another code", "path": files.recovery_path(1),
-         "data": files.recovery_file(recovery_key("A" * 32, STORE), STORE, 1, recovery_content,
-                                     fixed("nonce 4", 12)), "error": "recovery code"},
+         "data": files.recovery_file(recovery_key(recovery_code(fixed("another code", 20)), STORE), STORE, 1,
+                                     recovery_content, fixed("nonce 4", 12)), "error": "recovery code"},
     ]
     for case in valid + invalid:
         case["data"] = b64(case["data"])
     return {
         "description": "Conformance files for cloud.schema.json, made from fixed keys. Every implementation opens "
                        "the valid ones to `expect` and refuses the invalid ones with an error containing `error`. "
-                       "An invalid case's own `store_id`, `key` or `signer` replaces the inputs'.",
+                       "A case's own `store_id`, `key` or `signer` replaces the inputs'.",
         "schema_version": 1,
         "inputs": {"store_id": STORE, "keeper": {"id": KEEPER, "private": keeper.private(), **keeper.public()},
                    "relay": {"id": RELAY, "private": relay.private(), **relay.public()}, "epoch_key": b64(epoch_key),

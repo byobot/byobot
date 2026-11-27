@@ -6,18 +6,32 @@ All names are numbers or random ids, never names of people or devices.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from .crypto import (FORMAT, CloudError, Identity, decrypt, dumps, encrypt, peek_document, read_document, seal,
-                     sign_document, unb64, unseal)
+from .crypto import (FORMAT, CloudError, Identity, b64, decrypt, dumps, encrypt, peek_document, read_document, seal,
+                     sign_document, unb64, unseal, verify)
 from .segment import ID, MAX_EPOCH
 
 CLASSES = ("keeper", "relay")
 RECOVERY = "recovery"
+HANDOVER_DOMAIN = b"byobot-cloud handover 1\n"
+EPOCH_FILE = re.compile(r"epochs/([0-9]{10})\.json")
 
 
 def epoch_path(epoch: int) -> str:
-    return f"epochs/{epoch:04d}.json"
+    return f"epochs/{epoch:010d}.json"
+
+
+def epoch_number(path: str) -> int | None:
+    """The epoch an epoch file is of, or None for any other path."""
+    found = EPOCH_FILE.fullmatch(path)
+    return int(found[1]) if found else None
+
+
+def epoch_dir(epoch: int) -> str:
+    """The digits that name an epoch in paths."""
+    return f"{epoch:010d}"
 
 
 def device_path(device_id: str) -> str:
@@ -25,11 +39,11 @@ def device_path(device_id: str) -> str:
 
 
 def key_path(epoch: int, device_id: str) -> str:
-    return f"keys/{epoch:04d}/{device_id}.key"
+    return f"keys/{epoch:010d}/{device_id}.key"
 
 
 def recovery_path(epoch: int) -> str:
-    return f"keys/{epoch:04d}/{RECOVERY}.key"
+    return f"keys/{epoch:010d}/{RECOVERY}.key"
 
 
 def _key_context(store_id: str, epoch: int, device_id: str) -> bytes:
@@ -40,13 +54,26 @@ def _recovery_context(store_id: str, epoch: int) -> bytes:
     return f"byobot-cloud recovery 1\n{store_id}\n{epoch}".encode()
 
 
+DEVICE = ("device_id", "device_class", "box", "sign")
+CAPABILITY = re.compile(r"[a-z0-9_]{1,64}")
+
+
+def _capabilities(value: Any) -> list[str]:
+    """What a device supports beyond this format, by name; names it doesn't know a reader ignores."""
+    if not isinstance(value, list) or len(value) > 64 \
+            or not all(isinstance(c, str) and CAPABILITY.fullmatch(c) for c in value):
+        raise CloudError("not a byobot capability list")
+    return value
+
+
 def _check_device(device: Any) -> dict:
-    if not isinstance(device, dict) or not isinstance(device.get("id"), str) or not ID.fullmatch(device["id"]) \
-            or device["id"] == RECOVERY or device.get("class") not in CLASSES:
+    if not isinstance(device, dict) or not isinstance(device.get("device_id"), str) \
+            or not ID.fullmatch(device["device_id"]) or device["device_id"] == RECOVERY \
+            or device.get("device_class") not in CLASSES:
         raise CloudError("not a byobot device")
     unb64(device.get("box"), 32)
     unb64(device.get("sign"), 32)
-    return {k: device[k] for k in ("id", "class", "box", "sign")}
+    return {k: device[k] for k in DEVICE}
 
 
 def _matches(body: dict, store_id: str, epoch: int) -> None:
@@ -60,10 +87,10 @@ def _matches(body: dict, store_id: str, epoch: int) -> None:
 
 # -- devices -------------------------------------------------------------------
 
-def device_file(store_id: str, device: dict, proof: str | None = None) -> bytes:
-    """A device's public keys, plain. A relay's carries its join proof."""
+def device_file(store_id: str, device: dict, proof: str | None = None, capabilities: list[str] = ()) -> bytes:
+    """A device's public keys and capabilities, plain. A relay's carries its join proof."""
     return dumps({"format": FORMAT, "store_id": store_id, **_check_device(device),
-                  **({"proof": proof} if proof else {})})
+                  "capabilities": _capabilities(list(capabilities)), **({"proof": proof} if proof else {})})
 
 
 def read_device(data: bytes, store_id: str, device_id: str) -> dict:
@@ -76,21 +103,33 @@ def read_device(data: bytes, store_id: str, device_id: str) -> dict:
     if body.get("store_id") != store_id:
         raise CloudError("from another store")
     device = _check_device(body)
-    if device["id"] != device_id:
+    if device["device_id"] != device_id:
         raise CloudError("moved or renamed")
-    return {**device, **({"proof": body["proof"]} if isinstance(body.get("proof"), str) else {})}
+    return {**device, "capabilities": _capabilities(body.get("capabilities")),
+            **({"proof": body["proof"]} if isinstance(body.get("proof"), str) else {})}
 
 
 # -- epochs --------------------------------------------------------------------
 
-def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_id: str, devices: list[dict],
-               checkpoint: int, closed: bool = False) -> bytes:
-    """The keeper's signed record of an epoch: the devices that hold its key, and its checkpoint's parts."""
+def _handover(store_id: str, epoch: int, keeper_key: str) -> bytes:
+    return f"{store_id}\n{epoch}\n{keeper_key}".encode()
+
+
+def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_device_id: str, devices: list[dict],
+               checkpoint: int, capabilities: list[str] = (), previous: Identity | None = None,
+               closed: bool = False) -> bytes:
+    """The keeper's signed record of an epoch: the devices that hold its key, its checkpoint's parts, and what the
+    keeper supports beyond this format. With ``previous``, the keeper's earlier identity hands trust to this one."""
     if not 0 <= epoch <= MAX_EPOCH:
         raise ValueError("epoch out of range")
-    return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch, "keeper": keeper_id,
-                                  "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
-                                  **({"closed": True} if closed else {})})
+    key = keeper.public()["sign"]
+    body = {"format": FORMAT, "store_id": store_id, "epoch": epoch, "keeper_device_id": keeper_device_id,
+            "keeper_key": key, "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
+            "capabilities": _capabilities(list(capabilities)), **({"closed": True} if closed else {})}
+    if previous is not None and previous.public()["sign"] != key:
+        body["handover"] = {"from": previous.public()["sign"],
+                            "sig": b64(previous.signature(HANDOVER_DOMAIN, _handover(store_id, epoch, key)))}
+    return sign_document(keeper, body)
 
 
 def is_closed(data: bytes | None) -> bool:
@@ -103,12 +142,22 @@ def is_closed(data: bytes | None) -> bool:
 
 
 def read_epoch(data: bytes, keeper_sign: str, store_id: str, epoch: int) -> dict:
-    body = read_document(data, keeper_sign)
+    """An epoch file signed with ``keeper_sign``, or with a new key that ``keeper_sign`` handed over to; the reader
+    then trusts the body's ``keeper_key`` from this epoch on."""
+    unverified = peek_document(data)
+    signer = unverified.get("keeper_key")
+    if unb64(signer, 32) != unb64(keeper_sign, 32):
+        handover = unverified.get("handover")
+        if not isinstance(handover, dict) or unb64(handover.get("from"), 32) != unb64(keeper_sign, 32):
+            raise CloudError("signed by another device, with no handover from the keeper")
+        verify(keeper_sign, HANDOVER_DOMAIN, _handover(store_id, epoch, signer), unb64(handover.get("sig"), 64))
+    body = read_document(data, signer)
     _matches(body, store_id, epoch)
     if not isinstance(body.get("devices"), list) or not isinstance(body.get("checkpoint"), int) \
-            or not isinstance(body.get("keeper"), str):
+            or not isinstance(body.get("keeper_device_id"), str):
         raise CloudError("not a byobot epoch")
     body["devices"] = [_check_device(d) for d in body["devices"]]
+    _capabilities(body.get("capabilities"))
     return body
 
 
@@ -118,7 +167,7 @@ def key_file(keeper: Identity, store_id: str, epoch: int, device: dict, epoch_ke
              ephemeral: Any = None) -> bytes:
     """An epoch key sealed to one device and signed by the keeper, which also vouches for the device's keys."""
     device = _check_device(device)
-    sealed = seal(epoch_key, device["box"], _key_context(store_id, epoch, device["id"]), ephemeral)
+    sealed = seal(epoch_key, device["box"], _key_context(store_id, epoch, device["device_id"]), ephemeral)
     return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch, "device": device,
                                   "sealed": sealed})
 
@@ -134,7 +183,7 @@ def open_key(data: bytes, me: Identity, device_id: str, keeper_sign: str, store_
     body = read_document(data, keeper_sign)
     _matches(body, store_id, epoch)
     device = _check_device(body.get("device"))
-    if device["id"] != device_id or device["box"] != me.public()["box"]:
+    if device["device_id"] != device_id or device["box"] != me.public()["box"]:
         raise CloudError("sealed to another device")
     key = unseal(me, body.get("sealed") or {}, _key_context(store_id, epoch, device_id))
     if len(key) != 32:

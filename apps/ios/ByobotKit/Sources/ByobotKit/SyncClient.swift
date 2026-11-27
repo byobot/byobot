@@ -1,4 +1,4 @@
-// Talking to `byobot serve` over HTTPS on the local network, trusting only the pinned certificate.
+// Talking to `byobot serve` over HTTPS on the local network, trusting only the pinned key.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -66,7 +66,7 @@ public final class SyncClient: @unchecked Sendable {
         session.invalidateAndCancel()
     }
 
-    /// The certificate fingerprint the last connection presented (for showing when pairing by hand).
+    /// The key fingerprint the last connection presented (for showing when pairing by hand).
     public var seenFingerprint: String? { pinner.seen }
 
     // MARK: Endpoints
@@ -76,7 +76,8 @@ public final class SyncClient: @unchecked Sendable {
     }
 
     public func pair(code: String, deviceId: String, name: String) async throws -> PairResponse {
-        try await call("POST", "/v1/pair", body: PairRequest(code: code, deviceId: deviceId, name: name))
+        try await call("POST", "/v1/pair", body: PairRequest(code: code, deviceId: deviceId, name: name,
+                                                              capabilities: Capabilities.app))
     }
 
     public func status() async throws -> SyncStatus {
@@ -92,7 +93,7 @@ public final class SyncClient: @unchecked Sendable {
     }
 
     public func push(events: [Event]) async throws -> EventsResponse {
-        try await call("POST", "/v1/events", body: EventsRequest(events: events, kinds: KindVersion.all))
+        try await call("POST", "/v1/events", body: EventsRequest(events: events, kindVersions: KindVersion.all))
     }
 
     public func push(samples: [Sample], deleted: [Deletion] = []) async throws -> SamplesResponse {
@@ -205,9 +206,8 @@ final class Pinner: NSObject, URLSessionDelegate, @unchecked Sendable {
             completionHandler(.performDefaultHandling, nil)
             return
         }
-        let der = SecCertificateCopyData(leaf) as Data
-        let fingerprint = Self.fingerprint(der)
-        let ok = pin == nil || pin == fingerprint
+        let fingerprint = Self.fingerprint(leaf)
+        let ok = fingerprint != nil && (pin == nil || pin == fingerprint)
         lock.lock()
         _seen = fingerprint
         _mismatched = !ok
@@ -219,7 +219,12 @@ final class Pinner: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
     }
 
-    static func fingerprint(_ der: Data) -> String {
-        SHA256.hash(data: der).hex
+    /// Lowercase hex SHA-256 of the certificate's public key as SubjectPublicKeyInfo DER, or nil for a key that isn't
+    /// P-256 (the only kind `byobot serve` makes).
+    static func fingerprint(_ certificate: SecCertificate) -> String? {
+        guard let key = SecCertificateCopyKey(certificate),
+              let x963 = SecKeyCopyExternalRepresentation(key, nil) as Data?,
+              let p256 = try? P256.Signing.PublicKey(x963Representation: x963) else { return nil }
+        return SHA256.hash(data: p256.derRepresentation).hex
     }
 }

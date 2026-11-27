@@ -24,26 +24,28 @@ public protocol CloudFolder: Sendable {
     func delete(_ path: String) async throws
 }
 
-/// What a `byobot://cloud-join` code holds.
+/// What a `byobot://pair` link holds for joining a Drive store.
 public struct CloudJoin: Equatable, Sendable {
     public let storeID: String
+    /// The one-time secret, standard base64.
     public let secret: String
-    public let keeper: String
+    /// The keeper's signing key, standard base64.
+    public let keeperKey: String
     /// The Google client id the phone signs in with.
     public let client: String?
 
+    /// Reads the Drive fields of a `byobot://pair` link.
     public init(link: String) throws {
-        guard let parts = URLComponents(string: link), parts.scheme == "byobot", parts.host == "cloud-join" else {
-            throw CloudError("that isn't a byobot cloud join code")
-        }
         var query: [String: String] = [:]
-        for item in parts.queryItems ?? [] where query[item.name] == nil { query[item.name] = item.value }
-        guard let store = query["store"], let secret = query["secret"], let keeper = query["keeper"] else {
-            throw CloudError("that isn't a byobot cloud join code")
+        for item in (try? PairingLink.items(link)) ?? [] where query[item.name] == nil { query[item.name] = item.value }
+        guard let store = query["store_id"], !store.isEmpty, query["provider"] == "google",
+              let secret = query["secret"].flatMap(PairingLink.data(fromBase64URL:)),
+              let keeper = query["keeper_key"].flatMap(PairingLink.data(fromBase64URL:)), keeper.count == 32 else {
+            throw CloudError("that isn't a byobot cloud join code this version understands")
         }
         storeID = store
-        self.secret = secret
-        self.keeper = keeper
+        self.secret = secret.base64EncodedString()
+        keeperKey = keeper.base64EncodedString()
         client = query["client"].flatMap { $0.isEmpty ? nil : $0 }
     }
 }
@@ -74,21 +76,21 @@ public struct SampleBatch: Codable, Equatable, Sendable {
     var size: Int { samples.count + deleted.count }
 }
 
-public struct RefusedBatch: Codable, Equatable, Sendable {
+public struct RejectedBatch: Codable, Equatable, Sendable {
     public var reason: String
     public var samples: SampleBatch
 }
 
 /// The keeper's word on one relay's segments in this epoch.
 struct Receipt: Codable, Equatable, Sendable {
-    struct Refused: Codable, Equatable, Sendable {
+    struct Rejected: Codable, Equatable, Sendable {
         var seq: Int
         var line: Int
         var reason: String
     }
 
     var read: [Int]
-    var refused: [Refused]?
+    var rejected: [Rejected]?
 }
 
 /// One unread segment: the events and sample batches (by line) it carried.
@@ -108,18 +110,17 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var version = CloudRelay.currentVersion
     public let storeID: String
     public let deviceID: String
-    public let keeperSign: String
+    /// The keeper key this relay trusts. An epoch file's handover moves it to the keeper's new key.
+    public private(set) var keeperSign: String
     public private(set) var epoch: Int?
     /// The epoch's key. It is kept in the keychain, not with the rest: see `epochKey`.
     var key: Data?
     var seq = 0
-    /// Every event it was given and the keeper hasn't read yet.
-    public private(set) var events: [String: Event] = [:]
     /// Sample batches not yet in a segment.
     public private(set) var samples: [SampleBatch] = []
     var sent: [String: Carried] = [:]
-    /// Sample batches the keeper refused, with why.
-    public private(set) var refused: [RefusedBatch] = []
+    /// Sample batches the keeper rejected, with why.
+    public private(set) var rejected: [RejectedBatch] = []
     /// Deletions an older app held back; they go on the next sync.
     public private(set) var held: [Deletion] = []
     /// Events the keeper read since they were last taken.
@@ -130,7 +131,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var removed = false
 
     enum CodingKeys: String, CodingKey {
-        case version, epoch, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
+        case version, epoch, seq, samples, sent, rejected, held, delivered, plan, receipts, removed
         case storeID = "store_id"
         case deviceID = "device_id"
         case keeperSign = "keeper_sign"
@@ -168,12 +169,12 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                             identity: CloudIdentity) async throws -> CloudRelay {
         let code = try CloudJoin(link: link)
         guard let secret = Data(base64Encoded: code.secret) else { throw CloudError("that isn't a byobot cloud join code") }
-        let relay = CloudRelay(storeID: code.storeID, deviceID: deviceID, keeperSign: code.keeper)
+        let relay = CloudRelay(storeID: code.storeID, deviceID: deviceID, keeperSign: code.keeperKey)
         let proof = Cloud.joinProof(secret: secret, storeID: code.storeID, deviceID: deviceID, identity: identity)
         var signed = false
         for path in try await folder.list().keys.filter({ Self.epochNumber($0) != nil }).sorted(by: >) {
             if let n = Self.epochNumber(path), let data = try await folder.read(path),
-               (try? Cloud.readEpoch(data, keeperSign: code.keeper, storeID: code.storeID, epoch: n)) != nil {
+               (try? Cloud.readEpoch(data, keeperSign: code.keeperKey, storeID: code.storeID, epoch: n)) != nil {
                 signed = true
                 break
             }
@@ -205,10 +206,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             sent[path].map { c in c.samples.keys.sorted().compactMap { c.samples[$0] } } ?? []
         }
         return SampleBatch(samples: batches.flatMap(\.samples), deleted: batches.flatMap(\.deleted) + held)
-    }
-
-    public mutating func log(_ events: [Event]) {
-        for event in events { self.events[event.id] = event }
     }
 
     /// The events the keeper read since this was last asked.
@@ -265,11 +262,12 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     // MARK: sync
 
-    /// Takes a newer epoch's key, reads the plan, then sends what the keeper doesn't hold. `save` is called before
-    /// each segment is written, so a relay that dies mid-write never reuses its seq.
-    public mutating func sync(_ folder: some CloudFolder, identity: CloudIdentity,
+    /// Takes a newer epoch's key, reads the plan, then sends what the keeper doesn't hold of `pending`, the
+    /// logbook's events still waiting. `save` is called before each segment is written, so a relay that dies
+    /// mid-write never reuses its seq.
+    public mutating func sync(_ folder: some CloudFolder, identity: CloudIdentity, pending: [Event] = [],
                               save: (CloudRelay) async throws -> Void = { _ in }) async throws -> Report {
-        guard !removed else { return Report(epoch: epoch, written: 0, pending: events.count, removed: true) }
+        guard !removed else { return report(0, pending) }
         let listing = try await folder.list()
         let moved = try await adopt(folder, listing, identity)
         if removed {  // no keeper reads what it left in the folder now
@@ -277,28 +275,41 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 try? await folder.delete(path)
             }
         }
-        guard !removed, key != nil else {
-            return Report(epoch: epoch, written: 0, pending: events.count, removed: removed)
-        }
+        guard !removed, key != nil else { return report(0, pending) }
         try await readPlan(folder, listing)
-        if let plan { applyPlan(plan) }
         settle(listing)
         release()
-        let written = try await send(folder, identity, force: moved, save: save)
-        return Report(epoch: epoch, written: written, pending: events.count, removed: false)
+        let written = try await send(folder, identity, pending, force: moved, save: save)
+        return report(written, pending)
+    }
+
+    func report(_ written: Int, _ pending: [Event]) -> Report {
+        let done = Set(delivered)
+        return Report(epoch: epoch, written: written, pending: pending.filter { !done.contains($0.id) }.count,
+                      removed: removed)
+    }
+
+    /// The epoch files newer than this relay's, oldest first, each checked against the keeper key the one before
+    /// it trusts: a handover moves that trust to the keeper's new key.
+    func follow(_ folder: some CloudFolder, _ listing: [String: String]) async throws -> [Int: [String: JSONValue]] {
+        var bodies: [Int: [String: JSONValue]] = [:]
+        var trusted = keeperSign
+        for n in listing.keys.compactMap(Self.epochNumber).sorted() {
+            if let epoch, n < epoch || (n == epoch && key != nil) { continue }
+            let data = try await folder.read(Cloud.epochPath(n)) ?? Data()
+            guard let body = try? Cloud.readEpoch(data, keeperSign: trusted, storeID: storeID, epoch: n),
+                  let signer = Cloud.text(body, "keeper_key") else { continue }
+            bodies[n] = body
+            trusted = signer
+        }
+        return bodies
     }
 
     mutating func adopt(_ folder: some CloudFolder, _ listing: [String: String], _ me: CloudIdentity) async throws -> Bool {
         let epochs = listing.keys.compactMap(Self.epochNumber).sorted(by: >)
-        for n in epochs {
-            if let epoch, n < epoch || (n == epoch && key != nil) { break }
-            let body: [String: JSONValue]
-            do {
-                body = try Cloud.readEpoch(try await folder.read(Cloud.epochPath(n)) ?? Data(), keeperSign: keeperSign,
-                                           storeID: storeID, epoch: n)
-            } catch is CloudError {
-                continue
-            }
+        let bodies = try await follow(folder, listing)
+        for n in bodies.keys.sorted(by: >) {
+            guard let body = bodies[n], let signer = Cloud.text(body, "keeper_key") else { continue }
             guard let keyData = try await folder.read(Cloud.keyPath(n, deviceID)) else {
                 if epoch != nil, !Self.lists(body, deviceID) {
                     removed = true
@@ -306,7 +317,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 }
                 return false
             }
-            guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: keeperSign,
+            guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: signer,
                                                   storeID: storeID, epoch: n) else { continue }
             let moved = epoch != nil && epoch != n
             if epoch != n {
@@ -316,6 +327,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             }
             epoch = n
             key = opened
+            keeperSign = signer
             return moved
         }
         if epoch == nil {  // admitted mid-epoch: no epoch file lists it yet, its key file does
@@ -333,7 +345,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     mutating func readPlan(_ folder: some CloudFolder, _ listing: [String: String]) async throws {
         guard let epoch, let key else { return }
-        let prefix = "plan/\(String(format: "%04d", epoch))-"
+        let prefix = "plan/\(Cloud.pad(epoch, Cloud.digitCount))-"
         for path in listing.keys.filter({ $0.hasPrefix(prefix) }).sorted(by: >) {
             if let planPath, path <= planPath { return }  // never step back to an older plan
             guard let data = try await folder.read(path),
@@ -351,25 +363,19 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         }
     }
 
-    mutating func applyPlan(_ plan: PlanWindow) {
-        let erased = Set(plan.erased.map { RecordRef(kind: $0.kind, id: $0.id) })
-        guard !erased.isEmpty else { return }
-        events = events.filter { !erased.contains($0.value.record) }
-    }
-
     /// Drops what a read segment carried; queues again the samples of one that left the folder unread.
     mutating func settle(_ listing: [String: String]) {
         let mine = receipts[deviceID]
         let read = Set(mine?.read ?? [])
         var why: [String: String] = [:]
-        for r in mine?.refused ?? [] { why["\(r.seq)/\(r.line)"] = r.reason }
+        for r in mine?.rejected ?? [] { why["\(r.seq)/\(r.line)"] = r.reason }
         for path in sent.keys.sorted() {
             guard let carried = sent[path], let seq = Cloud.parseName(path)?.seq else { continue }
             if read.contains(seq) {
-                for id in carried.events where events.removeValue(forKey: id) != nil { delivered.append(id) }
+                delivered.append(contentsOf: carried.events)
                 for line in carried.samples.keys.sorted() {
                     if let reason = why["\(seq)/\(line)"], let batch = carried.samples[line] {
-                        refused.append(RefusedBatch(reason: reason, samples: batch))
+                        rejected.append(RejectedBatch(reason: reason, samples: batch))
                     }
                 }
                 sent[path] = nil
@@ -380,17 +386,17 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         }
     }
 
-    mutating func send(_ folder: some CloudFolder, _ me: CloudIdentity, force: Bool,
+    mutating func send(_ folder: some CloudFolder, _ me: CloudIdentity, _ pending: [Event], force: Bool,
                        save: (CloudRelay) async throws -> Void) async throws -> Int {
         guard let epoch, let key else { return 0 }
-        let inFolder = Set(sent.values.flatMap(\.events))
-        var todo = events.values.filter { !inFolder.contains($0.id) }.sorted { ($0.hlc, $0.id) < ($1.hlc, $1.id) }
+        let skip = Set(sent.values.flatMap(\.events)).union(delivered)
+        var todo = pending.filter { !skip.contains($0.id) }.sorted { ($0.hlc, $0.id) < ($1.hlc, $1.id) }
         var force = force, written = 0, skips = 0
         while !todo.isEmpty || !samples.isEmpty || force {
             let batch = Array(todo.prefix(Self.maxBatch))
             var messages: [JSONValue] = []
             if !batch.isEmpty {
-                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
+                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kindVersions: KindVersion.all))]))
             }
             var room = Self.maxBatch - batch.count
             var batches: [SampleBatch] = []
@@ -421,7 +427,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 continue
             } catch {
                 sent[path] = nil
-                samples.insert(contentsOf: batches, at: 0)  // its events are still in `events`; its samples go back in line
+                samples.insert(contentsOf: batches, at: 0)  // its events are still pending; its samples go back in line
                 throw error
             }
             todo.removeFirst(batch.count)
@@ -435,15 +441,15 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     // MARK: helpers
 
     static func epochNumber(_ path: String) -> Int? {
-        guard path.hasPrefix("epochs/"), path.hasSuffix(".json"), path.count == 16 else { return nil }
-        let digits = path.dropFirst(7).prefix(4)
-        guard digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber) else { return nil }
-        return Int(digits)
+        guard path.hasPrefix("epochs/"), path.hasSuffix(".json") else { return nil }
+        return Cloud.digits(String(path.dropFirst("epochs/".count).dropLast(".json".count)), Cloud.digitCount)
     }
 
     static func lists(_ epoch: [String: JSONValue], _ deviceID: String) -> Bool {
         guard case .array(let devices)? = epoch["devices"] else { return false }
-        return devices.contains { if case .object(let d) = $0 { return d["id"] == .string(deviceID) } else { return false } }
+        return devices.contains {
+            if case .object(let d) = $0 { return d["device_id"] == .string(deviceID) } else { return false }
+        }
     }
 
 }

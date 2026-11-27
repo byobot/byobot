@@ -11,18 +11,22 @@ final class CloudRelayTests: XCTestCase {
         var seq = 1
 
         var link: String {
-            func q(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s }
-            return "byobot://cloud-join?store=\(store)&secret=\(q(joinSecret))&keeper=\(q(identity.signPublic))"
+            func url(_ s: String) -> String {
+                s.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "")
+            }
+            return "byobot://pair?v=1&store_id=\(store)&secret=\(url(joinSecret))&keeper_key=\(url(identity.signPublic))"
+                + "&provider=google"
         }
 
-        /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it refused.
-        mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], refused: [(Int, Int, String)] = [],
+        /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it rejected.
+        mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], rejected: [(Int, Int, String)] = [],
                               erased: [ErasedRecord] = [], plan: JSONValue? = nil) async throws {
             seq += 1
             let window = PlanWindow(from: "2026-11-01", to: "2026-12-31", erased: erased)
             var mine: [String: JSONValue] = ["read": .array(read.map { .number(Double($0)) })]
-            if !refused.isEmpty {
-                mine["refused"] = .array(refused.map {
+            if !rejected.isEmpty {
+                mine["rejected"] = .array(rejected.map {
                     .object(["seq": .number(Double($0.0)), "line": .number(Double($0.1)), "reason": .string($0.2)])
                 })
             }
@@ -147,20 +151,22 @@ final class CloudRelayTests: XCTestCase {
     }
 
     func testAJoinCodeIsReadWithOrWithoutItsGoogleClient() throws {
-        let code = try CloudJoin(link: "byobot://cloud-join?store=s&secret=a%2Bb%3D&keeper=k&client=ios.apps.example")
-        XCTAssertEqual(code.secret, "a+b=")
+        let link = "byobot://pair?v=1&store_id=s&secret=-_8&keeper_key=\(String(repeating: "A", count: 43))&provider=google"
+        let code = try CloudJoin(link: link + "&client=ios.apps.example")
+        XCTAssertEqual(code.secret, "+/8=")
+        XCTAssertEqual(code.keeperKey, Data(count: 32).base64EncodedString())
         XCTAssertEqual(code.client, "ios.apps.example")
-        XCTAssertNil(try CloudJoin(link: "byobot://cloud-join?store=s&secret=x&keeper=k").client)
-        XCTAssertThrowsError(try CloudJoin(link: "https://cloud-join?store=s&secret=x&keeper=k"))
-        XCTAssertThrowsError(try CloudJoin(link: "byobot://cloud-join?store=s&keeper=k"))
+        XCTAssertNil(try CloudJoin(link: link).client)
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "byobot://", with: "https://")))
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "provider=google", with: "provider=other")))
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "v=1", with: "v=2")))
     }
 
     func testARelayWithoutAKeyYetWritesNothing() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
         await folder.put(Cloud.epochPath(1), k.epochFile)
         var relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
-        relay.log([event(1)])
-        let report = try await relay.sync(folder, identity: k.relay)
+        let report = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         XCTAssertNil(report.epoch)
         XCTAssertEqual(report.written, 0)
         XCTAssertFalse(relay.joined)
@@ -172,19 +178,20 @@ final class CloudRelayTests: XCTestCase {
         var k = try keeper()
         let folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(2), event(1)])
-        var report = try await relay.sync(folder, identity: k.relay)
+        let pending = [event(2), event(1)]
+        var report = try await relay.sync(folder, identity: k.relay, pending: pending)
         XCTAssertEqual(report.written, 1)
         guard case .object(let body)? = try await segment(k, folder, 1)?.first?["events"],
               case .array(let events)? = body["events"] else { return XCTFail("no events message") }
         XCTAssertEqual(try events.map { try Payloads.decode(Event.self, $0).id }, [event(1).id, event(2).id])
-        XCTAssertNotNil(body["kinds"])
-        report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertNotNil(body["kind_versions"])
+        report = try await relay.sync(folder, identity: k.relay, pending: pending)
         XCTAssertEqual(report.written, 0)  // still unread, not sent again
         var delivered = relay.takeDelivered()
         XCTAssertEqual(delivered, [])
         try await k.publish(folder, read: [1])
-        report = try await relay.sync(folder, identity: k.relay)
+        report = try await relay.sync(folder, identity: k.relay, pending: pending)
+        XCTAssertEqual(report.written, 0)
         XCTAssertEqual(report.pending, 0)
         delivered = relay.takeDelivered()
         XCTAssertEqual(delivered, [event(1).id, event(2).id])
@@ -192,16 +199,13 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(delivered, [])
     }
 
-    func testEventsOfAnErasedRecordAreNotSent() async throws {
-        var k = try keeper()
-        let folder = MemoryCloudFolder()
+    func testTheRelayKeepsNoEventsOfItsOwn() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(1)])
-        try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: event(1).record.id)])
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
+        await folder.delete(Cloud.segmentPath(kind: "segment", epoch: 1, seq: 1, deviceID: k.relayID))
         let report = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(report.written, 0)
-        XCTAssertEqual(report.pending, 0)
-        XCTAssertNotNil(relay.plan)
+        XCTAssertEqual(report.written, 0, "an event the logbook no longer has waiting isn't sent again")
     }
 
     func testANewerPlanReplacesTheOneBeforeIt() async throws {
@@ -221,10 +225,9 @@ final class CloudRelayTests: XCTestCase {
         var relay = try await joined(k, folder)
         try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: "x")])
         _ = try await relay.sync(folder, identity: k.relay)
-        relay.log([event(1)])
-        _ = try await relay.sync(folder, identity: k.relay)
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         try await k.publish(folder, read: [1], plan: .object(["from": .number(1)]))
-        let report = try await relay.sync(folder, identity: k.relay)
+        let report = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         XCTAssertEqual(report.pending, 0)
         XCTAssertEqual(relay.takeDelivered(), [event(1).id])
         XCTAssertEqual(relay.plan?.erased.map(\.id), ["x"], "the last plan it could read stays")
@@ -289,9 +292,9 @@ final class CloudRelayTests: XCTestCase {
         var relay = try await joined(k, folder)
         relay.send(SampleBatch(samples: [weighed("W1")]))
         _ = try await relay.sync(folder, identity: k.relay)
-        try await k.publish(folder, read: [1], refused: [(1, 0, "not a reading byobot knows")])
+        try await k.publish(folder, read: [1], rejected: [(1, 0, "not a reading byobot knows")])
         _ = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(relay.refused.map(\.reason), ["not a reading byobot knows"])
+        XCTAssertEqual(relay.rejected.map(\.reason), ["not a reading byobot knows"])
         XCTAssertEqual(relay.unread, [])
     }
 
@@ -330,14 +333,13 @@ final class CloudRelayTests: XCTestCase {
     func testAFailedUploadKeepsItsSamplesForTheNextSync() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(1)])
         relay.send(SampleBatch(samples: [weighed("W1")]))
         do {
-            _ = try await relay.sync(Failing(folder, failures: 1), identity: k.relay)
+            _ = try await relay.sync(Failing(folder, failures: 1), identity: k.relay, pending: [event(1)])
             XCTFail("the upload failed")
         } catch is URLError {}
         XCTAssertEqual(relay.unread, ["W1"])
-        _ = try await relay.sync(folder, identity: k.relay)
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         let sent = try await segment(k, folder, 2)
         XCTAssertEqual(try sourceIds(sent, "samples"), ["W1"])
         XCTAssertNotNil(sent?.first?["events"])
@@ -379,6 +381,28 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertNotNil(object["keeper_sign"])
         XCTAssertNil(object["key"])
         XCTAssertNil(object["storeID"])
+    }
+
+    func testARelayFollowsAHandoverToTheKeepersNewKeyAndNoOther() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        var relay = try await joined(k, folder)
+        let path = "schema/fixtures/v1/cloud.json"
+        let valid = try Fixtures.cases(path, key: "valid"), invalid = try Fixtures.cases(path, key: "invalid")
+        func file(_ cases: [[String: JSONValue]], _ name: String) -> [String: JSONValue] {
+            cases.first { $0.string("name") == name } ?? [:]
+        }
+        func data(_ c: [String: JSONValue]) -> Data { Data(base64Encoded: c.string("data") ?? "") ?? Data() }
+        let sealed = file(valid, "epoch key sealed to the relay by the new keeper key")
+        await folder.put(Cloud.keyPath(2, k.relayID), data(sealed))
+        await folder.put(Cloud.epochPath(2), data(file(invalid, "epoch file handed over by a relay")))
+        var report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.epoch, 1)
+        XCTAssertEqual(relay.keeperSign, k.identity.signPublic)
+        await folder.put(Cloud.epochPath(2), data(file(valid, "epoch file handed over to a new keeper key")))
+        report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.epoch, 2)
+        XCTAssertEqual(relay.keeperSign, sealed.string("signer"))
+        XCTAssertNotEqual(relay.keeperSign, k.identity.signPublic)
     }
 
     func testAKeyForAnotherEpochIsNotRestored() async throws {

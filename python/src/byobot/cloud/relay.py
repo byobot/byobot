@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 from ..core.relay import MAX_BATCH
+from ..link import parse_pairing_link
 from ..util import ByobotError
 from . import files, segment
 from .crypto import CloudError, Identity, join_proof, unb64
@@ -18,12 +18,14 @@ from .folder import Exists, Folder
 
 
 def parse_join(link: str) -> dict:
-    """The store, one-time secret and keeper's signing key in a ``byobot://cloud-join`` link."""
-    parts = urlsplit(link)
-    query = {k: v[0] for k, v in parse_qs(parts.query).items()}
-    if parts.scheme != "byobot" or parts.netloc != "cloud-join" or not {"store", "secret", "keeper"} <= set(query):
-        raise ByobotError("that isn't a byobot cloud join code")
-    return {"store_id": query["store"], "secret": query["secret"], "keeper": query["keeper"]}
+    """The store, one-time secret and keeper's signing key in a ``byobot://pair`` link."""
+    try:
+        found = parse_pairing_link(link)
+    except (ValueError, KeyError) as exc:
+        raise ByobotError(f"that isn't a byobot join code this version understands ({exc})") from None
+    if "store_id" not in found:
+        raise ByobotError("that link pairs with a laptop; it holds no Drive join code")
+    return {k: found[k] for k in ("store_id", "secret", "keeper_key")}
 
 
 @dataclass
@@ -39,24 +41,24 @@ class Relay:
     events: dict[str, dict] = field(default_factory=dict)  # every event it wrote and the keeper hasn't read yet
     samples: list[dict] = field(default_factory=list)  # sample batches not yet in a segment
     sent: dict[str, dict] = field(default_factory=dict)  # unread segments -> {"events": ids, "samples": {line: batch}}
-    refused: list[dict] = field(default_factory=list)  # sample batches the keeper refused, with why
+    rejected: list[dict] = field(default_factory=list)  # sample batches the keeper rejected, with why
     plan: dict | None = None
     receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
-    kinds: dict = field(default_factory=dict)
+    kind_versions: dict = field(default_factory=dict)
     removed: bool = False
 
     @classmethod
     def join(cls, folder: Folder, link: str, device_id: str, **kw: Any) -> Relay:
         code = parse_join(link)
-        relay = cls(folder, code["store_id"], device_id, code["keeper"], **kw)
+        relay = cls(folder, code["store_id"], device_id, code["keeper_key"], **kw)
         public = relay.identity.public()
         proof = join_proof(unb64(code["secret"]), relay.store_id, device_id, public)
         if not relay._keeper_here(folder.list()):
             raise ByobotError("this Google account doesn't hold that Mac's logbook; sign in with the account the Mac "
                               "uses")
         path = files.device_path(device_id)
-        data = files.device_file(relay.store_id, {"id": device_id, "class": "relay", **public}, proof)
+        data = files.device_file(relay.store_id, {"device_id": device_id, "device_class": "relay", **public}, proof)
         try:
             folder.create(path, data)
         except Exists:  # left by a join the keeper never finished; a device with a key is already in
@@ -70,7 +72,7 @@ class Relay:
         """Whether this folder holds an epoch file the code's keeper signed."""
         for p in sorted((p for p in listing if is_epoch_file(p)), reverse=True):
             try:
-                files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, int(p[7:11]))
+                files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, files.epoch_number(p))
                 return True
             except CloudError:
                 continue
@@ -133,27 +135,36 @@ class Relay:
         written = self._send(listing, force=moved)
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
-    def _adopt(self, listing: dict[str, str]) -> bool:
-        epochs = sorted((int(p[7:11]) for p in listing if is_epoch_file(p)), reverse=True)
-        for n in epochs:
+    def _follow(self, listing: dict[str, str]) -> dict[int, dict]:
+        """The epoch files newer than this relay's, oldest first, each checked against the keeper key the one
+        before it trusts: a handover moves that trust to the keeper's new key."""
+        bodies, trusted = {}, self.keeper_sign
+        for n in sorted(files.epoch_number(p) for p in listing if is_epoch_file(p)):
             if self.epoch is not None and n <= self.epoch:
-                break
-            data = self.folder.read(files.epoch_path(n))
+                continue
             try:
-                body = files.read_epoch(data or b"", self.keeper_sign, self.store_id, n)
+                bodies[n] = files.read_epoch(self.folder.read(files.epoch_path(n)) or b"", trusted, self.store_id, n)
             except CloudError:
                 continue
+            trusted = bodies[n]["keeper_key"]
+        return bodies
+
+    def _adopt(self, listing: dict[str, str]) -> bool:
+        epochs = sorted((files.epoch_number(p) for p in listing if is_epoch_file(p)), reverse=True)
+        bodies = self._follow(listing)
+        for n in sorted(bodies, reverse=True):
+            body = bodies[n]
             key_data = self.folder.read(files.key_path(n, self.device_id))
             if key_data is None:
-                if self.epoch is not None and all(d["id"] != self.device_id for d in body["devices"]):
+                if self.epoch is not None and all(d["device_id"] != self.device_id for d in body["devices"]):
                     self.removed, self.key = True, None
                 return False
             try:
-                key = files.open_key(key_data, self.identity, self.device_id, self.keeper_sign, self.store_id, n)
+                key = files.open_key(key_data, self.identity, self.device_id, body["keeper_key"], self.store_id, n)
             except CloudError:
                 continue
             first = self.epoch is None
-            self.epoch, self.key = n, key
+            self.epoch, self.key, self.keeper_sign = n, key, body["keeper_key"]
             self.plan = self.plan_path = None
             self.receipts = {}
             return not first
@@ -172,7 +183,7 @@ class Relay:
         return False
 
     def _read_plan(self, listing: dict[str, str]) -> None:
-        plans = sorted((p for p in listing if p.startswith(f"plan/{self.epoch:04d}-")), reverse=True)
+        plans = sorted((p for p in listing if p.startswith(f"plan/{files.epoch_dir(self.epoch)}-")), reverse=True)
         for path in plans:
             if self.plan_path is not None and path <= self.plan_path:
                 return  # never step back to an older plan
@@ -198,14 +209,14 @@ class Relay:
         """Drop what a read segment carried; queue again the samples of one that left the folder unread."""
         mine = self.receipts.get(self.device_id) or {}
         read = set(mine.get("read", []))
-        refused = {(r["seq"], r["line"]): r["reason"] for r in mine.get("refused", [])}
+        rejected = {(r["seq"], r["line"]): r["reason"] for r in mine.get("rejected", [])}
         for path, carried in list(self.sent.items()):
             seq = segment.parse_name(path)["seq"]
             if seq in read:
                 for eid in carried["events"]:
                     self.events.pop(eid, None)
-                self.refused += [{"reason": refused[(seq, line)], "samples": batch}
-                                 for line, batch in carried["samples"].items() if (seq, line) in refused]
+                self.rejected += [{"reason": rejected[(seq, line)], "samples": batch}
+                                  for line, batch in carried["samples"].items() if (seq, line) in rejected]
                 del self.sent[path]
             elif path not in listing:
                 self.samples[:0] = list(carried["samples"].values())
@@ -219,7 +230,7 @@ class Relay:
         written = 0
         while todo or self.samples or force:
             batch, todo = todo[:MAX_BATCH], todo[MAX_BATCH:]
-            messages = [{"events": {"events": batch, **({"kinds": self.kinds} if self.kinds else {})}}] \
+            messages = [{"events": {"events": batch, **({"kind_versions": self.kind_versions} if self.kind_versions else {})}}] \
                 if batch else []
             room = MAX_BATCH - len(batch)
             batches = []
@@ -244,4 +255,4 @@ class Relay:
 
 
 def is_epoch_file(path: str) -> bool:
-    return path.startswith("epochs/") and path.endswith(".json") and path[7:11].isdigit() and len(path) == 16
+    return files.epoch_number(path) is not None

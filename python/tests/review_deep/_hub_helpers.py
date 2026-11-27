@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import http.client
 import json
 import socket
@@ -47,7 +46,7 @@ class Client:
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=timeout)
         try:
             conn.connect()
-            assert hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest() == self.fp
+            assert serve.fingerprint(conn.sock.getpeercert(binary_form=True)) == self.fp
             headers = {"Content-Type": "application/json"}
             tok = token if token is not None else self.token
             if tok:

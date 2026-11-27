@@ -81,7 +81,7 @@ def test_a_close_an_older_byobot_began_still_finishes(store):
     n = keeper.epoch + 1
     with store._tx():
         keeper._set("closing", n)
-    me = [{"id": keeper.device_id, "class": "keeper", **keeper.identity.public()}]
+    me = [{"device_id": keeper.device_id, "device_class": "keeper", **keeper.identity.public()}]
     folder.create(files.epoch_path(n), files.epoch_file(keeper.identity, store.store_id, n, keeper.device_id, me, 0))
     keeper.forget()
     assert list(folder.list()) == [files.epoch_path(n)] and keeper.epoch == n

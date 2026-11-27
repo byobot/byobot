@@ -235,7 +235,7 @@ def test_a_keeper_killed_mid_epoch_finishes_it_on_its_next_run(fake, tmp_path, s
     assert epoch >= 2 and relay.epoch == epoch
     assert mac.run(lambda s, k: k.status()["cleanup_waits_on"]) == []
     folder = folder_on(fake, tmp_path, store.store_id, who="check")
-    assert all(int(p.split("/")[1][:4]) == epoch for p in folder.list() if p.startswith(("epochs/", "keys/")))
+    assert all(int(p.split("/")[1][:10]) == epoch for p in folder.list() if p.startswith(("epochs/", "keys/")))
     assert mac.run(lambda s, k: opened(folder, k, old)) == []
     assert not any(SECRET in text for text in mac.run(lambda s, k: opened(folder, k, k.key(epoch))))
 
@@ -252,7 +252,8 @@ def test_a_keeper_killed_mid_cleanup_finishes_it_on_its_next_run(fake, tmp_path,
     mac = Mac(fake, tmp_path, store.path)
     settled(fake, mac, relay)
     folder = folder_on(fake, tmp_path, store.store_id, who="check")
-    assert not any(p.startswith(("epochs/0001", "keys/0001/", "checkpoints/0001/")) for p in folder.list())
+    assert not any(p.startswith(("epochs/0000000001", "keys/0000000001/", "checkpoints/0000000001/"))
+                   for p in folder.list())
 
 
 def test_a_phone_upload_that_fails_keeps_its_samples_for_the_next_sync(fake, tmp_path, store):
@@ -312,7 +313,7 @@ def test_a_listing_behind_another_process_starts_no_extra_epoch(fake, tmp_path, 
     assert "reseeded" not in b.sync() and b.epoch == 2
 
 
-@pytest.mark.parametrize("name", ["devices/a b.json", "keys/0001/x y.key"])
+@pytest.mark.parametrize("name", ["devices/a b.json", "keys/0000000001/x y.key"])
 def test_a_file_byobot_never_writes_is_left_alone(fake, tmp_path, store, name):
     keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id), Clock())
     keeper.join_code()
@@ -330,10 +331,10 @@ def test_a_planted_seq_doesnt_use_up_the_keepers(store):
 
     folder = MemoryFolder()
     keeper = Keeper.setup(store, folder, Clock())
-    folder.files["plan/0001-9999999999.seg"] = b"anything"
+    folder.files["plan/0000000001-9999999999.seg"] = b"anything"
     commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
     keeper.sync()
-    folder.files.pop("plan/0001-9999999999.seg", None)
+    folder.files.pop("plan/0000000001-9999999999.seg", None)
     commands.log(store, ME, [{"kind": "location", "id": "example_pool", "payload": {"name": "y"}}])
     assert keeper.sync()["published"] == 1
 

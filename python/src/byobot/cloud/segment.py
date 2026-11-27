@@ -1,14 +1,13 @@
 """Segment files: a plain header line, the encrypted body, and the writer's signature.
 
-The body is gzip of JSON lines, each one message (``events``, ``samples`` or ``plan``, exactly as the hub's
-``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer, or the keeper's ``receipts``), then
-``{"end": {"lines": n}}``. The header
-is the associated data, so a file can't be renamed, moved or replayed into another store.
+The body is raw DEFLATE of JSON lines, each one message (``events``, ``samples`` or ``plan``, exactly as the
+hub's ``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer, or the keeper's ``receipts``). The AEAD
+and the signature cover the whole body, so it needs no checksum or count of its own. The header is the associated
+data, so a file can't be renamed, moved or replayed into another store.
 """
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
 import re
@@ -24,22 +23,27 @@ DOMAIN = b"byobot-cloud segment 1\n"
 MAX_HEADER = 1024
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEQ = 10**10 - 1
-MAX_EPOCH = 9999
+MAX_EPOCH = 10**10 - 1
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 NAMES = {
-    "segment": re.compile(r"segments/(?P<device_id>[^/]+)/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
-    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{4})/(?P<seq>[0-9]{10})\.seg"),
-    "plan": re.compile(r"plan/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
+    "segment": re.compile(r"segments/(?P<device_id>[^/]+)/(?P<epoch>[0-9]{10})-(?P<seq>[0-9]{10})\.seg"),
+    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{10})/(?P<part>[0-9]{10})\.seg"),
+    "plan": re.compile(r"plan/(?P<epoch>[0-9]{10})-(?P<seq>[0-9]{10})\.seg"),
 }
+
+
+def counter(kind: str) -> str:
+    """The header field that numbers a file: a writer's seq, or a checkpoint's part."""
+    return "part" if kind == "checkpoint" else "seq"
 
 
 def name(kind: str, epoch: int, seq: int, device_id: str | None = None) -> str:
     """Where a segment lives under the store's folder. A checkpoint's seq is its part number."""
     if kind == "segment":
-        return f"segments/{device_id}/{epoch:04d}-{seq:010d}.seg"
+        return f"segments/{device_id}/{epoch:010d}-{seq:010d}.seg"
     if kind == "checkpoint":
-        return f"checkpoints/{epoch:04d}/{seq:010d}.seg"
-    return f"plan/{epoch:04d}-{seq:010d}.seg"
+        return f"checkpoints/{epoch:010d}/{seq:010d}.seg"
+    return f"plan/{epoch:010d}-{seq:010d}.seg"
 
 
 def parse_name(path: str) -> dict | None:
@@ -47,7 +51,7 @@ def parse_name(path: str) -> dict | None:
     for kind, pattern in NAMES.items():
         m = pattern.fullmatch(path)
         if m:
-            found = {"kind": kind, "epoch": int(m["epoch"]), "seq": int(m["seq"])}
+            found = {"kind": kind, "epoch": int(m["epoch"]), counter(kind): int(m[counter(kind)])}
             if "device_id" in m.groupdict():
                 if not ID.fullmatch(m["device_id"]):
                     return None
@@ -62,9 +66,9 @@ def write(kind: str, store_id: str, device_id: str, epoch: int, seq: int, messag
         raise ValueError("not a segment kind, epoch or seq")
     nonce = nonce or os.urandom(12)
     header = dumps({"magic": MAGIC, "format": FORMAT, "kind": kind, "store_id": store_id, "device_id": device_id,
-                    "epoch": epoch, "seq": seq, "nonce": b64(nonce)}) + b"\n"
-    lines = [*messages, {"end": {"lines": len(messages)}}]
-    body = gzip.compress(b"".join(dumps(m) + b"\n" for m in lines), mtime=0)
+                    "epoch": epoch, counter(kind): seq, "nonce": b64(nonce)}) + b"\n"
+    packer = zlib.compressobj(wbits=-15)
+    body = packer.compress(b"".join(dumps(m) + b"\n" for m in messages)) + packer.flush()
     ciphertext = unb64(encrypt(key, body, header, nonce)["ciphertext"])
     return header + ciphertext + signer.signature(DOMAIN, header + ciphertext)
 
@@ -81,7 +85,8 @@ def header(data: bytes) -> dict:
     if found.get("format") != FORMAT:
         raise CloudError("written by a newer byobot; upgrade byobot")
     if found.get("kind") not in KINDS or not all(isinstance(found.get(k), str) for k in ("store_id", "device_id")) \
-            or not all(isinstance(found.get(k), int) and not isinstance(found.get(k), bool) for k in ("epoch", "seq")):
+            or not all(isinstance(found.get(k), int) and not isinstance(found.get(k), bool)
+                       for k in ("epoch", counter(found["kind"]))) or "seq" in found and "part" in found:
         raise CloudError("not a byobot segment")
     return found
 
@@ -107,17 +112,15 @@ def read(data: bytes, *, path: str, store_id: str, key: bytes, sign_public: str,
 
 def _messages(body: bytes, skip_unknown: bool = False) -> list[dict]:
     try:
-        d = zlib.decompressobj(wbits=31)
+        d = zlib.decompressobj(wbits=-15)
         text = d.decompress(body, MAX_BODY)
         if d.unconsumed_tail or d.unused_data or not d.eof:
             raise CloudError("cut short, or too large")
-        lines = [json.loads(line) for line in text.decode().split("\n")[:-1]]
+        if text and not text.endswith(b"\n"):
+            raise CloudError("cut short")
+        messages = [json.loads(line) for line in text.decode().split("\n")[:-1]]
     except (zlib.error, ValueError, UnicodeDecodeError):
         raise CloudError("not a readable segment body") from None
-    if not lines or not isinstance(lines[-1], dict) or set(lines[-1]) != {"end"} \
-            or lines[-1]["end"] != {"lines": len(lines) - 1}:
-        raise CloudError("cut short")
-    messages = lines[:-1]
     if any(not isinstance(m, dict) or len(m) != 1 for m in messages):
         raise CloudError("not a readable segment body")
     if skip_unknown:
