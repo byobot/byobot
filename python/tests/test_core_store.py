@@ -414,8 +414,8 @@ def test_queries_read_and_refuse_writes_the_key_and_token_hashes(tmp_path):
     found = query(tmp_path / "s.db", "SELECT count(*) AS n FROM efforts")
     assert found["rows"] == [{"n": 1}]
     assert query(tmp_path / "s.db", "SELECT actor_kind FROM events")["rows"] == [{"actor_kind": "human"}]
-    assert query(tmp_path / "s.db", "SELECT device_id FROM peers")["rows"] == [{"device_id": "example-phone"}]
-    for sql in ("SELECT * FROM meta", "SELECT token_sha256 FROM peers", "DELETE FROM efforts",
+    assert query(tmp_path / "s.db", "SELECT id FROM devices")["rows"] == [{"id": "example-phone"}]
+    for sql in ("SELECT * FROM meta", "SELECT token_sha256 FROM devices", "DELETE FROM efforts",
                 "PRAGMA user_version", "ATTACH 'x.db' AS x"):
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", sql)
@@ -425,7 +425,7 @@ def test_queries_read_only_documented_tables_and_columns(tmp_path):
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         s.conn.executescript("CREATE TABLE stray (secret TEXT);")
         cloud = [r[0] for r in s.conn.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'cloud_%'")]
-    assert len(cloud) == 6
+    assert len(cloud) == 5
     for table in [*cloud, "stray"]:
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", f"SELECT * FROM {table}")

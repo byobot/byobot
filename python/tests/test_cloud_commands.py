@@ -78,7 +78,7 @@ def test_join_waits_until_the_phone_joins(cloud, fake, tmp_path, monkeypatch):
     def phone_scans(seconds):
         if not any(f"/devices/{PHONE}" in n for n in fake.names()):
             secret = json.loads(store.conn.execute("SELECT value FROM cloud_meta WHERE key = 'join'").fetchone()[0])
-            keeper = store.conn.execute("SELECT sign FROM cloud_devices WHERE class = 'keeper'").fetchone()[0]
+            keeper = store.conn.execute("SELECT sign FROM devices WHERE class = 'keeper'").fetchone()[0]
             link = "byobot://cloud-join?" + urllib.parse.urlencode(
                 {"store": store.store_id, "secret": secret["secret"], "keeper": keeper})
             Relay.join(DriveFolder(store.store_id, Drive(fake), journal=tmp_path / "phone.json"), link, PHONE)

@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from .. import __version__
 from ..core import relay as rules
 from ..core import sources
-from ..core.store import Store
+from ..core.store import Store, stamp
 from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
@@ -30,6 +30,11 @@ PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
 SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
 NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
+# A device in Drive sync is a row of the store's devices with a class; the hub may know it too.
+CLOUD_COLUMNS = "id, class, box, sign, joined_epoch, moved_epoch, last_seq, removed, last_seen_at"
+ENROL = ("INSERT INTO devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT "
+         "(id) DO UPDATE SET class = excluded.class, box = excluded.box, sign = excluded.sign, joined_epoch = "
+         "excluded.joined_epoch, moved_epoch = excluded.moved_epoch, last_seq = NULL, removed = 0")
 
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
@@ -60,9 +65,8 @@ class Keeper:
             meta.append(("recovery_key", b64(recovery_key(code, store.store_id))))
         with store._tx():
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
-            store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES "
-                               "(?, 'keeper', ?, ?, 1, 1)", (store.device_id, identity.public()["box"],
-                                                             identity.public()["sign"]))
+            store.conn.execute(ENROL, (store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
+                                       1, 1))
         keeper = cls(store, folder, clock)
         keeper.start_epoch()
         keeper.recovery_code = code
@@ -122,9 +126,7 @@ class Keeper:
             store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
             store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
                                    [(e, c["epoch_key"]) for e, c in opened.items()])
-            store.conn.executemany(
-                "INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?)",
-                [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
+            store.conn.executemany(ENROL, [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
         outcomes = dict(store.conn.execute("SELECT path, outcome FROM cloud_read"))
@@ -134,9 +136,9 @@ class Keeper:
                       if outcomes.get(p) != "read")
         if lost:  # nothing kept here, so it can run again
             with store._tx():
-                for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown",
-                              "cloud_refused"):
+                for table in ("cloud_meta", "cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                     store.conn.execute(f"DELETE FROM {table}")
+                _leave(store, "class IS NOT NULL")
                 store._set("device_id", mine)
             raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
                               f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
@@ -167,20 +169,20 @@ class Keeper:
 
     def devices(self, removed: bool = False) -> list[dict]:
         return [dict(r) for r in self.store.conn.execute(
-            "SELECT * FROM cloud_devices WHERE removed = ? ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
+            f"SELECT {CLOUD_COLUMNS} FROM devices WHERE class IS NOT NULL AND removed = ? "
+            "ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
 
     def device(self, device_id: str) -> dict | None:
-        row = self.store.conn.execute("SELECT * FROM cloud_devices WHERE id = ?", (device_id,)).fetchone()
+        row = self.store.conn.execute(f"SELECT {CLOUD_COLUMNS} FROM devices WHERE id = ? AND class IS NOT NULL",
+                                      (device_id,)).fetchone()
         return row and dict(row)
 
     def _enrol(self, device: dict, epoch: int) -> None:
-        self.store.conn.execute("INSERT INTO cloud_devices (id, class, box, sign, joined_epoch, moved_epoch) "
-                                "VALUES (?, ?, ?, ?, ?, ?)", (device["id"], device["class"], device["box"],
-                                                              device["sign"], epoch, epoch))
+        self.store.conn.execute(ENROL, (device["id"], device["class"], device["box"], device["sign"], epoch, epoch))
 
     def _rejoin(self, device: dict) -> None:
         """Take back a removed device. Its relay counts seqs from the start again, so its older files go unread."""
-        self.store.conn.execute("UPDATE cloud_devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
+        self.store.conn.execute("UPDATE devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
                                 "last_seq = NULL, removed = 0 WHERE id = ?",
                                 (device["box"], device["sign"], self.epoch, self.epoch, device["id"]))
         like = f"segments/{device['id']}/%"
@@ -450,11 +452,12 @@ class Keeper:
             with self.store._tx():
                 self._set("epoch_pending", "erase")  # it carried a record already erased here
         with self.store._tx():
-            self.store.conn.execute("UPDATE cloud_devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
+            self.store.conn.execute("UPDATE devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
                                     "max(coalesce(last_seq, 0), ?) WHERE id = ?",
                                     (where["epoch"], where["seq"], writer))
             if writer != self.device_id:
-                self._set(f"heard:{writer}", self.clock())
+                self.store.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?",
+                                        (stamp(datetime.fromtimestamp(self.clock()).astimezone()), writer))
         return "read"
 
     def _erased_samples(self, messages: list[dict]) -> bool:
@@ -617,7 +620,7 @@ class Keeper:
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
         with self.store._tx():  # until an epoch without it commits, running this again finishes the removal
-            self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self.store.conn.execute("UPDATE devices SET removed = 1 WHERE id = ?", (device_id,))
             self._set(f"removing:{device_id}", 1)
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
@@ -671,8 +674,8 @@ class Keeper:
         with self.store._tx():
             for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
                 self.store.conn.execute(f"DELETE FROM {table}")
-            self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
-            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
+            _leave(self.store, "class = 'relay'")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key IN ('join', 'last_join', "
                                     "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
                                     "OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
             self._set("epoch", n)
@@ -733,7 +736,7 @@ class Keeper:
         if self._newer():
             out["upgrade"] = "a device writes with a newer byobot; upgrade byobot on this Mac to read it"
         out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
-                           "last_heard": _when(synced if d["class"] == "keeper" else self._get(f"heard:{d['id']}"))}
+                           "last_heard": _when(synced) if d["class"] == "keeper" else d["last_seen_at"]}
                           for d in self.devices()]
         return out
 
@@ -750,6 +753,13 @@ class Keeper:
 
 def _when(stamp: str | None) -> str | None:
     return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
+
+
+def _leave(store: Store, where: str) -> None:
+    """Take devices out of Drive sync; one the hub doesn't know goes altogether."""
+    store.conn.execute("UPDATE devices SET class = NULL, box = NULL, sign = NULL, joined_epoch = NULL, moved_epoch = "
+                       f"NULL, last_seq = NULL, removed = 0 WHERE {where}")
+    store.conn.execute("DELETE FROM devices WHERE class IS NULL AND token_sha256 IS NULL")
 
 
 def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:

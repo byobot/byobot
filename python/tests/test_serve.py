@@ -392,7 +392,7 @@ def test_tokens_are_stored_hashed(server, byobot_home):
     _, info, client, _ = server
     token = _pair(client, info)["token"]
     with db(byobot_home) as s:
-        stored = s.conn.execute("SELECT token_sha256 FROM peers").fetchone()[0]
+        stored = s.conn.execute("SELECT token_sha256 FROM devices").fetchone()[0]
     assert stored == hashlib.sha256(token.encode()).hexdigest() and token not in stored
 
 

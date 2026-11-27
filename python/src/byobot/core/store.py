@@ -64,23 +64,23 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS records_conflict ON records (conflict) WHERE conflict = 1;
 CREATE TABLE IF NOT EXISTS unprojected (event_id TEXT PRIMARY KEY, kind TEXT NOT NULL, record_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL, seen_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS peers (
-  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
-  last_seen_at TEXT, revoked_at TEXT);
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY, name TEXT, last_seen_at TEXT,
+  token_sha256 TEXT UNIQUE, paired_at TEXT, revoked_at TEXT,
+  class TEXT, box TEXT, sign TEXT, joined_epoch INTEGER, moved_epoch INTEGER, last_seq INTEGER,
+  removed INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS rejections (
   device_id TEXT NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (device_id, event_id));
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_devices (
-  id TEXT PRIMARY KEY, class TEXT NOT NULL, box TEXT NOT NULL, sign TEXT NOT NULL, joined_epoch INTEGER NOT NULL,
-  moved_epoch INTEGER NOT NULL, last_seq INTEGER, removed INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
   PRIMARY KEY (path, line));
 """
-PEER_COLUMNS = "device_id, name, paired_at, last_seen_at, revoked_at"
+# One row per device: paired with the hub when it has a token, in Drive sync when it has a class.
+PEER_COLUMNS = "id AS device_id, name, paired_at, last_seen_at, revoked_at"
 
 
 def _local_now() -> datetime:
@@ -614,13 +614,15 @@ class Store:
         at = stamp(self.wall())
         with self._tx():
             self.conn.execute(
-                "INSERT INTO peers VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT (device_id) DO UPDATE SET "
-                "name = excluded.name, token_sha256 = excluded.token_sha256, paired_at = excluded.paired_at, "
-                "last_seen_at = excluded.last_seen_at, revoked_at = NULL", (device_id, name, token_sha256, at, at))
+                "INSERT INTO devices (id, name, token_sha256, paired_at, last_seen_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET name = excluded.name, token_sha256 = excluded.token_sha256, "
+                "paired_at = excluded.paired_at, last_seen_at = excluded.last_seen_at, revoked_at = NULL",
+                (device_id, name, token_sha256, at, at))
         return self.peer(device_id)
 
     def peer(self, device_id: str) -> dict | None:
-        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers WHERE device_id = ?", (device_id,)).fetchone()
+        row = self.conn.execute(f"SELECT {PEER_COLUMNS} FROM devices WHERE id = ? AND token_sha256 IS NOT NULL",
+                                (device_id,)).fetchone()
         return dict(row) if row else None
 
     def peer_for_token(self, token_sha256: Any) -> dict | None:
@@ -628,8 +630,8 @@ class Store:
         in constant time, so the check doesn't stop at the first byte that differs or the first peer that fits."""
         offered = token_sha256 if isinstance(token_sha256, str) else ""
         found = None
-        for device_id, stored in self.conn.execute(
-                "SELECT device_id, token_sha256 FROM peers WHERE revoked_at IS NULL").fetchall():
+        for device_id, stored in self.conn.execute("SELECT id, token_sha256 FROM devices WHERE token_sha256 IS NOT "
+                                                   "NULL AND revoked_at IS NULL").fetchall():
             if len(stored) == len(offered) and secrets.compare_digest(stored, offered):
                 found = device_id
         if found is None:
@@ -637,7 +639,7 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=0")
         try:
             with self._tx():
-                self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+                self.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (stamp(self.wall()), found))
         except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
             pass
         finally:
@@ -645,7 +647,8 @@ class Store:
         return self.peer(found)
 
     def peers(self) -> list[dict]:
-        return [dict(r) for r in self.conn.execute(f"SELECT {PEER_COLUMNS} FROM peers ORDER BY paired_at DESC")]
+        return [dict(r) for r in self.conn.execute(
+            f"SELECT {PEER_COLUMNS} FROM devices WHERE token_sha256 IS NOT NULL ORDER BY paired_at DESC")]
 
     def received(self, device_id: str) -> str | None:
         """The clock reading of the latest event this store holds from a device."""
@@ -677,7 +680,7 @@ class Store:
         if not self.peer(device_id):
             raise NotFound(f"no paired device {device_id}")
         with self._tx():
-            self.conn.execute("UPDATE peers SET revoked_at = coalesce(revoked_at, ?) WHERE device_id = ?",
+            self.conn.execute("UPDATE devices SET revoked_at = coalesce(revoked_at, ?) WHERE id = ?",
                               (stamp(self.wall()), device_id))
             self.conn.execute("DELETE FROM rejections WHERE device_id = ?", (device_id,))
         return self.peer(device_id)
@@ -743,8 +746,8 @@ def ddl() -> str:
 
 _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
 # The store's own key, the paired devices' token hashes and Drive sync's keys and bookkeeping stay out of queries.
-_UNREADABLE = {("meta", None), ("peers", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
-               ("cloud_devices", None), ("cloud_read", None), ("cloud_shown", None), ("cloud_refused", None)}
+_UNREADABLE = {("meta", None), ("devices", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
+               ("cloud_read", None), ("cloud_shown", None), ("cloud_refused", None)}
 
 
 @functools.cache
