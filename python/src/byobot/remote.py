@@ -23,23 +23,23 @@ import secrets
 import shutil
 import subprocess
 import tempfile
-import threading
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from html import escape
 from http import HTTPStatus
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import __version__, mcp, serve, util
+from byobot import __version__, mcp, util, web
 from byobot.cloud.lock import held
 from byobot.cloud.sync import CloudPoller
 from byobot.commands import REGISTRY, Context
-from byobot.serve import Pairing
+from byobot.core.store import limit_time
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
+from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable
 
 READ, FULL = "read", "read write"  # a client with only read may call read-only tools
 SCOPES = ("read", "write")
@@ -350,10 +350,7 @@ STATUS = {"invalid": HTTPStatus.BAD_REQUEST, "forbidden": HTTPStatus.FORBIDDEN, 
 QUERY_TIMEOUT_S = 20
 
 
-class RemoteServer(ThreadingHTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
+class RemoteServer(web.Server):
     def __init__(self, address: tuple[str, int], base: str, db: Path, auth: Auth, pairing: Pairing | None,
                  name: str, log: Callable[[str], None] | None = None):
         self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
@@ -365,20 +362,9 @@ class RemoteServer(ThreadingHTTPServer):
     def resource(self) -> str:
         return self.base + "/mcp"
 
-    def finish_request(self, request: Any, client_address: Any) -> None:
-        request.settimeout(serve.SOCKET_TIMEOUT_S)
-        super().finish_request(request, client_address)
 
-    def handle_error(self, request: Any, client_address: Any) -> None:
-        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
-            return
-        super().handle_error(request, client_address)
-
-
-class Handler(serve.Handler):
-    server: RemoteServer  # type: ignore[assignment]
-
-    # -- plumbing --
+class Handler(web.Handler):
+    server: RemoteServer
 
     def _html(self, status: HTTPStatus, title: str, body: str) -> None:
         page = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
@@ -405,11 +391,11 @@ class Handler(serve.Handler):
         try:
             origin = self.headers.get("Origin")
             if origin is not None and origin.rstrip("/").lower() != self.server.base.lower():  # DNS rebinding
-                raise serve.HTTPError(HTTPStatus.FORBIDDEN, "forbidden", "requests from other sites' pages are refused")
+                raise HTTPError(HTTPStatus.FORBIDDEN, "forbidden", "requests from other sites' pages are refused")
             fn()
         except OAuthError as exc:
             self._oauth_fail(exc)
-        except serve.HTTPError as exc:
+        except HTTPError as exc:
             self._fail(exc)
 
     def do_GET(self) -> None:  # noqa: N802
@@ -433,7 +419,7 @@ class Handler(serve.Handler):
         self._guard(self.mcp_not_allowed if self._route() == "/mcp" else self.not_found)
 
     def not_found(self) -> None:
-        raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"no such endpoint {self._route()}")
+        raise HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"no such endpoint {self._route()}")
 
     # -- metadata --
 
@@ -504,7 +490,7 @@ class Handler(serve.Handler):
                 scope = READ if q.get("read_only") else requested_scope(q.get("scope"))
                 code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"],
                                               bool(q.get("redirect_uri")), scope)
-                self.server.log(serve.printable(f"approved {client['client_name']}"))
+                self.server.log(printable(f"approved {client['client_name']}"))
                 self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
                 return
             message = "That code isn't right." if is_open and tries else ""
@@ -558,7 +544,7 @@ class Handler(serve.Handler):
     # -- MCP --
 
     def _client(self) -> dict:
-        token = self._bearer() or self.headers.get("X-API-Key", "").strip()[:serve.MAX_TOKEN]
+        token = self._bearer() or self.headers.get("X-API-Key", "").strip()[:web.MAX_TOKEN]
         client = self.server.auth.client_for_token(token) if token else None
         if client is None:
             challenge = f'Bearer resource_metadata="{self.server.base}/.well-known/oauth-protected-resource/mcp"'
@@ -577,7 +563,7 @@ class Handler(serve.Handler):
             return
         version = self.headers.get("MCP-Protocol-Version")
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
-            raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
@@ -585,7 +571,7 @@ class Handler(serve.Handler):
         server.ctx = Context(actor={}, path=self.server.db)
         try:
             if not _writes(message):
-                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+                limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
             reply = server.handle(message)
         finally:
             server.close()
@@ -619,21 +605,21 @@ class Handler(serve.Handler):
         if args is None:
             args = {}
         if not isinstance(args, dict):
-            raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
         server.ctx = Context(actor={}, path=self.server.db)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:
             if not _writes(call):
-                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+                limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
             reply = server.handle(call)
         finally:
             server.close()
         if "error" in reply:
             if reply["error"]["code"] == mcp.INVALID_PARAMS:
-                raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", reply["error"]["message"])
-            raise serve.HTTPError(HTTPStatus.INTERNAL_SERVER_ERROR, "error", reply["error"]["message"])
+                raise HTTPError(HTTPStatus.NOT_FOUND, "not_found", reply["error"]["message"])
+            raise HTTPError(HTTPStatus.INTERNAL_SERVER_ERROR, "error", reply["error"]["message"])
         result = reply["result"]
         body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
         failed = isinstance(body, dict) and "error" in body and result["isError"]
@@ -759,7 +745,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
     err.write(f"Point your tunnel's {base} at http://{host}:{server.server_address[1]}.\n")
     err.write(f"\nIn your assistant, add a custom connector with the URL {server.resource}\n")
     if server.pairing:
-        err.write(f"When it asks for a code, enter {server.pairing.code} (good for {serve.PAIRING_TTL_S // 60} minutes).\n")
+        err.write(f"When it asks for a code, enter {server.pairing.code} (good for {PAIRING_TTL_S // 60} minutes).\n")
     else:
         names = ", ".join([c["client_name"] for c in server.auth.clients()]
                           + [f"API key {k['name']}" for k in server.auth.keys()])

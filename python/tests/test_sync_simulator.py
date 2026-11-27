@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from byobot import serve
+from byobot import serve, web
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError
 from byobot.cloud.keeper import Keeper
@@ -130,7 +130,7 @@ class Hub:
             conn.close()
 
     def pair(self, device_id: str) -> str:
-        self.server.pairing = serve.Pairing()
+        self.server.pairing = web.Pairing()
         status, body = self.call("POST", "/v1/pair", {"code": self.server.pairing.code, "device_id": device_id,
                                                        "name": "Example iPhone"})
         assert status == 200, body

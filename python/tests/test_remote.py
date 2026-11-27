@@ -12,7 +12,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
-from byobot import commands, mcp, remote, serve
+from byobot import commands, mcp, remote, web
+from byobot.core import store as store_module
 from byobot.core.store import Store
 from byobot.remote import Auth, OAuthError
 
@@ -298,7 +299,7 @@ def test_a_wrong_code_does_not_approve(running):
     params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
               "code_challenge": challenge, "code_challenge_method": "S256"}
     wrong = "000000" if running.pairing.code != "000000" else "111111"
-    for _ in range(serve.PAIRING_TRIES):
+    for _ in range(web.PAIRING_TRIES):
         resp, _ = request(running, "POST", "/oauth/authorize", {**params, "approval_code": wrong}, FORM)
         assert resp.status == 403 and resp.getheader("Location") is None
     resp, raw = request(running, "POST", "/oauth/authorize", {**params, "approval_code": running.pairing.code}, FORM)
@@ -569,7 +570,7 @@ def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_
     # for them: it waits longer than the deadline, then writes.
     monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0.3)
     # A real import runs far more than the default 10,000 steps between checks; a one-record write here doesn't.
-    monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 100)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 100)
     cmd = commands.REGISTRY["log"]
 
     def slow(ctx, **kw):
