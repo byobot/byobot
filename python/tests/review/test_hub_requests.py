@@ -12,7 +12,7 @@ import pytest
 from byobot import remote, serve
 from byobot.core.store import Store
 
-from test_serve import Client, _pair
+from test_serve import Client, _pair, _tls_client
 
 BASE = "https://example-laptop.example.ts.net"
 
@@ -39,14 +39,6 @@ def remote_server(byobot_home):
     server.server_close()
 
 
-def _tls(port):
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))
-
-
 def _exchange(sock, raw: bytes) -> bytes:
     sock.sendall(raw)
     out = b""
@@ -66,7 +58,7 @@ def test_a_pairing_code_in_other_digits_gets_an_answer_and_spends_a_try(hub):
     # "١٢٣٤٥٦" is 123456 in Arabic-Indic digits: not ASCII, so secrets.compare_digest raises TypeError.
     body = json.dumps({"code": "١٢٣٤٥٦", "device_id": "example-phone",
                        "name": "Example iPhone"}).encode()
-    sock = _tls(info["port"])
+    sock = _tls_client(info["port"], info["fingerprint"])
     reply = _exchange(sock, b"POST /v1/pair HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
                             b"Connection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
     sock.close()
@@ -104,7 +96,7 @@ def test_a_pull_cursor_in_other_digits_is_a_400(hub):
 
 def test_the_log_never_carries_terminal_control_codes_from_a_stranger(hub):
     _, info, _, logs = hub
-    sock = _tls(info["port"])
+    sock = _tls_client(info["port"], info["fingerprint"])
     # ESC ] 0 ; ... BEL sets the terminal's title; other sequences can rewrite what `byobot serve` showed.
     _exchange(sock, b"GET /v1/\x1b]0;pwned\x07\x1b[2J HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     sock.close()
