@@ -77,7 +77,8 @@ class Logbook(RuleBasedStateMachine):
 
     def _no_erased_bytes(self, name: str) -> None:
         gone = self.world.shadows[name].gone
-        marks = [m for record in gone for m in self.marks.get(record, ())]
+        kept = {m for record, ms in self.marks.items() if record not in gone for m in ms}
+        marks = [m for record in gone for m in self.marks.get(record, ()) if m not in kept]
         if marks:
             found = held_bytes(self.world, name)
             assert [m for m in marks if m.encode() in found] == [], name
@@ -242,6 +243,9 @@ class Logbook(RuleBasedStateMachine):
         logs = [c for c in logs if not any(m.startswith(c.writes[0].id + "~") for m in made)]
         if logs:
             change = self.world.newer(logs[pick % len(logs)].id, variant)
+            if variant == "unknown_kind":  # the copy is another record holding the same notes
+                rid = change.writes[0].rid
+                self.marks.setdefault(f"meal/{rid}", set()).update(self.marks.get(f"effort/{rid}", ()))
             self.world.replicas[name].held.discard(change.id)
             outcomes = self.world.deliver(name, [change])
             assert [o for o in outcomes if o[0] == "rejected"] == [], outcomes
