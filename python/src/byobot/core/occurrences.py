@@ -126,19 +126,28 @@ def resolve(conn: sqlite3.Connection, touched: Iterable[tuple[str, str]], spans:
     live = [it for k, i in items if k in ITEMS and (it := _item(conn, k, i, default))]
     tied = {(it["kind"], it["id"]): links(conn, it["kind"], it["id"]) for it in live}
     clusters: list[list[dict]] = []
-    for it in sorted(live, key=lambda x: (x["start"], x["id"])):
-        home = None
-        for c in clusters:
-            keys = {(x["kind"], x["id"]) for x in c}
-            linked = bool(tied[(it["kind"], it["id"])] & keys)
-            both_yours = it["you"] and any(x["you"] for x in c)
-            if linked or (not both_yours and any(_overlap(it, x) for x in c)):
-                home = c
-                break
-        if home is None:
-            clusters.append([it])
-        else:
-            home.append(it)
+    ordered = sorted(live, key=lambda x: (x["start"], x["id"]))
+    keys = {(it["kind"], it["id"]) for it in live}
+    # Links first, so a linked item joins the record it was tied to, not one it overlaps.
+    for by_link in (True, False):
+        for it in ordered:
+            if bool(tied[(it["kind"], it["id"])] & keys) != by_link:
+                continue
+            home = None
+            for c in clusters:
+                if it["you"] and any(x["you"] for x in c):
+                    continue
+                if by_link:
+                    joins = bool(tied[(it["kind"], it["id"])] & {(x["kind"], x["id"]) for x in c})
+                else:
+                    joins = any(_overlap(it, x) for x in c)
+                if joins:
+                    home = c
+                    break
+            if home is None:
+                clusters.append([it])
+            else:
+                home.append(it)
     for c in clusters:
         _write(conn, sorted(c, key=lambda x: (x["order"], x["start"], x["id"])), codes)
 
