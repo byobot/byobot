@@ -95,6 +95,8 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var received: [String: String]?
     /// This phone's events the laptop refused.
     public var rejected: [Rejection]?
+    /// Entries this app can't read, by the list they came in, kept as sent: one newer entry doesn't drop the plan.
+    public var unread: [String: [JSONValue]] = [:]
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
@@ -124,6 +126,73 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
         case storeId = "store_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var unread: [String: [JSONValue]] = [:]
+        func entries<P: Codable & Hashable & Sendable>(_ key: CodingKeys) throws -> [Record<P>] {
+            let items = try c.decode([Lenient<Record<P>>].self, forKey: key)
+            let skipped = items.compactMap(\.raw)
+            if !skipped.isEmpty { unread[key.stringValue] = skipped }
+            return items.compactMap(\.value)
+        }
+        from = try c.decode(String.self, forKey: .from)
+        to = try c.decode(String.self, forKey: .to)
+        activities = try entries(.activities)
+        locations = try entries(.locations)
+        settings = try entries(.settings)
+        plans = try entries(.plans)
+        plannedSessions = try entries(.plannedSessions)
+        sessions = try entries(.sessions)
+        efforts = try entries(.efforts)
+        since = try c.decodeIfPresent(String.self, forKey: .since)
+        storeId = try c.decodeIfPresent(String.self, forKey: .storeId)
+        hlc = try c.decodeIfPresent(String.self, forKey: .hlc)
+        erased = try c.decodeIfPresent([ErasedRecord].self, forKey: .erased)
+        kindVersions = try c.decodeIfPresent([String: Int].self, forKey: .kindVersions)
+        received = try c.decodeIfPresent([String: String].self, forKey: .received)
+        rejected = try c.decodeIfPresent([Rejection].self, forKey: .rejected)
+        self.unread = unread
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        func entries<P: Codable & Hashable & Sendable>(_ records: [Record<P>], _ key: CodingKeys) throws {
+            guard let kept = unread[key.stringValue], !kept.isEmpty else { return try c.encode(records, forKey: key) }
+            try c.encode(records.map { Payloads.json($0) } + kept, forKey: key)
+        }
+        try c.encode(from, forKey: .from)
+        try c.encode(to, forKey: .to)
+        try entries(activities, .activities)
+        try entries(locations, .locations)
+        try entries(settings, .settings)
+        try entries(plans, .plans)
+        try entries(plannedSessions, .plannedSessions)
+        try entries(sessions, .sessions)
+        try entries(efforts, .efforts)
+        try c.encodeIfPresent(since, forKey: .since)
+        try c.encodeIfPresent(storeId, forKey: .storeId)
+        try c.encodeIfPresent(hlc, forKey: .hlc)
+        try c.encodeIfPresent(erased, forKey: .erased)
+        try c.encodeIfPresent(kindVersions, forKey: .kindVersions)
+        try c.encodeIfPresent(received, forKey: .received)
+        try c.encodeIfPresent(rejected, forKey: .rejected)
+    }
+}
+
+/// One item of a list read leniently: the value, or what was sent when this app can't read it.
+struct Lenient<T: Decodable>: Decodable {
+    var value: T?
+    var raw: JSONValue?
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let value = try? c.decode(T.self) {
+            self.value = value
+        } else {
+            raw = try c.decode(JSONValue.self)
+        }
     }
 }
 

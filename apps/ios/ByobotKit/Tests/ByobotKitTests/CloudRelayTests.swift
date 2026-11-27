@@ -17,7 +17,7 @@ final class CloudRelayTests: XCTestCase {
 
         /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it refused.
         mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], refused: [(Int, Int, String)] = [],
-                              erased: [ErasedRecord]? = nil) async throws {
+                              erased: [ErasedRecord]? = nil, plan: JSONValue? = nil) async throws {
             seq += 1
             let window = PlanWindow(from: "2026-11-01", to: "2026-12-31", erased: erased)
             var mine: [String: JSONValue] = ["read": .array(read.map { .number(Double($0)) })]
@@ -26,7 +26,7 @@ final class CloudRelayTests: XCTestCase {
                     .object(["seq": .number(Double($0.0)), "line": .number(Double($0.1)), "reason": .string($0.2)])
                 })
             }
-            let messages: [JSONValue] = [.object(["plan": try Payloads.encode(window)]),
+            let messages: [JSONValue] = [.object(["plan": try plan ?? Payloads.encode(window)]),
                                          .object(["receipts": .object([relayID: .object(mine)])])]
             let data = try Cloud.writeSegment(kind: "plan", storeID: store, deviceID: id, epoch: 1, seq: seq,
                                               messages: messages, key: epochKey, signer: identity)
@@ -213,6 +213,34 @@ final class CloudRelayTests: XCTestCase {
         _ = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(relay.plan?.erased?.map(\.id), ["x"])
         XCTAssertEqual(relay.planPath, Cloud.segmentPath(kind: "plan", epoch: 1, seq: 3))
+    }
+
+    func testReceiptsCountThoughThePlanBesideThemCantBeRead() async throws {
+        var k = try keeper()
+        let folder = MemoryCloudFolder()
+        var relay = try await joined(k, folder)
+        try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: "x")])
+        _ = try await relay.sync(folder, identity: k.relay)
+        relay.log([event(1)])
+        _ = try await relay.sync(folder, identity: k.relay)
+        try await k.publish(folder, read: [1], plan: .object(["from": .number(1)]))
+        let report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.pending, 0)
+        XCTAssertEqual(relay.takeDelivered(), [event(1).id])
+        XCTAssertEqual(relay.plan?.erased?.map(\.id), ["x"], "the last plan it could read stays")
+    }
+
+    func testOneEntryANewerMacWroteDoesntDropThePlan() throws {
+        let raw: JSONValue = .object(["id": .string("x.tempo_squat"), "payload": .object(["name": .number(3)]),
+                                      "prev": .array([])])
+        guard case .object(var plan) = try Payloads.encode(try Fixtures.window()) else { return XCTFail() }
+        guard case .array(var activities)? = plan["activities"] else { return XCTFail() }
+        activities.append(raw)
+        plan["activities"] = .array(activities)
+        let window = try Payloads.decode(PlanWindow.self, .object(plan))
+        XCTAssertEqual(window.activities.count, try Fixtures.window().activities.count)
+        XCTAssertEqual(window.unread["activities"], [raw])
+        XCTAssertEqual(try Payloads.encode(window), .object(plan), "kept as sent")
     }
 
     // MARK: samples
