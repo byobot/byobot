@@ -639,6 +639,17 @@ final class EffortFormTests: XCTestCase {
                                           ("1,23,456", nil), ("1,000,5", nil), ("1.000.000", nil), ("heavy", nil)]
         for (text, number) in cases { XCTAssertEqual(EffortForm.parseNumber(text), number, text) }
     }
+
+    func testBoundsAreCheckedInTheCodesOwnUnit() throws {
+        var energy = EffortForm.field(name: "active_energy", target: nil)
+        energy.text = "60000"
+        energy.unit = "kJ"
+        XCTAssertEqual(try EffortForm.metrics(from: [energy]), ["active_energy": .exact(60000, unit: "kJ")], "about 14,000 kcal")
+        energy.unit = "kcal"
+        XCTAssertThrowsError(try EffortForm.metrics(from: [energy])) {
+            XCTAssertEqual($0 as? EffortFormError, .outOfRange("active_energy"))
+        }
+    }
 }
 
 final class ClockAndHealthTests: XCTestCase {

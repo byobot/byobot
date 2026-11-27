@@ -116,10 +116,7 @@ public enum EffortForm {
         case .integer, .number:
             guard let n = parseNumber(text) else { throw EffortFormError.notANumber(field.name) }
             if spec.kind == .integer, n.rounded() != n { throw EffortFormError.notAWholeNumber(field.name) }
-            if let lo = spec.minimum, n < lo || (spec.exclusiveMinimum && n == lo) {
-                throw EffortFormError.outOfRange(field.name)
-            }
-            if let hi = spec.maximum, n > hi { throw EffortFormError.outOfRange(field.name) }
+            if !spec.inBounds(n, unit: unit) { throw EffortFormError.outOfRange(field.name) }
             return Measure(value: .number(n), unit: unit)
         }
     }
