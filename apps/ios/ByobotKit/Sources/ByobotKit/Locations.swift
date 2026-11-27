@@ -15,16 +15,23 @@ public struct LastTime: Equatable, Sendable {
     public static let empty = LastTime(efforts: [], locationId: nil, elsewhere: false)
 }
 
+public enum Slug {
+    /// An id from what someone typed: lowercase letters, digits and underscores. `Pull Up` → `pull_up`.
+    public static func make(_ text: String, max: Int = 64) -> String {
+        let words = text.lowercased().split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }
+        return String(words.joined(separator: "_").prefix(max))
+    }
+}
+
 public enum LocationId {
     /// A slug for a new location's name, unique among `taken`.
     public static func make(_ name: String, taken: Set<String>) -> String {
-        let words = name.lowercased().split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }
-        var base = String(words.joined(separator: "-").prefix(60))
+        var base = Slug.make(name, max: 60)
         if base.isEmpty { base = "gym" }
         var id = base
         var n = 2
         while taken.contains(id) {
-            id = "\(base)-\(n)"
+            id = "\(base)_\(n)"
             n += 1
         }
         return id
