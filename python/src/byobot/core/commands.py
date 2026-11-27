@@ -142,7 +142,7 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
     """Use your values over a source record's, whatever it later revises. `fields` merge into earlier corrections;
     a null takes one back."""
     found = store.get("overlay", store.contract.derived("overlay", ["correct", "source_record", target]))
-    fields = merge_patch(found["payload"]["fields"] if found else {}, fields)
+    fields = {k: v for k, v in merge_patch(found["payload"]["fields"] if found else {}, fields).items() if v != {}}
     if not fields:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
     fields = _times(store, fields)
