@@ -259,7 +259,7 @@ class Keeper:
             position = self.store.position()
         finally:
             self.store.conn.execute("COMMIT")
-        parts = [events[i:i + rules.MAX_BATCH] for i in range(0, len(events), rules.MAX_BATCH)]
+        parts = _parts(events)
         for i, part in enumerate(parts):  # uploads hold no write lock, so the hub and other writers go on
             self._segment("checkpoint", i, [{"events": {"events": part}}], n)
         with self.store._tx():
@@ -481,8 +481,7 @@ class Keeper:
         shown = {r[0] for r in self.store.conn.execute("SELECT event_id FROM cloud_shown")}
         events = [e for e in self.store.events(since=int(self._get("checkpoint_position")))
                   if e["id"] not in shown]
-        for i in range(0, len(events), rules.MAX_BATCH):
-            part = events[i:i + rules.MAX_BATCH]
+        for part in _parts(events):
             with self.store._tx():
                 seq = self._next_seq()
             self._segment("segment", seq, [{"events": {"events": part}}])
@@ -771,6 +770,20 @@ def _top_seq(listing: dict[str, str], device_id: str) -> int:
     """The keeper's next seq past every file of its own in the folder."""
     own = [segment.parse_name(p) for p in listing if p.startswith((f"segments/{device_id}/", "plan/"))]
     return max([w["seq"] for w in own if w and w["seq"] < SEQ_CEILING] + [0]) + 1
+
+
+def _parts(events: list[dict]) -> list[list[dict]]:
+    """Events cut into parts a reader takes: at most the hub's batch, and under the body limit encoded."""
+    parts: list[list[dict]] = []
+    size = 0
+    for e in events:
+        n = len(dumps(e)) + 1
+        if not parts or len(parts[-1]) == rules.MAX_BATCH or size + n > segment.MAX_BODY - 4096:
+            parts.append([])
+            size = 0
+        parts[-1].append(e)
+        size += n
+    return parts
 
 
 def _epoch_of(path: str) -> int | None:
