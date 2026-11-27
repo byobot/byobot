@@ -15,7 +15,7 @@ from typing import Any, NoReturn, Sequence
 
 from byobot import __version__, mascot
 from byobot.commands import REGISTRY, Context, Param, run
-from byobot.util import ByobotError, ValidationFailed, db_path, profile, utf8_stdio
+from byobot.util import ByobotError, NotFound, ValidationFailed, db_path, home, profile, utf8_stdio
 
 DEFAULT_ACTOR = "human:me"
 
@@ -194,7 +194,8 @@ def _main(argv: Sequence[str] | None) -> int:
         parser.print_help()
         return 0
     try:
-        profile()
+        if (name := profile()) and not home().is_dir() and args.command not in ("init", "restore"):
+            raise NotFound(f"no profile {name}; run `byobot --profile {name} init` to make it")
         actor = parse_actor(args.actor or os.environ.get("BYOBOT_ACTOR") or DEFAULT_ACTOR)
         if args.command == "mcp":
             from byobot.mcp import serve
