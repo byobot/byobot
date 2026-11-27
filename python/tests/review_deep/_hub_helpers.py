@@ -41,6 +41,7 @@ class Client:
     def raw(self, method, path, data: bytes | None = None, token=None, timeout: float = 15):
         """(status, body) or raises ConnectionError when the server closes without answering."""
         ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=timeout)
