@@ -35,7 +35,7 @@ def phone(cloud, fake, tmp_path):  # noqa: F811
     """A keeper with one joined phone."""
     ctx = Context(actor=CLI)
     run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": ""})
-    link = run("cloud join", ctx, {"wait": "no"})["link"]
+    link = run("cloud join", ctx, {"wait": False})["link"]
     relay = Relay.join(DriveFolder(ctx.store().store_id, Drive(fake), journal=tmp_path / "phone.json"), link, PHONE)
     run("cloud sync", ctx, {})
     relay.sync()
@@ -50,7 +50,7 @@ def test_a_read_leaves_drive_alone(phone, monkeypatch):
     age(ctx)
     monkeypatch.setattr(commands, "autosync", lambda *a, **k: pytest.fail("a read synced Drive"))
     run("status", ctx, {})
-    run("list", ctx, {"kind": "efforts"})
+    run("list", ctx, {"kind": "effort"})
     assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
 
 
@@ -159,7 +159,7 @@ def test_cloud_off_can_delete_the_folder(phone, fake):
     store_id = ctx.store().store_id
     relay.log([event()])
     relay.sync()
-    assert run("cloud off", ctx, {"delete": "yes"})["deleted"] > 0
+    assert run("cloud off", ctx, {"delete": True})["deleted"] > 0
     left = [n for n in fake.names() if n.startswith(store_id + "/")]
     assert left == [f"{store_id}/epochs/0002.json"]  # only the notice that lists no phone
     relay.log([event(n=2)])

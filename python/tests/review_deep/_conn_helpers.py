@@ -137,6 +137,6 @@ def import_whoop(monkeypatch, opener, **args) -> dict:
     monkeypatch.setattr(urllib.request, "urlopen", opener)
     ctx = Context(actor={"kind": "human", "id": "cli"})
     try:
-        return run("import whoop", ctx, args)
+        return run("import", ctx, {"source": "whoop", **args})
     finally:
         ctx.close()

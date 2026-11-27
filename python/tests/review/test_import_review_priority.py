@@ -20,4 +20,4 @@ def test_a_codes_override_picks_the_daily_value_too(store):
                                     "type": "HKQuantityTypeIdentifierRestingHeartRate", "start": "2026-11-20T12:00:00Z",
                                     "end": "2026-11-20T12:00:00Z", "value": 48, "unit": "/min"}])
     [day] = review(store, 1, "2026-11-22")["recovery"]
-    assert day["resting_hr_bpm"] == 48, day  # apple_health comes first for this code
+    assert day["resting_heart_rate"]["value"] == 48, day  # apple_health comes first for this code

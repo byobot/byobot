@@ -9,7 +9,7 @@ data stays on this computer; the tunnel only carries requests.
 * **Sign-in.** OAuth 2.1, as the MCP authorization spec asks: protected resource
   and authorization server metadata, dynamic client registration, the
   authorization code flow with PKCE (S256), and rotating refresh tokens. A client
-  is approved by typing the one-time code ``byobot remote`` shows. Tokens are kept
+  is approved by typing the one-time code ``byobot remote serve`` shows. Tokens are kept
   only as hashes, in this profile's own folder, so they never open another profile.
 """
 
@@ -119,7 +119,7 @@ class Auth:
     """The authorization server's state for one profile, kept in ``oauth.json`` (mode 0600).
 
     Approved clients and token hashes live in the file, read on every check, so
-    ``byobot remote --revoke`` takes effect while a server runs. Clients that have
+    ``byobot remote revoke`` takes effect while a server runs. Clients that have
     registered but not been approved yet, and authorization codes, stay in memory.
     A change is written only if no other process wrote the file since it was read.
     """
@@ -509,7 +509,7 @@ class Handler(serve.Handler):
             message = "That code isn't right." if is_open and tries else ""
         if self.server.pairing is None or not self.server.pairing.open:
             self._html(HTTPStatus.FORBIDDEN, "Approval is closed",
-                       "<p>Run <code>byobot remote --pair</code> on the computer that holds your byobot, "
+                       "<p>Run <code>byobot remote serve --pair</code> on the computer that holds your byobot, "
                        "then connect again.</p>")
             return
         keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
@@ -522,7 +522,7 @@ class Handler(serve.Handler):
                    f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to "
                    f"{'read and write' if writes else 'read'} your byobot ({escape(self.server.name)}). "
                    f"After you approve, it goes to <b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
-                   f"<p>Enter the code <code>byobot remote</code> shows only if you just started connecting this "
+                   f"<p>Enter the code <code>byobot remote serve</code> shows only if you just started connecting this "
                    f"app yourself and that address is your assistant's.</p>"
                    f"<form method=post action='/oauth/authorize'>{keep}{choice}"
                    f"<p><input name=approval_code inputmode=numeric autocomplete=one-time-code size=8 autofocus>"
@@ -668,7 +668,7 @@ def openapi(base: str) -> dict:
     paths = {}
     for tool in mcp.tools():
         paths[f"{API}/tools/{tool['name']}"] = {"post": {
-            "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
+            "operationId": tool["name"], "summary": tool["title"],
             "description": tool["description"][:300],
             "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
             "responses": responses}}
@@ -712,30 +712,31 @@ def clipboard() -> list[str]:
     raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); or pass --show to print the key once")
 
 
-def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
-        api_key: str | None = None, show: bool = False, read_only: bool = False) -> int:
-    """The ``byobot remote`` command."""
+def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
+    """The ``byobot remote key`` command."""
     saved = remote_dir() / "url"
-    if (show or read_only) and api_key is None:
-        raise ValidationFailed("--show and --read-only go with --api-key")
-    if api_key is not None:
-        cmd = None if show else clipboard()
-        key = Auth(remote_dir() / "oauth.json").create_key(api_key, READ if read_only else FULL)
-        base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
-        out = {"name": api_key, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
-        if cmd:
-            subprocess.run(cmd, input=key.encode(), check=True)
-            out["copied"] = True
-        else:
-            out["key"] = key
-        sys.stdout.write(json.dumps(out, indent=2) + "\n")
-        sys.stderr.write(("Key copied to the clipboard, not shown. " if cmd else "Shown once. ")
-                         + "Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
-        return 0
-    if revoke:
-        count = Auth(remote_dir() / "oauth.json").revoke_all()
-        sys.stdout.write(json.dumps({"disconnected": count}) + "\n")
-        return 0
+    cmd = None if show else clipboard()
+    key = Auth(remote_dir() / "oauth.json").create_key(name, READ if read_only else FULL)
+    base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
+    out = {"name": name, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
+    if cmd:
+        subprocess.run(cmd, input=key.encode(), check=True)
+        out["copied"] = True
+    else:
+        out["key"] = key
+    sys.stderr.write(("Key copied to the clipboard, not shown. " if cmd else "Shown once. ")
+                     + "Send it as Authorization: Bearer KEY or X-API-Key: KEY.\n")
+    return out
+
+
+def revoke() -> dict:
+    """The ``byobot remote revoke`` command."""
+    return {"disconnected": Auth(remote_dir() / "oauth.json").revoke_all()}
+
+
+def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
+    """The ``byobot remote serve`` command."""
+    saved = remote_dir() / "url"
     if url is None and not saved.is_file():
         raise ValidationFailed("pass --url with the https address your tunnel gives this profile (saved after that)")
     base = check_url(url if url is not None else saved.read_text())
@@ -761,7 +762,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke:
     else:
         names = ", ".join([c["client_name"] for c in server.auth.clients()]
                           + [f"API key {k['name']}" for k in server.auth.keys()])
-        err.write(f"Connected: {names}. Run with --pair to connect another, --revoke to disconnect all.\n")
+        err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot remote revoke` to disconnect all.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
     poller = serve.CloudPoller(server.db, log)

@@ -139,7 +139,7 @@
         },
         "name": {
           "$ref": "common.schema.json#/$defs/name",
-          "description": "The phone's name, for `byobot devices`."
+          "description": "The phone's name, for `byobot devices list`."
         }
       },
       "additionalProperties": false

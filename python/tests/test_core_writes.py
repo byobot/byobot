@@ -146,7 +146,7 @@ def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     assert old.get("effort", rid)["newer"] and reps(old, rid) == 5 and old.counts()["newer"] == 1
     assert [(r["id"], r["event"]["id"], r["newer"]) for r in old.records("effort")] == [(rid, e["id"], True)]
     assert old.newer() == {("effort", rid)} and not new.get("effort", rid)["newer"]
-    listed = run("list", Context(actor=ME, _store=old), {"kind": "efforts"})["items"]
+    listed = run("list", Context(actor=ME, _store=old), {"kind": "effort"})["items"]
     assert [(i["id"], i.get("newer")) for i in listed] == [(rid, True)]
     old.use(adds("metrics"))
     assert not old.get("effort", rid)["newer"] and reps(old, rid) == 8

@@ -31,8 +31,8 @@ def test_answers_mark_where_other_apps_text_can_be(store):
     ctx = Context(actor=YOU, path=store.path)
     marks = {
         "query": run("query", ctx, {"sql": "SELECT 1 AS one"}),
-        "list": run("list", ctx, {"kind": "sources"}),
-        "devices": run("devices", ctx, {}),
+        "list": run("list", ctx, {"kind": "source_record"}),
+        "devices": run("devices list", ctx, {}),
         "conflicts": run("conflicts", ctx, {}),
     }
     for name, answer in marks.items():

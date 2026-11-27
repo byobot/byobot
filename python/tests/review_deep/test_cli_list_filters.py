@@ -31,8 +31,8 @@ def test_cli_a_date_bound_that_is_not_a_date_is_refused(bound, which):
     without a word, so an agent reports "no sessions" or the wrong ones."""
     assert via_cli(["log", "session", '{"name": "Example session", "time": {"start": "2026-11-25T10:00:00-05:00"}}'])[0] \
         == "ok"
-    assert via_cli(["list", "sessions", f"--{which}", bound]) == ("error", "invalid")
-    assert via_mcp("list", {"kind": "observations", which: bound}) == ("error", "invalid")
+    assert via_cli(["list", "session", f"--{which}", bound]) == ("error", "invalid")
+    assert via_mcp("list", {"kind": "observation", which: bound}) == ("error", "invalid")
 
 
 @pytest.mark.parametrize("bound", ["yesterday", "2026-13-45T99:00:00Z"])

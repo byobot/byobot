@@ -52,7 +52,7 @@ def test_setup_join_sync_status_remove_and_compact(cloud, fake, tmp_path):
     out = run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": "ios.apps.example"})
     assert out["epoch"] == 1 and len(out["recovery_code"]) > 10
     assert credentials.load("google")["ios_client_id"] == "ios.apps.example"
-    join = run("cloud join", ctx, {"wait": "no"})
+    join = run("cloud join", ctx, {"wait": False})
     assert join["link"].startswith("byobot://cloud-join?") and "client=ios.apps.example" in join["link"]
     phone = Relay.join(DriveFolder(ctx.store().store_id, Drive(fake), journal=tmp_path / "phone.json"),
                        join["link"], PHONE)

@@ -61,7 +61,7 @@ def test_cli_an_argument_the_command_does_not_take_is_refused_on_mcp_and_the_api
     API drop an unknown argument and answer as if it weren't there."""
     args = {**filler(cmd), "not_a_param": "x"}
     if cmd.name == "list":
-        args["kind"] = "sessions"
+        args["kind"] = "session"
     if cmd.name == "query":
         args["sql"] = "SELECT 1 AS x"
     if cmd.name == "validate":
@@ -76,7 +76,7 @@ def test_cli_an_integer_too_big_for_the_store_is_a_json_error_everywhere(case, a
     cmd, param = case
     args = {**filler(cmd), param.name: 2 ** 70}
     if cmd.name == "list":
-        args["kind"] = "sessions"
+        args["kind"] = "session"
     if cmd.name == "query":
         args["sql"] = "SELECT 1 AS x"
     answers = {"mcp": via_mcp(cmd.tool, args), "api": api.call(cmd.tool, args), "cli": via_cli(argv_for(cmd, args))}

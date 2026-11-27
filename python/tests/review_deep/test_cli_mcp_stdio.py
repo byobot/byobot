@@ -42,7 +42,7 @@ def test_cli_a_line_that_is_not_utf8_is_a_parse_error_on_a_non_utf8_console():
 def test_cli_params_that_are_not_an_object_are_invalid_params():
     """CLI-7 (protocol): `params: [1]` or `arguments: [1]` is a caller mistake (-32602), not a server fault (-32603)."""
     server = mcp.Server()
-    for params in ([1], {"name": "list", "arguments": [1]}, {"name": "list", "arguments": "kind=sessions"}):
+    for params in ([1], {"name": "list", "arguments": [1]}, {"name": "list", "arguments": "kind=session"}):
         for method in ("tools/call", "initialize", "prompts/get"):
             reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
             if "error" in reply:

@@ -11,7 +11,7 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
 * **Pairing.** ``byobot serve`` shows a one-time six-digit code, valid for ten
   minutes and five tries, as a QR code holding a ``byobot://pair`` link. The
   phone trades the code for a token; the store keeps only the token's hash.
-  ``byobot unpair`` revokes a device.
+  ``byobot devices remove`` revokes a device.
 * **Protocol (v1).** JSON over HTTPS under ``/v1``:
 
   ``GET /v1/hello``        who this is (no token needed)
@@ -722,8 +722,7 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
     try:
         server, info = make_server(host, port, pair=pair, log=log)
     except OSError as exc:
-        sys.stderr.write(json.dumps({"error": "serve", "message": f"could not listen on {host}:{port}: {exc}"}) + "\n")
-        return 1
+        raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (serve_dir() / "port").write_text(f"{info['port']}\n")
     err = sys.stderr
     err.write(f"byobot serve · {info['name']} · port {info['port']} · store {db_path()}\n")

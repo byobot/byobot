@@ -48,16 +48,16 @@ Or set `BYOBOT_PROFILE=alex`. Without a profile, byobot uses the default one.
 
 ## Use it from an assistant on your phone
 
-`byobot remote` serves the same tools over the internet, with sign-in, to assistants that take a remote MCP server (such as custom connectors in Claude). It listens on this computer only, so give it an https address with a tunnel, for example [Tailscale Funnel](https://tailscale.com/kb/1223/funnel). The computer must be awake.
+`byobot remote serve` serves the same tools over the internet, with sign-in, to assistants that take a remote MCP server (such as custom connectors in Claude). It listens on this computer only, so give it an https address with a tunnel, for example [Tailscale Funnel](https://tailscale.com/kb/1223/funnel). The computer must be awake.
 
 ```bash
 tailscale funnel --bg 8780    # shows your address, such as https://example-laptop.example.ts.net
-byobot remote --url https://example-laptop.example.ts.net
+byobot remote serve --url https://example-laptop.example.ts.net
 ```
 
-Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote --revoke` disconnects every assistant.
+Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote serve` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote revoke` disconnects every assistant.
 
-For an assistant that calls an API instead, run `byobot remote --api-key NAME` for a key on the clipboard (add `--show` to print it once instead, and `--read-only` for a key that can't write), and point it at `https://example-laptop.example.ts.net/api/v1/openapi.json`. Each tool is `POST /api/v1/tools/TOOL` with its arguments as JSON and the key as `Authorization: Bearer KEY` or `X-API-Key: KEY`. An error's body is `{"error": CODE, "message": ...}`, where CODE is a stable code such as `invalid`, `not_found` or `forbidden`, listed in the OpenAPI description.
+For an assistant that calls an API instead, run `byobot remote key NAME` for a key on the clipboard (add `--show` to print it once instead, and `--read-only` for a key that can't write), and point it at `https://example-laptop.example.ts.net/api/v1/openapi.json`. Each tool is `POST /api/v1/tools/TOOL` with its arguments as JSON and the key as `Authorization: Bearer KEY` or `X-API-Key: KEY`. An error's body is `{"error": CODE, "message": ...}`, where CODE is a stable code such as `invalid`, `not_found` or `forbidden`, listed in the OpenAPI description.
 
 ## Pair the iPhone app
 
@@ -79,7 +79,7 @@ byobot cloud join      # shows a code; in the app, turn on Drive sync and scan i
 byobot cloud status    # devices, when each was last heard from, the folder's size, any error
 ```
 
-`byobot serve`, `byobot remote` and `byobot mcp` sync with Drive every minute while they run; reads never sync, so run `byobot cloud sync` first for a one-off read that needs the latest from phones. `byobot cloud off` stops; `--delete yes` also deletes the folder's files, leaving one small signed note that tells phones Drive sync ended. Keep byobot's home out of any folder another app syncs (Google Drive for desktop, iCloud Drive, Dropbox): `byobot status` warns if it is in one.
+`byobot serve`, `byobot remote serve` and `byobot mcp` sync with Drive every minute while they run; reads never sync, so run `byobot cloud sync` first for a one-off read that needs the latest from phones. `byobot cloud off` stops; `--delete` also deletes the folder's files, leaving one small signed note that tells phones Drive sync ended. Keep byobot's home out of any folder another app syncs (Google Drive for desktop, iCloud Drive, Dropbox): `byobot status` warns if it is in one.
 
 Erasing a record with Drive sync on rewrites the folder under a new key. Once every device has moved to it, the old files and keys are deleted outright, so the record is gone from Drive's folder and from every device that synced. What Google keeps on its own systems after a delete isn't documented, but anything left is encrypted with a key that only a device you removed with `byobot cloud remove` may still hold. `byobot cloud status` names any device the cleanup still waits on, and `byobot cloud remove` retires one that won't come back. Exports made before the erase still hold the data.
 

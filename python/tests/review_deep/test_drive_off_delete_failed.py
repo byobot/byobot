@@ -1,4 +1,4 @@
-"""Drive deep review: `cloud off --delete yes` that fails partway (Drive answers an error while it deletes files)
+"""Drive deep review: `cloud off --delete` that fails partway (Drive answers an error while it deletes files)
 has already written the closed epoch file, so every phone stops as if it was taken off, while the keeper carries on
 in the old epoch, waits on the phones forever, and fails every later epoch start."""
 
@@ -26,7 +26,7 @@ def _off_delete_fails_partway(store):
 
     folder.delete = flaky
     with pytest.raises(ByobotError):
-        keeper.forget()  # `cloud off --delete yes` answers an error
+        keeper.forget()  # `cloud off --delete` answers an error
     folder.delete = real
     return keeper, relay
 

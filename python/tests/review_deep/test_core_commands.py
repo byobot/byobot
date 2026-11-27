@@ -14,7 +14,7 @@ from byobot.core import commands  # noqa: E402
 def test_editing_a_set_logged_with_a_code_this_registry_lacks_changes_what_was_asked(tmp_path):
     """A newer app logs a set with a registry code this install doesn't have yet (delivery keeps it). An edit of
     only `reps` here re-checks the whole payload against this registry and is refused, telling the person to use a
-    registry code they never wrote; no edit, replan or agent fix of that set works until this install upgrades."""
+    registry code they never wrote; no edit or agent fix of that set works until this install upgrades."""
     with open_store(tmp_path / "a.db") as s:
         [first] = commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
         newer = copy.deepcopy(first)

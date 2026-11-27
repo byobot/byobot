@@ -64,20 +64,12 @@ class Parser(argparse.ArgumentParser):
         raise ValidationFailed(message, details={"usage": self.format_usage().strip()})
 
 
-def _port(text: str) -> int:
-    try:
-        port = int(text)
-    except ValueError:
-        port = -1
-    if not 0 <= port <= 65535:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a port from 0 to 65535")
-    return port
-
-
 def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
     kwargs: dict[str, Any] = {"help": p.help + (" Use @path for a file." if p.type == "json" else "")}
     if p.type == "integer":
         kwargs["type"] = int
+    if p.type == "boolean":
+        kwargs["action"] = argparse.BooleanOptionalAction
     if p.choices:
         kwargs["choices"] = p.choices
     if p.positional:
@@ -114,39 +106,11 @@ def build_parser() -> argparse.ArgumentParser:
             group, name = cmd.name.split(" ", 1)
             if group not in groups:
                 gp = sub.add_parser(group, help=f"{group.capitalize()}: {', '.join(_members(group))}.")
-                groups[group] = gp.add_subparsers(dest="subcommand", metavar="<source>")
+                groups[group] = gp.add_subparsers(dest="subcommand", metavar="<command>")
             where = groups[group]
         p = where.add_parser(name, help=cmd.summary, description=" ".join(x for x in (cmd.summary, cmd.description) if x))
         for param in cmd.params:
             _add_param(p, param)
-    sub.add_parser("mcp", help="Serve these commands to an agent over MCP (stdio).",
-                   description="Run an MCP server on stdin/stdout. Point your agent's MCP config at `byobot mcp`.")
-    serve = sub.add_parser(
-        "serve", help="Sync with the byobot app on your phone over your own network.",
-        description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
-                    "Shows a QR code to pair a phone when none is paired yet (or with --pair).")
-    serve.add_argument("--host", default="0.0.0.0", help="Address to listen on. Default: all interfaces.")
-    serve.add_argument("--port", type=_port, help="Port to listen on. Default: the one this profile used last, "
-                                                "else 8765 for the default profile.")
-    serve.add_argument("--pair", action="store_true", default=None, help="Show a pairing code even if a device is paired.")
-    serve.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a pairing code.")
-    remote = sub.add_parser(
-        "remote", help="Serve these commands over the internet, for assistants on your phone.",
-        description="Serve the MCP tools at /mcp, with sign-in, for assistants that run elsewhere. Listens on this "
-                    "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.")
-    remote.add_argument("--url", help="The https address your tunnel gives this profile. Saved after the first run.")
-    remote.add_argument("--host", default="127.0.0.1", help="Address to listen on. Default: this computer only.")
-    remote.add_argument("--port", type=_port, help="Port to listen on. Default: the one this profile used last, "
-                                                 "else 8780 for the default profile.")
-    remote.add_argument("--pair", action="store_true", default=None,
-                        help="Show a code to connect an assistant even if one is connected.")
-    remote.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a code.")
-    remote.add_argument("--revoke", action="store_true", help="Disconnect every assistant from this profile, then exit.")
-    remote.add_argument("--api-key", metavar="NAME", help="Make an API key for an assistant that calls an API, "
-                                                          "such as `my_assistant`, copy it to the clipboard, then exit.")
-    remote.add_argument("--show", action="store_true",
-                        help="With --api-key, print the key once instead of copying it.")
-    remote.add_argument("--read-only", action="store_true", help="With --api-key, a key that can only read.")
     return parser
 
 
@@ -198,19 +162,6 @@ def _main(argv: Sequence[str] | None) -> int:
         if (name := profile()) and not home().is_dir() and args.command not in ("init", "restore"):
             raise NotFound(f"no profile {name}; run `byobot --profile {name} init` to make it")
         actor = parse_actor(args.actor or os.environ.get("BYOBOT_ACTOR") or DEFAULT_ACTOR)
-        if args.command == "mcp":
-            from byobot.mcp import serve
-
-            return serve()
-        if args.command == "serve":
-            from byobot import serve as lan
-
-            return lan.run(args.host, args.port, args.pair)
-        if args.command == "remote":
-            from byobot import remote
-
-            return remote.run(args.url, args.host, args.port, args.pair, args.revoke, args.api_key, args.show,
-                              args.read_only)
         name = f"{args.command} {args.subcommand}" if getattr(args, "subcommand", None) else args.command
         if name not in REGISTRY:
             parser.parse_args([args.command, "--help"])
@@ -233,6 +184,8 @@ def _main(argv: Sequence[str] | None) -> int:
         raise
     except OSError as exc:  # such as a --home that is a file
         return _fail(ByobotError(str(exc)))
+    if result is None:  # a server, which ran until stopped
+        return 0
     sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
     if cmd.name == "validate" and not result["valid"]:
         return 1

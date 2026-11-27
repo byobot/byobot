@@ -1,14 +1,16 @@
 """The CLI, MCP and the JSON API come from one command registry, so agents see the same commands everywhere."""
 
 import argparse
+import re
 
 from byobot import mcp, remote
 from byobot.cli import build_parser
 from byobot.commands import REGISTRY
 
 # Setup and device admin, which belong to the person at the computer.
-CLI_ONLY = {"init", "connect whoop", "disconnect whoop", "rebuild", "unpair", "erase", "export", "restore", "ingest",
-            "cloud setup", "cloud recover", "cloud join", "cloud remove", "cloud compact", "cloud off"}
+CLI_ONLY = {"init", "connect", "disconnect", "rebuild", "devices remove", "erase", "export", "restore", "ingest",
+            "cloud setup", "cloud recover", "cloud join", "cloud remove", "cloud compact", "cloud off", "mcp", "serve",
+            "remote serve", "remote key", "remote revoke"}
 
 
 def cli_commands():
@@ -46,3 +48,11 @@ def test_every_command_has_the_same_arguments_everywhere():
         assert set(schema["properties"]) - {"model"} == params, cmd.name
         assert paths[f"/api/v1/tools/{cmd.tool}"]["post"]["requestBody"]["content"]["application/json"]["schema"] == schema
     assert len(paths) == len(tools)
+
+
+def test_tool_and_api_names_are_the_command_name_with_underscores():
+    paths = remote.openapi("https://example.test")["paths"]
+    for tool in mcp.tools():
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", tool["name"]), tool["name"]
+        assert paths[f"/api/v1/tools/{tool['name']}"]["post"]["operationId"] == tool["name"]
+    assert {t["name"] for t in mcp.tools()} == {c.name.replace(" ", "_") for c in REGISTRY.values() if c.mcp}

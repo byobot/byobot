@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from byobot import __version__, credentials, library, whoop
+from byobot import __version__, credentials, library, swaps, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
@@ -30,7 +30,7 @@ from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_p
 @dataclass(frozen=True)
 class Param:
     name: str
-    type: str  # "string" | "integer" | "json"
+    type: str  # "string" | "integer" | "boolean" | "json"
     help: str
     required: bool = False
     choices: tuple[str, ...] = ()
@@ -54,8 +54,8 @@ class Command:
 
     @property
     def tool(self) -> str:
-        """The MCP tool name: `import activities` becomes `import-activities`."""
-        return self.name.replace(" ", "-")
+        """The MCP tool and API name: `cloud sync` becomes `cloud_sync`."""
+        return self.name.replace(" ", "_")
 
 
 @dataclass
@@ -109,6 +109,8 @@ def run(name: str, ctx: Context, args: dict) -> Any:
                 raise ValidationFailed(f"{p.name} must be from {p.bounds[0]} to {p.bounds[1]}")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
+        if p.type == "boolean" and p.name in clean and not isinstance(clean[p.name], bool):
+            raise ValidationFailed(f"{p.name} must be true or false")
     try:
         return cmd.handler(ctx, **clean)
     except sqlite3.OperationalError as exc:
@@ -266,25 +268,6 @@ def _check_references(store: Store, records: list[dict]) -> None:
 
 
 @command(
-    "observe",
-    "Record one measurement you took, such as your weight.",
-    Param("code", "string", "What was measured, as a registry code such as body_mass.", required=True,
-          positional=True),
-    Param("value", "json", "The value: a number, or text for a category.", required=True, positional=True,
-          schema={"type": ["number", "string"]}),
-    Param("unit", "string", "The unit, as the registry spells it, such as kg."),
-    Param("start", "string", "When, as a timestamp. Defaults to now; without an offset it's local time."),
-    Param("end", "string", "When it ended, for something measured over time."),
-    Param("notes", "string", "Anything worth keeping with it."),
-    read_only=False,
-    description="Codes and units are in `byobot schema registry`.",
-)
-def _observe(ctx: Context, code: str, value: Any, unit: str | None = None, start: str | None = None,
-             end: str | None = None, notes: str | None = None) -> dict:
-    return {"event": core.observe(ctx.store(), ctx.actor, code, value, unit, start, end, notes=notes)}
-
-
-@command(
     "edit",
     "Change a record you or your agent wrote, by a JSON merge patch over what it says now.",
     Param("kind", "string", "The record's kind.", required=True, choices=core.AUTHORED, positional=True),
@@ -293,24 +276,15 @@ def _observe(ctx: Context, code: str, value: Any, unit: str | None = None, start
           required=True, positional=True, schema={"type": "object"}),
     read_only=False,
     description="A logged set is corrected this way: `edit effort <id> '{\"metrics\": {\"reps\": {\"value\": 6}}}'`. "
-                "For a planned session's blocks use `replan`. To change what a source imported, use `correct`.",
+                "A list such as a planned session's blocks is replaced whole; blocks and efforts left without ids "
+                "keep the ids at their positions, so sets already logged against them stay linked. To change what a "
+                "source imported, use `correct`.",
 )
 def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
-    return {"event": core.edit(ctx.store(), ctx.actor, kind, id, _object("patch", patch))}
-
-
-@command(
-    "replan",
-    "Write a planned session's new version. Blocks and efforts left without ids keep the ids at their positions, "
-    "so sets already logged against them stay linked.",
-    Param("id", "string", "The planned session's id.", required=True, positional=True),
-    Param("payload", "json", "The whole planned session, as JSON.", required=True, positional=True,
-          schema={"type": "object"}),
-    read_only=False,
-)
-def _replan(ctx: Context, id: str, payload: Any) -> dict:
-    _check_references(ctx.store(), [{"kind": "planned_session", "id": id, "payload": _object("payload", payload)}])
-    return {"event": core.replan(ctx.store(), ctx.actor, id, payload)}
+    store, patch = ctx.store(), _object("patch", patch)
+    if kind == "planned_session" and (found := store.get(kind, id)):
+        _check_references(store, [{"kind": kind, "id": id, "payload": core.merge_patch(found["payload"], patch)}])
+    return {"event": core.edit(store, ctx.actor, kind, id, patch)}
 
 
 @command(
@@ -392,7 +366,7 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 @command(
     "correct",
     "Use your values over what a source imported, whatever the source later says.",
-    Param("record_id", "string", "The source record's id (see `list sources` or `list workouts`).", required=True,
+    Param("record_id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
           positional=True),
     Param("fields", "json", "What to use instead: name, time, metrics, or value and unit for a single "
           "measurement. Merges into earlier corrections; null takes one back.", required=True, positional=True,
@@ -417,7 +391,7 @@ def _exclude(ctx: Context, record_id: str, notes: str | None = None) -> dict:
 
 
 @command(
-    "same as",
+    "same_as",
     "Say an imported workout is the same as another workout, so it's counted once.",
     Param("record_id", "string", "The source record's id.", required=True, positional=True),
     Param("other_id", "string", "The session or source record it is the same as.", required=True, positional=True),
@@ -454,18 +428,40 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
             **untrusted("record", "versions")}
 
 
+IMPORT_SOURCES = ("activities", "whoop")
+
+
 @command(
-    "import activities",
-    "Import your own activities, with the muscles they work and how they are loaded, so the app can "
-    "suggest swaps. Activities you already have are kept unless you say replace.",
-    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
-          required=True, positional=True, schema={"type": ["object", "array"]}),
-    Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
+    "import",
+    "Import from a source: your own activities from a file (activities), with the muscles they work and how they "
+    "are loaded, so the app can suggest swaps; or recovery, sleep, strain and workouts from WHOOP (whoop).",
+    Param("source", "string", "What to import from.", required=True, choices=IMPORT_SOURCES, positional=True),
+    Param("records", "json", "For activities: a list of activities, each with its id, or an object with an "
+          "`activities` list.", positional=True, schema={"type": ["object", "array"]}),
+    Param("existing", "string", "For activities: what to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
+    Param("days", "integer", "For whoop: import this many days back instead.", bounds=(1, 3650)),
     read_only=False,
-    description="Your own ids start with x., as in x.cable_fly; one with a library id replaces that activity for you.",
+    description="activities: your own ids start with x., as in x.cable_fly; one with a library id replaces that "
+                "activity for you, and activities you already have are kept unless you say replace. whoop: the first "
+                "import goes back 90 days; later ones pick up where the last left off, and importing again changes "
+                "nothing. Needs `byobot connect whoop` once, in a terminal. Every record WHOOP sends is kept as it "
+                "sent it, with each rescore as a new version. A workout that overlaps one you logged is read as one "
+                "workout; `correct` and `exclude` change how an import reads.",
 )
-def _import_activities(ctx: Context, activities: Any, existing: str = "keep") -> dict:
+def _import(ctx: Context, source: str, records: Any = None, existing: str = "keep", days: int | None = None) -> dict:
+    if source == "whoop":
+        if records is not None:
+            raise ValidationFailed("import whoop reads WHOOP itself; it takes no records")
+        return whoop.import_into(ctx.store(), whoop.Client(), days)
+    if days is not None:
+        raise ValidationFailed("days goes with import whoop")
+    if records is None:
+        raise ValidationFailed("import activities needs the activities, as JSON or @path")
+    return _import_activities(ctx, records, existing)
+
+
+def _import_activities(ctx: Context, activities: Any, existing: str) -> dict:
     items = activities.get("activities") if isinstance(activities, dict) else activities
     if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
         raise ValidationFailed("expected a list of activities, or an object with an `activities` list")
@@ -490,30 +486,20 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
     return {"added": added, "replaced": replaced, "kept": kept}
 
 
-@command(
-    "import whoop",
-    "Import recovery, sleep, strain and workouts from WHOOP. The first import goes back 90 days; later ones "
-    "pick up where the last left off. Importing again changes nothing.",
-    Param("days", "integer", "Import this many days back instead.", bounds=(1, 3650)),
-    read_only=False,
-    description="Needs `byobot connect whoop` once, in a terminal. Every record WHOOP sends is kept as it sent it, "
-                "with each rescore as a new version. A workout that overlaps one you logged is read as one workout; "
-                "`correct` and `exclude` change how an import reads.",
-)
-def _import_whoop(ctx: Context, days: int | None = None) -> dict:
-    return whoop.import_into(ctx.store(), whoop.Client(), days)
+CONNECTORS = ("whoop",)
 
 
 @command(
-    "connect whoop",
-    "Connect byobot to your WHOOP account, with your own WHOOP developer app. Run it once, in a terminal.",
+    "connect",
+    "Connect byobot to a source's account: WHOOP, with your own WHOOP developer app. Run it once, in a terminal.",
+    Param("source", "string", "The source to connect.", required=True, choices=CONNECTORS, positional=True),
     Param("client_id", "string", "Your WHOOP app's client id. Asked for if left out."),
     read_only=False,
     mcp=False,
     description=f"Add {whoop.REDIRECT} as a redirect URL in your WHOOP app first. The client secret is asked "
                 "for without showing it, and kept with the tokens in your Keychain.",
 )
-def _connect_whoop(ctx: Context, client_id: str | None = None) -> dict:
+def _connect(ctx: Context, source: str, client_id: str | None = None) -> dict:
     if not sys.stdin.isatty():
         raise ValidationFailed("run `byobot connect whoop` in a terminal, so it can ask for your client secret")
     if not client_id:
@@ -530,9 +516,14 @@ def _open_sign_in(url: str) -> None:
     webbrowser.open(url)
 
 
-@command("disconnect whoop", "Disconnect byobot from WHOOP and forget the tokens. Your imported data stays.",
-         read_only=False, mcp=False)
-def _disconnect_whoop(ctx: Context) -> dict:
+@command(
+    "disconnect",
+    "Disconnect byobot from a source, such as WHOOP, and forget the tokens. Your imported data stays.",
+    Param("source", "string", "The source to disconnect.", required=True, choices=CONNECTORS, positional=True),
+    read_only=False,
+    mcp=False,
+)
+def _disconnect(ctx: Context, source: str) -> dict:
     return whoop.disconnect()
 
 
@@ -560,22 +551,21 @@ def _ingest(ctx: Context, samples: Any) -> dict:
 
 # -- reading --------------------------------------------------------------------
 
-LIST_KINDS = ("events", "activities", "locations", "settings", "plans", "planned", "sessions", "efforts",
-              "observations", "workouts", "sources", "overlays")
-# kind -> (table, time column for since/until, order, record kind)
+# kind -> (table, time column for since/until, order); a record kind, or workouts across you and your sources
 LISTS = {
-    "activities": ("activities", None, "name, id", "activity"),
-    "locations": ("locations", None, "name, id", "location"),
-    "settings": ("settings", None, "id", "setting"),
-    "plans": ("plans", "starts_on", "starts_on DESC, id", "plan"),
-    "planned": ("planned_sessions", "scheduled_on", "scheduled_on DESC, id", "planned_session"),
-    "sessions": ("sessions", "start_ms", "start_ms DESC, id", "session"),
-    "efforts": ("efforts", "start_ms", "start_ms DESC, id", "effort"),
-    "observations": ("observations", "start_ms", "start_ms DESC, id", "observation"),
-    "workouts": ("occurrences", "start_ms", "start_ms DESC, id", None),
-    "sources": ("source_records", None, "revised_at DESC, id", "source_record"),
-    "overlays": ("overlays", None, "id", "overlay"),
+    "activity": ("activities", None, "name, id"),
+    "location": ("locations", None, "name, id"),
+    "setting": ("settings", None, "id"),
+    "plan": ("plans", "starts_on", "starts_on DESC, id"),
+    "planned_session": ("planned_sessions", "scheduled_on", "scheduled_on DESC, id"),
+    "session": ("sessions", "start_ms", "start_ms DESC, id"),
+    "effort": ("efforts", "start_ms", "start_ms DESC, id"),
+    "observation": ("observations", "start_ms", "start_ms DESC, id"),
+    "source_record": ("source_records", None, "revised_at DESC, id"),
+    "overlay": ("overlays", None, "id"),
+    "workouts": ("occurrences", "start_ms", "start_ms DESC, id"),
 }
+LIST_KINDS = ("events", *LISTS)
 JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
 BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
                   "source")
@@ -612,17 +602,19 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
 
 @command(
     "list",
-    "List records of one kind, newest first: sessions you logged (sessions), sets (efforts), measurements "
-    "(observations), workouts as one per occasion across you and your sources (workouts), and more.",
-    Param("kind", "string", "What to list.", required=True, choices=LIST_KINDS, positional=True),
-    Param("type", "string", "Only this record kind (events), code (observations) or source type (sources)."),
-    Param("activity", "string", "Only this activity id (efforts)."),
-    Param("source", "string", "Only this source, such as whoop (observations, sources, workouts), or for "
+    "List records of one kind, newest first: sessions you logged (session), sets (effort), measurements "
+    "(observation), workouts as one per occasion across you and your sources (workouts), the logbook's events "
+    "(events), and more.",
+    Param("kind", "string", "What to list: a record kind, workouts or events.", required=True, choices=LIST_KINDS,
+          positional=True),
+    Param("type", "string", "Only this record kind (events), code (observation) or source type (source_record)."),
+    Param("activity", "string", "Only this activity id (effort)."),
+    Param("source", "string", "Only this source, such as whoop (observation, source_record, workouts), or for "
           "activities `library` (shipped with byobot) or `store` (yours)."),
-    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
+    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activity)."),
     Param("equipment", "string", "Only activities loaded this way, such as dumbbell, or needing this kit, such as "
-          "bench (activities)."),
-    Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
+          "bench (activity)."),
+    Param("detail", "string", "brief keeps only what picking an activity needs (activity).",
           choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records on or after this date, or at or after this timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
@@ -652,17 +644,17 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
                 bound = _bound(value)
                 add(f"{day if isinstance(bound, str) else instant} {op} ?", bound)
     else:
-        table, time, order, _ = LISTS[kind]
+        table, time, order = LISTS[kind]
         sql = f"SELECT * FROM {table}"
-        add("code = ?", type if kind == "observations" else None)
-        add("source_type = ?", type if kind == "sources" else None)
-        add("activity_id = ?", activity if kind == "efforts" else None)
-        if kind in ("observations", "sources", "activities"):
+        add("code = ?", type if kind == "observation" else None)
+        add("source_type = ?", type if kind == "source_record" else None)
+        add("activity_id = ?", activity if kind == "effort" else None)
+        if kind in ("observation", "source_record", "activity"):
             add("source = ?", source)
         if kind == "workouts" and source is not None:
             add("id IN (SELECT occurrence_id FROM occurrence_items i JOIN source_records s ON s.id = i.id "
                 "WHERE s.source = ?)", source)
-        if kind == "activities":
+        if kind == "activity":
             if muscle is not None:
                 where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
                              " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
@@ -678,25 +670,24 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     if where:
         sql += " WHERE " + " AND ".join(where)
     rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, limit])
-    owner = LISTS[kind][3] if kind in LISTS else None
-    newer = {i for _, i in store.newer(owner)} if owner else set()
+    newer = {i for _, i in store.newer(kind)} if kind not in ("events", "workouts") else set()
     for row in rows:
         if row.get("id") in newer:
             row["newer"] = True  # this record also holds a version a newer byobot wrote, which this one can't read
         for col in JSON_COLUMNS:
-            if isinstance(row.get(col), str) and (kind != "observations" or col != "value"):
+            if isinstance(row.get(col), str) and (kind != "observation" or col != "value"):
                 row[col] = json.loads(row[col])
         if kind == "events":
             row["payload"] = json.loads(row["payload"])
-        if kind == "activities" and detail == "brief":
+        if kind == "activity" and detail == "brief":
             for col in [c for c in row if c not in BRIEF_ACTIVITY or row[c] is None]:
                 del row[col]
-        if kind in ("sessions", "efforts"):
-            row["metrics"] = metrics_of(store, LISTS[kind][3], row["id"])
-        if kind == "sessions":
+        if kind in ("session", "effort"):
+            row["metrics"] = metrics_of(store, kind, row["id"])
+        if kind == "session":
             row["efforts"] = [e["id"] for e in store.rows(
                 "SELECT id FROM efforts WHERE session_id = ? ORDER BY start_ms, id", (row["id"],))]
-        if kind == "planned":
+        if kind == "planned_session":
             _planned(store, row)
         if kind == "workouts":
             _workout(store, row)
@@ -727,6 +718,88 @@ def _workout(store: Store, row: dict) -> None:
         if m["text"] is not None:
             value["value"] = m["text"]
         row["metrics"][m["code"]] = {**value, "from": {"kind": m["from_kind"], "id": m["from_id"]}}
+
+
+def _activities(store: Store) -> list[dict]:
+    rows = store.rows("SELECT id, name, tags, targets, load_type, equipment FROM activities ORDER BY id")
+    for row in rows:
+        for col in ("tags", "targets", "equipment"):
+            row[col] = json.loads(row[col]) if isinstance(row[col], str) else row[col]
+    return rows
+
+
+def _equipment(store: Store, location: str | None) -> list[str] | None:
+    """The equipment you have at a location, else your default; None means everything counts."""
+    if location is not None:
+        found = store.get("location", location)
+        if found is None:
+            raise NotFound(f"no location {location}")
+        if isinstance(found["payload"].get("equipment"), list):
+            return found["payload"]["equipment"]
+    rows = store.rows("SELECT value FROM settings WHERE id = 'equipment'")
+    value = json.loads(rows[0]["value"]) if rows else None
+    return value if isinstance(value, list) else None
+
+
+@command(
+    "swap list",
+    "Swaps for an activity, ranked as the app ranks them: activities that work the same muscles, the ones you have "
+    "the equipment for first.",
+    Param("activity", "string", "The activity to swap out.", required=True, positional=True),
+    Param("location", "string", "Rank by the equipment at this location, else your default (the equipment "
+          "setting). Without either, everything counts."),
+    Param("limit", "integer", "At most this many.", default=8, bounds=(1, 1000)),
+    description="A swap scores 3 for each main muscle it shares, 1 for each muscle one works as main and the other "
+                "as synergist, 0.5 for each shared synergist, less 1.5 for each main muscle the original doesn't "
+                "work and 1 for each it leaves out.",
+)
+def _swap_list(ctx: Context, activity: str, location: str | None = None, limit: int = 8) -> dict:
+    store = ctx.store()
+    library = _activities(store)
+    original = next((a for a in library if a["id"] == activity), None)
+    if original is None:
+        raise NotFound(f"no activity {activity}")
+    have = _equipment(store, location)
+    found = swaps.alternatives(original, library, None if have is None else set(have), limit)
+    items = [{**{k: a["activity"][k] for k in ("id", "name", "targets", "load_type", "equipment")
+                 if a["activity"][k] is not None},
+              "score": a["score"], "missing_equipment": a["missing_equipment"]} for a in found]
+    return {"activity_id": activity, "location_id": location, "equipment": have, "count": len(items),
+            "items": items, **untrusted("items")}
+
+
+@command(
+    "effort history",
+    "The sets you did of an activity, the last times you did it, newest first, each time with where it was.",
+    Param("activity", "string", "The activity.", required=True, positional=True),
+    Param("location", "string", "Where you train now. Sets with a load compare only within one location, so only "
+          "sets there come back; with none there, the latest anywhere, marked elsewhere."),
+    Param("limit", "integer", "At most this many times.", default=3, bounds=(1, 1000)),
+    description="A time is one session's sets, or a set logged without a session. This is the app's last time at "
+                "the gym.",
+)
+def _effort_history(ctx: Context, activity: str, location: str | None = None, limit: int = 3) -> dict:
+    store = ctx.store()
+    sets = store.rows(
+        "SELECT e.id, e.session_id, coalesce(e.location_id, s.location_id) AS location_id, e.performed_at,"
+        " e.local_date, e.start_ms, e.side, e.planned_session_id, e.planned_effort_id FROM efforts e"
+        " LEFT JOIN sessions s ON s.id = e.session_id WHERE e.activity_id = ? ORDER BY e.start_ms, e.id", (activity,))
+    if not sets and not store.rows("SELECT 1 FROM activities WHERE id = ?", (activity,)):
+        raise NotFound(f"no activity {activity}")
+    for row in sets:
+        row["metrics"] = metrics_of(store, "effort", row["id"])
+    elsewhere = False
+    if location is not None and any("load" in r["metrics"] for r in sets):
+        here = [r for r in sets if r["location_id"] == location]
+        sets, elsewhere = (here, False) if here else (sets, bool(sets))
+    times: dict[str, list[dict]] = {}
+    for row in sets:
+        times.setdefault(row["session_id"] or row["id"], []).append(row)
+    latest = sorted(times.values(), key=lambda t: (t[-1]["start_ms"], t[-1]["id"]), reverse=True)[:limit]
+    return {"activity_id": activity, "location_id": location, "elsewhere": elsewhere, "times": [
+        {"date": t[-1]["local_date"], "session_id": t[-1]["session_id"], "location_id": t[-1]["location_id"],
+         "sets": [{k: v for k, v in r.items() if k not in ("session_id", "local_date", "start_ms") and v is not None}
+                  for r in t]} for t in latest]}
 
 
 @command(
@@ -788,20 +861,20 @@ def _validate(ctx: Context, document: Any, **kwargs: Any) -> dict:
     return {"valid": not errors, "as": kind, "errors": errors}
 
 
-@command("devices", "List the phones and other devices paired with `byobot serve`.")
-def _devices(ctx: Context) -> dict:
+@command("devices list", "List the phones and other devices paired with `byobot serve`.")
+def _devices_list(ctx: Context) -> dict:
     peers = ctx.store().peers()
     return {"count": len(peers), "items": peers, **untrusted("items")}
 
 
 @command(
-    "unpair",
+    "devices remove",
     "Stop syncing with a paired device. Its token stops working at once; pairing again starts fresh.",
-    Param("device_id", "string", "The device to unpair (see `byobot devices`).", required=True, positional=True),
+    Param("device_id", "string", "The device to remove (see `byobot devices list`).", required=True, positional=True),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _unpair(ctx: Context, device_id: str) -> dict:
+def _devices_remove(ctx: Context, device_id: str) -> dict:
     return {"device": ctx.store().unpair(device_id)}
 
 
@@ -896,8 +969,8 @@ def _ask(prompt: str, secret: bool = False) -> str:
           "Asked for the first time if left out."),
     Param("ios_client_id", "string", "Your iOS client's id, which a phone needs to join. Asked for the first time "
           "if left out."),
-    Param("recovery", "string", "Make a recovery code, which rebuilds the logbook from Drive alone if every device "
-          "is lost.", choices=("yes", "no"), default="yes"),
+    Param("recovery", "boolean", "Make a recovery code, which rebuilds the logbook from Drive alone if every device "
+          "is lost.", default=True),
     read_only=False,
     mcp=False,
     description="The Google Cloud project needs the Drive API on, a consent screen In production with only the "
@@ -905,7 +978,7 @@ def _ask(prompt: str, secret: bool = False) -> str:
                 "only its own hidden folder in your Drive.",
 )
 def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: str | None = None,
-                 recovery: str = "yes") -> dict:
+                 recovery: bool = True) -> dict:
     from byobot.cloud import drive
     from byobot.cloud.keeper import Keeper, is_keeper
 
@@ -938,7 +1011,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
         raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
                                "run `byobot cloud recover` with its recovery code")
     with _lock(store):
-        keeper = Keeper.setup(store, folder, recovery=recovery == "yes")
+        keeper = Keeper.setup(store, folder, recovery=recovery)
     out = {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch}
     if keeper.recovery_code:
         out["recovery_code"] = keeper.recovery_code
@@ -984,12 +1057,11 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
     "cloud join",
     "Show a one-time code for a phone to join Drive sync, then wait until it joins. The code works once, for ten "
     "minutes, and holds no key.",
-    Param("wait", "string", "Wait for the phone here, or only show the code.", choices=("yes", "no"),
-          default="yes"),
+    Param("wait", "boolean", "Wait for the phone here, or only show the code.", default=True),
     read_only=False,
     mcp=False,
 )
-def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
+def _cloud_join(ctx: Context, wait: bool = True) -> dict:
     from byobot.cloud import drive
 
     keeper = _keeper(ctx)
@@ -1007,7 +1079,7 @@ def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
         except Exception:  # pragma: no cover - a terminal that can't draw the code still gets the link
             pass
         sys.stderr.write(f"\nLink: {link}\n")
-    if wait == "no":
+    if not wait:
         return out
     sys.stderr.write("Waiting for the phone. Press Ctrl-C to stop.\n")
     try:
@@ -1063,12 +1135,12 @@ def _cloud_status(ctx: Context) -> dict:
     "Remove a device from Drive sync, such as a lost phone. A new epoch starts with a key it doesn't get.",
     Param("device_id", "string", "The device to remove (see `byobot cloud status`).", required=True,
           positional=True),
-    Param("revoke_google", "string", "Also revoke Google access, for a lost or stolen phone. This signs out every "
-          "phone, not only this one. Asked in a terminal; no otherwise.", choices=("yes", "no")),
+    Param("revoke_google", "boolean", "Also revoke Google access, for a lost or stolen phone. This signs out every "
+          "phone, not only this one. Asked in a terminal; no otherwise."),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None) -> dict:
+def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = None) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
         epoch = keeper.remove(device_id)
@@ -1078,14 +1150,14 @@ def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None
                           "and the others join again. [y/N] ") if sys.stdin.isatty() else ""
         except (EOFError, OSError):
             answer = ""
-        revoke_google = "yes" if answer.lower() in ("y", "yes") else "no"
-    if revoke_google == "yes":
+        revoke_google = answer.lower() in ("y", "yes")
+    if revoke_google:
         return {"removed": device_id, "epoch": epoch, "google_access": "revoke",
                 "next": "In your Google Account, open Security, then your connections to third-party apps, and remove "
                         "your Google Cloud project's iOS app. Then run `byobot cloud join` for each phone you keep."}
     return {"removed": device_id, "epoch": epoch, "google_access": "kept",
             "note": "It can't read anything new, but it stays signed in to Google and could still delete files in "
-                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google yes` "
+                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google` "
                     "explains; that signs out every phone."}
 
 
@@ -1105,20 +1177,19 @@ def _cloud_compact(ctx: Context) -> dict:
     "cloud off",
     "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
     "setup` turns it on again.",
-    Param("delete", "string", "Also delete the folder's files, all but a note that tells phones they were taken "
-          "off, and forget the keys and devices here. Phones then join again after setup.", choices=("yes", "no"),
-          default="no"),
+    Param("delete", "boolean", "Also delete the folder's files, all but a note that tells phones they were taken "
+          "off, and forget the keys and devices here. Phones then join again after setup.", default=False),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_off(ctx: Context, delete: str = "no") -> dict:
+def _cloud_off(ctx: Context, delete: bool = False) -> dict:
     from byobot.cloud.keeper import is_keeper
 
     if not is_keeper(ctx.store()):
         return {"on": False}
     keeper = _keeper(ctx, off_ok=True)
     with _lock(keeper.store):
-        if delete == "yes":
+        if delete:
             return {"on": False, "deleted": keeper.forget()}
         keeper.off()
     return {"on": False, "deleted": 0}
@@ -1142,3 +1213,83 @@ def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
         return review(ctx.store(), weeks, until)
     except (ValueError, OverflowError) as exc:
         raise ValidationFailed(f"until must be a date such as 2026-11-23: {exc}") from None
+
+
+# -- serving ----------------------------------------------------------------------------------------------------------
+
+PORT = (0, 65535)
+
+
+@command(
+    "mcp",
+    "Serve these commands to an agent over MCP (stdio).",
+    read_only=False,
+    mcp=False,
+    description="Run an MCP server on stdin/stdout. Point your agent's MCP config at `byobot mcp`.",
+)
+def _mcp(ctx: Context) -> None:
+    from byobot.mcp import serve
+
+    serve()
+
+
+@command(
+    "serve",
+    "Sync with the byobot app on your phone over your own network.",
+    Param("host", "string", "Address to listen on. Default: all interfaces.", default="0.0.0.0"),
+    Param("port", "integer", "Port to listen on. Default: the one this profile used last, else 8765 for the "
+          "default profile.", bounds=PORT),
+    Param("pair", "boolean", "Show a pairing code even if a device is paired, or never with --no-pair."),
+    read_only=False,
+    mcp=False,
+    description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
+                "Shows a QR code to pair a phone when none is paired yet (or with --pair).",
+)
+def _serve(ctx: Context, host: str = "0.0.0.0", port: int | None = None, pair: bool | None = None) -> None:
+    from byobot import serve
+
+    serve.run(host, port, pair)
+
+
+@command(
+    "remote serve",
+    "Serve these commands over the internet, for assistants on your phone.",
+    Param("url", "string", "The https address your tunnel gives this profile. Saved after the first run."),
+    Param("host", "string", "Address to listen on. Default: this computer only.", default="127.0.0.1"),
+    Param("port", "integer", "Port to listen on. Default: the one this profile used last, else 8780 for the "
+          "default profile.", bounds=PORT),
+    Param("pair", "boolean", "Show a code to connect an assistant even if one is connected, or never with "
+          "--no-pair."),
+    read_only=False,
+    mcp=False,
+    description="Serve the MCP tools at /mcp, with sign-in, for assistants that run elsewhere. Listens on this "
+                "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.",
+)
+def _remote_serve(ctx: Context, url: str | None = None, host: str = "127.0.0.1", port: int | None = None,
+                  pair: bool | None = None) -> None:
+    from byobot import remote
+
+    remote.run(url, host, port, pair)
+
+
+@command(
+    "remote key",
+    "Make an API key for an assistant that calls an API, and copy it to the clipboard.",
+    Param("name", "string", "The assistant's name, such as my_assistant.", required=True, positional=True),
+    Param("show", "boolean", "Print the key once instead of copying it.", default=False),
+    Param("read_only", "boolean", "A key that can only read.", default=False),
+    read_only=False,
+    mcp=False,
+)
+def _remote_key(ctx: Context, name: str, show: bool = False, read_only: bool = False) -> dict:
+    from byobot import remote
+
+    return remote.make_key(name, show, read_only)
+
+
+@command("remote revoke", "Disconnect every assistant and API key from this profile.", read_only=False,
+         destructive=True, mcp=False)
+def _remote_revoke(ctx: Context) -> dict:
+    from byobot import remote
+
+    return remote.revoke()

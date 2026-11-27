@@ -1,0 +1,399 @@
+{
+ "description": "Swaps for an activity, ranked by the muscles they share and the equipment you have, as Swaps.swift and byobot/swaps.py rank them. equipment null means you have everything; limit defaults to 8.",
+ "library": [
+  {
+   "id": "barbell_back_squat",
+   "payload": {
+    "name": "Barbell Back Squat",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "hamstrings"
+     ]
+    },
+    "load_type": "barbell",
+    "equipment": [
+     "squat_rack"
+    ]
+   },
+   "prev": []
+  },
+  {
+   "id": "goblet_squat",
+   "payload": {
+    "name": "Goblet Squat",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "glutes",
+      "quads"
+     ],
+     "synergists": []
+    },
+    "load_type": "dumbbell"
+   },
+   "prev": []
+  },
+  {
+   "id": "bulgarian_split_squat",
+   "payload": {
+    "name": "Bulgarian Split Squat",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "hamstrings"
+     ]
+    },
+    "load_type": "dumbbell",
+    "equipment": [
+     "bench"
+    ]
+   },
+   "prev": []
+  },
+  {
+   "id": "leg_press",
+   "payload": {
+    "name": "Leg Press",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "hamstrings"
+     ]
+    },
+    "load_type": "plate_loaded_machine"
+   },
+   "prev": []
+  },
+  {
+   "id": "walking_lunge",
+   "payload": {
+    "name": "Walking Lunge",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": [
+      "hamstrings"
+     ]
+    },
+    "load_type": "bodyweight"
+   },
+   "prev": []
+  },
+  {
+   "id": "leg_extension",
+   "payload": {
+    "name": "Leg Extension",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "quads"
+     ],
+     "synergists": []
+    },
+    "load_type": "machine"
+   },
+   "prev": []
+  },
+  {
+   "id": "romanian_deadlift",
+   "payload": {
+    "name": "Romanian Deadlift",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "hamstrings",
+      "glutes"
+     ],
+     "synergists": [
+      "lower_back"
+     ]
+    },
+    "load_type": "barbell"
+   },
+   "prev": []
+  },
+  {
+   "id": "jump_squat",
+   "payload": {
+    "name": "Jump Squat",
+    "tags": [
+     "conditioning"
+    ],
+    "targets": {
+     "main": [
+      "quads",
+      "glutes"
+     ],
+     "synergists": []
+    },
+    "load_type": "bodyweight"
+   },
+   "prev": []
+  },
+  {
+   "id": "plank",
+   "payload": {
+    "name": "Plank",
+    "tags": [
+     "core"
+    ],
+    "targets": {
+     "main": [
+      "abs"
+     ],
+     "synergists": []
+    },
+    "load_type": "bodyweight"
+   },
+   "prev": []
+  },
+  {
+   "id": "pull_up",
+   "payload": {
+    "name": "Pull-Up",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "lats"
+     ],
+     "synergists": [
+      "biceps"
+     ]
+    },
+    "load_type": "bodyweight",
+    "equipment": [
+     "pull_up_bar"
+    ]
+   },
+   "prev": []
+  },
+  {
+   "id": "lat_pulldown",
+   "payload": {
+    "name": "Lat Pulldown",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "lats"
+     ],
+     "synergists": [
+      "biceps"
+     ]
+    },
+    "load_type": "cable"
+   },
+   "prev": []
+  },
+  {
+   "id": "dumbbell_row",
+   "payload": {
+    "name": "Dumbbell Row",
+    "tags": [
+     "strength"
+    ],
+    "targets": {
+     "main": [
+      "lats",
+      "upper_back"
+     ],
+     "synergists": [
+      "biceps"
+     ]
+    },
+    "load_type": "dumbbell",
+    "equipment": [
+     "bench"
+    ]
+   },
+   "prev": []
+  },
+  {
+   "id": "run",
+   "payload": {
+    "name": "Run",
+    "tags": [
+     "cardio"
+    ],
+    "targets": {
+     "main": [],
+     "synergists": []
+    }
+   },
+   "prev": []
+  }
+ ],
+ "cases": [
+  {
+   "name": "a squat with dumbbells and a bench",
+   "activity_id": "barbell_back_squat",
+   "equipment": [
+    "dumbbell",
+    "bench"
+   ],
+   "expect": [
+    {
+     "id": "bulgarian_split_squat",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "walking_lunge",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "goblet_squat",
+     "score": 6.0,
+     "missing_equipment": []
+    },
+    {
+     "id": "leg_press",
+     "score": 6.5,
+     "missing_equipment": [
+      "plate_loaded_machine"
+     ]
+    },
+    {
+     "id": "leg_extension",
+     "score": 2.0,
+     "missing_equipment": [
+      "machine"
+     ]
+    },
+    {
+     "id": "romanian_deadlift",
+     "score": 1.5,
+     "missing_equipment": [
+      "barbell"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a squat with everything",
+   "activity_id": "barbell_back_squat",
+   "equipment": null,
+   "expect": [
+    {
+     "id": "bulgarian_split_squat",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "leg_press",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "walking_lunge",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "goblet_squat",
+     "score": 6.0,
+     "missing_equipment": []
+    },
+    {
+     "id": "leg_extension",
+     "score": 2.0,
+     "missing_equipment": []
+    },
+    {
+     "id": "romanian_deadlift",
+     "score": 1.5,
+     "missing_equipment": []
+    }
+   ]
+  },
+  {
+   "name": "a squat with nothing, the first two",
+   "activity_id": "barbell_back_squat",
+   "equipment": [],
+   "limit": 2,
+   "expect": [
+    {
+     "id": "walking_lunge",
+     "score": 6.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "bulgarian_split_squat",
+     "score": 6.5,
+     "missing_equipment": [
+      "dumbbell",
+      "bench"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a pull-up with a cable",
+   "activity_id": "pull_up",
+   "equipment": [
+    "cable"
+   ],
+   "expect": [
+    {
+     "id": "lat_pulldown",
+     "score": 3.5,
+     "missing_equipment": []
+    },
+    {
+     "id": "dumbbell_row",
+     "score": 2.0,
+     "missing_equipment": [
+      "dumbbell",
+      "bench"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a core drill is no squat",
+   "activity_id": "plank",
+   "equipment": null,
+   "expect": []
+  },
+  {
+   "name": "no muscles, no guesses",
+   "activity_id": "run",
+   "equipment": null,
+   "expect": []
+  }
+ ]
+}

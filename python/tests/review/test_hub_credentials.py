@@ -37,5 +37,5 @@ def test_two_homes_do_not_share_keychain_secrets(tmp_path, monkeypatch):
     credentials.save("whoop", {"refresh_token": "example-token-of-person-a"})
     assert credentials.load("whoop") == {"refresh_token": "example-token-of-person-a"}
 
-    monkeypatch.setenv("BYOBOT_HOME", str(tmp_path / "home-b"))  # `byobot --home <home-b> import-whoop`
+    monkeypatch.setenv("BYOBOT_HOME", str(tmp_path / "home-b"))  # `byobot --home <home-b> import whoop`
     assert credentials.load("whoop") is None, "the second home signs in to WHOOP as the first home's person"

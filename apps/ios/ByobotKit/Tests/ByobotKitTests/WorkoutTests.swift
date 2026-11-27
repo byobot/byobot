@@ -45,6 +45,43 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(Swaps.alternatives(to: Activity(id: "x", name: "X"), in: library), [], "no muscles, no guesses")
     }
 
+    struct SwapCase: Decodable, Equatable {
+        var id: String
+        var score: Double
+        var missingEquipment: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case id, score
+            case missingEquipment = "missing_equipment"
+        }
+    }
+
+    /// The same cases the Mac's `swap list` runs, so an agent suggests the swaps the app does.
+    func testSwapsMatchTheSharedFixtures() throws {
+        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/swaps.json"),
+              let libraryJSON = doc["library"] else { return XCTFail("no library in swaps.json") }
+        let library = try JSONDecoder().decode([Activity].self, from: Fixtures.data(libraryJSON))
+        let items = try Fixtures.cases("schema/fixtures/v1/swaps.json")
+        XCTAssertFalse(items.isEmpty)
+        for item in items {
+            let name = item.string("name") ?? "?"
+            let original = try XCTUnwrap(library.first { $0.id == item.string("activity_id") }, name)
+            var equipment: Set<String>?
+            if case .array(let values)? = item["equipment"] {
+                equipment = Set(values.compactMap { value -> String? in
+                    if case .string(let s) = value { return s }
+                    return nil
+                })
+            }
+            var limit = 8
+            if case .number(let n)? = item["limit"] { limit = Int(n) }
+            let expected = try JSONDecoder().decode([SwapCase].self, from: Fixtures.data(item["expect"] ?? .array([])))
+            let got = Swaps.alternatives(to: original, in: library, equipment: equipment, limit: limit)
+                .map { SwapCase(id: $0.id, score: $0.score, missingEquipment: $0.missingEquipment) }
+            XCTAssertEqual(got, expected, name)
+        }
+    }
+
     func testYourEquipmentRanksTheSwaps() throws {
         var book = try makeBook()
         let pullUp = try XCTUnwrap(try session("sess-upper").blocks.first?.efforts.first)
