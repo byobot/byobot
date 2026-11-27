@@ -82,6 +82,27 @@ def tools(read_only: bool = False) -> list[dict]:
     return out
 
 
+def tool(name: Any) -> Command | None:
+    """The command an assistant may call as ``name``."""
+    cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
+    return cmd if cmd is not None and cmd.mcp else None
+
+
+def call(ctx: Context, cmd: Command, args: dict, agent: str, read_only: bool = False) -> Any:
+    """Run a tool for the assistant ``agent``, which writes as itself and may name its model. MCP and the REST API
+    both call tools this way."""
+    args = dict(args)
+    model = args.pop("model", None) if not cmd.read_only else None
+    if read_only and not cmd.read_only:
+        raise Forbidden(f"this assistant may only read, so it can't use {cmd.tool}; connect it again to let it write")
+    actor = {"kind": "agent", "id": plain_text(agent, 200) or "mcp-client"}
+    model = model or os.environ.get("BYOBOT_AGENT_MODEL")
+    if model:
+        actor["model"] = str(model)[:200]
+    ctx.actor = actor
+    return run(cmd.name, ctx, args)
+
+
 class Server:
     def __init__(self, actor_id: str | None = None, read_only: bool = False) -> None:
         self.protocol = LATEST
@@ -90,17 +111,6 @@ class Server:
         self.read_only = read_only  # only read-only tools
         self.ctx: Context | None = None
         self.quiet_errors = False  # over the network an exception's text stays in the log
-
-    def _context(self, model: str | None) -> Context:
-        name = plain_text(str(self.actor_id or self.client.get("name") or ""), 200)
-        actor = {"kind": "agent", "id": name or "mcp-client"}
-        model = model or os.environ.get("BYOBOT_AGENT_MODEL")
-        if model:
-            actor["model"] = str(model)[:200]
-        if self.ctx is None:
-            self.ctx = Context(actor=actor, path=db_path())
-        self.ctx.actor = actor
-        return self.ctx
 
     def handle(self, message: Any) -> dict | list | None:
         if isinstance(message, list):
@@ -146,18 +156,16 @@ class Server:
 
     def _call(self, mid: Any, params: dict) -> dict:
         name = params.get("name")
-        cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
-        if cmd is None or not cmd.mcp:
+        cmd = tool(name)
+        if cmd is None:
             return _error(mid, INVALID_PARAMS, f"unknown tool: {name}")
         args = params.get("arguments") or {}
         if not isinstance(args, dict):
             return _error(mid, INVALID_PARAMS, "arguments must be an object")
-        args = dict(args)
-        model = args.pop("model", None) if not cmd.read_only else None
+        if self.ctx is None:
+            self.ctx = Context(actor={}, path=db_path())
         try:
-            if self.read_only and not cmd.read_only:
-                raise Forbidden(f"this assistant may only read, so it can't use {name}; connect it again to let it write")
-            result = run(cmd.name, self._context(model), args)
+            result = call(self.ctx, cmd, args, str(self.actor_id or self.client.get("name") or ""), self.read_only)
         except ByobotError as exc:
             body = exc.to_dict()
             return _result(mid, {"content": [{"type": "text", "text": json.dumps(body, indent=2)}], "isError": True})

@@ -442,6 +442,39 @@ def test_api_errors_carry_a_code_and_its_status(running):
         "schema"] == {"$ref": "#/components/schemas/Error"}
 
 
+@pytest.mark.parametrize("tool, args", [
+    ("validate", {"document": {"name": "Plank"}, "as": "activity"}),
+    ("validate", {"document": {}, "as": "observation"}),
+    ("history", {"kind": "activity", "id": "missing"}),
+    ("query", {"sql": "SELECT 1 AS one"}),
+])
+def test_the_api_answers_as_mcp_does(running, tool, args):
+    key = running.auth.create_key("example_assistant")
+    _, raw = request(running, "POST", f"/api/v1/tools/{tool}", args, {"X-API-Key": key})
+    _, reply = rpc(running, key, "tools/call", {"name": tool, "arguments": args})
+    assert json.loads(raw) == json.loads(json.loads(reply)["result"]["content"][0]["text"])
+
+
+def test_an_api_read_that_runs_too_long_is_stopped(running, monkeypatch):
+    monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {},
+                        {"X-API-Key": running.auth.create_key("example_assistant")})
+    assert resp.status == 503 and json.loads(raw)["error"] == "timeout"
+
+
+def test_an_api_tool_that_breaks_keeps_its_text_to_the_log(running, monkeypatch):
+    cmd = commands.REGISTRY["status"]
+
+    def broken(ctx, **kw):
+        raise RuntimeError("example secret detail")
+
+    monkeypatch.setitem(commands.REGISTRY, "status", dataclasses.replace(cmd, handler=broken))
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {},
+                        {"X-API-Key": running.auth.create_key("example_assistant")})
+    assert resp.status == 500 and json.loads(raw)["error"] == "error" and b"secret" not in raw
+
+
 def test_an_api_key_also_works_for_mcp(running):
     key = running.auth.create_key("example_assistant")
     resp, raw = rpc(running, key, "tools/list")
