@@ -77,7 +77,7 @@ extension Logbook {
         let payload = LocationPayload(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
         let event = put("location", id, payload)
         setLocation(id)
-        return Location(id: id, payload: payload, prev: [event.id])
+        return Location(id: id, payload: payload, prev: event.map { [$0.id] } ?? [])
     }
 
     /// Where you're training. During a session it moves the whole session, sets already logged included.

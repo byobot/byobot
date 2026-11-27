@@ -575,6 +575,22 @@ final class LogbookTests: XCTestCase {
         XCTAssertTrue(book.pendingEvents.isEmpty, "changing it here would drop what this app can't read")
     }
 
+    func testEveryWriteLeavesARecordANewerAppWroteAsItIs() throws {
+        let newer = { (kind: String) in (KindVersion.all[kind] ?? 1) + 1 }
+        var home = Location(id: "home", payload: LocationPayload(name: "Home"), prev: ["e1"])
+        home.kindVersion = newer("location")
+        var here = Setting(id: "current_location", payload: SettingPayload(value: .string("home")), prev: ["e2"])
+        here.kindVersion = newer("setting")
+        var window = try Fixtures.window()
+        window.locations = [home]
+        window.settings = [here]
+        var book = makeLogbook(plan: window)
+        book.setEquipment(["barbell"])
+        book.setLocation(nil)
+        XCTAssertEqual(book.pendingEvents, [])
+        XCTAssertEqual(book.currentLocationId, "home")
+    }
+
     func testValuesFromANewerByobotStillRead() throws {
         let sides = try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8))
         XCTAssertEqual(sides, [.left, .other("diagonal")])
