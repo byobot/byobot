@@ -109,7 +109,7 @@
         },
         "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}, "description": "The devices the epoch started with."},
         "checkpoint": {"type": "integer", "minimum": 0, "description": "How many checkpoint parts hold the logbook as the epoch started."},
-        "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete yes`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."},
+        "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."},
         "capabilities": {"$ref": "#/$defs/capabilities", "description": "The keeper's."}
       },
       "additionalProperties": false

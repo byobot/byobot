@@ -675,7 +675,7 @@ class Keeper:
 
     @property
     def is_closed(self) -> bool:
-        """Whether `cloud off --delete yes` closed the folder, so setup may start again in any account."""
+        """Whether `cloud off --delete` closed the folder, so setup may start again in any account."""
         return self._get("closed") is not None
 
     def forget(self) -> int:
@@ -841,7 +841,7 @@ def _parts(events: list[dict]) -> list[list[dict]]:
 
 
 def _closed(folder: Folder, listing: dict[str, str]) -> bool:
-    """Whether `cloud off --delete yes` left this folder: nothing in it but epoch files, the newest marked closed."""
+    """Whether `cloud off --delete` left this folder: nothing in it but epoch files, the newest marked closed."""
     epochs = sorted(p for p in listing if is_epoch_file(p))
     return bool(epochs) and len(epochs) == len(listing) and files.is_closed(folder.read(epochs[-1]))
 

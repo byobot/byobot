@@ -1001,7 +1001,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
             else:
                 credentials.delete(drive.NAME)
             raise ValidationFailed("that Google account doesn't hold this store's Drive folder; sign in with the "
-                                   "account Drive sync uses, or run `byobot cloud off --delete yes` first to move "
+                                   "account Drive sync uses, or run `byobot cloud off --delete` first to move "
                                    "Drive sync to another account")
         keeper.on()
         return {"signed_in": True, "keeper": "already", **_sync(keeper)}
