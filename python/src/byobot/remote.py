@@ -93,6 +93,7 @@ class Grant:
     redirect_uri: str
     challenge: str
     generation: int  # revoke_all moves oauth.json past this, and the code with it
+    named: bool = True  # whether the request named redirect_uri, so the token request must too (RFC 6749 4.1.3)
     expires_at: float = field(default_factory=lambda: time.monotonic() + CODE_TTL_S)
 
 
@@ -222,13 +223,13 @@ class Auth:
 
     # -- codes and tokens --
 
-    def grant(self, client_id: str, redirect_uri: str, challenge: str) -> str:
+    def grant(self, client_id: str, redirect_uri: str, challenge: str, named: bool = True) -> str:
         code = secrets.token_urlsafe(32)
         with self.lock:
             generation = self._load()["generation"]
             now = time.monotonic()
             self.grants = {k: g for k, g in self.grants.items() if g.expires_at > now}
-            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation)
+            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named)
         return code
 
     def exchange(self, client: dict, code: Any, redirect_uri: Any, verifier: Any) -> dict:
@@ -236,7 +237,7 @@ class Auth:
             grant = self.grants.pop(_hash(code), None) if isinstance(code, str) else None
         if grant is None or grant.expires_at < time.monotonic() or grant.client_id != client["client_id"]:
             raise OAuthError("invalid_grant", "the code is unknown, used or expired")
-        if redirect_uri != grant.redirect_uri:
+        if redirect_uri != grant.redirect_uri and (grant.named or redirect_uri is not None):
             raise OAuthError("invalid_grant", "redirect_uri does not match the authorization request")
         if not isinstance(verifier, str) or not 43 <= len(verifier) <= 128:
             raise OAuthError("invalid_grant", "code_verifier is required")
@@ -479,7 +480,8 @@ class Handler(serve.Handler):
                 ok = is_open and pairing.check(q.get("approval_code", ""))
                 tries = pairing.tries_left if pairing else 0
             if ok:
-                code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"])
+                code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"],
+                                              bool(q.get("redirect_uri")))
                 self.server.log(serve.printable(f"approved {client['client_name']}"))
                 self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
                 return
