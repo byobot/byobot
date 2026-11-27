@@ -258,15 +258,17 @@ public struct Logbook: Sendable {
 
     /// The latest version of each record of a kind written here, in the order first written. Retracted ones
     /// are left out.
-    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type) -> [Record<P>] {
+    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type,
+                                                                 where keep: (JSONValue) -> Bool = { _ in true }) -> [Record<P>] {
         var order: [String] = []
-        var latest: [String: P?] = [:]
+        var latest: [String: Event] = [:]
         for event in state.events where event.record.kind == kind {
             if latest[event.record.id] == nil { order.append(event.record.id) }
-            latest[event.record.id] = .some(event.decoded(P.self))
+            latest[event.record.id] = event
         }
         return order.compactMap { id in
-            latest[id].flatMap { $0 }.map { Record(id: id, payload: $0, prev: prev(kind, id)) }
+            guard let event = latest[id], keep(event.payload) else { return nil }
+            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: prev(kind, id)) }
         }
     }
 
@@ -305,11 +307,14 @@ public struct Logbook: Sendable {
     func fresh(_ kind: String) -> [String] {
         let fetched = state.planFetchedAt.flatMap(Timestamp.date)
         let pending = Set(state.pending)
-        var out: [String] = []
-        for event in state.events where event.record.kind == kind {
+        var out: [String] = [], seen = Set<String>()
+        for event in state.events where event.record.kind == kind && !seen.contains(event.record.id) {
             let isFresh = pending.contains(event.id)
                 || fetched.map { (Timestamp.date(event.ts) ?? .distantPast) > $0 } ?? true
-            if isFresh, !out.contains(event.record.id) { out.append(event.record.id) }
+            if isFresh {
+                out.append(event.record.id)
+                seen.insert(event.record.id)
+            }
         }
         return out
     }
