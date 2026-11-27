@@ -417,7 +417,7 @@ def _exclude(ctx: Context, record_id: str, notes: str | None = None) -> dict:
 
 
 @command(
-    "same as",
+    "same_as",
     "Say an imported workout is the same as another workout, so it's counted once.",
     Param("record_id", "string", "The source record's id.", required=True, positional=True),
     Param("other_id", "string", "The session or source record it is the same as.", required=True, positional=True),
