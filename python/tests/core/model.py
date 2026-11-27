@@ -13,7 +13,8 @@ writes and computes everything an agent can read from them:
 * Logging an id that's already taken is refused, not overwritten.
 * Erase wins over everything: the record and every write to it, earlier or later, are gone.
 * Source revisions are writes too, keyed by their content, so the same revision imported twice is one
-  write. Every revision is kept; the latest is current.
+  write. Every revision is kept; the latest is current. A deletion hides the revision it names, so a newer
+  revision shows again, and deleting a record not held writes nothing.
 * Workouts seen by several sources are one occurrence: your values first, then sources by rank, each
   field from the best item that has it, with its provenance. Corrections are overlays over a source.
 """
@@ -274,6 +275,8 @@ class ModelReplica:
             rid = f"correct:{target}"
             current = self.fields(key("overlay", rid)) or {"target": target, "fields": {}}
             content = {"target": target, "fields": _strip({**current["fields"], **intent["fields"]})}
+            if not content["fields"]:
+                raise Refused("nothing left to correct")
         else:
             rid = f"same_as:{target}"
             content = {"target": target, "session": intent["session"]}
@@ -291,9 +294,13 @@ class ModelReplica:
                                           "revision", content, wid=wid))
         for type_, source_id in (batch.get("deleted", []) if isinstance(batch, dict) else []):
             rid = f"{source}:{type_}:{source_id}"
-            wid = "src:" + hashlib.sha256(canonical([rid, "deleted"]).encode()).hexdigest()[:24]
+            revs = self.revisions(key("source_record", rid))
+            if not revs:
+                continue
+            wid = "src:" + hashlib.sha256(canonical([rid, "deleted", revs[-1].id]).encode()).hexdigest()[:24]
             if wid not in self.writes:
-                writes.append(self._write(at, f"connector:{source}", "source_record", rid, "deletion", None, wid=wid))
+                writes.append(self._write(at, f"connector:{source}", "source_record", rid, "deletion", revs[-1].id,
+                                          wid=wid))
         return writes
 
     def revisions(self, record: str) -> list[Write]:
@@ -303,10 +310,12 @@ class ModelReplica:
         return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.hlc, canonical(w.content["payload"])))
 
     def source_current(self, record: str) -> dict | None:
-        if any(self.writes[i].op == "deletion" for i in self.by_record.get(record, ())):
-            return None
+        """The latest revision, hidden while a deletion names it."""
         revs = self.revisions(record)
-        return revs[-1].content["payload"] if revs else None
+        if not revs or any(self.writes[i].op == "deletion" and self.writes[i].content == revs[-1].id
+                           for i in self.by_record.get(record, ())):
+            return None
+        return revs[-1].content["payload"]
 
     def source_history(self, source: str, type_: str, source_id: str) -> list[dict]:
         return [w.content["payload"] for w in self.revisions(key("source_record", f"{source}:{type_}:{source_id}"))]
@@ -324,12 +333,12 @@ class ModelReplica:
                 payload = self.source_current(record)
                 if payload is not None and (source, type_) in WORKOUT_TYPES:
                     items.append(_source_item(source, rid, payload))
-        overlays = {f["target"]: f for r in self.by_record if r.startswith("overlay/")
-                    if (f := self.fields(r)) is not None}
+        overlays = [f for r in self.by_record if r.startswith("overlay/") if (f := self.fields(r)) is not None]
+        corrections = {f["target"]: f["fields"] for f in overlays if "fields" in f}
         for item in items:
-            corrected = overlays.get(item["id"], {}).get("fields", {})
+            corrected = corrections.get(item["id"], {})
             item["metrics"].update({k: (float(v), "you") for k, v in corrected.items()})
-        links = {f["target"]: f"session/{f['session']}" for f in overlays.values() if "session" in f}
+        links = {f["target"]: f"session/{f['session']}" for f in overlays if "session" in f}
         out = []
         for cluster in _clusters(items, links):
             cluster.sort(key=lambda i: (RANK.index(i["rank"]) if i["rank"] in RANK else len(RANK), i["start"], i["id"]))
@@ -520,7 +529,7 @@ def newer(w: Write, variant: str) -> Write:
         return replace(w, id=f"{w.id}~meal", kind="meal", version=2)
     if variant == "newer_version":
         return replace(w, id=f"{w.id}~v2", version=2)
-    return replace(w, id=f"{w.id}~extra", content={**w.content, "x_new_field": 1})
+    return replace(w, id=f"{w.id}~extra", content={**w.content, "x_new_field": 1}, version=2 if w.op == "put" else w.version)
 
 
 def _instant(at: str | None) -> tuple:
