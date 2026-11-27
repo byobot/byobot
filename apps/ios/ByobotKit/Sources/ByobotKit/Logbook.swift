@@ -5,13 +5,13 @@
 import Foundation
 
 /// Everything the app keeps on the phone. The laptop's store is the source of truth; the phone keeps
-/// the plan it last pulled and every event it wrote, and pushes the ones the laptop doesn't have yet.
+/// the plan it last pulled, the events the laptop doesn't have yet, and a short tail of the rest.
 public struct AppState: Codable, Equatable, Sendable {
     /// This install's device id. Every event the app writes carries it.
     public var deviceId: String
     public var server: PairedServer?
     public var plan: PlanWindow?
-    /// Every event written on this phone, in the order it was written.
+    /// Events written on this phone, in the order written: what's waiting, and a short tail of what was sent.
     public var events: [Event]
     /// Ids of events the laptop hasn't taken yet, oldest first.
     public var pending: [String]
@@ -424,6 +424,7 @@ public struct Logbook: Sendable {
             }
         }
         state.pending.removeAll { done.contains($0) }
+        prune()
     }
 
     /// Take a pulled plan. Its versions of records replace what this phone kept, unless this phone's are fresh.
@@ -444,6 +445,7 @@ public struct Logbook: Sendable {
         state.plan = window
         let planned = Set(window.plannedSessions.map(\.id))
         state.workouts = state.workouts?.filter { planned.contains($0.key) }
+        prune()
         return resent
     }
 
@@ -488,6 +490,7 @@ public struct Logbook: Sendable {
     /// Events the Mac read from the cloud folder: done, whichever route they went by.
     public mutating func delivered(_ ids: Set<String>) {
         state.pending.removeAll { ids.contains($0) }
+        prune()
     }
 
     public mutating func settle(with window: PlanWindow) {
@@ -495,7 +498,52 @@ public struct Logbook: Sendable {
         guard let held = window.received?[state.deviceId] else { return }
         let taken = Set(pendingEvents.lazy.filter { $0.hlc <= held }.map(\.id))
         state.pending.removeAll { taken.contains($0) }
+        prune()
     }
+
+    /// Sent events kept for undo and for a laptop restored from a backup, at most this many from the last month.
+    static let keptSent = 1000
+    /// Refusals kept to show, the newest; the laptop keeps its own list too.
+    static let keptRejected = 200
+
+    /// Keeps what the phone still needs of its events: what's waiting or refused, the active session's, the newest
+    /// sent (it marks how far this phone sent), and the last month of the rest. The pulled plan has the others.
+    mutating func prune() {
+        if state.rejected.count > Self.keptRejected {
+            let gone = Set(state.rejected.dropLast(Self.keptRejected).map(\.eventId))
+            state.rejected.removeFirst(state.rejected.count - Self.keptRejected)
+            state.events.removeAll { gone.contains($0.id) }
+        }
+        let keep = Set(state.pending).union(state.rejected.map(\.eventId))
+        let monthAgo = clock().addingTimeInterval(-30 * 86_400).timeIntervalSince1970
+        let floor = HLC.format(ms: UInt64(Swift.max(0, monthAgo) * 1000), counter: 0)
+        var kept = [Bool](repeating: false, count: state.events.count)
+        var sent = 0, newest = true
+        for i in state.events.indices.reversed() {
+            let event = state.events[i]
+            if keep.contains(event.id) || state.activeSessionId.map({ Self.belongs(event, to: $0) }) == true {
+                kept[i] = true
+            } else if newest || (sent < Self.keptSent && event.hlc >= floor) {
+                kept[i] = true
+                sent += 1
+            }
+            if !keep.contains(event.id) { newest = false }
+        }
+        guard kept.contains(false) else { return }
+        state.events = zip(state.events, kept).filter { $0.1 }.map { $0.0 }
+        if let originals = state.remoteOriginals {
+            let held = Set(state.events.lazy.filter { $0.record.kind == "effort" }.map(\.record.id))
+            let left = originals.filter { held.contains($0.key) }
+            state.remoteOriginals = left.isEmpty ? nil : left
+        }
+    }
+
+    /// The event writes the session, or a set logged in it.
+    static func belongs(_ event: Event, to session: String) -> Bool {
+        if event.record.kind == "session" { return event.record.id == session }
+        guard case .object(let payload) = event.payload, case .object(let links)? = payload["links"],
+              case .object(let partOf)? = links["part_of"], case .string(let id)? = partOf["id"] else { return false }
+        return id == session
     }
 
     /// The laptop's record of events it refused, for when its answer to a push never arrived.

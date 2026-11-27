@@ -378,6 +378,33 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.logged(for: planned)[pullUp.id]?[1], "the laptop holds it and took it back")
     }
 
+    func testThePhoneKeepsWhatIsWaitingAndAMonthOfWhatWasSent() throws {
+        let clock = TickingClock()
+        var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: { clock.read() })
+        book.logEffort(activityId: "run", metrics: [:])
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        XCTAssertEqual(book.state.events.count, 2, "a month isn't up")
+        clock.now += 60 * 86_400
+        let sent = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let waiting = book.logEffort(activityId: "run", metrics: [:])
+        book.delivered([])
+        XCTAssertEqual(book.state.events.map(\.record.id), [sent.id, waiting.id], "the newest sent marks how far it sent")
+
+        let session = book.startSession(name: "Long one")
+        let set = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        clock.now += 60 * 86_400
+        book.delivered([])
+        XCTAssertEqual(Set(book.state.events.map(\.record.id)), [session.id, set.id], "the active session's stay")
+
+        book.state.rejected = (0..<250).map { RejectedEvent(eventId: "refused-\($0)", reason: nil, at: "2026-11-23T08:00:00Z") }
+        book.delivered([])
+        XCTAssertEqual(book.state.rejected.count, Logbook.keptRejected)
+        XCTAssertEqual(book.state.rejected.first?.eventId, "refused-50")
+    }
+
     func testAnErasedLocationIsNoLongerWhereYouAre() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         book.setLocation("hotel")
