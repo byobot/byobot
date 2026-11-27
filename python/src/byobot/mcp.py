@@ -16,7 +16,7 @@ from typing import IO, Any
 
 from byobot import __version__, prompts
 from byobot.commands import REGISTRY, Command, Context, run
-from byobot.serve import CloudPoller
+from byobot.cloud.sync import CloudPoller
 from byobot.util import ByobotError, Forbidden, db_path, plain_text
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")

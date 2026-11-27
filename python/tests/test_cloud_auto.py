@@ -5,12 +5,12 @@ import time
 
 import pytest
 
-from byobot import commands
+from byobot.cloud import sync
 from byobot.cloud.drive import Drive, DriveFolder, UpstreamError
 from byobot.cloud.keeper import Keeper, due, tried
 from byobot.cloud.lock import held
-from byobot.commands import Context, autosync, run
-from byobot.serve import CloudPoller
+from byobot.cloud.sync import CloudPoller, autosync
+from byobot.commands import Context, run
 from byobot.util import ValidationFailed
 
 from cloud_doubles import MemoryFolder, Relay
@@ -51,7 +51,7 @@ def test_a_read_leaves_drive_alone(phone, monkeypatch):
     relay.log([event()])
     relay.sync()
     age(ctx)
-    monkeypatch.setattr(commands, "autosync", lambda *a, **k: pytest.fail("a read synced Drive"))
+    monkeypatch.setattr(sync, "autosync", lambda *a, **k: pytest.fail("a read synced Drive"))
     run("status", ctx, {})
     run("list", ctx, {"kind": "effort"})
     assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
@@ -77,8 +77,8 @@ def test_the_poller_goes_on_when_drive_fails(phone, monkeypatch):
     def unreachable(store, quick=False):
         raise UpstreamError("can't reach Google Drive: offline")
 
-    commands._folders.clear()
-    monkeypatch.setattr(commands, "_drive_folder", unreachable)
+    sync._folders.clear()
+    monkeypatch.setattr(sync, "drive_folder", unreachable)
     age(ctx)
     assert CloudPoller(ctx.path, [].append).poll() == {"error": "can't reach Google Drive: offline"}
     assert run("status", ctx, {})["counts"]
@@ -96,9 +96,9 @@ def test_a_read_skips_drive_while_another_process_syncs(phone):
     relay.log([event()])
     relay.sync()
     age(ctx)
-    with held(commands.lock_path(ctx.store())) as mine:
+    with held(sync.lock_path(ctx.store())) as mine:
         assert mine
-        assert commands.autosync(ctx.store()) is None
+        assert sync.autosync(ctx.store()) is None
     assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
 
 
@@ -126,17 +126,17 @@ def test_serve_says_once_when_drive_fails_and_when_it_works_again(phone, monkeyp
     ctx, _ = phone
     lines = []
     poller = CloudPoller(ctx.path, lines.append)
-    real = commands._drive_folder
+    real = sync.drive_folder
 
     def unreachable(store, quick=False):
         raise UpstreamError("your Google Drive is full, so byobot can't upload; free some space")
 
-    commands._folders.clear()
-    monkeypatch.setattr(commands, "_drive_folder", unreachable)
+    sync._folders.clear()
+    monkeypatch.setattr(sync, "drive_folder", unreachable)
     for _ in range(2):
         age(ctx)
         poller.poll()
-    monkeypatch.setattr(commands, "_drive_folder", real)
+    monkeypatch.setattr(sync, "drive_folder", real)
     age(ctx)
     poller.poll()
     assert lines == ["Drive sync: your Google Drive is full, so byobot can't upload; free some space",
@@ -190,11 +190,11 @@ def test_a_read_during_recover_finds_the_keeper_busy(store, tmp_path, monkeypatc
 
     def read(self, listing):  # an agent's read while recover is still reading the folder
         if not seen:
-            seen.append(commands.autosync(Store(fresh.path), folder=folder))
+            seen.append(sync.autosync(Store(fresh.path), folder=folder))
         return real(self, listing)
 
     monkeypatch.setattr(Keeper, "_read", read)
-    with commands._lock(fresh):  # as `cloud recover` holds it, under the new store's old id
+    with sync.lock(fresh):  # as `cloud recover` holds it, under the new store's old id
         Keeper.recover(fresh, folder, keeper.recovery_code, Clock())
     assert seen == [None]
 

@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, mcp, serve, util
 from byobot.cloud.lock import held
+from byobot.cloud.sync import CloudPoller
 from byobot.commands import REGISTRY, Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
@@ -765,7 +766,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
         err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot remote revoke` to disconnect all.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
-    poller = serve.CloudPoller(server.db, log)
+    poller = CloudPoller(server.db, log)
     poller.start()
     try:
         server.serve_forever()
