@@ -567,8 +567,7 @@ LISTS = {
     "sources": ("source_records", None, "revised_at DESC, id", "source_record"),
     "overlays": ("overlays", None, "id", "overlay"),
 }
-JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields",
-                "arrangement")
+JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
 BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
                   "source")
 
