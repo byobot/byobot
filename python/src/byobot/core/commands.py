@@ -59,7 +59,10 @@ def _local(ts: Any, zone: tzinfo | None) -> Any:
         return stamp(at.astimezone(zone))
     if at.tzinfo:
         return ts
-    return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
+    try:
+        return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
+    except (OverflowError, ValueError, OSError):  # Windows raises OSError past its clock's range
+        raise ValidationFailed(f"{ts!r} is out of range") from None
 
 
 def _timed(store: Store, kind: str, payload: Any) -> Any:

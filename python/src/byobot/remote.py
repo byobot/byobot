@@ -21,7 +21,6 @@ import json
 import os
 import secrets
 import shutil
-import socket
 import subprocess
 import threading
 import sys
@@ -34,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import __version__, mcp, serve
+from byobot import __version__, mcp, serve, util
 from byobot.commands import Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
@@ -620,20 +619,8 @@ DEFAULT_PORT = 8780
 
 
 def choose_port(host: str) -> int:
-    """The port this profile used last, else 8780 for the default profile, else a free one from 8781 up."""
-    saved = remote_dir() / "port"
-    if saved.is_file():
-        return int(saved.read_text().strip())
-    if profile() is None:
-        return DEFAULT_PORT
-    for port in range(DEFAULT_PORT + 1, DEFAULT_PORT + 100):
-        with socket.socket() as s:
-            try:
-                s.bind((host, port))
-                return port
-            except OSError:
-                continue
-    raise ByobotError("no free port for byobot remote; pass --port")
+    """The port this profile used last, else 8780 for the default profile, else a free one from 8781 to 8879."""
+    return util.choose_port("remote", host, DEFAULT_PORT, range(DEFAULT_PORT + 1, DEFAULT_PORT + 100))
 
 
 def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,

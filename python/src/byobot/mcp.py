@@ -50,6 +50,8 @@ def _input_schema(cmd: Command) -> dict:
             prop["enum"] = list(p.choices)
         if p.default is not None:
             prop["default"] = p.default
+        if p.bounds:
+            prop["minimum"], prop["maximum"] = p.bounds
         props[p.name] = prop
         if p.required:
             required.append(p.name)
@@ -102,6 +104,8 @@ class Server:
         if "id" not in message:
             return None  # a notification, such as notifications/initialized
         mid, method, params = message["id"], message["method"], message.get("params") or {}
+        if not isinstance(params, dict):
+            return _error(mid, INVALID_PARAMS, "params must be an object")
         try:
             if method == "initialize":
                 return _result(mid, self._initialize(params))
@@ -137,14 +141,18 @@ class Server:
         cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
         if cmd is None or not cmd.mcp:
             return _error(mid, INVALID_PARAMS, f"unknown tool: {name}")
-        args = dict(params.get("arguments") or {})
+        args = params.get("arguments") or {}
+        if not isinstance(args, dict):
+            return _error(mid, INVALID_PARAMS, "arguments must be an object")
+        args = dict(args)
         model = args.pop("model", None) if not cmd.read_only else None
         try:
             result = run(cmd.name, self._context(model), args)
         except ByobotError as exc:
             body = exc.to_dict()
             return _result(mid, {"content": [{"type": "text", "text": json.dumps(body, indent=2)}], "isError": True})
-        out: dict[str, Any] = {"content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}]}
+        text = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False)
+        out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
         if isinstance(result, dict) and self.protocol >= "2025-06-18":
             out["structuredContent"] = result
         out["isError"] = cmd.name == "validate" and not result["valid"]
@@ -154,7 +162,10 @@ class Server:
         name = params.get("name")
         if name not in prompts.PROMPTS:
             return _error(mid, INVALID_PARAMS, f"unknown prompt: {name}")
-        text = prompts.render(name, params.get("arguments") or {})
+        args = params.get("arguments") or {}
+        if not isinstance(args, dict):
+            return _error(mid, INVALID_PARAMS, "arguments must be an object")
+        text = prompts.render(name, args)
         return _result(mid, {"description": prompts.PROMPTS[name]["description"],
                              "messages": [{"role": "user", "content": {"type": "text", "text": text}}]})
 
@@ -171,8 +182,8 @@ def _error(mid: Any, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}}
 
 
-def serve(stdin: IO[str] | None = None, stdout: IO[str] | None = None) -> int:
-    stdin = stdin or sys.stdin
+def serve(stdin: IO | None = None, stdout: IO[str] | None = None) -> int:
+    stdin = stdin or getattr(sys.stdin, "buffer", sys.stdin)  # bytes, so one bad byte is one bad line
     stdout = stdout or sys.stdout
     server = Server()
     print(f"byobot mcp {__version__}: serving {db_path()} on stdio", file=sys.stderr)
@@ -183,8 +194,8 @@ def serve(stdin: IO[str] | None = None, stdout: IO[str] | None = None) -> int:
             if not line.strip():
                 continue
             try:
-                message = json.loads(line)
-            except json.JSONDecodeError as exc:
+                message = json.loads(line.decode("utf-8") if isinstance(line, bytes) else line)
+            except (ValueError, RecursionError) as exc:  # not JSON, not UTF-8, or nested too deep
                 reply: Any = _error(None, PARSE_ERROR, f"parse error: {exc}")
             else:
                 reply = server.handle(message)
