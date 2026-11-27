@@ -89,23 +89,33 @@ public enum Timestamp {
     }
 }
 
-/// `YYYY-MM-DD` in the phone's own calendar, as plans schedule sessions.
+extension Calendar {
+    /// Gregorian in the phone's time zone: contract dates and ids are Gregorian whatever calendar the phone shows.
+    public static var contract: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = .current
+        c.locale = Locale(identifier: "en_US_POSIX")
+        return c
+    }
+}
+
+/// `YYYY-MM-DD` on the phone's local day, as plans schedule sessions.
 public enum LocalDate {
-    public static func string(_ date: Date, calendar: Calendar = .current) -> String {
+    public static func string(_ date: Date, calendar: Calendar = .contract) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    public static func today(calendar: Calendar = .current) -> String {
+    public static func today(calendar: Calendar = .contract) -> String {
         string(Date(), calendar: calendar)
     }
 
-    public static func adding(days: Int, to date: Date = Date(), calendar: Calendar = .current) -> String {
+    public static func adding(days: Int, to date: Date = Date(), calendar: Calendar = .contract) -> String {
         string(calendar.date(byAdding: .day, value: days, to: date) ?? date, calendar: calendar)
     }
 
     /// The date at noon in the given calendar, for display.
-    public static func date(_ text: String, calendar: Calendar = .current) -> Date? {
+    public static func date(_ text: String, calendar: Calendar = .contract) -> Date? {
         let parts = text.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: 12))
