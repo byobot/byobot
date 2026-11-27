@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/common.schema.json",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/common.schema.json",
   "title": "byobot common definitions, v1",
   "description": "Shared building blocks for the byobot v1 contract. Dates and times are checked with patterns (not only `format`) so every implementation rejects the same strings.",
   "$defs": {

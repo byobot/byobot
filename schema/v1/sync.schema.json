@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/sync.schema.json",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/sync.schema.json",
   "title": "byobot LAN sync protocol, v1",
   "description": "The messages `byobot serve` and a paired app exchange, as JSON over HTTPS on the local network. The server is the hub: the app pulls the plan and events, and pushes the events it authored and the health samples it read. Responses may gain fields in later versions, so clients ignore fields they don't know; requests are strict.",
   "$defs": {
