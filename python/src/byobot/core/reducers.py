@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS source_sessions (
 CREATE INDEX IF NOT EXISTS source_sessions_start ON source_sessions (start_ms);
 CREATE TABLE IF NOT EXISTS overlays (
   id TEXT PRIMARY KEY, effect TEXT NOT NULL, target_kind TEXT NOT NULL, target_id TEXT NOT NULL, with_kind TEXT,
-  with_id TEXT, fields TEXT, arrangement TEXT);
+  with_id TEXT, fields TEXT);
 CREATE INDEX IF NOT EXISTS overlays_target ON overlays (target_kind, target_id);
 CREATE INDEX IF NOT EXISTS overlays_with ON overlays (with_kind, with_id) WHERE with_id IS NOT NULL;
 """
@@ -101,7 +101,7 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-RULES = 5  # raise when records are derived differently, so stores rebuild on open
+RULES = 6  # raise when records are derived differently, so stores rebuild on open
 SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
@@ -328,10 +328,8 @@ def _storable(m: dict) -> bool:
 
 def _overlay(conn, c, rid, p):
     target, other = p["target"], p.get("with") or {}
-    arrangement = {k: p[k] for k in ("order", "swaps") if k in p}
-    conn.execute("INSERT INTO overlays VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
-        rid, p["effect"], target["kind"], target["id"], other.get("kind"), other.get("id"),
-        _json(p.get("fields")), _json(arrangement or None)))
+    conn.execute("INSERT INTO overlays VALUES (?, ?, ?, ?, ?, ?, ?)", (
+        rid, p["effect"], target["kind"], target["id"], other.get("kind"), other.get("id"), _json(p.get("fields"))))
 
 
 REDUCERS: dict[str, Reducer] = {

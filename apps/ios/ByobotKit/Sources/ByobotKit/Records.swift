@@ -61,7 +61,6 @@ public typealias Plan = Record<PlanPayload>
 public typealias PlannedSession = Record<PlannedSessionPayload>
 public typealias PerformedSession = Record<SessionPayload>
 public typealias PerformedEffort = Record<EffortPayload>
-public typealias Overlay = Record<OverlayPayload>
 public typealias Setting = Record<SettingPayload>
 
 /// GET /v1/plan: everything the app needs to run the sessions scheduled in the window.
@@ -73,8 +72,6 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var settings: [Setting]
     public var plans: [Plan]
     public var plannedSessions: [PlannedSession]
-    /// Rearrangements of the planned sessions in the window.
-    public var overlays: [Overlay]
     /// Sessions logged against the planned sessions.
     public var sessions: [PerformedSession]
     /// Efforts logged against them, and the last two times each planned activity was done at each location.
@@ -94,7 +91,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
-                overlays: [Overlay] = [], sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
+                sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
                 storeId: String? = nil, hlc: String? = nil, erased: [ErasedRecord]? = nil,
                 kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
         self.from = from
@@ -104,7 +101,6 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.settings = settings
         self.plans = plans
         self.plannedSessions = plannedSessions
-        self.overlays = overlays
         self.sessions = sessions
         self.efforts = efforts
         self.storeId = storeId
@@ -116,8 +112,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case from, to, activities, locations, settings, plans, overlays, sessions, efforts, hlc, erased, received,
-             rejected
+        case from, to, activities, locations, settings, plans, sessions, efforts, hlc, erased, received, rejected
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
         case storeId = "store_id"

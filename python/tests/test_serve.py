@@ -158,7 +158,7 @@ def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
     assert sync_errors("plan_window", window) == []
 
 
-def test_plan_window_follows_replanning_undo_and_rearranging(store):
+def test_plan_window_follows_replanning_and_undo(store):
     seed(store)
     replanned = commands.replan(store, AGENT, LOWER, lift("2026-11-23", "Lower A (deload)"))
 
@@ -169,11 +169,6 @@ def test_plan_window_follows_replanning_undo_and_rearranging(store):
     assert names()[LOWER] == "Lower A (deload)"
     commands.undo(store, ME, replanned["id"])
     assert names()[LOWER] == "Lower A"
-    rid = store.contract.derived("overlay", ["rearrange", "planned_session", LOWER])
-    store.write(ME, [{"kind": "overlay", "id": rid, "op": "put", "payload": {
-        "effect": "rearrange", "target": {"kind": "planned_session", "id": LOWER}, "order": [f"{LOWER}.0.0"]}}])
-    window = serve.plan_window(store, "2026-11-01", "2026-12-31")
-    assert [o["payload"]["target"]["id"] for o in window["overlays"]] == [LOWER]
 
 
 def test_plan_window_shows_a_conflict(store):

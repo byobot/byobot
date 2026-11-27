@@ -77,7 +77,6 @@ final class ContractTests: XCTestCase {
                   let kind = target.string("kind"), let id = target.string("id") else { return XCTFail("bad fixture") }
             XCTAssertEqual(DerivedId.overlay(effect, kind: kind, id: id), o.string("record_id"), effect.rawValue)
         }
-        XCTAssertEqual(Logbook.rearrangeId("019aa000-0000-7000-8000-000000000102"), "453d5c74-1e10-505f-8f8d-c8a44148345a")
     }
 
     func testClockReadingsOrderAsText() throws {
