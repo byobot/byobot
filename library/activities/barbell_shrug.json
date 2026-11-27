@@ -1,8 +1,8 @@
 {
-  "id": "single_leg_dumbbell_calf_raise_with_block",
-  "name": "Single Leg Dumbbell Calf Raise (With Block)",
+  "id": "barbell_shrug",
+  "name": "Barbell Shrug",
   "equipment": [
-    "dumbbell"
+    "barbell"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
@@ -13,7 +13,7 @@
   },
   "targets": {
     "main": [
-      "calves"
+      "traps"
     ],
     "synergists": []
   }

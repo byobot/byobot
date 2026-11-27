@@ -12,7 +12,7 @@ def at(minute: int, hours: float = 0) -> str:
 
 
 def effort(reps: int, rid: str = "e1") -> dict:
-    return {"intent": "log_effort", "record": {"id": rid, "activity_id": "row", "performed_at": at(0),
+    return {"intent": "log_effort", "record": {"id": rid, "activity_id": "x.row", "performed_at": at(0),
                                                "metrics": {"reps": {"value": reps}}}}
 
 
@@ -105,7 +105,7 @@ def test_resolving_clears_the_conflict_everywhere():
     phone.author(edit(6), at(5), H)
     laptop.author(edit(9), at(1), H)
     sync(phone, laptop)
-    laptop.author({"intent": "resolve", "record": ["effort", "e1"], "choice": {"activity_id": "row",
+    laptop.author({"intent": "resolve", "record": ["effort", "e1"], "choice": {"activity_id": "x.row",
                    "performed_at": at(0), "metrics": {"reps": {"value": 7}}}}, at(6), H)
     sync(phone, laptop)
     assert not phone.snapshot()["conflicts"] and reps(phone) == 7
@@ -141,9 +141,9 @@ def test_erase_wins_and_redacts_later_writes():
 def test_inline_efforts_are_records_of_their_own():
     phone = ModelReplica("phone")
     phone.author({"intent": "log_session", "record": {"id": "s1", "started_at": at(0), "efforts": [
-        {"id": "e1", "activity_id": "row"}]}}, at(0), H)
+        {"id": "e1", "activity_id": "x.row"}]}}, at(0), H)
     assert phone.snapshot()["records"]["effort/e1"]["fields"] == {
-        "activity_id": "row", "performed_at": at(0), "session_id": "s1"}
+        "activity_id": "x.row", "performed_at": at(0), "session_id": "s1"}
 
 
 def test_replanning_keeps_planned_effort_ids_by_position():
@@ -225,6 +225,6 @@ def test_a_correction_survives_a_rescore():
 
 def test_local_dates_come_from_the_written_offset():
     phone = ModelReplica("phone")
-    phone.author({"intent": "log_effort", "record": {"id": "e1", "activity_id": "row",
+    phone.author({"intent": "log_effort", "record": {"id": "e1", "activity_id": "x.row",
                   "performed_at": "2026-03-02T23:30:00.000-05:00"}}, at(0), H)
     assert phone.local_dates() == {"effort/e1": "2026-03-02"}

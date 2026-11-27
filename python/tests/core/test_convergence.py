@@ -41,14 +41,14 @@ RELOG_OVER_CONFLICT = [("log", 0, "e1", 1), ("log", 2, "e1", 2), ("undo", 0, 0),
 
 
 def effort(rid: str, reps: int) -> dict:
-    return {"id": rid, "activity_id": "row", "performed_at": "2026-03-02T10:00:00.000Z",
+    return {"id": rid, "activity_id": "x.row", "performed_at": "2026-03-02T10:00:00.000Z",
             "metrics": {"reps": {"value": reps}}}
 
 
 def run(world: World, program: list) -> None:
     for name in REPLICAS:
         world.replica(name)
-    world.author("laptop", {"intent": "define_activity", "record": {"id": "row", "name": "Row"}})
+    world.author("laptop", {"intent": "define_activity", "record": {"id": "x.row", "name": "Row"}})
     for name in REPLICAS[1:]:
         world.sync("laptop", name)
     for op, r, *args in program:

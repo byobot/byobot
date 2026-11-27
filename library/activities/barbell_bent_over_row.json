@@ -1,11 +1,11 @@
 {
-  "id": "single_arm_dumbbell_row",
-  "name": "Single Arm Dumbbell Row",
+  "id": "barbell_bent_over_row",
+  "name": "Barbell Bent Over Row (45 Degrees)",
   "equipment": [
-    "dumbbell"
+    "barbell"
   ],
   "movement_type": "compound",
-  "fatigue": 3,
+  "fatigue": 4,
   "resistance_curve": {
     "stretch": 3,
     "middle": 3,
@@ -13,10 +13,11 @@
   },
   "targets": {
     "main": [
-      "lats"
+      "traps"
     ],
     "synergists": [
       "biceps",
+      "lats",
       "rear_delts"
     ]
   }

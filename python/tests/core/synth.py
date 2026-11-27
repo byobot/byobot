@@ -22,12 +22,12 @@ EPOCH = date(2026, 1, 5)  # a Monday
 HOME_ZONE = (timedelta(hours=-5), timedelta(hours=-4))  # standard and daylight offsets
 TRIP_OFFSETS = (timedelta(hours=0), timedelta(hours=1), timedelta(hours=9))
 LIFTS = (
-    ("barbell_back_squat", "Back squat", 100), ("bench_press", "Bench press", 80),
-    ("deadlift", "Deadlift", 140), ("overhead_press", "Overhead press", 50), ("barbell_row", "Barbell row", 70),
-    ("pull_up", "Pull-up", 0), ("romanian_deadlift", "Romanian deadlift", 90), ("lunge", "Lunge", 30),
-    ("dip", "Dip", 0), ("plank", "Plank", 0),
+    ("x.barbell_back_squat", "Back squat", 100), ("x.bench_press", "Bench press", 80),
+    ("x.deadlift", "Deadlift", 140), ("x.overhead_press", "Overhead press", 50), ("x.barbell_row", "Barbell row", 70),
+    ("x.pull_up", "Pull-up", 0), ("x.romanian_deadlift", "Romanian deadlift", 90), ("x.lunge", "Lunge", 30),
+    ("x.dip", "Dip", 0), ("x.plank", "Plank", 0),
 )
-SWAPS = {"barbell_back_squat": "lunge", "bench_press": "dip", "barbell_row": "pull_up"}
+SWAPS = {"x.barbell_back_squat": "x.lunge", "x.bench_press": "x.dip", "x.barbell_row": "x.pull_up"}
 OTHER = (("running", 0.55), ("cycling", 0.3), ("yoga", 0.15))
 HEALTHKIT = {"weightlifting_msk": "traditionalStrengthTraining", "running": "running", "cycling": "cycling",
              "yoga": "yoga"}

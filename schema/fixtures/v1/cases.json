@@ -58,6 +58,116 @@
    }
   },
   {
+   "name": "activity/yours",
+   "outcome": "accepted",
+   "description": "Your own activities are `x.` and a slug.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable_fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "activity/dotted-id",
+   "outcome": "rejected",
+   "description": "Only the `x.` prefix has a dot.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable.fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
    "name": "location/put",
    "outcome": "accepted",
    "description": "A place to train, named by a slug.",
@@ -683,6 +793,71 @@
      "time": {
       "start": "2026-11-21T01:10:00-05:00",
       "end": "2026-11-21T01:52:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/range",
+   "outcome": "accepted",
+   "description": "A range needs no invented value, as under `metrics`.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "min": 48,
+     "max": 71,
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T00:30:00-05:00",
+      "end": "2026-11-21T06:40:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/no-measure",
+   "outcome": "rejected",
+   "description": "An observation holds a value, a range or both.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T06:40:00-05:00"
      },
      "modality": "sensed"
     }
@@ -2538,6 +2713,118 @@
       },
       "rpe": {
        "value": 7.5
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "effort/pct-of-1rm",
+   "outcome": "accepted",
+   "description": "A share of one-rep max is its own code, in percent.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000032",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "pct_of_1rm": {
+       "value": 75
+      }
+     },
+     "links": {
+      "part_of": {
+       "kind": "session",
+       "id": "019aa000-0000-7000-8000-000000000103"
+      },
+      "answers": {
+       "kind": "planned_session",
+       "id": "019aa000-0000-7000-8000-000000000102",
+       "part": "pe1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "rule/code-value-unit-on-pct-of-1rm",
+   "outcome": "rejected",
+   "rule": "code_value",
+   "description": "A share of one-rep max is a plain number: 75 means 75%.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000032",
+    "schema_version": 1,
+    "record": {
+     "kind": "effort",
+     "id": "019aa000-0000-7000-8000-000000000104"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795131000000-000000",
+    "ts": "2026-11-21T07:10:30-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "activity_id": "barbell_back_squat",
+     "round": 1,
+     "time": {
+      "start": "2026-11-21T07:10:00-05:00"
+     },
+     "modality": "self_reported",
+     "origin": {
+      "app": "byobot_ios",
+      "version": "0.1.0",
+      "device": "Example iPhone"
+     },
+     "metrics": {
+      "reps": {
+       "value": 5
+      },
+      "pct_of_1rm": {
+       "value": 75,
+       "unit": "%"
       }
      },
      "links": {

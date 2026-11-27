@@ -144,7 +144,7 @@
       "required": ["id", "activity_id"],
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
-        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
         "side": { "$ref": "#/$defs/side" },
         "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Targets." },
         "notes": { "$ref": "common.schema.json#/$defs/text" }
@@ -212,7 +212,7 @@
       "allOf": [{ "$ref": "#/$defs/header" }],
       "required": ["activity_id", "time", "modality"],
       "properties": {
-        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
         "round": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Which round of the planned block." },
         "side": { "$ref": "#/$defs/side" },
         "location_id": { "$ref": "common.schema.json#/$defs/slug", "description": "Omit to take the session's." },
@@ -230,12 +230,12 @@
       "unevaluatedProperties": false
     },
     "observation": {
-      "description": "One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes. An estimate gives the bounds its `value` likely lies within.",
+      "description": "One measurement of one code: a weight, a blood pressure reading, a night's lowest and highest heart rate. Sources' values become observations when read; this kind is for ones a person or agent writes. `value`, `min`, `max` and `unit` are a measure, as under `metrics`: an exact value, a range, or an estimate with its bounds.",
       "type": "object",
-      "allOf": [{ "$ref": "#/$defs/header" }],
+      "allOf": [{ "$ref": "#/$defs/header" }, { "anyOf": [{ "required": ["value"] }, { "required": ["min"] }, { "required": ["max"] }] }],
       "if": { "$ref": "common.schema.json#/$defs/estimate" },
       "then": { "properties": { "value": { "type": "number" } } },
-      "required": ["code", "value", "time", "modality"],
+      "required": ["code", "time", "modality"],
       "properties": {
         "code": { "$ref": "common.schema.json#/$defs/code" },
         "value": { "type": ["number", "string", "boolean"] },
@@ -280,7 +280,7 @@
           "properties": {
             "name": { "$ref": "common.schema.json#/$defs/name" },
             "time": { "$ref": "common.schema.json#/$defs/time" },
-            "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+            "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
             "location_id": { "$ref": "common.schema.json#/$defs/slug" },
             "metrics": { "$ref": "common.schema.json#/$defs/metrics" },
             "value": { "type": ["number", "string", "boolean"] },
@@ -305,7 +305,7 @@
             "additionalProperties": false,
             "required": ["activity_id"],
             "properties": {
-              "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+              "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
               "reason": { "$ref": "common.schema.json#/$defs/text" }
             }
           }

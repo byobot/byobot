@@ -15,6 +15,20 @@ public struct LastTime: Equatable, Sendable {
     public static let empty = LastTime(efforts: [], locationId: nil, elsewhere: false)
 }
 
+/// An activity id from what someone typed: one they already have, else theirs as `x.` and a slug.
+public enum ActivityId {
+    public static func make(_ text: String, known: [Activity]) -> String {
+        let typed = text.trimmingCharacters(in: .whitespaces)
+        if let match = known.first(where: { $0.id == typed }) { return match.id }
+        let slug = Slug.make(typed, max: 62)
+        guard !slug.isEmpty else { return "" }
+        if let match = known.first(where: { $0.id == slug || $0.id == "x.\(slug)" || Slug.make($0.payload.name) == slug }) {
+            return match.id
+        }
+        return "x.\(slug)"
+    }
+}
+
 public enum Slug {
     /// An id from what someone typed: lowercase letters, digits and underscores. `Pull Up` → `pull_up`.
     public static func make(_ text: String, max: Int = 64) -> String {

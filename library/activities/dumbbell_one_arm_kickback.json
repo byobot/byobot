@@ -1,19 +1,19 @@
 {
-  "id": "flat_dumbbell_fly",
-  "name": "Flat Dumbbell Fly",
+  "id": "dumbbell_one_arm_kickback",
+  "name": "Dumbbell Single Arm Kickback",
   "equipment": [
     "dumbbell"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {
-    "stretch": 3,
-    "middle": 2,
-    "contract": 1
+    "stretch": 1,
+    "middle": 1,
+    "contract": 3
   },
   "targets": {
     "main": [
-      "pecs"
+      "triceps"
     ],
     "synergists": []
   }

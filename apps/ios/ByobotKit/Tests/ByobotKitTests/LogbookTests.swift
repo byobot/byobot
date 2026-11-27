@@ -504,7 +504,7 @@ final class EffortFormTests: XCTestCase {
         XCTAssertEqual(fields[0].target?.display, "3–5")
         XCTAssertEqual(fields[1].text, "100")
         XCTAssertEqual(fields[1].unit, "kg")
-        XCTAssertEqual(fields[1].units, ["kg", "[lb_av]", "%{1RM}"])
+        XCTAssertEqual(fields[1].units, ["kg", "[lb_av]"])
         XCTAssertNil(fields[2].target)
     }
 
@@ -584,6 +584,15 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertEqual(Timestamp.zone(TimeZone(identifier: "America/New_York")!), "America/New_York")
         XCTAssertEqual(Timestamp.zone(TimeZone(identifier: "UTC")!), "UTC")
         XCTAssertNil(Timestamp.zone(TimeZone(secondsFromGMT: 3600)!), "an offset is not a zone")
+    }
+
+    func testATypedActivityIsOneYouHaveOrYoursUnderX() {
+        let known = [Activity(id: "barbell_back_squat", name: "Barbell Back Squat"), Activity(id: "x.cable_fly", name: "Cable Fly")]
+        XCTAssertEqual(ActivityId.make("Barbell back squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("barbell_back_squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("cable fly", known: known), "x.cable_fly")
+        XCTAssertEqual(ActivityId.make("Pull Up", known: known), "x.pull_up")
+        XCTAssertEqual(ActivityId.make("  ", known: known), "")
     }
 
     func testContractDatesAreGregorianWhateverCalendarThePhoneShows() throws {

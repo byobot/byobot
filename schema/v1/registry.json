@@ -76,15 +76,25 @@
       ]
     },
     "load": {
-      "description": "Weight moved, or a share of your one-rep max.",
+      "description": "Weight moved, or worn or held for bodyweight work.",
       "value": "quantity",
       "unit": "kg",
       "units": {
         "kg": 1,
-        "[lb_av]": 0.45359237,
-        "%{1RM}": null
+        "[lb_av]": 0.45359237
       },
       "minimum": 0,
+      "on": [
+        "planned_session",
+        "session",
+        "effort"
+      ]
+    },
+    "pct_of_1rm": {
+      "description": "Share of your one-rep max, in percent: 75 is 75%.",
+      "value": "number",
+      "minimum": 0,
+      "maximum": 200,
       "on": [
         "planned_session",
         "session",

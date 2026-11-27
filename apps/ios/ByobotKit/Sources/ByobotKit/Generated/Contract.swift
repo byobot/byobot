@@ -431,7 +431,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes. An estimate gives the bounds its `value` likely lies within.
+/// One measurement of one code: a weight, a blood pressure reading, a night's lowest and highest heart rate. Sources' values become observations when read; this kind is for ones a person or agent writes. `value`, `min`, `max` and `unit` are a measure, as under `metrics`: an exact value, a range, or an estimate with its bounds.
 public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
     /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -442,13 +442,13 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
     public var attachments: [Attachment]?
     public var code: String
-    public var value: Scalar
+    public var value: Scalar?
     public var min: Double?
     public var max: Double?
     public var unit: String?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar? = nil, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
@@ -1175,7 +1175,8 @@ public enum MetricRegistry {
 
     public static let all: [MetricSpec] = [
         MetricSpec(name: "reps", summary: "Repetitions.", units: [], unitRequired: false, kind: .integer, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
-        MetricSpec(name: "load", summary: "Weight moved, or a share of your one-rep max.", units: ["kg", "[lb_av]", "%{1RM}"], unitRequired: true, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
+        MetricSpec(name: "load", summary: "Weight moved, or worn or held for bodyweight work.", units: ["kg", "[lb_av]"], unitRequired: true, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
+        MetricSpec(name: "pct_of_1rm", summary: "Share of your one-rep max, in percent: 75 is 75%.", units: [], unitRequired: false, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: 200.0, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
         MetricSpec(name: "duration", summary: "How long. On a block, how long each round lasts (an EMOM is 60 s).", units: ["s", "min", "h"], unitRequired: true, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
         MetricSpec(name: "distance", summary: "How far.", units: ["m", "km", "[mi_i]", "[yd_i]", "[ft_i]"], unitRequired: true, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
         MetricSpec(name: "pace", summary: "Time per distance.", units: ["s/km", "s/[mi_i]", "s/(100.m)", "s/(500.m)"], unitRequired: true, kind: .number, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),
