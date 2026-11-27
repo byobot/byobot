@@ -141,3 +141,18 @@ def test_a_client_that_never_sends_redirect_uri_can_finish_sign_in(remote_server
                                                                "client_id": client["client_id"],
                                                                "code_verifier": verifier}, FORM)
     assert resp.status == 200, raw
+
+
+def test_a_get_with_a_body_does_not_desync_the_next_request_on_the_connection(remote_server):
+    # Behind a tunnel, one upstream connection carries requests from different callers, so leftover body bytes
+    # would become the start of someone else's request.
+    smuggled = b"GET /api/v1/openapi.json HTTP/1.1\r\nHost: x\r\n\r\n"
+    first = (b"GET /.well-known/oauth-authorization-server HTTP/1.1\r\nHost: x\r\nContent-Length: "
+             + str(len(smuggled)).encode() + b"\r\n\r\n" + smuggled)
+    second = b"GET /.well-known/oauth-protected-resource HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    sock = socket.create_connection(("127.0.0.1", remote_server.server_address[1]), timeout=5)
+    reply = _exchange(sock, first + second)
+    sock.close()
+    answers = reply.count(b"HTTP/1.1 ")
+    assert b'"openapi"' not in reply, "the body of the first request was answered as a request of its own"
+    assert answers <= 2

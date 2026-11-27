@@ -267,7 +267,7 @@ def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = F
         raise ValidationFailed("only a session has efforts to erase with it")
     targets = [(kind, rid)]
     if with_efforts:
-        targets += [e for e in linked(store, kind, rid, "part_of") if e[0] == "effort"]
+        targets += [e for e in linked(store, kind, rid, "part_of") if e[0] == "effort" and _in(store, e, rid)]
     changes = []
     for k, r in targets:
         changes.append({"kind": k, "id": r, "op": "erase"})
@@ -277,6 +277,13 @@ def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = F
         changes += [{"kind": "overlay", "id": o, "op": "erase"} for o in overlays
                     if not store.record("overlay", o)["erased"]]
     return store.write(actor, changes)
+
+
+def _in(store: Store, effort: tuple[str, str], session: str) -> bool:
+    """Whether a set's current version is in the session; one since moved to another isn't."""
+    found = store.get(*effort)
+    target = ((found["payload"].get("links") or {}).get("part_of") or {}) if found else {}
+    return isinstance(target, dict) and (target.get("kind"), target.get("id")) == ("session", session)
 
 
 def linked(store: Store, kind: str, rid: str, link: str | None = None) -> list[tuple[str, str]]:

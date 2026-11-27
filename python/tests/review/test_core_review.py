@@ -58,3 +58,12 @@ def _effort(reps=5):
             "metrics": {"reps": {"value": reps}}}
 
 
+def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session(one):
+    [a] = commands.log(one, ME, [{"kind": "session", "payload": session(name="a")}])
+    [b] = commands.log(one, ME, [{"kind": "session", "payload": session(name="b")}])
+    sa, sb = a["record"]["id"], b["record"]["id"]
+    [e] = commands.log(one, ME, [{"kind": "effort", "payload": effort(sa)}])
+    rid = e["record"]["id"]
+    commands.edit(one, ME, "effort", rid, {"links": {"part_of": {"kind": "session", "id": sb}}})
+    commands.erase(one, ME, "session", sa, with_efforts=True)
+    assert one.get("effort", rid) is not None, "an effort now in session b was erased with session a"

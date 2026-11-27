@@ -116,8 +116,10 @@ class World:
     def newer(self, cid: str, variant: str) -> Change:
         """The change as an install one version newer would have written it."""
         c = self.changes[cid]
-        return self._change(c.replica, self.driver.newer(list(c.events), variant),
-                            Reference().newer(list(c.writes), variant))
+        change = self._change(c.replica, self.driver.newer(list(c.events), variant),
+                              Reference().newer(list(c.writes), variant))
+        self.replicas[c.replica].held.discard(change.id)  # held only where it's delivered
+        return change
 
     def upgrade(self, name: str, version: int) -> None:
         self.driver.upgrade(self.replicas[name].state, version)
