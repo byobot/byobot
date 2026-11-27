@@ -62,7 +62,7 @@ def joined(keeper, folder, device_id=PHONE):
 def test_setup_starts_an_epoch_and_only_once(store, folder, keeper):
     assert keeper.device_id == store.device_id  # the Mac has one id, on the hub and in Drive
     listing = folder.list()
-    assert files.epoch_path(1) in listing and any(p.startswith("plan/0001-") for p in listing)
+    assert files.epoch_path(1) in listing and any(p.startswith("plan/0000000001-") for p in listing)
     with pytest.raises(ByobotError, match="already"):
         Keeper.setup(store, folder)
     with pytest.raises(ByobotError, match="already has a keeper"):
@@ -215,16 +215,16 @@ def test_a_phone_the_keeper_never_let_in_can_answer_a_new_code(store, folder, ke
 
 def test_a_local_folder_never_replaces_a_file(tmp_path):
     folder = LocalFolder(tmp_path, "0193a0b0-0000-7000-8000-00000000c001")
-    folder.create("plan/0001-0000000001.seg", b"one")
+    folder.create("plan/0000000001-0000000001.seg", b"one")
     with pytest.raises(Exists):
-        folder.create("plan/0001-0000000001.seg", b"two")
-    assert folder.read("plan/0001-0000000001.seg") == b"one"
-    assert list(folder.list()) == ["plan/0001-0000000001.seg"]
+        folder.create("plan/0000000001-0000000001.seg", b"two")
+    assert folder.read("plan/0000000001-0000000001.seg") == b"one"
+    assert list(folder.list()) == ["plan/0000000001-0000000001.seg"]
     for bad in ("../x", "a//b", "/abs", "a/../b"):
         with pytest.raises(ValueError):
             folder.create(bad, b"")
-    folder.delete("plan/0001-0000000001.seg")
-    folder.delete("plan/0001-0000000001.seg")
+    folder.delete("plan/0000000001-0000000001.seg")
+    folder.delete("plan/0000000001-0000000001.seg")
     assert folder.list() == {}
 
 
@@ -238,7 +238,7 @@ def test_the_keeper_and_a_relay_work_over_a_local_folder(store, tmp_path, clock)
     keeper.sync()
     assert store.event(sent["id"])
     with pytest.raises(CloudError):
-        segment.read(b"junk", path="plan/0001-0000000001.seg", store_id=store.store_id, key=keeper.key(1),
+        segment.read(b"junk", path="plan/0000000001-0000000001.seg", store_id=store.store_id, key=keeper.key(1),
                      sign_public=keeper.identity.public()["sign"])
 
 

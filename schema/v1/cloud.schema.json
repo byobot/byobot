@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/cloud.schema.json",
   "title": "byobot cloud protocol, v1",
-  "description": "The byobot logbook through a folder in the person's own cloud storage. Under <folder>/<store_id>/: epochs/<epoch>.json, devices/<device_id>.json, keys/<epoch>/<device_id or recovery>.key, segments/<device_id>/<epoch>-<seq>.seg, checkpoints/<epoch>/<part>.seg and plan/<epoch>-<seq>.seg. Epochs are four digits, seqs and parts ten. No file is changed after it is written. Keys and signatures are base64. Segment messages are the same messages as sync.schema.json.",
+  "description": "The byobot logbook through a folder in the person's own cloud storage. Under <folder>/<store_id>/: epochs/<epoch>.json, devices/<device_id>.json, keys/<epoch>/<device_id or recovery>.key, segments/<device_id>/<epoch>-<seq>.seg, checkpoints/<epoch>/<part>.seg and plan/<epoch>-<seq>.seg. Epochs, seqs and parts are ten digits. No file is changed after it is written. Keys and signatures are base64. Segment messages are the same messages as sync.schema.json.",
   "$defs": {
     "base64": {"type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$"},
     "key": {"$ref": "#/$defs/base64", "minLength": 44, "maxLength": 44, "description": "32 bytes."},
-    "epoch": {"type": "integer", "minimum": 0, "maximum": 9999},
+    "epoch": {"type": "integer", "minimum": 0, "maximum": 9999999999},
     "device_id": {"$ref": "common.schema.json#/$defs/id"},
     "header": {
       "description": "A segment's first line, JSON and plain; the associated data of its ciphertext. Then the ChaCha20-Poly1305 ciphertext of the gzipped body under the epoch key, then the writer's Ed25519 signature (64 bytes) over 'byobot-cloud segment 1\\n', the header line and the ciphertext.",

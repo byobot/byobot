@@ -15,10 +15,22 @@ from .segment import ID, MAX_EPOCH
 
 CLASSES = ("keeper", "relay")
 RECOVERY = "recovery"
+EPOCH_FILE = re.compile(r"epochs/([0-9]{10})\.json")
 
 
 def epoch_path(epoch: int) -> str:
-    return f"epochs/{epoch:04d}.json"
+    return f"epochs/{epoch:010d}.json"
+
+
+def epoch_number(path: str) -> int | None:
+    """The epoch an epoch file is of, or None for any other path."""
+    found = EPOCH_FILE.fullmatch(path)
+    return int(found[1]) if found else None
+
+
+def epoch_dir(epoch: int) -> str:
+    """The digits that name an epoch in paths."""
+    return f"{epoch:010d}"
 
 
 def device_path(device_id: str) -> str:
@@ -26,11 +38,11 @@ def device_path(device_id: str) -> str:
 
 
 def key_path(epoch: int, device_id: str) -> str:
-    return f"keys/{epoch:04d}/{device_id}.key"
+    return f"keys/{epoch:010d}/{device_id}.key"
 
 
 def recovery_path(epoch: int) -> str:
-    return f"keys/{epoch:04d}/{RECOVERY}.key"
+    return f"keys/{epoch:010d}/{RECOVERY}.key"
 
 
 def _key_context(store_id: str, epoch: int, device_id: str) -> bytes:

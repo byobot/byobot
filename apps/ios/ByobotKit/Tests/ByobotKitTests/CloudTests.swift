@@ -50,10 +50,10 @@ final class CloudTests: XCTestCase {
         }
         let signer = testCase.string("signer") ?? keeper.string("sign") ?? ""
         if path.hasPrefix("epochs/") {
-            let epoch = Int(path.dropFirst(7).prefix(4)) ?? -1
+            let epoch = CloudRelay.epochNumber(path) ?? -1
             return .object(try Cloud.readEpoch(data, keeperSign: signer, storeID: store, epoch: epoch))
         }
-        let epoch = Int(path.dropFirst(5).prefix(4)) ?? -1
+        let epoch = Int(path.split(separator: "/")[1]) ?? -1
         if path.hasSuffix("recovery.key") {
             return .object(try Cloud.openRecovery(data, recoveryKey: bytes(v.inputs.string("recovery_key")),
                                                   storeID: store, epoch: epoch))
@@ -121,7 +121,7 @@ final class CloudTests: XCTestCase {
         let data = try Cloud.writeSegment(kind: "segment", storeID: store, deviceID: "dev-1", epoch: 3, seq: 42,
                                           messages: messages, key: key, signer: me)
         let path = Cloud.segmentPath(kind: "segment", epoch: 3, seq: 42, deviceID: "dev-1")
-        XCTAssertEqual(path, "segments/dev-1/0003-0000000042.seg")
+        XCTAssertEqual(path, "segments/dev-1/0000000003-0000000042.seg")
         let found = try Cloud.readSegment(data, path: path, storeID: store, key: key, signPublic: me.signPublic)
         XCTAssertEqual(found.messages.map { JSONValue.object($0) }, messages)
         XCTAssertEqual(Cloud.parseName(path), SegmentName(kind: "segment", epoch: 3, seq: 42, deviceID: "dev-1"))

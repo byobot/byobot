@@ -55,21 +55,23 @@ public enum Cloud {
     static let maxHeader = 1024
     static let maxBody = 32 * 1024 * 1024
     static let maxSeq = 9_999_999_999
-    static let maxEpoch = 9999
+    static let maxEpoch = 9_999_999_999
+    /// Epochs, seqs and parts are this many digits in file names.
+    static let digitCount = 10
 
     // MARK: names
 
     public static func segmentPath(kind: String, epoch: Int, seq: Int, deviceID: String? = nil) -> String {
         switch kind {
-        case "segment": return "segments/\(deviceID ?? "")/\(pad(epoch, 4))-\(pad(seq, 10)).seg"
-        case "checkpoint": return "checkpoints/\(pad(epoch, 4))/\(pad(seq, 10)).seg"
-        default: return "plan/\(pad(epoch, 4))-\(pad(seq, 10)).seg"
+        case "segment": return "segments/\(deviceID ?? "")/\(pad(epoch, digitCount))-\(pad(seq, digitCount)).seg"
+        case "checkpoint": return "checkpoints/\(pad(epoch, digitCount))/\(pad(seq, digitCount)).seg"
+        default: return "plan/\(pad(epoch, digitCount))-\(pad(seq, digitCount)).seg"
         }
     }
 
-    public static func epochPath(_ epoch: Int) -> String { "epochs/\(pad(epoch, 4)).json" }
+    public static func epochPath(_ epoch: Int) -> String { "epochs/\(pad(epoch, digitCount)).json" }
     public static func devicePath(_ deviceID: String) -> String { "devices/\(deviceID).json" }
-    public static func keyPath(_ epoch: Int, _ deviceID: String) -> String { "keys/\(pad(epoch, 4))/\(deviceID).key" }
+    public static func keyPath(_ epoch: Int, _ deviceID: String) -> String { "keys/\(pad(epoch, digitCount))/\(deviceID).key" }
 
     /// What a segment's path says its header holds, or nil if the path isn't a segment's.
     public static func parseName(_ path: String) -> SegmentName? {
@@ -78,17 +80,19 @@ public enum Cloud {
             guard name.hasSuffix(".seg") else { return nil }
             let stem = String(name.dropLast(4))
             if let first {
-                guard let seq = digits(stem, 10) else { return nil }
+                guard let seq = digits(stem, digitCount) else { return nil }
                 return (first, seq)
             }
             let halves = stem.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-            guard halves.count == 2, let epoch = digits(halves[0], 4), let seq = digits(halves[1], 10) else { return nil }
+            guard halves.count == 2, let epoch = digits(halves[0], digitCount), let seq = digits(halves[1], digitCount) else {
+                return nil
+            }
             return (epoch, seq)
         }
         if parts.count == 3, parts[0] == "segments", isID(parts[1]), case let (epoch, seq)? = numbered(parts[2], nil) {
             return SegmentName(kind: "segment", epoch: epoch, seq: seq, deviceID: parts[1])
         }
-        if parts.count == 3, parts[0] == "checkpoints", let epoch = digits(parts[1], 4),
+        if parts.count == 3, parts[0] == "checkpoints", let epoch = digits(parts[1], digitCount),
            case let (_, seq)? = numbered(parts[2], epoch) {
             return SegmentName(kind: "checkpoint", epoch: epoch, seq: seq, deviceID: nil)
         }

@@ -24,12 +24,12 @@ DOMAIN = b"byobot-cloud segment 1\n"
 MAX_HEADER = 1024
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEQ = 10**10 - 1
-MAX_EPOCH = 9999
+MAX_EPOCH = 10**10 - 1
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 NAMES = {
-    "segment": re.compile(r"segments/(?P<device_id>[^/]+)/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
-    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{4})/(?P<part>[0-9]{10})\.seg"),
-    "plan": re.compile(r"plan/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
+    "segment": re.compile(r"segments/(?P<device_id>[^/]+)/(?P<epoch>[0-9]{10})-(?P<seq>[0-9]{10})\.seg"),
+    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{10})/(?P<part>[0-9]{10})\.seg"),
+    "plan": re.compile(r"plan/(?P<epoch>[0-9]{10})-(?P<seq>[0-9]{10})\.seg"),
 }
 
 
@@ -41,10 +41,10 @@ def counter(kind: str) -> str:
 def name(kind: str, epoch: int, seq: int, device_id: str | None = None) -> str:
     """Where a segment lives under the store's folder. A checkpoint's seq is its part number."""
     if kind == "segment":
-        return f"segments/{device_id}/{epoch:04d}-{seq:010d}.seg"
+        return f"segments/{device_id}/{epoch:010d}-{seq:010d}.seg"
     if kind == "checkpoint":
-        return f"checkpoints/{epoch:04d}/{seq:010d}.seg"
-    return f"plan/{epoch:04d}-{seq:010d}.seg"
+        return f"checkpoints/{epoch:010d}/{seq:010d}.seg"
+    return f"plan/{epoch:010d}-{seq:010d}.seg"
 
 
 def parse_name(path: str) -> dict | None:

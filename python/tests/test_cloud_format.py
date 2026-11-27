@@ -35,8 +35,8 @@ def open_file(path, data, case=None):
     if path.startswith("devices/"):
         return files.read_device(data, store, path[len("devices/"):-len(".json")])
     if path.startswith("epochs/"):
-        return files.read_epoch(data, case.get("signer", KEEPER["sign"]), store, int(path[7:11]))
-    epoch = int(path[5:9])
+        return files.read_epoch(data, case.get("signer", KEEPER["sign"]), store, files.epoch_number(path))
+    epoch = int(path.split("/")[1])
     if path.endswith("recovery.key"):
         return files.open_recovery(data, unb64(INPUTS["recovery_key"]), store, epoch)
     key = files.open_key(data, Identity.from_private(RELAY["private"]), RELAY["id"],
@@ -96,13 +96,13 @@ def test_a_segment_round_trips_and_its_lines_end_with_a_count():
     messages = [{"events": {"events": []}}, {"samples": {"samples": []}}]
     data = segment.write("segment", STORE, "dev-1", 3, 42, messages, key, me)
     path = segment.name("segment", 3, 42, "dev-1")
-    assert path == "segments/dev-1/0003-0000000042.seg"
+    assert path == "segments/dev-1/0000000003-0000000042.seg"
     assert segment.read(data, path=path, store_id=STORE, key=key, sign_public=me.public()["sign"])[1] == messages
     assert segment.parse_name(path) == {"kind": "segment", "epoch": 3, "seq": 42, "device_id": "dev-1"}
     assert segment.parse_name("segments/dev-1/3-42.seg") is None
 
 
-def _forge(body: bytes, me: Identity, key: bytes, path="segments/dev-1/0001-0000000001.seg"):
+def _forge(body: bytes, me: Identity, key: bytes, path="segments/dev-1/0000000001-0000000001.seg"):
     """A properly signed and encrypted segment around an arbitrary body."""
     from byobot.cloud.crypto import encrypt
     nonce = bytes(12)

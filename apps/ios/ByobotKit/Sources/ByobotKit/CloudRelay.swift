@@ -333,7 +333,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     mutating func readPlan(_ folder: some CloudFolder, _ listing: [String: String]) async throws {
         guard let epoch, let key else { return }
-        let prefix = "plan/\(String(format: "%04d", epoch))-"
+        let prefix = "plan/\(Cloud.pad(epoch, Cloud.digitCount))-"
         for path in listing.keys.filter({ $0.hasPrefix(prefix) }).sorted(by: >) {
             if let planPath, path <= planPath { return }  // never step back to an older plan
             guard let data = try await folder.read(path),
@@ -429,10 +429,8 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     // MARK: helpers
 
     static func epochNumber(_ path: String) -> Int? {
-        guard path.hasPrefix("epochs/"), path.hasSuffix(".json"), path.count == 16 else { return nil }
-        let digits = path.dropFirst(7).prefix(4)
-        guard digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber) else { return nil }
-        return Int(digits)
+        guard path.hasPrefix("epochs/"), path.hasSuffix(".json") else { return nil }
+        return Cloud.digits(String(path.dropFirst("epochs/".count).dropLast(".json".count)), Cloud.digitCount)
     }
 
     static func lists(_ epoch: [String: JSONValue], _ deviceID: String) -> Bool {

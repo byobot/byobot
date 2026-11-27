@@ -106,7 +106,7 @@ class Keeper:
         top = opened[n]
         devices = {d["device_id"]: d for d in epoch_body["devices"]}
         for path in listing:  # admitted since the epoch file was written: only a key file names them
-            if path.startswith(f"keys/{n:04d}/") and not path.endswith("/recovery.key"):
+            if path.startswith(f"keys/{files.epoch_dir(n)}/") and not path.endswith("/recovery.key"):
                 try:
                     d = files.key_device(folder.read(path) or b"", identity.public()["sign"], store_id, n)
                 except CloudError:
@@ -218,7 +218,8 @@ class Keeper:
     def _leftover(self, path: str) -> bool:
         """A file of a start not yet committed, which a lagging listing hid from its cleanup; no device uses it."""
         n = int(self._get("starting") or 0)
-        return bool(n) and path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/"))
+        d = files.epoch_dir(n)
+        return bool(n) and path.startswith((f"keys/{d}/", f"checkpoints/{d}/"))
 
     def _segment(self, kind: str, seq: int, messages: list[dict], epoch: int | None = None) -> str:
         epoch = self.epoch if epoch is None else epoch
@@ -233,7 +234,7 @@ class Keeper:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
         listing = self.folder.list()
-        top = max([int(p[7:11]) for p in listing if is_epoch_file(p)] + [self.epoch])
+        top = max([files.epoch_number(p) for p in listing if is_epoch_file(p)] + [self.epoch])
         n = int(self._get("starting") or 0)
         if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
             n = max(n, top) + 1
@@ -242,8 +243,9 @@ class Keeper:
         key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
         self._seq_floor(listing)
+        d = files.epoch_dir(n)
         for path in listing:  # what a start cut short left behind; no device uses it yet
-            if path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/", f"plan/{n:04d}-")):
+            if path.startswith((f"keys/{d}/", f"checkpoints/{d}/", f"plan/{d}-")):
                 self.folder.delete(path)
         with self.store._tx():
             self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
@@ -371,7 +373,7 @@ class Keeper:
         """A device this epoch's key was sealed to that isn't in yet, if its device file still matches; any other
         such key file is deleted."""
         active = {d["id"] for d in self.devices()}
-        prefix = f"keys/{self.epoch:04d}/"
+        prefix = f"keys/{files.epoch_dir(self.epoch)}/"
         for path in listing:
             device_id = path[len(prefix):-len(".key")]
             if not path.startswith(prefix) or not path.endswith(".key") or path == files.recovery_path(self.epoch) \
@@ -650,8 +652,8 @@ class Keeper:
         """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
-        n = int(self._get("closing") or 0) or max([int(p[7:11]) for p in self.folder.list() if is_epoch_file(p)]
-                                                  + [self.epoch]) + 1
+        n = int(self._get("closing") or 0) or max(
+            [files.epoch_number(p) for p in self.folder.list() if is_epoch_file(p)] + [self.epoch]) + 1
         with self.store._tx():  # sync finishes a close that failed partway, so phones and this Mac agree
             self._set("closing", n)
         path = files.epoch_path(n)
@@ -819,9 +821,9 @@ def _epoch_of(path: str) -> int | None:
     found = segment.parse_name(path)
     if found:
         return found["epoch"]
+    if files.epoch_number(path) is not None:
+        return files.epoch_number(path)
     parts = path.split("/")
-    if parts[0] == "epochs" and len(parts) == 2 and parts[1][:4].isdigit():
-        return int(parts[1][:4])
     if parts[0] == "keys" and len(parts) == 3 and parts[1].isdigit():
         return int(parts[1])
     return None

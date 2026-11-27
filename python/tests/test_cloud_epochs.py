@@ -73,7 +73,8 @@ def test_an_erase_leaves_the_value_nowhere_once_every_device_moved(store, folder
     assert report["cleaned"] > 0 and keeper.key(1) is None and keeper.status()["cleanup_waits_on"] == []
     assert opened(folder, keeper, old) == []
     assert not any(SECRET in text for text in opened(folder, keeper, keeper.key(2)))
-    assert not any(p.startswith(("keys/0001/", "epochs/0001", "checkpoints/0001/", "plan/0001-"))
+    one = "0000000001"
+    assert not any(p.startswith((f"keys/{one}/", f"epochs/{one}", f"checkpoints/{one}/", f"plan/{one}-"))
                    for p in folder.list())
     assert SECRET.encode() not in raw(store)
 
@@ -187,7 +188,7 @@ def test_a_device_that_never_comes_back_holds_cleanup_until_removed(store, folde
     assert keeper.sync()["cleanup_waits_on"] == [PHONE]
     keeper.remove(gone.device_id)
     assert keeper.sync()["cleaned"] > 0 and {p[:9] for p in folder.list() if p.startswith("epochs/")} == {"epochs/00"}
-    assert [p for p in folder.list() if p.startswith("epochs/")] == ["epochs/0003.json"]
+    assert [p for p in folder.list() if p.startswith("epochs/")] == ["epochs/0000000003.json"]
 
 
 def test_too_many_files_compacts_once_nothing_waits(store, folder, keeper, monkeypatch):

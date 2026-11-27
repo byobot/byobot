@@ -96,7 +96,7 @@ def test_the_same_after_drive_loses_the_epoch_file_upload_s_answer(store, tmp_pa
     fake.fail("POST /upload", 503, times=drive_module.TRIES - 1)
     with pytest.raises(UpstreamError):
         keeper.compact()
-    assert any(f["name"].endswith("/epochs/0002.json") for f in fake.files.values())
+    assert any(f["name"].endswith("/epochs/0000000002.json") for f in fake.files.values())
     fake.faults.clear()
     lost.sync()
     try:

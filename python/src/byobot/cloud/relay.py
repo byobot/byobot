@@ -72,7 +72,7 @@ class Relay:
         """Whether this folder holds an epoch file the code's keeper signed."""
         for p in sorted((p for p in listing if is_epoch_file(p)), reverse=True):
             try:
-                files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, int(p[7:11]))
+                files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, files.epoch_number(p))
                 return True
             except CloudError:
                 continue
@@ -136,7 +136,7 @@ class Relay:
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
     def _adopt(self, listing: dict[str, str]) -> bool:
-        epochs = sorted((int(p[7:11]) for p in listing if is_epoch_file(p)), reverse=True)
+        epochs = sorted((files.epoch_number(p) for p in listing if is_epoch_file(p)), reverse=True)
         for n in epochs:
             if self.epoch is not None and n <= self.epoch:
                 break
@@ -174,7 +174,7 @@ class Relay:
         return False
 
     def _read_plan(self, listing: dict[str, str]) -> None:
-        plans = sorted((p for p in listing if p.startswith(f"plan/{self.epoch:04d}-")), reverse=True)
+        plans = sorted((p for p in listing if p.startswith(f"plan/{files.epoch_dir(self.epoch)}-")), reverse=True)
         for path in plans:
             if self.plan_path is not None and path <= self.plan_path:
                 return  # never step back to an older plan
@@ -246,4 +246,4 @@ class Relay:
 
 
 def is_epoch_file(path: str) -> bool:
-    return path.startswith("epochs/") and path.endswith(".json") and path[7:11].isdigit() and len(path) == 16
+    return files.epoch_number(path) is not None
