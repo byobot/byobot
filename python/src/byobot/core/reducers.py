@@ -100,7 +100,7 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-RULES = 2  # raise when records are derived differently, so stores rebuild on open
+RULES = 3  # raise when records are derived differently, so stores rebuild on open
 SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
@@ -305,7 +305,9 @@ def _source_record(conn, c, rid, p):
         _observation(conn, c, f"{rid}:{n}", o, p["source"], rid, mine)
     session = read["session"]
     if session:
-        time = fix.get("time") or session["time"]
+        time = {**session["time"], **fix.get("time", {})}
+        if "end" in time and instant(time["end"]) < instant(time["start"]):
+            time.pop("end")
         conn.execute("INSERT INTO source_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             rid, p["source"], fix.get("name", session.get("name")), *_when(time),
             oid if {"time", "name"} & set(fix) else None))
