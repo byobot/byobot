@@ -162,6 +162,41 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(logged.asPlanned(second, in: now)["reps"], .exact(4))
     }
 
+    /// A year of four sessions a week, twenty sets each, all synced: what the workout screen reads on each
+    /// redraw stays quick.
+    func testAYearOfHistoryKeepsTheWorkoutScreenQuick() throws {
+        let clock = TickingClock()
+        var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: { clock.read() })
+        book.applyPlan(try window())
+        let start = clock.now.addingTimeInterval(7 * 86_400)
+        let activities = ["barbell_back_squat", "pull_up", "leg_press", "seated_cable_row"]
+        for week in 0..<52 {
+            for day in 0..<4 {
+                clock.now = start.addingTimeInterval(Double(week * 7 + day * 2) * 86_400)
+                book.startSession(name: "Example session")
+                for set in 0..<20 {
+                    book.logEffort(activityId: activities[set % activities.count],
+                                   metrics: ["reps": .exact(5), "load": .exact(100 + Double(week), unit: "kg")])
+                }
+                book.finishSession()
+            }
+        }
+        book.state.pending = []
+        book.applyPlan(try window())
+
+        let workout = book.workout(try session("sess-lower-a"))
+        let squat = workout.slots[1]
+        let began = Date()
+        for _ in 0..<2 {  // the focus card's reads, twice
+            _ = book.asPlanned(squat, in: workout)
+            _ = book.lastTime(squat.activityId, at: book.currentLocationId)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(began), 3)
+        let last = book.lastTime("barbell_back_squat", at: nil)
+        XCTAssertEqual(last.efforts.count, 5)
+        XCTAssertEqual(last.efforts.first?.metrics?["load"], .exact(151, unit: "kg"))
+    }
+
     func testNudges() {
         var metrics: Metrics = ["reps": .exact(5), "load": .exact(100, unit: "kg"), "rpe": .exact(9.5), "tempo": .text("3010")]
         metrics = Nudge.apply(metrics, "reps", -1)
