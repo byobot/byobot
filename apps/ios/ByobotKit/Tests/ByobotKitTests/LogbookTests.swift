@@ -443,6 +443,26 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(moved.notes)
     }
 
+    func testMovingASetComparesInstantsNotText() throws {
+        var book = makeLogbook()
+        var set = book.logEffort(activityId: "run", metrics: [:])
+        set.payload.time = RecordTime(start: "2026-11-26T06:30:00-05:00", end: "2026-11-26T12:00:00Z")
+        let moved = book.editEffort(set, metrics: [:], side: nil, notes: nil, performedAt: "2026-11-26T07:05:00-05:00")
+        XCTAssertNil(moved.payload.time.end, "it ended at 07:00 there, before the new start")
+        let kept = book.editEffort(set, metrics: [:], side: nil, notes: nil, performedAt: "2026-11-26T11:30:00Z")
+        XCTAssertEqual(kept.payload.time.end, "2026-11-26T12:00:00Z")
+    }
+
+    func testSessionsSortByWhenTheyHappened() {
+        var book = makeLogbook()
+        let times = ["2026-11-26T08:00:00-05:00", "2026-11-26T12:30:00Z", "2026-11-26T21:00:00+09:00"]
+        for (i, start) in times.enumerated() {
+            book.put("session", "0193a0b0-0000-7000-8000-00000000500\(i)",
+                     SessionPayload(time: RecordTime(start: start), modality: .selfReported, name: "Example \(i)"))
+        }
+        XCTAssertEqual(book.sessions.map(\.name), ["Example 0", "Example 1", "Example 2"], "13:00, 12:30 and 12:00 UTC")
+    }
+
     func testCorrectingASetFromAnotherDeviceAndUndoingIt() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]

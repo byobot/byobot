@@ -229,7 +229,10 @@ public struct Logbook: Sendable {
         if let activityId, !activityId.isEmpty { effort.payload.activityId = activityId }
         if let performedAt {
             effort.payload.time.start = performedAt
-            if let end = effort.payload.time.end, end < performedAt { effort.payload.time.end = nil }
+            if let end = effort.payload.time.end.flatMap(Timestamp.date), let start = Timestamp.date(performedAt),
+               end < start {
+                effort.payload.time.end = nil
+            }
         }
         let event = put("effort", original.id, effort.payload, known: original.prev)
         effort.prev = [event.id]
@@ -345,7 +348,9 @@ public struct Logbook: Sendable {
 
     /// Sessions this phone knows of, newest first.
     public var sessions: [PerformedSession] {
-        latestSessions.values.sorted { $0.startedAt > $1.startedAt }
+        latestSessions.values.sorted {
+            (Timestamp.date($0.startedAt) ?? .distantPast) > (Timestamp.date($1.startedAt) ?? .distantPast)
+        }
     }
 
     /// The latest version of each set this phone logged or corrected, in the order first logged.
