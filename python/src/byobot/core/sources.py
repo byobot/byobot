@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ..util import ValidationFailed
+from ..util import ValidationFailed, plain_text
 from . import mappers
 from .contract import documents, mac
 from .store import Store
@@ -72,6 +72,11 @@ def ingest_samples(store: Store, samples: list[dict], deleted: Iterable[dict] = 
             raise ValidationFailed("each sample needs a source, a source_id and a type")
         source = SAMPLE_SOURCES.get(s["source"], s["source"])
         kept = {k: v for k, v in s.items() if k in SAMPLE_FIELDS}
+        for k in ("device", "origin_app"):  # apps name themselves, so these reach agents
+            if isinstance(kept.get(k), str):
+                kept[k] = plain_text(kept[k])
+                if not kept[k]:
+                    del kept[k]
         by_source.setdefault(source, ([], []))[0].append((sample_type(s["type"]), s["source_id"], kept))
     for d in deleted:
         if not isinstance(d, dict) or not all(isinstance(d.get(k), str) for k in ("source", "source_id")):

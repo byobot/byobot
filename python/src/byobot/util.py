@@ -9,6 +9,7 @@ import socket
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -160,3 +161,9 @@ class NotFound(ByobotError):
 
 class Conflict(ByobotError):
     code = "conflict"
+
+
+def plain_text(text: str, limit: int = 100) -> str:
+    """Text another app wrote, on one line with no control or invisible characters, at most `limit` long."""
+    shown = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Co", "Cs", "Zl", "Zp") else c for c in text)
+    return " ".join(shown.split())[:limit]
