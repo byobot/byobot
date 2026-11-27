@@ -7,7 +7,7 @@ from byobot.cloud import sync
 from byobot.cloud.drive import UpstreamError
 from byobot.cloud.sync import CloudPoller
 from byobot.commands import run
-from byobot.util import sync_folder_warning
+from byobot.util import sync_folder_warning, tilde
 
 from test_cloud_auto import age, phone  # noqa: F401 - fixtures
 from test_cloud_commands import cloud, fake  # noqa: F401 - fixtures
@@ -80,3 +80,10 @@ def test_status_shows_a_background_sync_failure_without_asking_drive(phone, monk
 
     monkeypatch.setattr(sync, "drive_folder", never)
     assert run("cloud status", ctx, {})["error"] == "can't reach Google Drive: offline"
+
+
+def test_status_shows_the_home_folder_as_a_tilde():
+    home = Path.home() / "Dropbox" / "byobot"
+    assert tilde(home / "byobot.db") == str(Path("~", "Dropbox", "byobot", "byobot.db"))
+    assert sync_folder_warning(home).startswith(f"{Path('~', 'Dropbox', 'byobot')} is inside")
+    assert tilde("/elsewhere/byobot.db") == "/elsewhere/byobot.db"

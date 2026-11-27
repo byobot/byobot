@@ -93,10 +93,11 @@ def test_agent_can_log_open_metrics_and_read_views():
     server.close()
 
 
-def test_validate_tool_sets_is_error_when_invalid():
+def test_validate_tool_answers_invalid_as_a_result():
     server = initialized()
-    assert tool(server, "validate", document={"name": "Plank"}, **{"as": "activity"})["isError"] is False
-    assert tool(server, "validate", document={}, **{"as": "observation"})["isError"] is True
+    assert tool(server, "validate", kind="activity", document={"name": "Plank"})["structuredContent"]["valid"]
+    answer = tool(server, "validate", kind="observation", document={})
+    assert answer["isError"] is False and answer["structuredContent"]["valid"] is False
 
 
 def test_old_protocol_gets_no_structured_content():

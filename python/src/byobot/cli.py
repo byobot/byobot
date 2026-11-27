@@ -187,8 +187,6 @@ def _main(argv: Sequence[str] | None) -> int:
     if result is None:  # a server, which ran until stopped
         return 0
     sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
-    if cmd.name == "validate" and not result["valid"]:
-        return 1
     return 0
 
 

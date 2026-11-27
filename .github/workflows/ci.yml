@@ -101,7 +101,7 @@ jobs:
           cd /tmp
           export BYOBOT_HOME=/tmp/byobot-home
           /tmp/venv/bin/byobot init
-          /tmp/venv/bin/byobot validate --as activity '{"name": "Plank"}'
+          /tmp/venv/bin/byobot validate activity '{"name": "Plank"}'
           /tmp/venv/bin/byobot status
           /tmp/venv/bin/byobot devices list
           /tmp/venv/bin/python -c "from byobot.core.contract import Contract; assert Contract.shipped().version('effort')"

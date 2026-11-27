@@ -225,12 +225,17 @@ def test_correct_and_exclude_an_import(capsys):
 
 
 def test_validate(capsys):
-    code, out, _ = cli(capsys, "validate", "--as", "activity", json.dumps({"name": "Plank"}))
-    assert code == 0 and out["valid"]
-    code, out, _ = cli(capsys, "validate", "--as", "observation", json.dumps({"code": "body_mass"}))
-    assert code == 1 and not out["valid"] and out["errors"]
-    code, out, _ = cli(capsys, "validate", json.dumps({"id": "x"}))
-    assert code == 1 and not out["valid"]
+    code, out, _ = cli(capsys, "validate", "activity", json.dumps({"name": "Plank"}))
+    assert code == 0 and out == {"valid": True, "kind": "activity", "errors": []}
+    code, out, _ = cli(capsys, "validate", "observation", json.dumps({"code": "body_mass"}))
+    assert code == 0 and not out["valid"] and out["errors"]
+    code, out, _ = cli(capsys, "validate", "event", json.dumps({"id": "x"}))
+    assert code == 0 and not out["valid"]
+    batch = [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}},
+             {"kind": "observation", "payload": {"code": "body_mass"}}]
+    out = cli(capsys, "validate", "batch", json.dumps(batch))[1]
+    assert not out["valid"] and [e.split(":")[0] for e in out["errors"]] == ["1"]
+    assert cli(capsys, "validate", "batch", json.dumps(batch[:1]))[1]["valid"]
 
 
 def test_schema(capsys):
@@ -312,6 +317,25 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     assert [(i["id"], i["source"]) for i in items] == [("dip", "library"), ("x.plank", "store")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
     assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["dip"]
+
+
+def test_list_refuses_filters_that_dont_fit_and_says_when_cut_short(capsys):
+    code, _, err = cli(capsys, "list", "session", "--muscle", "chest")
+    assert code == 1 and json.loads(err)["message"] == "muscle doesn't apply to list session; it fits activity"
+    assert cli(capsys, "list", "location", "--detail", "brief")[0] == 1
+    for i in range(3):
+        cli(capsys, "log", "location", json.dumps({"name": f"Gym {i}"}), "--id", f"gym_{i}")
+    out = cli(capsys, "list", "location", "--limit", "2")[1]
+    assert out["count"] == 2 and out["truncated"] is True
+    assert cli(capsys, "list", "location", "--limit", "3")[1]["truncated"] is False
+
+
+def test_list_one_record_by_id(capsys):
+    cli(capsys, "log", "location", '{"name": "Example gym"}', "--id", "example_gym")
+    cli(capsys, "log", "location", '{"name": "Home gym"}', "--id", "home")
+    assert [i["id"] for i in cli(capsys, "list", "location", "--id", "home")[1]["items"]] == ["home"]
+    event = cli(capsys, "list", "events", "--limit", "1")[1]["items"][0]
+    assert cli(capsys, "list", "events", "--id", event["id"])[1]["items"] == [event]
 
 
 def test_planned_session_must_name_existing_records(capsys):
@@ -645,7 +669,7 @@ def test_cli_a_cancelled_session_is_not_planned_or_missed(byobot_home):
     (lambda tmp: None, ["review", "--weeks", "1000000"]),
     (lambda tmp: None, ["log", "observation",
                         '{{"code": "body_mass", "value": 80, "unit": "kg", "time": {{"start": "9999-12-31T23:30:00"}}}}']),
-    (lambda tmp: None, ["validate", "[1, 2]"]),
+    (lambda tmp: None, ["validate", "event", "[1, 2]"]),
     (lambda tmp: (tmp / "a-file").write_text("x"), ["--home", "{tmp}/a-file", "status"]),
     (lambda tmp: (tmp / "cut.jsonl").write_text('{"byobot_export": 1}\n'), ["restore", "{tmp}/cut.jsonl"]),
 ], ids=["@missing", "@folder", "@not-utf8", "export-missing-folder", "review-until-9999", "review-until-0001",
@@ -656,14 +680,12 @@ def test_cli_a_mistake_is_a_json_error_not_a_traceback(make, argv, tmp_path):
     make(tmp_path)
     answer = via_cli([a.format(tmp=tmp_path) for a in argv])
     assert answer[0] in ("error", "ok"), answer
-    if argv[0] == "validate":
-        assert answer[0] == "ok" or answer == ("error", "invalid")
 
 
 @pytest.mark.parametrize("tool,args", [
     ("review", {"until": "9999-12-31"}),
     ("review", {"weeks": 1000000}),
-    ("validate", {"document": [1, 2]}),
+    ("validate", {"kind": "event", "document": [1, 2]}),
     ("log", {"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg",
                                                 "time": {"start": "9999-12-31T23:30:00"}}}),
 ])
