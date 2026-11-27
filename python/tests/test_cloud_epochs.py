@@ -387,6 +387,17 @@ def moved(keeper, relay):
     keeper.sync()
 
 
+def test_the_code_from_setup_still_opens_the_folder_after_a_rotation_and_cleanup(store, folder, keeper, tmp_path,
+                                                                                 clock):
+    code = keeper.recovery_code
+    relay = joined(keeper, folder)
+    keeper.sync()
+    n = keeper.rotate()
+    moved(keeper, relay)
+    assert [p for p in folder.list() if p.endswith("/recovery.key")] == [files.recovery_path(n)]
+    again = Keeper.recover(Store(tmp_path / "a.db"), folder, code, clock)
+    assert again.epoch > n
+
 
 def test_a_new_code_cut_short_is_kept_and_shown_by_the_retry(store, folder, keeper, tmp_path, clock, monkeypatch):
     relay = joined(keeper, folder)
@@ -418,3 +429,21 @@ def test_a_code_a_newer_one_replaced_is_refused_while_its_files_remain(store, fo
     with pytest.raises(ByobotError, match="newer recovery code"):
         Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
 
+
+def test_cleanup_waits_on_a_phone_that_cant_follow_a_handover(store, folder, keeper, monkeypatch):
+    relay = joined(keeper, folder)
+    keeper.sync()
+    relay.sync()
+    old = relay.epoch
+    n = keeper.rotate()
+    follow = Relay._follow
+    monkeypatch.setattr(Relay, "_follow", lambda self, listing: {})
+    sent = event()
+    relay.log([sent])
+    relay.sync()
+    assert keeper.sync()["cleanup_waits_on"] == [PHONE]
+    assert store.event(sent["id"]) and relay.epoch == old < n
+    assert files.epoch_path(old) in folder.list() and keeper.key(old)
+    monkeypatch.setattr(Relay, "_follow", follow)
+    moved(keeper, relay)
+    assert relay.epoch == n and files.epoch_path(old) not in folder.list()
