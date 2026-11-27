@@ -203,9 +203,12 @@ class ModelReplica:
             return [self._undo(target, at, actor) for target in intent["events"]]
         if name == "resolve":
             return [self._resolve(intent, at, actor)]
-        if name == "erase":
+        if name == "erase":  # with every overlay on the record
             kind, rid = intent["record"]
-            return [self._write(at, actor, kind, rid, "erase", None)]
+            on = sorted({w.rid for w in self.writes.values() if w.kind == "overlay" and kind == "source_record"
+                         and isinstance(w.content, dict) and w.content.get("target") == rid})
+            return [self._write(at, actor, kind, rid, "erase", None),
+                    *(self._write(at, actor, "overlay", o, "erase", None) for o in on if key("overlay", o) not in self.gone)]
         if name in ("correct_import", "same_as"):
             return [self._overlay(intent, at, actor)]
         raise Refused(name)
