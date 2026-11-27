@@ -66,7 +66,7 @@ def test_register_refuses_unsafe_redirects(auth):
 def test_a_public_client_gets_tokens_with_pkce(auth):
     client, tokens = approved(auth)
     assert "client_secret" not in client
-    assert tokens["token_type"] == "Bearer" and tokens["scope"] == "byobot"
+    assert tokens["token_type"] == "Bearer" and tokens["scope"] == "read write"
     assert auth.client_for_token(tokens["access_token"])["client_name"] == "Example Assistant"
     assert auth.clients() == [{"client_id": client["client_id"], "client_name": "Example Assistant"}]
 
@@ -190,7 +190,7 @@ def request(server, method, path, body=None, headers=None):
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 
 
-def connect(server, name="Example Assistant"):
+def connect(server, name="Example Assistant", **approve):
     """Run the whole connector flow: register, approve with the code, exchange. Returns (client, tokens)."""
     resp, raw = request(server, "POST", "/oauth/register", {"client_name": name, "redirect_uris": [CALLBACK],
                                                             "token_endpoint_auth_method": "none"})
@@ -202,7 +202,8 @@ def connect(server, name="Example Assistant"):
               "resource": BASE + "/mcp"}
     resp, raw = request(server, "GET", "/oauth/authorize?" + urlencode(params))
     assert resp.status == 200 and name.encode() in raw and b"client.example" in raw
-    resp, _ = request(server, "POST", "/oauth/authorize", {**params, "approval_code": server.pairing.code}, FORM)
+    resp, _ = request(server, "POST", "/oauth/authorize", {**params, "approval_code": server.pairing.code, **approve},
+                      FORM)
     assert resp.status == 302
     location = urlsplit(resp.getheader("Location"))
     q = parse_qs(location.query)
@@ -429,6 +430,26 @@ def test_an_api_key_also_works_for_mcp(running):
     key = running.auth.create_key("example_assistant")
     resp, raw = rpc(running, key, "tools/list")
     assert resp.status == 200 and json.loads(raw)["result"]["tools"]
+
+
+def test_a_read_only_key_reads_but_does_not_write(running):
+    key = running.auth.create_key("example_assistant", remote.READ)
+    auth = {"X-API-Key": key}
+    names = {t["name"] for t in json.loads(request(running, "GET", "/api/tools", headers=auth)[1])["tools"]}
+    assert "query" in names and "log" not in names
+    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "plank",
+                                                            "payload": {"name": "Plank"}}, auth)
+    assert resp.status == 403 and json.loads(raw)["error"] == "forbidden"
+    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 200
+    assert "log" not in {t["name"] for t in json.loads(rpc(running, key, "tools/list")[1])["result"]["tools"]}
+
+
+def test_approving_for_reading_only_grants_read(running):
+    _, tokens = connect(running, read_only="1")
+    assert tokens["scope"] == "read"
+    resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
+        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}})
+    assert json.loads(raw)["result"]["isError"] is True
 
 
 def test_remote_api_key_prints_a_working_key(capsys, auth):

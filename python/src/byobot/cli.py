@@ -146,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
                                                           "such as `my_assistant`, print it once, then exit.")
     remote.add_argument("--copy", action="store_true",
                         help="With --api-key, put the key on the clipboard instead of printing it.")
+    remote.add_argument("--read-only", action="store_true", help="With --api-key, a key that can only read.")
     return parser
 
 
@@ -208,7 +209,8 @@ def _main(argv: Sequence[str] | None) -> int:
         if args.command == "remote":
             from byobot import remote
 
-            return remote.run(args.url, args.host, args.port, args.pair, args.revoke, args.api_key, args.copy)
+            return remote.run(args.url, args.host, args.port, args.pair, args.revoke, args.api_key, args.copy,
+                              args.read_only)
         name = f"{args.command} {args.subcommand}" if getattr(args, "subcommand", None) else args.command
         if name not in REGISTRY:
             parser.parse_args([args.command, "--help"])

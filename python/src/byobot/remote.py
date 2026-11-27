@@ -40,7 +40,8 @@ from byobot.commands import REGISTRY, Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
 
-SCOPE = "byobot"
+READ, FULL = "read", "read write"  # a client with only read may call read-only tools
+SCOPES = ("read", "write")
 ACCESS_TTL_S = 3600
 REFRESH_TTL_S = 90 * 86400
 CODE_TTL_S = 300
@@ -76,6 +77,17 @@ def _redirect_ok(uri: Any) -> bool:
     return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "::1"))
 
 
+def requested_scope(scope: Any) -> str:
+    """What a client asked for: read alone when it names read and not write, else what it could always do."""
+    words = set(scope.split()) if isinstance(scope, str) else set()
+    return READ if "read" in words and "write" not in words else FULL
+
+
+def scope_of(client: dict) -> str:
+    """A client's scope. Clients approved before scopes existed hold "byobot", which is everything."""
+    return READ if client.get("scope") == READ else FULL
+
+
 def actor_id(client: dict) -> str:
     """The author of a client's writes: its name and its own id, so two clients that call themselves alike differ."""
     return f"{client['client_name'][:100]}#{client['client_id']}"
@@ -99,6 +111,7 @@ class Grant:
     challenge: str
     generation: int  # revoke_all moves oauth.json past this, and the code with it
     named: bool = True  # whether the request named redirect_uri, so the token request must too (RFC 6749 4.1.3)
+    scope: str = FULL
     expires_at: float = field(default_factory=lambda: time.monotonic() + CODE_TTL_S)
 
 
@@ -183,7 +196,7 @@ class Auth:
         name = name.strip()[:100] if isinstance(name, str) and name.strip() else "MCP client"
         client = {"client_id": secrets.token_urlsafe(16), "client_name": name, "redirect_uris": uris,
                   "token_endpoint_auth_method": method, "client_id_issued_at": int(time.time()),
-                  "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": SCOPE}
+                  "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": FULL}
         out = dict(client)
         if method != "none":
             out["client_secret"] = secrets.token_urlsafe(32)
@@ -228,13 +241,13 @@ class Auth:
 
     # -- codes and tokens --
 
-    def grant(self, client_id: str, redirect_uri: str, challenge: str, named: bool = True) -> str:
+    def grant(self, client_id: str, redirect_uri: str, challenge: str, named: bool = True, scope: str = FULL) -> str:
         code = secrets.token_urlsafe(32)
         with self.lock:
             generation = self._load()["generation"]
             now = time.monotonic()
             self.grants = {k: g for k, g in self.grants.items() if g.expires_at > now}
-            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named)
+            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named, scope)
         return code
 
     def exchange(self, client: dict, code: Any, redirect_uri: Any, verifier: Any) -> dict:
@@ -249,7 +262,7 @@ class Auth:
         expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
         if not secrets.compare_digest(expected, grant.challenge):
             raise OAuthError("invalid_grant", "code_verifier does not match")
-        return self._issue(client, grant.generation)
+        return self._issue({**client, "scope": grant.scope}, grant.generation)
 
     def refresh(self, client: dict, token: Any) -> dict:
         h, cid = _hash(token) if isinstance(token, str) else None, client["client_id"]
@@ -284,7 +297,7 @@ class Auth:
         with self.lock:
             self.pending.pop(cid, None)
         return {"access_token": access, "token_type": "Bearer", "expires_in": ACCESS_TTL_S,
-                "refresh_token": refresh, "scope": SCOPE}
+                "refresh_token": refresh, "scope": scope_of(client)}
 
     def client_for_token(self, token: str) -> dict | None:
         """The client an access token or API key belongs to."""
@@ -294,20 +307,21 @@ class Auth:
             data = self._load()
         h = _hash(token)
         if h in data["keys"]:
-            return {"client_id": "key:" + h[:16], "client_name": data["keys"][h]["name"]}
+            key = data["keys"][h]
+            return {"client_id": "key:" + h[:16], "client_name": key["name"], "scope": key.get("scope", FULL)}
         held = data["access"].get(h)
         if held is None or held["expires_at"] < time.time():
             return None
         return data["clients"].get(held["client_id"])
 
-    def create_key(self, name: str) -> str:
+    def create_key(self, name: str, scope: str = FULL) -> str:
         """A long-lived API key, for assistants that call an API with a fixed key instead of signing in."""
         if not PROFILE_NAME.fullmatch(name):
             raise ValidationFailed(f"API key names are lowercase letters, digits and _, not {name!r}")
         key = "byobot_" + secrets.token_urlsafe(32)
 
         def add(data: dict) -> None:
-            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time())}
+            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time()), "scope": scope}
 
         self._change(add)
         return key
@@ -424,7 +438,7 @@ class Handler(serve.Handler):
     def resource_metadata(self) -> None:
         """RFC 9728."""
         self._send(HTTPStatus.OK, {"resource": self.server.resource, "authorization_servers": [self.server.base],
-                                   "scopes_supported": [SCOPE], "bearer_methods_supported": ["header"],
+                                   "scopes_supported": list(SCOPES), "bearer_methods_supported": ["header"],
                                    "resource_name": f"byobot ({self.server.name})"})
 
     def server_metadata(self) -> None:
@@ -432,7 +446,7 @@ class Handler(serve.Handler):
         base = self.server.base
         self._send(HTTPStatus.OK, {
             "issuer": base, "authorization_endpoint": base + "/oauth/authorize", "token_endpoint": base + "/oauth/token",
-            "registration_endpoint": base + "/oauth/register", "scopes_supported": [SCOPE],
+            "registration_endpoint": base + "/oauth/register", "scopes_supported": list(SCOPES),
             "response_types_supported": ["code"], "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": list(AUTH_METHODS),
             "authorization_response_iss_parameter_supported": True})
@@ -485,8 +499,9 @@ class Handler(serve.Handler):
                 ok = is_open and pairing.check(q.get("approval_code", ""))
                 tries = pairing.tries_left if pairing else 0
             if ok:
+                scope = READ if q.get("read_only") else requested_scope(q.get("scope"))
                 code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"],
-                                              bool(q.get("redirect_uri")))
+                                              bool(q.get("redirect_uri")), scope)
                 self.server.log(serve.printable(f"approved {client['client_name']}"))
                 self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
                 return
@@ -499,13 +514,16 @@ class Handler(serve.Handler):
         keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
                        if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
                                 "code_challenge_method", "state", "scope", "resource"))
+        writes = requested_scope(q.get("scope")) == FULL
+        choice = ("<p><label><input type=checkbox name=read_only value=1> Only let it read</label></p>"
+                  if writes else "")
         self._html(HTTPStatus.FORBIDDEN if message else HTTPStatus.OK, "Connect to byobot",
-                   f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to read and write your "
-                   f"byobot ({escape(self.server.name)}). After you approve, it goes to "
-                   f"<b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
+                   f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to "
+                   f"{'read and write' if writes else 'read'} your byobot ({escape(self.server.name)}). "
+                   f"After you approve, it goes to <b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
                    f"<p>Enter the code <code>byobot remote</code> shows only if you just started connecting this "
                    f"app yourself and that address is your assistant's.</p>"
-                   f"<form method=post action='/oauth/authorize'>{keep}"
+                   f"<form method=post action='/oauth/authorize'>{keep}{choice}"
                    f"<p><input name=approval_code inputmode=numeric autocomplete=one-time-code size=8 autofocus>"
                    f" <button>Connect</button></p></form><p>{escape(message)}</p>")
 
@@ -571,7 +589,7 @@ class Handler(serve.Handler):
         message = self._body()
         initializing = isinstance(message, dict) and message.get("method") == "initialize"
         session = None if initializing else self._session(client)
-        server = mcp.Server(actor_id(client))
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.client = session["client"] if session else {"name": client["client_name"]}
         if session:
             server.protocol = session["protocol"]
@@ -618,10 +636,10 @@ class Handler(serve.Handler):
 
     def api_tools(self) -> None:
         try:
-            self._client()
+            client = self._client()
         except _Sent:
             return
-        self._send(HTTPStatus.OK, {"tools": mcp.tools()})
+        self._send(HTTPStatus.OK, {"tools": mcp.tools(read_only=scope_of(client) == READ)})
 
     def api_call(self, name: str) -> None:
         try:
@@ -633,7 +651,7 @@ class Handler(serve.Handler):
             args = {}
         if not isinstance(args, dict):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
-        server = mcp.Server(actor_id(client))
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.ctx = Context(actor={}, path=self.server.db)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:
@@ -648,7 +666,8 @@ class Handler(serve.Handler):
         result = reply["result"]
         body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
         failed = isinstance(body, dict) and "error" in body and result["isError"]
-        self._send(HTTPStatus.BAD_REQUEST if failed else HTTPStatus.OK, body)
+        status = HTTPStatus.FORBIDDEN if failed and body["error"] == "forbidden" else HTTPStatus.BAD_REQUEST
+        self._send(status if failed else HTTPStatus.OK, body)
 
 
 def _writes(message: Any) -> bool:
@@ -709,14 +728,14 @@ def clipboard() -> list[str]:
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
-        api_key: str | None = None, copy: bool = False) -> int:
+        api_key: str | None = None, copy: bool = False, read_only: bool = False) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
-    if copy and api_key is None:
-        raise ValidationFailed("--copy goes with --api-key")
+    if (copy or read_only) and api_key is None:
+        raise ValidationFailed("--copy and --read-only go with --api-key")
     if api_key is not None:
         cmd = clipboard() if copy else None
-        key = Auth(remote_dir() / "oauth.json").create_key(api_key)
+        key = Auth(remote_dir() / "oauth.json").create_key(api_key, READ if read_only else FULL)
         base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
         out = {"name": api_key, "openapi": base + "/api/openapi.json", "mcp": base + "/mcp"}
         if cmd:

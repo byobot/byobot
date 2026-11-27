@@ -160,3 +160,7 @@ class NotFound(ByobotError):
 
 class Conflict(ByobotError):
     code = "conflict"
+
+
+class Forbidden(ByobotError):
+    code = "forbidden"
