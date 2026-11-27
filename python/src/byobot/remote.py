@@ -5,7 +5,7 @@ One profile per process. It listens on 127.0.0.1 and sits behind a tunnel you ru
 data stays on this computer; the tunnel only carries requests.
 
 * **MCP.** Streamable HTTP at ``/mcp``: the same tools and prompts as ``byobot mcp``,
-  answered as JSON. A session id ties later requests to the client's ``initialize``.
+  answered as JSON, without sessions: the token says who calls and the header which protocol.
 * **Sign-in.** OAuth 2.1, as the MCP authorization spec asks: protected resource
   and authorization server metadata, dynamic client registration, the
   authorization code flow with PKCE (S256), and rotating refresh tokens. A client
@@ -342,7 +342,6 @@ class Auth:
 # -- HTTP --------------------------------------------------------------------
 
 MAX_FORM = 8192
-MAX_SESSIONS = 1000
 QUERY_TIMEOUT_S = 20
 
 
@@ -354,8 +353,6 @@ class RemoteServer(ThreadingHTTPServer):
                  name: str, log: Callable[[str], None] | None = None):
         self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
         self.pairing_lock = threading.Lock()
-        self.sessions: dict[str, dict] = {}
-        self.sessions_lock = threading.Lock()
         self.log = log or (lambda line: None)
         super().__init__(address, Handler)
 
@@ -428,7 +425,7 @@ class Handler(serve.Handler):
         self._guard(routes.get(route, self.not_found))
 
     def do_DELETE(self) -> None:  # noqa: N802
-        self._guard(self.end_session if self._route() == "/mcp" else self.not_found)
+        self._guard(self.mcp_not_allowed if self._route() == "/mcp" else self.not_found)
 
     def not_found(self) -> None:
         raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"no such endpoint {self._route()}")
@@ -568,16 +565,6 @@ class Handler(serve.Handler):
         self.peer = {"name": client["client_name"]}
         return client
 
-    def _session(self, client: dict) -> dict | None:
-        sid = self.headers.get("Mcp-Session-Id")
-        if sid is None:
-            return None
-        with self.server.sessions_lock:
-            session = self.server.sessions.get(sid)
-        if session is None or session["client_id"] != client["client_id"]:
-            raise serve.HTTPError(HTTPStatus.NOT_FOUND, "no_session", "unknown session; initialize again")
-        return session
-
     def mcp(self) -> None:
         try:
             client = self._client()
@@ -587,12 +574,8 @@ class Handler(serve.Handler):
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
-        initializing = isinstance(message, dict) and message.get("method") == "initialize"
-        session = None if initializing else self._session(client)
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
-        server.client = session["client"] if session else {"name": client["client_name"]}
-        if session:
-            server.protocol = session["protocol"]
+        server.protocol = version or mcp.LATEST
         server.ctx = Context(actor={}, path=self.server.db)
         try:
             if not _writes(message):
@@ -600,34 +583,14 @@ class Handler(serve.Handler):
             reply = server.handle(message)
         finally:
             server.close()
-        headers = {}
-        if initializing and isinstance(reply, dict) and "result" in reply:
-            sid = secrets.token_urlsafe(24)
-            with self.server.sessions_lock:
-                while len(self.server.sessions) >= MAX_SESSIONS:
-                    self.server.sessions.pop(next(iter(self.server.sessions)))
-                self.server.sessions[sid] = {"client_id": client["client_id"], "client": server.client,
-                                             "protocol": server.protocol}
-            headers["Mcp-Session-Id"] = sid
         if reply is None:
-            self._send_bytes(HTTPStatus.ACCEPTED, b"", None, headers)
+            self._send_bytes(HTTPStatus.ACCEPTED, b"", None)
         else:
             self._send_bytes(HTTPStatus.OK, json.dumps(reply, ensure_ascii=False).encode(),
-                             "application/json; charset=utf-8", headers)
+                             "application/json; charset=utf-8")
 
     def mcp_not_allowed(self) -> None:
-        self._send_bytes(HTTPStatus.METHOD_NOT_ALLOWED, b"", None, {"Allow": "POST, DELETE"})
-
-    def end_session(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
-        sid = self.headers.get("Mcp-Session-Id")
-        if self._session(client) is not None:
-            with self.server.sessions_lock:
-                self.server.sessions.pop(sid, None)
-        self._send_bytes(HTTPStatus.NO_CONTENT, b"", None)
+        self._send_bytes(HTTPStatus.METHOD_NOT_ALLOWED, b"", None, {"Allow": "POST"})
 
     # -- plain JSON API --
 

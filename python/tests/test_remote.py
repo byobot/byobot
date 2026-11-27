@@ -250,7 +250,7 @@ def test_a_connected_assistant_uses_the_tools(running):
                                                    "clientInfo": {"name": "example-assistant", "version": "1"}})
     assert resp.status == 200 and json.loads(raw)["result"]["serverInfo"]["name"] == "byobot"
     session = resp.getheader("Mcp-Session-Id")
-    assert session
+    assert session is None
     resp, raw = rpc(running, token, "notifications/initialized", mid=None, session=session)
     assert resp.status == 202 and raw == b""
     resp, raw = rpc(running, token, "tools/list", session=session)
@@ -264,17 +264,17 @@ def test_a_connected_assistant_uses_the_tools(running):
     assert row["actor_kind"] == "agent" and row["actor_id"].startswith("Example Assistant#")
 
 
-def test_sessions_belong_to_their_client(running):
-    _, one = connect(running, "One")
-    running.pairing = serve.Pairing()
-    _, two = connect(running, "Two")
-    resp, _ = rpc(running, one["access_token"], "initialize", {"protocolVersion": "2025-06-18",
-                                                               "clientInfo": {"name": "one"}})
-    session = resp.getheader("Mcp-Session-Id")
-    resp, _ = rpc(running, two["access_token"], "tools/list", session=session)
-    assert resp.status == 404
-    resp, _ = rpc(running, one["access_token"], "tools/list", session="unknown")
-    assert resp.status == 404
+def test_the_protocol_comes_from_the_header(running):
+    _, tokens = connect(running)
+    call = {"name": "query", "arguments": {"sql": "SELECT 1 AS one"}}
+    headers = {"Authorization": f"Bearer {tokens['access_token']}", "Accept": "application/json, text/event-stream"}
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": call}
+    _, raw = request(running, "POST", "/mcp", msg, {**headers, "MCP-Protocol-Version": "2025-03-26"})
+    assert "structuredContent" not in json.loads(raw)["result"]
+    _, raw = request(running, "POST", "/mcp", msg, {**headers, "MCP-Protocol-Version": "2025-06-18"})
+    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"one": 1}]
+    resp, _ = request(running, "DELETE", "/mcp", headers=headers)
+    assert resp.status == 405
 
 
 def test_without_a_session_writes_name_the_connected_app(running):
@@ -335,7 +335,7 @@ def test_refresh_over_http_and_revoke(running):
 
 def test_get_mcp_is_not_offered(running):
     resp, _ = request(running, "GET", "/mcp")
-    assert resp.status == 405 and resp.getheader("Allow") == "POST, DELETE"
+    assert resp.status == 405 and resp.getheader("Allow") == "POST"
 
 
 def test_a_confidential_client_can_use_basic_auth(running):
