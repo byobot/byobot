@@ -67,7 +67,7 @@ The app and byobot work together when they share a release line (app 0.1 with by
 
 ## Sync through Google Drive (optional)
 
-When the phone can't reach your computer, it can sync through a hidden folder in your own Google Drive instead. Everything there is encrypted with keys only your devices hold. Your computer stays the one copy that counts; the folder is only a mailbox.
+When the phone can't reach your computer, it can sync through a hidden folder in your own Google Drive, encrypted with keys only your devices hold. Your computer stays the copy that counts.
 
 You use your own Google Cloud project, once:
 
@@ -81,11 +81,7 @@ byobot cloud join      # shows a code; in the app, turn on Drive sync and scan i
 byobot cloud status    # devices, when each was last heard from, the folder's size, any error
 ```
 
-`byobot serve`, `byobot remote serve` and `byobot mcp` sync with Drive every minute while they run; reads never sync, so run `byobot cloud sync` first for a one-off read that needs the latest from phones. `byobot cloud off` stops; `--delete` also deletes the folder's files, leaving one small signed note that tells phones Drive sync ended. Keep byobot's home out of any folder another app syncs (Google Drive for desktop, iCloud Drive, Dropbox): `byobot status` warns if it is in one.
-
-Erasing a record with Drive sync on rewrites the folder under a new key. Once every device has moved to it, the old files and keys are deleted outright, so the record is gone from Drive's folder and from every device that synced. What Google keeps on its own systems after a delete isn't documented, but anything left is encrypted with a key that only a device you removed with `byobot cloud remove` may still hold. `byobot cloud status` names any device the cleanup still waits on, and `byobot cloud remove` retires one that won't come back. Exports made before the erase still hold the data.
-
-If this Mac's keys or the recovery code may have leaked, `byobot cloud rotate` signs the folder with new keys from a new epoch on, and phones follow on their next sync; `--recovery` also replaces the recovery code.
+`byobot serve`, `byobot remote serve` and `byobot mcp` sync every minute while they run; `byobot cloud sync` syncs now. `byobot cloud off` stops (`--delete` also deletes the folder's files), `byobot cloud remove` retires a device and `byobot cloud rotate` changes the keys. Erasing a record rewrites the folder under a new key, so the record is gone from Drive once every device has synced. Keep byobot's home out of any folder another app syncs, such as Google Drive for desktop, iCloud Drive or Dropbox.
 
 ## Import from WHOOP
 
