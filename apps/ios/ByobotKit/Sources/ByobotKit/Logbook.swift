@@ -260,13 +260,13 @@ public struct Logbook: Sendable {
     /// are left out.
     func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type) -> [Record<P>] {
         var order: [String] = []
-        var latest: [String: P?] = [:]
+        var latest: [String: Event] = [:]
         for event in state.events where event.record.kind == kind {
             if latest[event.record.id] == nil { order.append(event.record.id) }
-            latest[event.record.id] = .some(event.decoded(P.self))
+            latest[event.record.id] = event
         }
         return order.compactMap { id in
-            latest[id].flatMap { $0 }.map { Record(id: id, payload: $0, prev: prev(kind, id)) }
+            latest[id]?.decoded(P.self).map { Record(id: id, payload: $0, prev: prev(kind, id)) }
         }
     }
 
