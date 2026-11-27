@@ -1,5 +1,5 @@
-"""The Mac syncs Drive on its own: before reads, once a minute while `serve` runs, one process at a time; and
-`cloud off`."""
+"""The Mac syncs Drive on its own: once a minute while `serve`, `remote` or `mcp` runs, one process at a time, never
+inside a read; and `cloud off`."""
 
 import pytest
 
@@ -43,29 +43,32 @@ def phone(cloud, fake, tmp_path):  # noqa: F811
     ctx.close()
 
 
-def test_a_read_brings_in_what_the_phone_sent(phone):
+def test_a_read_leaves_drive_alone(phone, monkeypatch):
     ctx, relay = phone
     relay.log([event()])
     relay.sync()
     age(ctx)
+    monkeypatch.setattr(commands, "autosync", lambda *a, **k: pytest.fail("a read synced Drive"))
     run("status", ctx, {})
-    assert efforts(ctx) == 1 and meta(ctx, "error") is None and meta(ctx, "synced_at")
+    run("list", ctx, {"kind": "efforts"})
+    assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
 
 
-def test_reads_sync_at_most_once_a_minute(phone):
+def test_the_poller_syncs_at_most_once_a_minute(phone):
     ctx, relay = phone
+    poller = CloudPoller(ctx.path, [].append)
     age(ctx)
-    run("status", ctx, {})
+    poller.poll()
     relay.log([event()])
     relay.sync()
-    run("status", ctx, {})
+    assert poller.poll() is None
     assert efforts(ctx) == 0
     age(ctx)
-    run("status", ctx, {})
+    poller.poll()
     assert efforts(ctx) == 1
 
 
-def test_a_read_goes_on_when_drive_fails(phone, monkeypatch):
+def test_the_poller_goes_on_when_drive_fails(phone, monkeypatch):
     ctx, _ = phone
 
     def unreachable(store, quick=False):
@@ -74,8 +77,15 @@ def test_a_read_goes_on_when_drive_fails(phone, monkeypatch):
     commands._folders.clear()
     monkeypatch.setattr(commands, "_drive_folder", unreachable)
     age(ctx)
+    assert CloudPoller(ctx.path, [].append).poll() == {"error": "can't reach Google Drive: offline"}
     assert run("status", ctx, {})["counts"]
     assert meta(ctx, "error") == "can't reach Google Drive: offline"
+
+
+def test_the_poller_leaves_a_missing_store_uncreated(tmp_path):
+    db = tmp_path / "none.db"
+    assert CloudPoller(db, [].append).poll() is None
+    assert not db.exists()
 
 
 def test_a_read_skips_drive_while_another_process_syncs(phone):
@@ -136,7 +146,7 @@ def test_cloud_off_stops_sync_until_setup(phone):
     relay.log([event()])
     relay.sync()
     age(ctx)
-    run("status", ctx, {})
+    assert CloudPoller(ctx.path, [].append).poll() is None
     assert efforts(ctx) == 0
     with pytest.raises(ValidationFailed, match="turn it on again"):
         run("cloud sync", ctx, {})
