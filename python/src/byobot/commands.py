@@ -1045,16 +1045,30 @@ def _cloud_status(ctx: Context) -> dict:
     "Remove a device from Drive sync, such as a lost phone. A new epoch starts with a key it doesn't get.",
     Param("device_id", "string", "The device to remove (see `byobot cloud status`).", required=True,
           positional=True),
+    Param("revoke_google", "string", "Also revoke Google access, for a lost or stolen phone. This signs out every "
+          "phone, not only this one. Asked in a terminal; no otherwise.", choices=("yes", "no")),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_remove(ctx: Context, device_id: str) -> dict:
+def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
         epoch = keeper.remove(device_id)
-    return {"removed": device_id, "epoch": epoch,
-            "next": "A lost phone is still signed in to Google: in your Google Account's third-party connections, "
-                    "remove its access to your Google Cloud project's app."}
+    if revoke_google is None:
+        try:
+            answer = _ask("Also revoke Google access? Only for a lost or stolen phone: it signs out every phone, "
+                          "and the others join again. [y/N] ") if sys.stdin.isatty() else ""
+        except (EOFError, OSError):
+            answer = ""
+        revoke_google = "yes" if answer.lower() in ("y", "yes") else "no"
+    if revoke_google == "yes":
+        return {"removed": device_id, "epoch": epoch, "google_access": "revoke",
+                "next": "In your Google Account, open Security, then your connections to third-party apps, and remove "
+                        "your Google Cloud project's iOS app. Then run `byobot cloud join` for each phone you keep."}
+    return {"removed": device_id, "epoch": epoch, "google_access": "kept",
+            "note": "It can't read anything new, but it stays signed in to Google and could still delete files in "
+                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google yes` "
+                    "explains; that signs out every phone."}
 
 
 @command(
