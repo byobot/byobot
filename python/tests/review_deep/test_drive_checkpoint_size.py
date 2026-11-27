@@ -21,7 +21,7 @@ from byobot.util import ByobotError
 def test_recover_gets_every_event_or_says_it_cant(store, tmp_path, monkeypatch):
     monkeypatch.setattr(segment, "MAX_BODY", 128 * 1024)
     for n in range(40):
-        commands.log(store, ME, [{"kind": "location", "id": f"example-gym-{n}",
+        commands.log(store, ME, [{"kind": "location", "id": f"example_gym_{n}",
                                   "payload": {"name": f"Gym {n}", "notes": f"{n:04d}" + "x" * 3900}}])
     folder, clock = MemoryFolder(), Clock()
     keeper = Keeper.setup(store, folder, clock, recovery=True)
@@ -35,7 +35,7 @@ def test_recover_gets_every_event_or_says_it_cant(store, tmp_path, monkeypatch):
 
 def test_recover_says_so_when_a_checkpoint_part_is_missing(store, tmp_path):
     for n in range(3):
-        commands.log(store, ME, [{"kind": "location", "id": f"example-gym-{n}", "payload": {"name": f"Gym {n}"}}])
+        commands.log(store, ME, [{"kind": "location", "id": f"example_gym_{n}", "payload": {"name": f"Gym {n}"}}])
     folder, clock = MemoryFolder(), Clock()
     keeper = Keeper.setup(store, folder, clock, recovery=True)
     folder.delete(segment.name("checkpoint", keeper.epoch, 0))

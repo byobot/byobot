@@ -50,7 +50,7 @@ def test_a_restored_store_can_turn_drive_sync_on_again_after_off_delete(store, t
     folder = MemoryFolder()
     keeper = Keeper.setup(store, folder, Clock(), recovery=True)
     code = keeper.recovery_code
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     keeper.sync()
     keeper.forget()
     fresh = Store(tmp_path / "new-mac.db")
