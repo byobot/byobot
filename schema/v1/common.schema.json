@@ -10,9 +10,9 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     },
     "slug": {
-      "description": "A short lowercase name, such as a source (`whoop`), an activity (`barbell_back_squat`) or a location (`example-gym`).",
+      "description": "A short lowercase name of letters, digits and underscores, such as a source (`whoop`), an activity (`barbell_back_squat`) or a location (`example_gym`).",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+      "pattern": "^[a-z0-9][a-z0-9_]{0,63}$"
     },
     "uuid": {
       "description": "A lowercase UUID: v7 for anything authored, v5 for ids derived from other ids.",
@@ -59,7 +59,7 @@
     "code": {
       "description": "A code from registry.json, or your own prefixed `x.`. A replica keeps codes it doesn't know without converting them.",
       "type": "string",
-      "pattern": "^([a-z][a-z0-9_]{0,63}|x\\.[a-z0-9][a-z0-9_.-]{0,62})$"
+      "pattern": "^([a-z][a-z0-9_]{0,63}|x\\.[a-z0-9][a-z0-9_]{0,62})$"
     },
     "unit": {
       "description": "A UCUM unit code, such as `kg`, `[lb_av]` or `/min`.",

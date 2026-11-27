@@ -66,6 +66,32 @@
     "schema_version": 1,
     "record": {
      "kind": "location",
+     "id": "example_gym"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Example Gym"
+    }
+   }
+  },
+  {
+   "name": "location/dashed-id",
+   "outcome": "rejected",
+   "description": "Ids are lowercase letters, digits and underscores only.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000007f",
+    "schema_version": 1,
+    "record": {
+     "kind": "location",
      "id": "example-gym"
     },
     "op": "put",
@@ -137,7 +163,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",
@@ -201,7 +227,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -567,7 +593,7 @@
     "batch": "019aa000-0000-7000-8000-000000000900",
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York",
@@ -1154,7 +1180,7 @@
     },
     "prev": [],
     "payload": {
-     "value": "example-gym"
+     "value": "example_gym"
     }
    }
   },
@@ -2232,7 +2258,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -2281,7 +2307,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -3059,7 +3085,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T08:00:00-05:00",
       "zone": "America/New_York",
@@ -3137,7 +3163,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",
@@ -3544,7 +3570,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",

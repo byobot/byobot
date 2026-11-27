@@ -59,7 +59,7 @@ def test_a_relay_never_steps_back_to_an_older_plan(store, folder, keeper):
     relay = joined(keeper, folder)
     keeper.sync()
     older = relay.plan_path
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     keeper.sync()
     kept = {p: folder.files[p] for p in folder.list() if p.startswith("plan/")}
     relay.sync()

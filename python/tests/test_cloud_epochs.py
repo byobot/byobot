@@ -57,13 +57,13 @@ def raw(store):
 
 def test_an_erase_leaves_the_value_nowhere_once_every_device_moved(store, folder, keeper):
     relay = joined(keeper, folder)
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": SECRET}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": SECRET}}])
     relay.log([event()])
     relay.sync()
     keeper.sync()
     old = keeper.key(1)
     assert any(SECRET in text for text in opened(folder, keeper, old))
-    commands.erase(store, ME, "location", "example-gym")
+    commands.erase(store, ME, "location", "example_gym")
     report = keeper.sync()
     assert report["new_epoch"] == {"epoch": 2, "reason": "erase"} and report["cleanup_waits_on"] == [PHONE]
     assert keeper.status()["cleanup_waits_on"] == [PHONE]
@@ -95,13 +95,13 @@ def test_a_relay_drops_an_erased_record_it_still_holds(store, folder, keeper):
 def test_an_erased_record_arriving_later_starts_a_new_epoch(store, folder, keeper):
     relay = joined(keeper, folder)
     held = event()
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
-    commands.erase(store, ME, "location", "example-gym")
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
+    commands.erase(store, ME, "location", "example_gym")
     keeper.sync()
     relay.sync()
     keeper.sync()
     assert keeper.epoch == 2
-    stale = {**held, "record": {"kind": "location", "id": "example-gym"}, "payload": {"name": SECRET}}
+    stale = {**held, "record": {"kind": "location", "id": "example_gym"}, "payload": {"name": SECRET}}
     relay.log([stale])
     relay.plan = relay.plan_path = None  # as if it hadn't read the plan that lists the erase yet
     relay.events[stale["id"]] = stale
@@ -244,7 +244,7 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
     sent = event()
     relay.log([sent])
     relay.sync()
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     keeper.sync()
     keeper.compact()
     keeper.sync()
@@ -284,7 +284,7 @@ def test_recovery_needs_the_code_at_setup(store, folder, tmp_path, clock):
 
 def test_recovery_refuses_another_store(store, folder, keeper, tmp_path, clock):
     other = Store(tmp_path / "other.db")
-    commands.log(other, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    commands.log(other, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
     with pytest.raises(ByobotError, match="isn't the one"):
         Keeper.recover(other, folder, keeper.recovery_code, clock)
 
