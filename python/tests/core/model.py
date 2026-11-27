@@ -205,6 +205,8 @@ class ModelReplica:
             return [self._resolve(intent, at, actor)]
         if name == "erase":  # with every overlay on the record
             kind, rid = intent["record"]
+            if key(kind, rid) in self.gone or key(kind, rid) not in self.by_record:
+                raise Refused(f"no {kind} {rid} to erase")
             on = sorted({w.rid for w in self.writes.values() if w.kind == "overlay" and kind == "source_record"
                          and isinstance(w.content, dict) and w.content.get("target") == rid})
             return [self._write(at, actor, kind, rid, "erase", None),
