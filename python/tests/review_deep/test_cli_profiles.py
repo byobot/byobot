@@ -19,11 +19,11 @@ def test_cli_two_profiles_never_keep_the_same_port(module, saved_in, monkeypatch
     stopped, sam runs it for the first time: the port is free, so sam keeps the same one. From then on the two can't
     serve at once ("could not listen"), and alex's tunnel (`tailscale funnel ... 8781`) reaches sam's server."""
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
-    alex = module.choose_port("127.0.0.1")
+    alex = module.choose_port()
     saved_in().mkdir(parents=True, exist_ok=True)
     (saved_in() / "port").write_text(f"{alex}\n")  # what run() writes once it listens
     monkeypatch.setenv("BYOBOT_PROFILE", "sam")
-    sam = module.choose_port("127.0.0.1")
+    sam = module.choose_port()
     assert sam != alex
 
 

@@ -47,9 +47,10 @@ SERVERS = ("serve", "remote")
 DEFAULT_PORTS = (8765, 8766, 8780)  # serve, WHOOP's sign-in callback, remote
 
 
-def choose_port(server: str, host: str, default: int, ports: Iterable[int]) -> int:
+def choose_port(server: str, default: int, ports: Iterable[int]) -> int:
     """The port this profile's ``serve`` or ``remote`` used last, else ``default`` for the default profile, else the
-    first free one of ``ports`` that no other profile has kept for either server."""
+    first free one of ``ports`` that no other profile has kept for either server. The probe binds loopback, never every
+    interface; the server's own bind reports a port taken elsewhere."""
     saved = home() / server / "port"
     if saved.is_file():
         return int(saved.read_text().strip())
@@ -62,7 +63,7 @@ def choose_port(server: str, host: str, default: int, ports: Iterable[int]) -> i
             continue
         with socket.socket() as s:
             try:
-                s.bind((host, port))
+                s.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 continue

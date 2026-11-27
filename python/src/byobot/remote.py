@@ -687,9 +687,9 @@ def openapi(base: str) -> dict:
 DEFAULT_PORT = 8780
 
 
-def choose_port(host: str) -> int:
+def choose_port() -> int:
     """The port this profile used last, else 8780 for the default profile, else a free one from 8781 to 8879."""
-    return util.choose_port("remote", host, DEFAULT_PORT, range(DEFAULT_PORT + 1, DEFAULT_PORT + 100))
+    return util.choose_port("remote", DEFAULT_PORT, range(DEFAULT_PORT + 1, DEFAULT_PORT + 100))
 
 
 def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,
@@ -747,7 +747,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
         sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
         sys.stderr.flush()
 
-    port = port or choose_port(host)
+    port = port or choose_port()
     try:
         server = make_server(base, host, port, pair=pair, log=log)
     except OSError as exc:
