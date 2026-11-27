@@ -120,6 +120,17 @@ def test_a_refused_token_is_refreshed_once():
     assert whoop.Client(fake).request("GET", "/v2/cycle") == {"records": []}
 
 
+def test_a_long_wait_or_a_refusal_is_not_tried_again(monkeypatch):
+    connected()
+    monkeypatch.setattr(time, "sleep", lambda s: pytest.fail("waited"))
+    def busy(req):
+        raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "3600"}, None)
+    with pytest.raises(whoop.UpstreamError, match="too many requests"):
+        whoop.Client(busy).request("GET", "/v2/cycle")
+    with pytest.raises(whoop.UpstreamError, match="answered 400"):
+        whoop.Client(Fake({("GET", "/developer/v2/cycle"): [(400, "{}")]})).request("GET", "/v2/cycle")
+
+
 def test_not_connected_says_how_to_connect():
     with pytest.raises(whoop.NotConnected, match="byobot connect whoop"):
         whoop.Client(Fake({}))

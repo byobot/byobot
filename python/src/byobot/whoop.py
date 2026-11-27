@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import random
 import re
 import secrets
 import time
@@ -39,6 +40,9 @@ NAME = "whoop"
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)", "Accept": "application/json"}
 SNAPSHOT = Path(__file__).with_name("whoop.schema.json")
 PAGE = 25
+TRIES = 5
+BUSY = {429, 500, 502, 503, 504}
+LONGEST_WAIT = 120  # WHOOP's limit is per minute; a longer Retry-After means try again later
 
 
 class UpstreamError(ByobotError):
@@ -177,6 +181,14 @@ def check(body: Any, name: str) -> None:
                             f"byobot reads WHOOP API {version()}.")
 
 
+def _retry_after(e: urllib.error.HTTPError, attempt: int) -> float:
+    """Seconds to wait before trying again: WHOOP's Retry-After, else a growing backoff."""
+    try:
+        return max(0.0, float((e.headers or {}).get("Retry-After")))
+    except (TypeError, ValueError):
+        return min(2.0 ** attempt, 30.0) + random.random()
+
+
 class Client:
     def __init__(self, opener: Callable | None = None):
         self.opener = opener or urllib.request.urlopen
@@ -194,9 +206,12 @@ class Client:
         credentials.save(NAME, self.stored)
 
     def request(self, method: str, path: str, params: dict | None = None) -> Any:
-        if self.stored["expires_at"] - 60 < time.time():
-            self._refresh()
-        for attempt in (1, 2):
+        """One call's JSON. Refreshes the access token once on a 401, and waits and tries again when WHOOP is busy
+        or the network drops."""
+        refreshed = False
+        for attempt in range(TRIES):
+            if self.stored["expires_at"] - 60 < time.time():
+                self._refresh()
             query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
             req = urllib.request.Request(f"{API}{path}" + (f"?{query}" if query else ""), method=method,
                                          headers={**HEADERS, "Authorization": f"Bearer {self.stored['access_token']}"})
@@ -205,17 +220,25 @@ class Client:
                     body = resp.read()
                     return json.loads(body.decode("utf-8")) if body else None
             except urllib.error.HTTPError as e:
-                if e.code == 401 and attempt == 1:
+                if e.code == 401 and not refreshed:
                     self._refresh()
+                    refreshed = True
                     continue
-                if e.code == 429:
-                    raise UpstreamError("WHOOP says too many requests; try again in a minute") from None
-                why = _why(e)
-                raise UpstreamError(f"WHOOP answered {e.code} for {path}{': ' + why if why else ''}") from None
+                last = attempt == TRIES - 1
+                wait = _retry_after(e, attempt)
+                if e.code == 429 and (last or wait > LONGEST_WAIT):
+                    raise UpstreamError("WHOOP says too many requests; try again in a few minutes") from None
+                if e.code not in BUSY or last:
+                    why = _why(e)
+                    raise UpstreamError(f"WHOOP answered {e.code} for {path}{': ' + why if why else ''}") from None
             except (urllib.error.URLError, OSError) as e:
-                raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
+                if attempt >= 1:
+                    raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
+                wait = 2.0
             except json.JSONDecodeError:
                 raise UpstreamError(f"WHOOP sent something other than JSON for {path}") from None
+            time.sleep(wait)
+        raise UpstreamError("WHOOP didn't answer; try again")
 
     def pages(self, path: str, name: str, start: str) -> Iterator[dict]:
         """Every record since `start`, page by page, each page checked before any record is used."""
