@@ -709,17 +709,17 @@ def clipboard() -> list[str]:
     for cmd in CLIPBOARD:
         if shutil.which(cmd[0]):
             return cmd
-    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); run without --copy")
+    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); or pass --show to print the key once")
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
-        api_key: str | None = None, copy: bool = False, read_only: bool = False) -> int:
+        api_key: str | None = None, show: bool = False, read_only: bool = False) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
-    if (copy or read_only) and api_key is None:
-        raise ValidationFailed("--copy and --read-only go with --api-key")
+    if (show or read_only) and api_key is None:
+        raise ValidationFailed("--show and --read-only go with --api-key")
     if api_key is not None:
-        cmd = clipboard() if copy else None
+        cmd = None if show else clipboard()
         key = Auth(remote_dir() / "oauth.json").create_key(api_key, READ if read_only else FULL)
         base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
         out = {"name": api_key, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}

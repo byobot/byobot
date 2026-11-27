@@ -464,35 +464,35 @@ def test_approving_for_reading_only_grants_read(running):
     assert json.loads(raw)["result"]["isError"] is True
 
 
-def test_remote_api_key_prints_a_working_key(capsys, auth):
+def test_remote_api_key_show_prints_a_working_key(capsys, auth):
     from byobot.cli import main
 
-    assert main(["remote", "--api-key", "example_assistant"]) == 0
+    assert main(["remote", "--api-key", "example_assistant", "--show"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["openapi"].endswith("/api/v1/openapi.json")
     assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
-    assert main(["remote", "--api-key", "Bad Name"]) == 1
+    assert main(["remote", "--api-key", "Bad Name", "--show"]) == 1
 
 
-def test_remote_api_key_copy_puts_the_key_on_the_clipboard(capsys, auth, monkeypatch):
+def test_remote_api_key_goes_on_the_clipboard_by_default(capsys, auth, monkeypatch):
     from byobot import remote
     from byobot.cli import main
 
     copied = []
     monkeypatch.setattr(remote.shutil, "which", lambda name: name == "pbcopy")
     monkeypatch.setattr(remote.subprocess, "run", lambda cmd, input, check: copied.append((cmd, input)))
-    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 0
+    assert main(["remote", "--api-key", "example_assistant"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert "key" not in out and out["copied"]
     assert copied[0][0] == ["pbcopy"]
     assert auth.client_for_token(copied[0][1].decode())["client_name"] == "example_assistant"
 
 
-def test_remote_api_key_copy_fails_without_a_clipboard(capsys, auth, monkeypatch):
+def test_remote_api_key_fails_without_a_clipboard_unless_shown(capsys, auth, monkeypatch):
     from byobot import remote
     from byobot.cli import main
 
     monkeypatch.setattr(remote.shutil, "which", lambda name: None)
-    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 1
-    assert "clipboard" in capsys.readouterr().err
-    assert not auth._load()["keys"] and main(["remote", "--copy"]) == 1
+    assert main(["remote", "--api-key", "example_assistant"]) == 1
+    assert "--show" in capsys.readouterr().err
+    assert not auth._load()["keys"] and main(["remote", "--show"]) == 1
