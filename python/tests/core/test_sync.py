@@ -124,7 +124,7 @@ def test_s1_resolving_while_a_third_edit_is_in_flight_conflicts_again(world):
     converged(world, "phone", "laptop", "tablet")
 
 
-def test_s1_undoing_a_resolve_writes_back_the_newest_version(world):
+def test_s1_undoing_a_resolve_brings_the_conflict_back(world):
     apart(world, "phone", "laptop")
     world.author("phone", edit(reps=7))
     world.author("laptop", edit(reps=8))
@@ -132,6 +132,7 @@ def test_s1_undoing_a_resolve_writes_back_the_newest_version(world):
     fixed = world.author("phone", {"intent": "resolve", "record": ["effort", "e1"], "choice": 0})
     world.author("phone", {"intent": "undo", "change": fixed.id})
     both_ways(world, "phone", "laptop")
+    assert len(world.snapshot("laptop")["conflicts"]["effort/e1"]) == 2
     converged(world, "phone", "laptop")
 
 
