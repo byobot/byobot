@@ -13,6 +13,7 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 
 - Connectors talk directly between your device and the service: WHOOP through WHOOP's API with your own developer app, and Apple Health on your iPhone.
 - An agent you connect reads and writes what you let it, under its provider's own terms. With `byobot remote`, it reaches your computer through a tunnel you run and can do everything but erase.
+- Text that other apps and agents write, such as an app's or a device's name, reaches your agent. byobot keeps it to one short line and marks where it can appear, so the agent treats it as data. An agent can still be misled by what it reads.
 
 ## Deleting your data
 
