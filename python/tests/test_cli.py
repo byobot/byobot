@@ -203,6 +203,15 @@ def test_remove_and_versions(capsys):
     assert [v["op"] for v in versions] == ["put", "retract"]
 
 
+def test_erase_a_session_with_its_efforts(capsys):
+    session = cli(capsys, "log", "session", '{"name": "Legs"}')[1]["event"]["record"]["id"]
+    effort = {"activity_id": "x.squat", "links": {"part_of": {"kind": "session", "id": session}}}
+    cli(capsys, "log", "effort", json.dumps(effort))
+    code, out, _ = cli(capsys, "erase", "session", session, "--efforts")
+    assert code == 0 and [e["record"]["kind"] for e in out["events"]] == ["session", "effort"]
+    assert cli(capsys, "list", "effort")[1]["count"] == 0
+
+
 def test_ingest_ndjson_file(capsys, tmp_path):
     path = tmp_path / "samples.ndjson"
     path.write_text("\n".join(json.dumps(s) for s in (WEIGHT, RESTING)) + "\n")
