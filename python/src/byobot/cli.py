@@ -78,6 +78,8 @@ def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
     kwargs: dict[str, Any] = {"help": p.help + (" Use @path for a file." if p.type == "json" else "")}
     if p.type == "integer":
         kwargs["type"] = int
+    if p.type == "boolean":
+        kwargs["action"] = argparse.BooleanOptionalAction
     if p.choices:
         kwargs["choices"] = p.choices
     if p.positional:

@@ -6,7 +6,8 @@ import pytest
 
 from byobot import __version__
 from byobot.cli import build_parser, main
-from byobot.commands import REGISTRY
+from byobot.commands import REGISTRY, Context, run
+from byobot.util import ValidationFailed
 
 
 def cli(capsys, *argv):
@@ -331,3 +332,11 @@ def test_your_own_activity_ids_start_with_x(capsys):
     code, _, err = cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "plank")
     assert code == 1 and "x.plank" in json.loads(err)["message"]
     assert cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")[0] == 0
+
+
+def test_switches_are_booleans():
+    assert build_parser().parse_args(["cloud", "join", "--no-wait"]).wait is False
+    assert build_parser().parse_args(["cloud", "off", "--delete"]).delete is True
+    assert build_parser().parse_args(["cloud", "remove", "x"]).revoke_google is None
+    with pytest.raises(ValidationFailed, match="true or false"):
+        run("cloud off", Context(actor={"kind": "human", "id": "me"}), {"delete": "yes"})

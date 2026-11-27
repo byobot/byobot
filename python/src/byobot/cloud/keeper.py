@@ -576,7 +576,7 @@ class Keeper:
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
-        if self._get("closed"):  # turned on again after `cloud off --delete yes`
+        if self._get("closed"):  # turned on again after `cloud off --delete`
             report["reseeded"] = self.start_epoch()
             listing = self.folder.list()
         there = files.epoch_path(self.epoch) in listing

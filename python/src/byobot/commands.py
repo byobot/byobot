@@ -30,7 +30,7 @@ from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_p
 @dataclass(frozen=True)
 class Param:
     name: str
-    type: str  # "string" | "integer" | "json"
+    type: str  # "string" | "integer" | "boolean" | "json"
     help: str
     required: bool = False
     choices: tuple[str, ...] = ()
@@ -109,6 +109,8 @@ def run(name: str, ctx: Context, args: dict) -> Any:
                 raise ValidationFailed(f"{p.name} must be from {p.bounds[0]} to {p.bounds[1]}")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
+        if p.type == "boolean" and p.name in clean and not isinstance(clean[p.name], bool):
+            raise ValidationFailed(f"{p.name} must be true or false")
     try:
         return cmd.handler(ctx, **clean)
     except sqlite3.OperationalError as exc:
@@ -885,8 +887,8 @@ def _ask(prompt: str, secret: bool = False) -> str:
           "Asked for the first time if left out."),
     Param("ios_client_id", "string", "Your iOS client's id, which a phone needs to join. Asked for the first time "
           "if left out."),
-    Param("recovery", "string", "Make a recovery code, which rebuilds the logbook from Drive alone if every device "
-          "is lost.", choices=("yes", "no"), default="yes"),
+    Param("recovery", "boolean", "Make a recovery code, which rebuilds the logbook from Drive alone if every device "
+          "is lost.", default=True),
     read_only=False,
     mcp=False,
     description="The Google Cloud project needs the Drive API on, a consent screen In production with only the "
@@ -894,7 +896,7 @@ def _ask(prompt: str, secret: bool = False) -> str:
                 "only its own hidden folder in your Drive.",
 )
 def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: str | None = None,
-                 recovery: str = "yes") -> dict:
+                 recovery: bool = True) -> dict:
     from byobot.cloud import drive
     from byobot.cloud.keeper import Keeper, is_keeper
 
@@ -927,7 +929,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
         raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
                                "run `byobot cloud recover` with its recovery code")
     with _lock(store):
-        keeper = Keeper.setup(store, folder, recovery=recovery == "yes")
+        keeper = Keeper.setup(store, folder, recovery=recovery)
     out = {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch}
     if keeper.recovery_code:
         out["recovery_code"] = keeper.recovery_code
@@ -973,12 +975,11 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
     "cloud join",
     "Show a one-time code for a phone to join Drive sync, then wait until it joins. The code works once, for ten "
     "minutes, and holds no key.",
-    Param("wait", "string", "Wait for the phone here, or only show the code.", choices=("yes", "no"),
-          default="yes"),
+    Param("wait", "boolean", "Wait for the phone here, or only show the code.", default=True),
     read_only=False,
     mcp=False,
 )
-def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
+def _cloud_join(ctx: Context, wait: bool = True) -> dict:
     from byobot.cloud import drive
 
     keeper = _keeper(ctx)
@@ -996,7 +997,7 @@ def _cloud_join(ctx: Context, wait: str = "yes") -> dict:
         except Exception:  # pragma: no cover - a terminal that can't draw the code still gets the link
             pass
         sys.stderr.write(f"\nLink: {link}\n")
-    if wait == "no":
+    if not wait:
         return out
     sys.stderr.write("Waiting for the phone. Press Ctrl-C to stop.\n")
     try:
@@ -1052,12 +1053,12 @@ def _cloud_status(ctx: Context) -> dict:
     "Remove a device from Drive sync, such as a lost phone. A new epoch starts with a key it doesn't get.",
     Param("device_id", "string", "The device to remove (see `byobot cloud status`).", required=True,
           positional=True),
-    Param("revoke_google", "string", "Also revoke Google access, for a lost or stolen phone. This signs out every "
-          "phone, not only this one. Asked in a terminal; no otherwise.", choices=("yes", "no")),
+    Param("revoke_google", "boolean", "Also revoke Google access, for a lost or stolen phone. This signs out every "
+          "phone, not only this one. Asked in a terminal; no otherwise."),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None) -> dict:
+def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = None) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
         epoch = keeper.remove(device_id)
@@ -1067,14 +1068,14 @@ def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None
                           "and the others join again. [y/N] ") if sys.stdin.isatty() else ""
         except (EOFError, OSError):
             answer = ""
-        revoke_google = "yes" if answer.lower() in ("y", "yes") else "no"
-    if revoke_google == "yes":
+        revoke_google = answer.lower() in ("y", "yes")
+    if revoke_google:
         return {"removed": device_id, "epoch": epoch, "google_access": "revoke",
                 "next": "In your Google Account, open Security, then your connections to third-party apps, and remove "
                         "your Google Cloud project's iOS app. Then run `byobot cloud join` for each phone you keep."}
     return {"removed": device_id, "epoch": epoch, "google_access": "kept",
             "note": "It can't read anything new, but it stays signed in to Google and could still delete files in "
-                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google yes` "
+                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google` "
                     "explains; that signs out every phone."}
 
 
@@ -1094,20 +1095,19 @@ def _cloud_compact(ctx: Context) -> dict:
     "cloud off",
     "Turn Drive sync off: stop reading and writing the folder in Drive. The store is untouched. `byobot cloud "
     "setup` turns it on again.",
-    Param("delete", "string", "Also delete the folder's files, all but a note that tells phones they were taken "
-          "off, and forget the keys and devices here. Phones then join again after setup.", choices=("yes", "no"),
-          default="no"),
+    Param("delete", "boolean", "Also delete the folder's files, all but a note that tells phones they were taken "
+          "off, and forget the keys and devices here. Phones then join again after setup.", default=False),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_off(ctx: Context, delete: str = "no") -> dict:
+def _cloud_off(ctx: Context, delete: bool = False) -> dict:
     from byobot.cloud.keeper import is_keeper
 
     if not is_keeper(ctx.store()):
         return {"on": False}
     keeper = _keeper(ctx, off_ok=True)
     with _lock(keeper.store):
-        if delete == "yes":
+        if delete:
             return {"on": False, "deleted": keeper.forget()}
         keeper.off()
     return {"on": False, "deleted": 0}

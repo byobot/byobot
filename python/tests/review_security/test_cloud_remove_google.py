@@ -14,7 +14,7 @@ def joined(cloud, fake, tmp_path):  # noqa: F811
 
     ctx = Context(actor=CLI)
     run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": "ios.apps.example"})
-    join = run("cloud join", ctx, {"wait": "no"})
+    join = run("cloud join", ctx, {"wait": False})
     Relay.join(DriveFolder(ctx.store().store_id, Drive(fake), journal=tmp_path / "phone.json"), join["link"], PHONE)
     run("cloud sync", ctx, {})
     return ctx
@@ -28,5 +28,5 @@ def test_removing_a_phone_keeps_google_access_unless_asked(cloud, fake, tmp_path
 
 
 def test_revoking_google_access_says_every_phone_signs_out(cloud, fake, tmp_path):  # noqa: F811
-    out = run("cloud remove", joined(cloud, fake, tmp_path), {"device_id": PHONE, "revoke_google": "yes"})
+    out = run("cloud remove", joined(cloud, fake, tmp_path), {"device_id": PHONE, "revoke_google": True})
     assert out["google_access"] == "revoke" and "cloud join" in out["next"]
