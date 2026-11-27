@@ -19,14 +19,14 @@ def test_cli_two_logs_of_the_same_new_id_never_overwrite_each_other(byobot_home)
     real = mine.write
 
     def write(actor, changes):
-        core.log(theirs, AGENT, [{"kind": "location", "id": "example-gym", "payload": {"name": "Agent's gym"}}])
+        core.log(theirs, AGENT, [{"kind": "location", "id": "example_gym", "payload": {"name": "Agent's gym"}}])
         return real(actor, changes)
 
     mine.write = write
     try:
         with pytest.raises(Conflict):
-            core.log(mine, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "My gym"}}])
-        assert mine.get("location", "example-gym")["payload"]["name"] == "Agent's gym"
+            core.log(mine, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "My gym"}}])
+        assert mine.get("location", "example_gym")["payload"]["name"] == "Agent's gym"
     finally:
         mine.close()
         theirs.close()
