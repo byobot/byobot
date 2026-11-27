@@ -16,8 +16,12 @@ enum CloudSetup {
     static var file: URL { dir.appendingPathComponent("cloud.json") }
     static var journal: URL { dir.appendingPathComponent("drive-ids.json") }
 
+    /// The relay. A file from a newer app is left alone.
     static func load() -> CloudRelay? {
-        (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(CloudRelay.self, from: $0) }
+        guard let data = try? Data(contentsOf: file),
+              let relay = try? JSONDecoder().decode(CloudRelay.self, from: data),
+              relay.version <= CloudRelay.currentVersion else { return nil }
+        return relay
     }
 
     static func store(_ relay: CloudRelay) throws {

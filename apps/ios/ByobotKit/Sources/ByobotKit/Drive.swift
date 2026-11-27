@@ -49,6 +49,13 @@ public struct GoogleTokens: Codable, Equatable, Sendable {
         self.accessToken = accessToken
         self.expiresAt = expiresAt
     }
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case refreshToken = "refresh_token"
+        case accessToken = "access_token"
+        case expiresAt = "expires_at"
+    }
 }
 
 public enum Google {

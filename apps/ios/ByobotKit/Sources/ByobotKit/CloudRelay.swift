@@ -91,6 +91,9 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     /// Paths taken by a file this relay didn't know it wrote, skipped in a row before giving up.
     static let maxSkips = 3
 
+    /// The file's format.
+    public static let currentVersion = 1
+    public private(set) var version = CloudRelay.currentVersion
     public let storeID: String
     public let deviceID: String
     public let keeperSign: String
@@ -112,6 +115,14 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     var receipts: [String: Receipt] = [:]
     var planPath: String?
     public private(set) var removed = false
+
+    enum CodingKeys: String, CodingKey {
+        case version, epoch, key, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
+        case storeID = "store_id"
+        case deviceID = "device_id"
+        case keeperSign = "keeper_sign"
+        case planPath = "plan_path"
+    }
 
     public struct Report: Equatable, Sendable {
         public var epoch: Int?

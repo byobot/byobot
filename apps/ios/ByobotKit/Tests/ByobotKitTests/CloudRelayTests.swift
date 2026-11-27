@@ -338,5 +338,16 @@ final class CloudRelayTests: XCTestCase {
         let data = try JSONEncoder().encode(relay)
         XCTAssertEqual(try JSONDecoder().decode(CloudRelay.self, from: data), relay)
     }
+
+    func testTheRelaysFileHasSnakeCaseKeys() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        let relay = try await joined(k, folder)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(relay)) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, CloudRelay.currentVersion)
+        XCTAssertEqual(object["store_id"] as? String, k.store)
+        XCTAssertNotNil(object["device_id"])
+        XCTAssertNotNil(object["keeper_sign"])
+        XCTAssertNil(object["storeID"])
+    }
 }
 #endif

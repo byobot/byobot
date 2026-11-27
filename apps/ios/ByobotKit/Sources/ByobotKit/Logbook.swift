@@ -7,6 +7,9 @@ import Foundation
 /// Everything the app keeps on the phone. The laptop's store is the source of truth; the phone keeps
 /// the plan it last pulled, the events the laptop doesn't have yet, and a short tail of the rest.
 public struct AppState: Codable, Equatable, Sendable {
+    /// The file's format. A file from a newer app is set aside, not read.
+    public static let currentVersion = 1
+    public var version = AppState.currentVersion
     /// This install's device id. Every event the app writes carries it.
     public var deviceId: String
     public var server: PairedServer?
@@ -44,6 +47,19 @@ public struct AppState: Codable, Equatable, Sendable {
         self.pending = []
         self.rejected = []
     }
+
+    enum CodingKeys: String, CodingKey {
+        case version, server, plan, events, pending, rejected, hlc, workouts
+        case deviceId = "device_id"
+        case activeSessionId = "active_session_id"
+        case lastSyncAt = "last_sync_at"
+        case lastHealthSyncAt = "last_health_sync_at"
+        case remoteOriginals = "remote_originals"
+        case storeId = "store_id"
+        case resendAfter = "resend_after"
+        case storeSpans = "store_spans"
+        case unsureAfter = "unsure_after"
+    }
 }
 
 public struct StoreSpan: Codable, Equatable, Hashable, Sendable {
@@ -53,6 +69,11 @@ public struct StoreSpan: Codable, Equatable, Hashable, Sendable {
     public init(storeId: String, after: String) {
         self.storeId = storeId
         self.after = after
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case after
+        case storeId = "store_id"
     }
 }
 
@@ -66,6 +87,11 @@ public struct RejectedEvent: Codable, Equatable, Hashable, Sendable, Identifiabl
         self.eventId = eventId
         self.reason = reason
         self.at = at
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case reason, at
+        case eventId = "event_id"
     }
 }
 

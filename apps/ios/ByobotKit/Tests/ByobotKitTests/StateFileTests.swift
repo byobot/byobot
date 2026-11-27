@@ -27,6 +27,26 @@ final class StateFileTests: XCTestCase {
         XCTAssertEqual(loaded.state, book.state)
     }
 
+    func testAFileFromANewerAppIsSetAside() throws {
+        var file = StateFile(url: dir.appendingPathComponent("state.json"))
+        var state = makeLogbook().state
+        state.version = AppState.currentVersion + 1
+        try file.save(state)
+        guard case .setAside = file.load().outcome else { return XCTFail("not set aside") }
+    }
+
+    func testTheFileHasSnakeCaseKeysAndAVersion() throws {
+        var book = makeLogbook()
+        book.logEffort(activityId: "run", metrics: [:])
+        let data = try JSONEncoder().encode(book.state)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, AppState.currentVersion)
+        XCTAssertNotNil(object["device_id"])
+        XCTAssertNil(object["deviceId"])
+        let back = try JSONDecoder().decode(AppState.self, from: data)
+        XCTAssertEqual(back, book.state)
+    }
+
     func testAnUnreadableFileIsMovedAsideNeverOverwritten() throws {
         let url = dir.appendingPathComponent("state.json")
         let old = Data(#"{"deviceId": 7, "events": "from a newer build"}"#.utf8)

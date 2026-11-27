@@ -116,4 +116,10 @@ public struct PairedServer: Codable, Equatable, Hashable, Sendable {
         self.name = name
         self.pairedAt = pairedAt
     }
+
+    enum CodingKeys: String, CodingKey {
+        case hosts, port, fingerprint, name
+        case deviceId = "device_id"
+        case pairedAt = "paired_at"
+    }
 }
