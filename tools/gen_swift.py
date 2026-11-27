@@ -182,6 +182,8 @@ class Generator:
                 return "Measure", False
             if (rfile, rdef) == ("sync", "kind_versions"):
                 return "[String: Int]", False
+            if (rfile, rdef) == ("sync", "capabilities"):
+                return "[String]", False
             if (rfile, rdef) not in TYPES:
                 raise ValueError(f"no Swift type for {rfile}#{rdef}")
             return TYPES[(rfile, rdef)], False

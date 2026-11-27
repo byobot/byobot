@@ -843,14 +843,17 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
     public var pairingOpen: Bool
     /// The server's kind versions.
     public var kindVersions: [String: Int]?
+    /// What the server supports beyond protocol 1.
+    public var capabilities: [String]
 
-    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kindVersions: [String: Int]? = nil) {
+    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kindVersions: [String: Int]? = nil, capabilities: [String]) {
         self.byobot = byobot
         self.protocol = `protocol`
         self.schemaVersion = schemaVersion
         self.server = server
         self.pairingOpen = pairingOpen
         self.kindVersions = kindVersions
+        self.capabilities = capabilities
     }
 
     enum CodingKeys: String, CodingKey {
@@ -860,6 +863,7 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
         case server
         case pairingOpen = "pairing_open"
         case kindVersions = "kind_versions"
+        case capabilities
     }
 }
 
@@ -870,17 +874,21 @@ public struct PairRequest: Codable, Equatable, Hashable, Sendable {
     public var deviceId: String
     /// The phone's name, for `byobot devices list`.
     public var name: String
+    /// What the app supports beyond protocol 1.
+    public var capabilities: [String]?
 
-    public init(code: String, deviceId: String, name: String) {
+    public init(code: String, deviceId: String, name: String, capabilities: [String]? = nil) {
         self.code = code
         self.deviceId = deviceId
         self.name = name
+        self.capabilities = capabilities
     }
 
     enum CodingKeys: String, CodingKey {
         case code
         case deviceId = "device_id"
         case name
+        case capabilities
     }
 }
 

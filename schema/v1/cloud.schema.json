@@ -68,14 +68,19 @@
         "sign": {"$ref": "#/$defs/key", "description": "Ed25519 public key its files are signed with."}
       }
     },
+    "capabilities": {
+      "description": "What a device supports beyond this format, by name. A reader ignores names it doesn't know.",
+      "type": "array", "maxItems": 64, "items": {"type": "string", "pattern": "^[a-z0-9_]{1,64}$"}
+    },
     "device_file": {
       "description": "devices/<device_id>.json, plain. A relay's join request carries the proof: base64 HMAC-SHA256, keyed by the join secret, of 'byobot-cloud join 1', store_id, device_id, box and sign joined by newlines.",
       "allOf": [{"$ref": "#/$defs/device"}],
-      "required": ["format", "store_id"],
+      "required": ["format", "store_id", "capabilities"],
       "properties": {
         "format": {"const": 1},
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
         "device_id": true, "device_class": true, "box": true, "sign": true,
+        "capabilities": {"$ref": "#/$defs/capabilities"},
         "proof": {"$ref": "#/$defs/base64"}
       },
       "additionalProperties": false
@@ -94,7 +99,7 @@
     "epoch_body": {
       "description": "epochs/<epoch>.json's body. Written last when an epoch starts; the highest one a device can verify is current.",
       "type": "object",
-      "required": ["format", "store_id", "epoch", "keeper_device_id", "devices", "checkpoint"],
+      "required": ["format", "store_id", "epoch", "keeper_device_id", "devices", "checkpoint", "capabilities"],
       "properties": {
         "format": {"const": 1},
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
@@ -102,7 +107,8 @@
         "keeper_device_id": {"$ref": "#/$defs/device_id"},
         "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}, "description": "The devices the epoch started with."},
         "checkpoint": {"type": "integer", "minimum": 0, "description": "How many checkpoint parts hold the logbook as the epoch started."},
-        "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete yes`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."}
+        "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete yes`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."},
+        "capabilities": {"$ref": "#/$defs/capabilities", "description": "The keeper's."}
       },
       "additionalProperties": false
     },

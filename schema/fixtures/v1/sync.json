@@ -20,7 +20,8 @@
           "activity": 1,
           "effort": 1,
           "session": 1
-        }
+        },
+        "capabilities": []
       }
     },
     {
@@ -39,7 +40,8 @@
         "pairing_open": true,
         "kind_versions": {
           "effort": 0
-        }
+        },
+        "capabilities": []
       }
     },
     {
@@ -56,7 +58,8 @@
           "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
           "name": "example-laptop"
         },
-        "pairing_open": true
+        "pairing_open": true,
+        "capabilities": []
       }
     },
     {
@@ -71,7 +74,8 @@
           "device_id": "0193a0b0-0000-7000-8000-00000000aa01",
           "name": "example-laptop"
         },
-        "pairing_open": true
+        "pairing_open": true,
+        "capabilities": []
       }
     },
     {
@@ -105,6 +109,32 @@
         "device_id": "0193a0b0-0000-7000-8000-00000000ab01",
         "name": "Example iPhone",
         "token": "x"
+      }
+    },
+    {
+      "name": "sync/pair-request-capabilities",
+      "def": "pair_request",
+      "valid": true,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000aa02",
+        "name": "Example iPhone",
+        "capabilities": [
+          "handover"
+        ]
+      }
+    },
+    {
+      "name": "sync/pair-request-bad-capability",
+      "def": "pair_request",
+      "valid": false,
+      "data": {
+        "code": "042817",
+        "device_id": "0193a0b0-0000-7000-8000-00000000aa02",
+        "name": "Example iPhone",
+        "capabilities": [
+          "Hand Over"
+        ]
       }
     },
     {

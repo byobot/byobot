@@ -6,6 +6,7 @@ All names are numbers or random ids, never names of people or devices.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .crypto import (FORMAT, CloudError, Identity, decrypt, dumps, encrypt, peek_document, read_document, seal,
@@ -41,6 +42,15 @@ def _recovery_context(store_id: str, epoch: int) -> bytes:
 
 
 DEVICE = ("device_id", "device_class", "box", "sign")
+CAPABILITY = re.compile(r"[a-z0-9_]{1,64}")
+
+
+def _capabilities(value: Any) -> list[str]:
+    """What a device supports beyond this format, by name; names it doesn't know a reader ignores."""
+    if not isinstance(value, list) or len(value) > 64 \
+            or not all(isinstance(c, str) and CAPABILITY.fullmatch(c) for c in value):
+        raise CloudError("not a byobot capability list")
+    return value
 
 
 def _check_device(device: Any) -> dict:
@@ -64,10 +74,10 @@ def _matches(body: dict, store_id: str, epoch: int) -> None:
 
 # -- devices -------------------------------------------------------------------
 
-def device_file(store_id: str, device: dict, proof: str | None = None) -> bytes:
-    """A device's public keys, plain. A relay's carries its join proof."""
+def device_file(store_id: str, device: dict, proof: str | None = None, capabilities: list[str] = ()) -> bytes:
+    """A device's public keys and capabilities, plain. A relay's carries its join proof."""
     return dumps({"format": FORMAT, "store_id": store_id, **_check_device(device),
-                  **({"proof": proof} if proof else {})})
+                  "capabilities": _capabilities(list(capabilities)), **({"proof": proof} if proof else {})})
 
 
 def read_device(data: bytes, store_id: str, device_id: str) -> dict:
@@ -82,19 +92,22 @@ def read_device(data: bytes, store_id: str, device_id: str) -> dict:
     device = _check_device(body)
     if device["device_id"] != device_id:
         raise CloudError("moved or renamed")
-    return {**device, **({"proof": body["proof"]} if isinstance(body.get("proof"), str) else {})}
+    return {**device, "capabilities": _capabilities(body.get("capabilities")),
+            **({"proof": body["proof"]} if isinstance(body.get("proof"), str) else {})}
 
 
 # -- epochs --------------------------------------------------------------------
 
 def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_device_id: str, devices: list[dict],
-               checkpoint: int, closed: bool = False) -> bytes:
-    """The keeper's signed record of an epoch: the devices that hold its key, and its checkpoint's parts."""
+               checkpoint: int, capabilities: list[str] = (), closed: bool = False) -> bytes:
+    """The keeper's signed record of an epoch: the devices that hold its key, its checkpoint's parts, and what the
+    keeper supports beyond this format."""
     if not 0 <= epoch <= MAX_EPOCH:
         raise ValueError("epoch out of range")
     return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch,
                                   "keeper_device_id": keeper_device_id,
                                   "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
+                                  "capabilities": _capabilities(list(capabilities)),
                                   **({"closed": True} if closed else {})})
 
 
@@ -114,6 +127,7 @@ def read_epoch(data: bytes, keeper_sign: str, store_id: str, epoch: int) -> dict
             or not isinstance(body.get("keeper_device_id"), str):
         raise CloudError("not a byobot epoch")
     body["devices"] = [_check_device(d) for d in body["devices"]]
+    _capabilities(body.get("capabilities"))
     return body
 
 

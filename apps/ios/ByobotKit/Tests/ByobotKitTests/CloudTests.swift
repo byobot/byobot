@@ -98,8 +98,16 @@ final class CloudTests: XCTestCase {
         let relay = try relayIdentity(v), id = v.who("relay").string("id") ?? ""
         let proof = Cloud.joinProof(secret: bytes(v.inputs.string("join_secret")), storeID: v.store, deviceID: id,
                                     identity: relay)
-        let file = try Cloud.deviceFile(storeID: v.store, id: id, deviceClass: "relay", identity: relay, proof: proof)
-        let wanted = v.valid.first { $0.string("name") == "relay device file" }?.string("data")
+        let vector = v.valid.first { $0.string("name") == "relay device file" }
+        guard case .object(let expect)? = vector?["expect"], case .array(let names)? = expect["capabilities"] else {
+            return XCTFail("bad fixture")
+        }
+        let file = try Cloud.deviceFile(storeID: v.store, id: id, deviceClass: "relay", identity: relay, proof: proof,
+                                        capabilities: names.compactMap { name -> String? in
+                                            if case .string(let s) = name { return s }
+                                            return nil
+                                        })
+        let wanted = vector?.string("data")
         XCTAssertEqual(file.base64EncodedString(), wanted)
     }
 

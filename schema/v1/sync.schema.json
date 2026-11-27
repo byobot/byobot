@@ -87,6 +87,16 @@
         "maximum": 1000
       }
     },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]{1,64}$"
+      },
+      "description": "Features beyond this protocol version that a side supports, by name. A side ignores names it doesn't know."
+    },
     "hello": {
       "description": "GET /v1/hello. No token needed; the app calls it to learn whom it reached before pairing.",
       "type": "object",
@@ -95,7 +105,8 @@
         "protocol",
         "schema_version",
         "server",
-        "pairing_open"
+        "pairing_open",
+        "capabilities"
       ],
       "properties": {
         "byobot": {
@@ -117,6 +128,10 @@
         "kind_versions": {
           "$ref": "#/$defs/kind_versions",
           "description": "The server's kind versions."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities",
+          "description": "What the server supports beyond protocol 1."
         }
       }
     },
@@ -140,6 +155,10 @@
         "name": {
           "$ref": "common.schema.json#/$defs/name",
           "description": "The phone's name, for `byobot devices list`."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities",
+          "description": "What the app supports beyond protocol 1."
         }
       },
       "additionalProperties": false

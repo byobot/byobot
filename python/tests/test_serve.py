@@ -364,7 +364,7 @@ def test_hello_needs_no_token_and_names_the_store(server, byobot_home):
     assert status == 200 and body["pairing_open"] is True and body["server"]["device_id"] == info["device_id"]
     with db(byobot_home) as s:
         assert body["server"]["store_id"] == s.store_id
-    assert sync_errors("hello", body) == [] and body["kind_versions"]["effort"] == 1
+    assert sync_errors("hello", body) == [] and body["kind_versions"]["effort"] == 1 and body["capabilities"] == []
     assert client.call("GET", "/v0/hello")[0] == 404  # an app on the old protocol is told nothing it would misread
 
 
@@ -398,6 +398,15 @@ def test_pair_rejects_a_bad_device_id(server):
     assert status == 400 and body["error"] == "invalid"
     status, _ = client.call("GET", "/v1/hello")
     assert status == 200  # and the code is still good
+
+
+def test_pair_takes_the_app_s_capabilities_and_ignores_names_it_doesn_t_know(server):
+    _, info, client, _ = server
+    asked = {"code": info["code"], "device_id": PHONE, "name": "Example iPhone"}
+    status, body = client.call("POST", "/v1/pair", {**asked, "capabilities": "handover"})
+    assert status == 400 and body["error"] == "invalid"
+    status, _ = client.call("POST", "/v1/pair", {**asked, "capabilities": ["handover", "something_newer"]})
+    assert status == 200 and sync_errors("pair_request", {**asked, "capabilities": ["handover"]}) == []
     _pair(client, info)
 
 

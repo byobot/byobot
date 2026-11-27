@@ -76,7 +76,8 @@ public final class SyncClient: @unchecked Sendable {
     }
 
     public func pair(code: String, deviceId: String, name: String) async throws -> PairResponse {
-        try await call("POST", "/v1/pair", body: PairRequest(code: code, deviceId: deviceId, name: name))
+        try await call("POST", "/v1/pair", body: PairRequest(code: code, deviceId: deviceId, name: name,
+                                                              capabilities: Capabilities.app))
     }
 
     public func status() async throws -> SyncStatus {

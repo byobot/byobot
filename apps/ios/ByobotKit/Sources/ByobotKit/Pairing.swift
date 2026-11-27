@@ -115,6 +115,11 @@ public struct PairingLink: Equatable, Sendable {
     }
 }
 
+/// What this app supports beyond the protocol's version, by name. It tells the hub when pairing.
+public enum Capabilities {
+    public static let app: [String] = []
+}
+
 /// A paired laptop, as the app remembers it (the token lives in the keychain, not here).
 public struct PairedServer: Codable, Equatable, Hashable, Sendable {
     public var hosts: [String]

@@ -170,3 +170,14 @@ def test_a_join_proof_binds_the_device_and_its_keys():
     assert not proof_matches(b"\x02" * 16, STORE, "dev-1", me.public(), proof)
     assert not proof_matches(secret, STORE, "dev-1", Identity.generate().public(), proof)
     assert not proof_matches(secret, STORE, "dev-1", me.public(), None)
+
+
+def test_capabilities_a_reader_doesn_t_know_are_read_and_bad_ones_refused():
+    me = Identity.generate()
+    device = {"device_id": "dev_1", "device_class": "relay", **me.public()}
+    data = files.device_file(STORE, device, capabilities=["handover", "something_newer"])
+    assert files.read_device(data, STORE, "dev_1")["capabilities"] == ["handover", "something_newer"]
+    epoch = files.epoch_file(me, STORE, 1, "dev_1", [device], 0, ["something_newer"])
+    assert files.read_epoch(epoch, me.public()["sign"], STORE, 1)["capabilities"] == ["something_newer"]
+    with pytest.raises(CloudError, match="capability"):
+        files.read_device(data.replace(b'"handover"', b'"Hand Over"'), STORE, "dev_1")

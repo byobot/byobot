@@ -54,7 +54,7 @@ from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, urlsplit
 
 from byobot import __version__, util
-from byobot.core.contract import SCHEMA_VERSION, Contract
+from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
 from byobot.core.relay import (PERSON, Cut, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
 from byobot.core.store import Store, busy
@@ -71,6 +71,7 @@ MAX_TOKEN = 200
 # the response away. We never wait for the client to send more.
 DISCARD_BUFFERED = 64 * 1024
 PROTOCOL = 1
+CAPABILITIES: tuple[str, ...] = ()  # features beyond protocol 1 this hub offers
 SOCKET_TIMEOUT_S = 15  # idle cap so a stalled handshake or header cannot hold a thread
 REQUEST_DEADLINE_S = 30  # whole-request cap, so a slow body cannot refresh the idle timer forever
 QUERY_TIMEOUT_S = 5
@@ -544,7 +545,7 @@ class Handler(BaseHTTPRequestHandler):
         server = self._server_info() if open_ else {**self._server_info(), "name": "byobot"}  # the name is often a person's
         return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": SCHEMA_VERSION,
                 "server": server, "pairing_open": open_,
-                "kind_versions": Contract.shipped().kind_versions()}
+                "kind_versions": Contract.shipped().kind_versions(), "capabilities": list(CAPABILITIES)}
 
     def pair(self) -> dict:
         body = self._body(MAX_PAIR_BODY)
@@ -555,6 +556,8 @@ class Handler(BaseHTTPRequestHandler):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "device_id is not a valid byobot id")
         if not isinstance(name, str) or not 0 < len(name) <= 200:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
+        if sync_errors("capabilities", body.get("capabilities", [])):
+            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "capabilities must be a list of names")
         with self.server.pairing_lock:
             pairing = self.server.pairing
             if pairing is None or not pairing.admits(device_id):

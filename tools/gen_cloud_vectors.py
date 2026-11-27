@@ -81,11 +81,11 @@ def build() -> dict:
     valid = [
         {"name": "relay device file", "path": files.device_path(RELAY), "def": "device_file",
          "data": files.device_file(STORE, relay_dev, join_proof(secret, STORE, RELAY, relay.public())),
-         "expect": {**relay_dev, "proof": join_proof(secret, STORE, RELAY, relay.public())}},
+         "expect": {**relay_dev, "capabilities": [], "proof": join_proof(secret, STORE, RELAY, relay.public())}},
         {"name": "epoch file", "path": files.epoch_path(1), "def": "signed",
          "data": files.epoch_file(keeper, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1),
          "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper_device_id": KEEPER,
-                    "devices": [keeper_dev, relay_dev], "checkpoint": 1}},
+                    "devices": [keeper_dev, relay_dev], "checkpoint": 1, "capabilities": []}},
         {"name": "epoch key sealed to the relay", "path": files.key_path(1, RELAY), "def": "signed",
          "data": files.key_file(keeper, STORE, 1, relay_dev, epoch_key,
                                 X25519PrivateKey.from_private_bytes(fixed("ephemeral"))),

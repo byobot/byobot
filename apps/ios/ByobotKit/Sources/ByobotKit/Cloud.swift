@@ -210,6 +210,7 @@ public enum Cloud {
             throw CloudError("not a byobot epoch")
         }
         body["devices"] = .array(try devices.map { .object(try checkDevice($0)) })
+        _ = try checkCapabilities(body["capabilities"])
         return body
     }
 
@@ -247,13 +248,14 @@ public enum Cloud {
 
     /// A device's public keys, plain. A relay's carries its join proof.
     public static func deviceFile(storeID: String, id: String, deviceClass: String, identity: CloudIdentity,
-                                  proof: String? = nil) throws -> Data {
+                                  proof: String? = nil, capabilities: [String] = Capabilities.app) throws -> Data {
         var body: [String: JSONValue] = try checkDevice(.object([
             "device_id": .string(id), "device_class": .string(deviceClass), "box": .string(identity.boxPublic),
             "sign": .string(identity.signPublic),
         ]))
         body["format"] = .number(Double(format))
         body["store_id"] = .string(storeID)
+        body["capabilities"] = try checkCapabilities(.array(capabilities.map { .string($0) }))
         if let proof { body["proof"] = .string(proof) }
         return try dumps(.object(body))
     }
@@ -266,6 +268,7 @@ public enum Cloud {
         guard text(body, "store_id") == storeID else { throw CloudError("from another store") }
         var device = try checkDevice(.object(body))
         guard device["device_id"] == .string(deviceID) else { throw CloudError("moved or renamed") }
+        device["capabilities"] = try checkCapabilities(body["capabilities"])
         if let proof = text(body, "proof") { device["proof"] = .string(proof) }
         return device
     }
@@ -287,6 +290,20 @@ public enum Cloud {
         _ = try unb64(device["box"], size: 32)
         _ = try unb64(device["sign"], size: 32)
         return ["device_id": .string(id), "device_class": .string(cls), "box": device["box"]!, "sign": device["sign"]!]
+    }
+
+    /// What a device supports beyond this format, by name; names it doesn't know a reader ignores.
+    static func checkCapabilities(_ value: JSONValue?) throws -> JSONValue {
+        func isName(_ value: JSONValue) -> Bool {
+            guard case .string(let name) = value else { return false }
+            let bytes = Array(name.utf8)
+            return (1...64).contains(bytes.count)
+                && bytes.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x7A).contains($0) || $0 == 0x5F }
+        }
+        guard case .array(let names)? = value, names.count <= 64, names.allSatisfy(isName) else {
+            throw CloudError("not a byobot capability list")
+        }
+        return .array(names)
     }
 
     static func matches(_ body: [String: JSONValue], _ storeID: String, _ epoch: Int) throws {
