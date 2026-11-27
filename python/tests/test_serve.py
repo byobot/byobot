@@ -531,13 +531,13 @@ def test_unpair_revokes_the_token_at_once(server, capsys):
     _, info, client, _ = server
     _pair(client, info)
     assert client.call("GET", "/v1/status")[0] == 200
-    assert main(["devices"]) == 0
+    assert main(["devices", "list"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert listed["count"] == 1 and listed["items"][0]["device_id"] == PHONE
-    assert main(["unpair", PHONE]) == 0
+    assert main(["devices", "remove", PHONE]) == 0
     assert json.loads(capsys.readouterr().out)["device"]["revoked_at"]
     assert client.call("GET", "/v1/status")[0] == 401
-    assert main(["unpair", "nobody"]) == 1
+    assert main(["devices", "remove", "nobody"]) == 1
 
 
 def test_pairing_opens_by_default_only_until_a_device_is_paired(byobot_home):

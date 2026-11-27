@@ -777,20 +777,20 @@ def _validate(ctx: Context, document: Any, **kwargs: Any) -> dict:
     return {"valid": not errors, "as": kind, "errors": errors}
 
 
-@command("devices", "List the phones and other devices paired with `byobot serve`.")
-def _devices(ctx: Context) -> dict:
+@command("devices list", "List the phones and other devices paired with `byobot serve`.")
+def _devices_list(ctx: Context) -> dict:
     peers = ctx.store().peers()
     return {"count": len(peers), "items": peers, **untrusted("items")}
 
 
 @command(
-    "unpair",
+    "devices remove",
     "Stop syncing with a paired device. Its token stops working at once; pairing again starts fresh.",
-    Param("device_id", "string", "The device to unpair (see `byobot devices`).", required=True, positional=True),
+    Param("device_id", "string", "The device to remove (see `byobot devices list`).", required=True, positional=True),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _unpair(ctx: Context, device_id: str) -> dict:
+def _devices_remove(ctx: Context, device_id: str) -> dict:
     return {"device": ctx.store().unpair(device_id)}
 
 

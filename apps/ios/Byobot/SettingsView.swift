@@ -87,7 +87,7 @@ struct SettingsView: View {
         .confirmationDialog("Forget this laptop?", isPresented: $confirmForget, titleVisibility: .visible) {
             Button("Forget", role: .destructive) { Task { await model.forgetServer() } }
         } message: {
-            Text("What you've logged stays on this phone and goes to the next laptop you pair. On the laptop, `byobot unpair` revokes this phone.")
+            Text("What you've logged stays on this phone and goes to the next laptop you pair. On the laptop, `byobot devices remove` revokes this phone.")
         }
         .confirmationDialog("Stop Drive sync?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Stop", role: .destructive) { model.leaveCloud() }
