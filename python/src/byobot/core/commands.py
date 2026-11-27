@@ -79,10 +79,14 @@ def _times(store: Store, fields: dict) -> dict:
     return {**fields, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
 
 
-def _written(store: Store, kind: str, payload: Any) -> Any:
-    """The payload as a command writes it: times filled in, and held to the registry."""
+def _written(store: Store, kind: str, payload: Any, before: dict | None = None) -> Any:
+    """The payload as a command writes it: times filled in, and held to the registry, except where it keeps
+    what `before` already held."""
     payload = _timed(store, kind, payload)
     refused = store.contract.refusals(kind, payload) if isinstance(payload, dict) else []
+    if refused and before:
+        held = set(store.contract.refusals(kind, before))
+        refused = [r for r in refused if r not in held]
     if refused:
         raise ValidationFailed("; ".join(refused))
     return payload
@@ -163,7 +167,7 @@ def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     """Change a live record by a JSON merge patch over its current version."""
     _authored(kind)
     found = _live(store, kind, rid)
-    payload = _written(store, kind, merge_patch(found["payload"], patch))
+    payload = _written(store, kind, merge_patch(found["payload"], patch), found["payload"])
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload, **_from(found)}])[0]
 
 
@@ -174,7 +178,8 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
     current = store.get("planned_session", rid)
     payload = _parts(rid, payload, current["payload"]["blocks"] if current else [])
     return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
-                                "payload": _written(store, "planned_session", payload), **_from(current)}])[0]
+                                "payload": _written(store, "planned_session", payload,
+                                                    current and current["payload"]), **_from(current)}])[0]
 
 
 def _parts(rid: str, payload: dict, old: list) -> dict:
