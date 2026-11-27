@@ -112,7 +112,8 @@ public enum Cloud {
             throw CloudError("written by a newer byobot; upgrade byobot")
         }
         guard let kind = text(found, "kind"), kinds.contains(kind), text(found, "store_id") != nil,
-              text(found, "device_id") != nil, int(found["epoch"]) != nil, int(found["seq"]) != nil else {
+              text(found, "device_id") != nil, int(found["epoch"]) != nil, int(found[counter(kind)]) != nil,
+              found["seq"] == nil || found["part"] == nil else {
             throw CloudError("not a byobot segment")
         }
         return found
@@ -124,7 +125,7 @@ public enum Cloud {
                                    signPublic: String) throws -> (header: [String: JSONValue], messages: [[String: JSONValue]]) {
         let found = try header(data)
         guard let expected = parseName(path), found["kind"] == .string(expected.kind),
-              int(found["epoch"]) == expected.epoch, int(found["seq"]) == expected.seq,
+              int(found["epoch"]) == expected.epoch, int(found[counter(expected.kind)]) == expected.seq,
               expected.deviceID == nil || text(found, "device_id") == expected.deviceID else {
             throw CloudError("moved or renamed")
         }
@@ -152,7 +153,7 @@ public enum Cloud {
         let head = try dumps(.object([
             "magic": .string(magic), "format": .number(Double(format)), "kind": .string(kind),
             "store_id": .string(storeID), "device_id": .string(deviceID), "epoch": .number(Double(epoch)),
-            "seq": .number(Double(seq)), "nonce": .string(nonce.base64EncodedString()),
+            counter(kind): .number(Double(seq)), "nonce": .string(nonce.base64EncodedString()),
         ])) + Data("\n".utf8)
         let end: JSONValue = .object(["end": .object(["lines": .number(Double(messages.count))])])
         var plain = Data()
@@ -205,7 +206,7 @@ public enum Cloud {
         var body = try readDocument(data, signPublic: keeperSign)
         try matches(body, storeID, epoch)
         guard case .array(let devices)? = body["devices"], int(body["checkpoint"]) != nil,
-              text(body, "keeper") != nil else {
+              text(body, "keeper_device_id") != nil else {
             throw CloudError("not a byobot epoch")
         }
         body["devices"] = .array(try devices.map { .object(try checkDevice($0)) })
@@ -218,7 +219,7 @@ public enum Cloud {
         let body = try readDocument(data, signPublic: keeperSign)
         try matches(body, storeID, epoch)
         let device = try checkDevice(body["device"])
-        guard device["id"] == .string(deviceID), device["box"] == .string(me.boxPublic) else {
+        guard device["device_id"] == .string(deviceID), device["box"] == .string(me.boxPublic) else {
             throw CloudError("sealed to another device")
         }
         guard case .object(let sealed)? = body["sealed"] else { throw CloudError("not a valid key or ciphertext") }
@@ -248,7 +249,7 @@ public enum Cloud {
     public static func deviceFile(storeID: String, id: String, deviceClass: String, identity: CloudIdentity,
                                   proof: String? = nil) throws -> Data {
         var body: [String: JSONValue] = try checkDevice(.object([
-            "id": .string(id), "class": .string(deviceClass), "box": .string(identity.boxPublic),
+            "device_id": .string(id), "device_class": .string(deviceClass), "box": .string(identity.boxPublic),
             "sign": .string(identity.signPublic),
         ]))
         body["format"] = .number(Double(format))
@@ -264,7 +265,7 @@ public enum Cloud {
         }
         guard text(body, "store_id") == storeID else { throw CloudError("from another store") }
         var device = try checkDevice(.object(body))
-        guard device["id"] == .string(deviceID) else { throw CloudError("moved or renamed") }
+        guard device["device_id"] == .string(deviceID) else { throw CloudError("moved or renamed") }
         if let proof = text(body, "proof") { device["proof"] = .string(proof) }
         return device
     }
@@ -279,13 +280,13 @@ public enum Cloud {
     // MARK: helpers
 
     static func checkDevice(_ value: JSONValue?) throws -> [String: JSONValue] {
-        guard case .object(let device)? = value, let id = text(device, "id"), isID(id), id != "recovery",
-              let cls = text(device, "class"), ["keeper", "relay"].contains(cls) else {
+        guard case .object(let device)? = value, let id = text(device, "device_id"), isID(id), id != "recovery",
+              let cls = text(device, "device_class"), ["keeper", "relay"].contains(cls) else {
             throw CloudError("not a byobot device")
         }
         _ = try unb64(device["box"], size: 32)
         _ = try unb64(device["sign"], size: 32)
-        return ["id": .string(id), "class": .string(cls), "box": device["box"]!, "sign": device["sign"]!]
+        return ["device_id": .string(id), "device_class": .string(cls), "box": device["box"]!, "sign": device["sign"]!]
     }
 
     static func matches(_ body: [String: JSONValue], _ storeID: String, _ epoch: Int) throws {
@@ -356,6 +357,9 @@ public enum Cloud {
         guard case .number(let n)? = value, n.rounded() == n, abs(n) < 1e15 else { return nil }
         return Int(n)
     }
+
+    /// The header field that numbers a file: a writer's seq, or a checkpoint's part.
+    static func counter(_ kind: String) -> String { kind == "checkpoint" ? "part" : "seq" }
 
     static func pad(_ n: Int, _ width: Int) -> String {
         let s = String(n)

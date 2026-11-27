@@ -28,9 +28,14 @@ MAX_EPOCH = 9999
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 NAMES = {
     "segment": re.compile(r"segments/(?P<device_id>[^/]+)/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
-    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{4})/(?P<seq>[0-9]{10})\.seg"),
+    "checkpoint": re.compile(r"checkpoints/(?P<epoch>[0-9]{4})/(?P<part>[0-9]{10})\.seg"),
     "plan": re.compile(r"plan/(?P<epoch>[0-9]{4})-(?P<seq>[0-9]{10})\.seg"),
 }
+
+
+def counter(kind: str) -> str:
+    """The header field that numbers a file: a writer's seq, or a checkpoint's part."""
+    return "part" if kind == "checkpoint" else "seq"
 
 
 def name(kind: str, epoch: int, seq: int, device_id: str | None = None) -> str:
@@ -47,7 +52,7 @@ def parse_name(path: str) -> dict | None:
     for kind, pattern in NAMES.items():
         m = pattern.fullmatch(path)
         if m:
-            found = {"kind": kind, "epoch": int(m["epoch"]), "seq": int(m["seq"])}
+            found = {"kind": kind, "epoch": int(m["epoch"]), counter(kind): int(m[counter(kind)])}
             if "device_id" in m.groupdict():
                 if not ID.fullmatch(m["device_id"]):
                     return None
@@ -62,7 +67,7 @@ def write(kind: str, store_id: str, device_id: str, epoch: int, seq: int, messag
         raise ValueError("not a segment kind, epoch or seq")
     nonce = nonce or os.urandom(12)
     header = dumps({"magic": MAGIC, "format": FORMAT, "kind": kind, "store_id": store_id, "device_id": device_id,
-                    "epoch": epoch, "seq": seq, "nonce": b64(nonce)}) + b"\n"
+                    "epoch": epoch, counter(kind): seq, "nonce": b64(nonce)}) + b"\n"
     lines = [*messages, {"end": {"lines": len(messages)}}]
     body = gzip.compress(b"".join(dumps(m) + b"\n" for m in lines), mtime=0)
     ciphertext = unb64(encrypt(key, body, header, nonce)["ciphertext"])
@@ -81,7 +86,8 @@ def header(data: bytes) -> dict:
     if found.get("format") != FORMAT:
         raise CloudError("written by a newer byobot; upgrade byobot")
     if found.get("kind") not in KINDS or not all(isinstance(found.get(k), str) for k in ("store_id", "device_id")) \
-            or not all(isinstance(found.get(k), int) and not isinstance(found.get(k), bool) for k in ("epoch", "seq")):
+            or not all(isinstance(found.get(k), int) and not isinstance(found.get(k), bool)
+                       for k in ("epoch", counter(found["kind"]))) or "seq" in found and "part" in found:
         raise CloudError("not a byobot segment")
     return found
 

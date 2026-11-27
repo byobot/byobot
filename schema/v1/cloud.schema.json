@@ -11,7 +11,7 @@
     "header": {
       "description": "A segment's first line, JSON and plain; the associated data of its ciphertext. Then the ChaCha20-Poly1305 ciphertext of the gzipped body under the epoch key, then the writer's Ed25519 signature (64 bytes) over 'byobot-cloud segment 1\\n', the header line and the ciphertext.",
       "type": "object",
-      "required": ["magic", "format", "kind", "store_id", "device_id", "epoch", "seq", "nonce"],
+      "required": ["magic", "format", "kind", "store_id", "device_id", "epoch", "nonce"],
       "properties": {
         "magic": {"const": "byobot-segment"},
         "format": {"const": 1},
@@ -19,9 +19,13 @@
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
         "device_id": {"$ref": "#/$defs/device_id", "description": "The writer. Checkpoints and plans are the keeper's."},
         "epoch": {"$ref": "#/$defs/epoch"},
-        "seq": {"type": "integer", "minimum": 0, "maximum": 9999999999, "description": "Grows per device across epochs; a checkpoint's part number."},
+        "seq": {"type": "integer", "minimum": 0, "maximum": 9999999999, "description": "A segment's or plan's number; grows per writer across epochs."},
+        "part": {"type": "integer", "minimum": 0, "maximum": 9999999999, "description": "A checkpoint's part number, in its place of seq."},
         "nonce": {"$ref": "#/$defs/base64", "minLength": 16, "maxLength": 16}
       },
+      "if": {"properties": {"kind": {"const": "checkpoint"}}},
+      "then": {"required": ["part"], "not": {"required": ["seq"]}},
+      "else": {"required": ["seq"], "not": {"required": ["part"]}},
       "additionalProperties": false
     },
     "message": {
@@ -56,10 +60,10 @@
     },
     "device": {
       "type": "object",
-      "required": ["id", "class", "box", "sign"],
+      "required": ["device_id", "device_class", "box", "sign"],
       "properties": {
-        "id": {"$ref": "#/$defs/device_id"},
-        "class": {"enum": ["keeper", "relay"], "description": "The keeper holds the full store; a relay sends what it logged and reads the plan."},
+        "device_id": {"$ref": "#/$defs/device_id"},
+        "device_class": {"enum": ["keeper", "relay"], "description": "The keeper holds the full store; a relay sends what it logged and reads the plan."},
         "box": {"$ref": "#/$defs/key", "description": "X25519 public key that epoch keys are sealed to."},
         "sign": {"$ref": "#/$defs/key", "description": "Ed25519 public key its files are signed with."}
       }
@@ -71,7 +75,7 @@
       "properties": {
         "format": {"const": 1},
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
-        "id": true, "class": true, "box": true, "sign": true,
+        "device_id": true, "device_class": true, "box": true, "sign": true,
         "proof": {"$ref": "#/$defs/base64"}
       },
       "additionalProperties": false
@@ -90,12 +94,12 @@
     "epoch_body": {
       "description": "epochs/<epoch>.json's body. Written last when an epoch starts; the highest one a device can verify is current.",
       "type": "object",
-      "required": ["format", "store_id", "epoch", "keeper", "devices", "checkpoint"],
+      "required": ["format", "store_id", "epoch", "keeper_device_id", "devices", "checkpoint"],
       "properties": {
         "format": {"const": 1},
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
         "epoch": {"$ref": "#/$defs/epoch"},
-        "keeper": {"$ref": "#/$defs/device_id"},
+        "keeper_device_id": {"$ref": "#/$defs/device_id"},
         "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}, "description": "The devices the epoch started with."},
         "checkpoint": {"type": "integer", "minimum": 0, "description": "How many checkpoint parts hold the logbook as the epoch started."},
         "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete yes`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."}
@@ -116,7 +120,7 @@
       "additionalProperties": false
     },
     "recovery_file": {
-      "description": "keys/<epoch>/recovery.key, plain. The recovery code is 32 base32 characters (20 bytes); its key is HKDF-SHA256 of those bytes, salt store_id, info 'byobot-cloud recovery 1'. The ciphertext holds the epoch key, the store key and the keeper's keys; its associated data is 'byobot-cloud recovery 1', store_id and epoch joined by newlines.",
+      "description": "keys/<epoch>/recovery.key, plain. The recovery code is 32 base32 characters (20 bytes); its key is HKDF-SHA256 of those bytes, salt store_id, info 'byobot-cloud recovery 1'. The ciphertext holds a JSON object: epoch_key, store_key, keeper_device_id and keeper_private (the keeper's private keys); its associated data is 'byobot-cloud recovery 1', store_id and epoch joined by newlines.",
       "type": "object",
       "required": ["format", "store_id", "epoch", "nonce", "ciphertext"],
       "properties": {

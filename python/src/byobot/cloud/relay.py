@@ -56,7 +56,7 @@ class Relay:
             raise ByobotError("this Google account doesn't hold that Mac's logbook; sign in with the account the Mac "
                               "uses")
         path = files.device_path(device_id)
-        data = files.device_file(relay.store_id, {"id": device_id, "class": "relay", **public}, proof)
+        data = files.device_file(relay.store_id, {"device_id": device_id, "device_class": "relay", **public}, proof)
         try:
             folder.create(path, data)
         except Exists:  # left by a join the keeper never finished; a device with a key is already in
@@ -145,7 +145,7 @@ class Relay:
                 continue
             key_data = self.folder.read(files.key_path(n, self.device_id))
             if key_data is None:
-                if self.epoch is not None and all(d["id"] != self.device_id for d in body["devices"]):
+                if self.epoch is not None and all(d["device_id"] != self.device_id for d in body["devices"]):
                     self.removed, self.key = True, None
                 return False
             try:

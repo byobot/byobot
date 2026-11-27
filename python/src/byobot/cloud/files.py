@@ -40,13 +40,17 @@ def _recovery_context(store_id: str, epoch: int) -> bytes:
     return f"byobot-cloud recovery 1\n{store_id}\n{epoch}".encode()
 
 
+DEVICE = ("device_id", "device_class", "box", "sign")
+
+
 def _check_device(device: Any) -> dict:
-    if not isinstance(device, dict) or not isinstance(device.get("id"), str) or not ID.fullmatch(device["id"]) \
-            or device["id"] == RECOVERY or device.get("class") not in CLASSES:
+    if not isinstance(device, dict) or not isinstance(device.get("device_id"), str) \
+            or not ID.fullmatch(device["device_id"]) or device["device_id"] == RECOVERY \
+            or device.get("device_class") not in CLASSES:
         raise CloudError("not a byobot device")
     unb64(device.get("box"), 32)
     unb64(device.get("sign"), 32)
-    return {k: device[k] for k in ("id", "class", "box", "sign")}
+    return {k: device[k] for k in DEVICE}
 
 
 def _matches(body: dict, store_id: str, epoch: int) -> None:
@@ -76,19 +80,20 @@ def read_device(data: bytes, store_id: str, device_id: str) -> dict:
     if body.get("store_id") != store_id:
         raise CloudError("from another store")
     device = _check_device(body)
-    if device["id"] != device_id:
+    if device["device_id"] != device_id:
         raise CloudError("moved or renamed")
     return {**device, **({"proof": body["proof"]} if isinstance(body.get("proof"), str) else {})}
 
 
 # -- epochs --------------------------------------------------------------------
 
-def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_id: str, devices: list[dict],
+def epoch_file(keeper: Identity, store_id: str, epoch: int, keeper_device_id: str, devices: list[dict],
                checkpoint: int, closed: bool = False) -> bytes:
     """The keeper's signed record of an epoch: the devices that hold its key, and its checkpoint's parts."""
     if not 0 <= epoch <= MAX_EPOCH:
         raise ValueError("epoch out of range")
-    return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch, "keeper": keeper_id,
+    return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch,
+                                  "keeper_device_id": keeper_device_id,
                                   "devices": [_check_device(d) for d in devices], "checkpoint": checkpoint,
                                   **({"closed": True} if closed else {})})
 
@@ -106,7 +111,7 @@ def read_epoch(data: bytes, keeper_sign: str, store_id: str, epoch: int) -> dict
     body = read_document(data, keeper_sign)
     _matches(body, store_id, epoch)
     if not isinstance(body.get("devices"), list) or not isinstance(body.get("checkpoint"), int) \
-            or not isinstance(body.get("keeper"), str):
+            or not isinstance(body.get("keeper_device_id"), str):
         raise CloudError("not a byobot epoch")
     body["devices"] = [_check_device(d) for d in body["devices"]]
     return body
@@ -118,7 +123,7 @@ def key_file(keeper: Identity, store_id: str, epoch: int, device: dict, epoch_ke
              ephemeral: Any = None) -> bytes:
     """An epoch key sealed to one device and signed by the keeper, which also vouches for the device's keys."""
     device = _check_device(device)
-    sealed = seal(epoch_key, device["box"], _key_context(store_id, epoch, device["id"]), ephemeral)
+    sealed = seal(epoch_key, device["box"], _key_context(store_id, epoch, device["device_id"]), ephemeral)
     return sign_document(keeper, {"format": FORMAT, "store_id": store_id, "epoch": epoch, "device": device,
                                   "sealed": sealed})
 
@@ -134,7 +139,7 @@ def open_key(data: bytes, me: Identity, device_id: str, keeper_sign: str, store_
     body = read_document(data, keeper_sign)
     _matches(body, store_id, epoch)
     device = _check_device(body.get("device"))
-    if device["id"] != device_id or device["box"] != me.public()["box"]:
+    if device["device_id"] != device_id or device["box"] != me.public()["box"]:
         raise CloudError("sealed to another device")
     key = unseal(me, body.get("sealed") or {}, _key_context(store_id, epoch, device_id))
     if len(key) != 32:

@@ -80,10 +80,10 @@ def test_the_deterministic_files_match_byte_for_byte():
     device = next(c for c in VECTORS["valid"] if c["name"] == "relay device file")
     public = {"box": RELAY["box"], "sign": RELAY["sign"]}
     proof = join_proof(unb64(INPUTS["join_secret"]), STORE, RELAY["id"], public)
-    assert b64(files.device_file(STORE, {"id": RELAY["id"], "class": "relay", **public}, proof)) == device["data"]
+    assert b64(files.device_file(STORE, {"device_id": RELAY["id"], "device_class": "relay", **public}, proof)) == device["data"]
     sealed = next(c for c in VECTORS["valid"] if c["name"] == "epoch key sealed to the relay")
     ephemeral = X25519PrivateKey.from_private_bytes(unb64(INPUTS["seal_ephemeral"]))
-    relay = {"id": RELAY["id"], "class": "relay", **public}
+    relay = {"device_id": RELAY["id"], "device_class": "relay", **public}
     assert b64(files.key_file(keeper, STORE, 1, relay, unb64(INPUTS["epoch_key"]), ephemeral)) == sealed["data"]
     recovery = next(c for c in VECTORS["valid"] if c["name"] == "recovery key")
     nonce = unb64(json.loads(unb64(recovery["data"]))["nonce"])
@@ -129,7 +129,7 @@ def test_a_signed_segment_with_a_bad_body_is_still_refused(body, error):
 
 def test_a_key_sealed_to_one_device_opens_only_for_it():
     keeper, phone, other = Identity.generate(), Identity.generate(), Identity.generate()
-    device = {"id": "dev-1", "class": "relay", **phone.public()}
+    device = {"device_id": "dev-1", "device_class": "relay", **phone.public()}
     key = new_key()
     data = files.key_file(keeper, STORE, 2, device, key)
     assert files.open_key(data, phone, "dev-1", keeper.public()["sign"], STORE, 2) == key
@@ -147,7 +147,7 @@ def test_a_signed_document_can_t_be_edited():
     me = Identity.generate()
     doc = json.loads(files.epoch_file(me, STORE, 1, "k", [], 0))
     body = json.loads(unb64(doc["body"]))
-    doc["body"] = b64(dumps({**body, "devices": [{"id": "x", "class": "relay", **me.public()}]}))
+    doc["body"] = b64(dumps({**body, "devices": [{"device_id": "x", "device_class": "relay", **me.public()}]}))
     with pytest.raises(CloudError, match="signed"):
         read_document(dumps(doc), me.public()["sign"])
 

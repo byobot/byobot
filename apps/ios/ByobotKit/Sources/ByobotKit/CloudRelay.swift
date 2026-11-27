@@ -443,7 +443,9 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     static func lists(_ epoch: [String: JSONValue], _ deviceID: String) -> Bool {
         guard case .array(let devices)? = epoch["devices"] else { return false }
-        return devices.contains { if case .object(let d) = $0 { return d["id"] == .string(deviceID) } else { return false } }
+        return devices.contains {
+            if case .object(let d) = $0 { return d["device_id"] == .string(deviceID) } else { return false }
+        }
     }
 
 }

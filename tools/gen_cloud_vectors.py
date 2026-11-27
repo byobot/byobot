@@ -41,8 +41,8 @@ def identity(label: str) -> Identity:
 
 def build() -> dict:
     keeper, relay = identity("keeper"), identity("relay")
-    keeper_dev = {"id": KEEPER, "class": "keeper", **keeper.public()}
-    relay_dev = {"id": RELAY, "class": "relay", **relay.public()}
+    keeper_dev = {"device_id": KEEPER, "device_class": "keeper", **keeper.public()}
+    relay_dev = {"device_id": RELAY, "device_class": "relay", **relay.public()}
     epoch_key, other_key, secret = fixed("epoch key"), fixed("other epoch key"), fixed("join secret", 16)
     code = "-".join(base64.b32encode(fixed("recovery code", 20)).decode()[i:i + 4] for i in range(0, 32, 4))
     rkey = recovery_key(code, STORE)
@@ -69,8 +69,8 @@ def build() -> dict:
     cp_path = segment.name("checkpoint", 1, 0)
     cp = segment.write("checkpoint", STORE, KEEPER, 1, 0, [{"events": {"events": [event]}}], epoch_key, keeper,
                        fixed("nonce 3", 12))
-    recovery_content = {"epoch_key": b64(epoch_key), "store_key": fixed("store key").hex(), "device_id": KEEPER,
-                        "keeper": keeper.private()}
+    recovery_content = {"epoch_key": b64(epoch_key), "store_key": fixed("store key").hex(),
+                        "keeper_device_id": KEEPER, "keeper_private": keeper.private()}
 
     def tampered(data: bytes, old: bytes, new: bytes) -> bytes:
         assert data.count(old) == 1
@@ -84,7 +84,7 @@ def build() -> dict:
          "expect": {**relay_dev, "proof": join_proof(secret, STORE, RELAY, relay.public())}},
         {"name": "epoch file", "path": files.epoch_path(1), "def": "signed",
          "data": files.epoch_file(keeper, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1),
-         "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper": KEEPER,
+         "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper_device_id": KEEPER,
                     "devices": [keeper_dev, relay_dev], "checkpoint": 1}},
         {"name": "epoch key sealed to the relay", "path": files.key_path(1, RELAY), "def": "signed",
          "data": files.key_file(keeper, STORE, 1, relay_dev, epoch_key,
