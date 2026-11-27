@@ -100,7 +100,7 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-RULES = 2  # raise when records are derived differently, so stores rebuild on open
+RULES = 3  # raise when records are derived differently, so stores rebuild on open
 SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
@@ -294,7 +294,7 @@ def _source_record(conn, c, rid, p):
         return
     oid, fix = overlays.get("correct", (None, {}))
     fixed = {code: oid for code in fix.get("metrics", {})}
-    observations = read["observations"]
+    observations = [o for o in read["observations"] if _storable(o)]
     for n, o in enumerate(observations):
         o = {**o, "modality": "sensed"}
         mine = oid if o["code"] in fixed or ("value" in fix and len(observations) == 1) else None
@@ -305,12 +305,21 @@ def _source_record(conn, c, rid, p):
         _observation(conn, c, f"{rid}:{n}", o, p["source"], rid, mine)
     session = read["session"]
     if session:
-        time = fix.get("time") or session["time"]
+        time = {**session["time"], **fix.get("time", {})}
+        if "end" in time and instant(time["end"]) < instant(time["start"]):
+            time.pop("end")
         conn.execute("INSERT INTO source_sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
             rid, p["source"], fix.get("name", session.get("name")), *_when(time),
             oid if {"time", "name"} & set(fix) else None))
-        _metrics(conn, c, "source_record", rid, {**session.get("metrics", {}), **fix.get("metrics", {})},
-                 corrected=fixed)
+        given = {k: m for k, m in (session.get("metrics") or {}).items() if _storable(m)}
+        _metrics(conn, c, "source_record", rid, {**given, **fix.get("metrics", {})}, corrected=fixed)
+
+
+def _storable(m: dict) -> bool:
+    """Whether a source's value can be stored: text, or a number within 64 bits; other values are left unread."""
+    values = [m.get(k) for k in ("value", "min", "max")]
+    return isinstance(m.get("unit"), (str, type(None))) and all(
+        v is None or isinstance(v, (str, float)) or (isinstance(v, int) and -2 ** 63 <= v < 2 ** 63) for v in values)
 
 
 def _overlay(conn, c, rid, p):

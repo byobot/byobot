@@ -9,6 +9,8 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..util import Conflict, NotFound, ValidationFailed
+from . import mappers
+from .contract import instant
 from .store import Store, stamp
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
@@ -45,13 +47,16 @@ def _home_zone(store: Store) -> tzinfo | None:
 
 def _local(ts: Any, zone: tzinfo | None) -> Any:
     """A time without an offset is local: in the home zone if one is set, else this machine's; the offset in
-    force then is written with it."""
+    force then is written with it. A time in UTC ("Z") is the same instant in the home zone, if one is set."""
     if not isinstance(ts, str):
         return ts
+    utc = ts.endswith(("Z", "z"))
     try:
-        at = datetime.fromisoformat(ts)
+        at = datetime.fromisoformat(ts[:-1] + "+00:00" if utc else ts)
     except ValueError:
         return ts
+    if at.tzinfo and zone and utc:
+        return stamp(at.astimezone(zone))
     if at.tzinfo:
         return ts
     return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
@@ -77,10 +82,14 @@ def _times(store: Store, fields: dict) -> dict:
     return {**fields, "time": {k: _local(v, zone) if k in ("start", "end") else v for k, v in t.items()}}
 
 
-def _written(store: Store, kind: str, payload: Any) -> Any:
-    """The payload as a command writes it: times filled in, and held to the registry."""
+def _written(store: Store, kind: str, payload: Any, before: dict | None = None) -> Any:
+    """The payload as a command writes it: times filled in, and held to the registry, except where it keeps
+    what `before` already held."""
     payload = _timed(store, kind, payload)
     refused = store.contract.refusals(kind, payload) if isinstance(payload, dict) else []
+    if refused and before:
+        held = set(store.contract.refusals(kind, before))
+        refused = [r for r in refused if r not in held]
     if refused:
         raise ValidationFailed("; ".join(refused))
     return payload
@@ -92,14 +101,11 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     for r in records:
         _authored(r["kind"])
         rid = r.get("id") or store.new_record_id(r["kind"])
-        found = store.record(r["kind"], rid)
-        if found and (found["live"] or found["erased"]):
-            raise Conflict(f"{r['kind']} {rid} {'was erased' if found['erased'] else 'already exists'}")
         payload = r["payload"]
         if r["kind"] == "planned_session" and isinstance(payload, dict):
             payload = _parts(rid, payload, [])
         payload = _written(store, r["kind"], payload)
-        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload})
+        changes.append({"kind": r["kind"], "id": rid, "op": "put", "payload": payload, "create": True})
     if len({(c["kind"], c["id"]) for c in changes}) != len(changes):
         raise ValidationFailed("one record twice in one log")
     return store.write(actor, changes)
@@ -137,7 +143,23 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
     if not fields:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
     fields = _times(store, fields)
+    _time_order(store, target, fields.get("time"))
     return _overlay(store, actor, "correct", target, {"fields": fields}, found)
+
+
+def _time_order(store: Store, target: str, time: Any) -> None:
+    """Refuse a corrected start or end that, with the source's other end, runs backwards."""
+    source = store.get("source_record", target)
+    if not isinstance(time, dict) or source is None:
+        return
+    try:
+        session = mappers.read(source["payload"], lambda *_: None)["session"]
+        merged = {**(session or {}).get("time", {}), **time}
+        backwards = "end" in merged and instant(merged["end"]) < instant(merged["start"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return
+    if backwards:
+        raise ValidationFailed("the corrected time would end before it starts; correct both start and end")
 
 
 def exclude(store: Store, actor: dict, target: str, notes: str | None = None) -> dict:
@@ -161,7 +183,7 @@ def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
     """Change a live record by a JSON merge patch over its current version."""
     _authored(kind)
     found = _live(store, kind, rid)
-    payload = _written(store, kind, merge_patch(found["payload"], patch))
+    payload = _written(store, kind, merge_patch(found["payload"], patch), found["payload"])
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload, **_from(found)}])[0]
 
 
@@ -172,7 +194,8 @@ def replan(store: Store, actor: dict, rid: str, payload: dict) -> dict:
     current = store.get("planned_session", rid)
     payload = _parts(rid, payload, current["payload"]["blocks"] if current else [])
     return store.write(actor, [{"kind": "planned_session", "id": rid, "op": "put",
-                                "payload": _written(store, "planned_session", payload), **_from(current)}])[0]
+                                "payload": _written(store, "planned_session", payload,
+                                                    current and current["payload"]), **_from(current)}])[0]
 
 
 def _parts(rid: str, payload: dict, old: list) -> dict:

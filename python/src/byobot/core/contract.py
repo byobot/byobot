@@ -9,7 +9,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Any
@@ -177,8 +177,12 @@ class Contract:
             return broken
         kind, rid, p = event["record"]["kind"], event["record"]["id"], event["payload"]
         for t in (p.get("time"), (p.get("fields") or {}).get("time")):
-            if isinstance(t, dict) and "end" in t and "start" in t and instant(t["end"]) < instant(t["start"]):
+            times = [instant(t[k]) for k in ("start", "end") if k in t] if isinstance(t, dict) else []
+            if len(times) == 2 and times[1] < times[0]:
                 broken.add("time_order")
+        for k in ("starts_on", "ends_on", "scheduled_on"):
+            if k in p:
+                date.fromisoformat(p[k])  # a day that doesn't exist can't be read
         if kind == "plan" and "ends_on" in p and p["ends_on"] < p["starts_on"]:
             broken.add("date_order")
         for metrics in _measures(kind, p):
