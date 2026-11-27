@@ -257,6 +257,7 @@ class Keeper:
                                                           len(parts)))
         with self.store._tx():
             self._unset("starting")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
         return n
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
@@ -499,6 +500,8 @@ class Keeper:
             with self.store._tx():
                 self.store.conn.execute("DELETE FROM cloud_read WHERE instr(outcome, ?)", (NEWER,))
                 self._set("read_by", __version__)
+        if self._get("closing"):
+            return {"epoch": self.epoch, "closed": self.forget()}
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
@@ -551,12 +554,13 @@ class Keeper:
     def remove(self, device_id: str) -> int:
         """Retire a device: a new epoch whose key isn't sealed to it. What it already read, it keeps."""
         device = self.device(device_id)
-        if device is None or device["removed"]:
+        if device is None or device["removed"] and not self._get(f"removing:{device_id}"):
             raise ByobotError(f"no device {device_id} in this cloud logbook")
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
-        with self.store._tx():
+        with self.store._tx():  # until an epoch without it commits, running this again finishes the removal
             self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self._set(f"removing:{device_id}", 1)
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
@@ -578,7 +582,10 @@ class Keeper:
         """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
-        n = self.epoch + 1
+        n = int(self._get("closing") or 0) or max([int(p[7:11]) for p in self.folder.list() if is_epoch_file(p)]
+                                                  + [self.epoch]) + 1
+        with self.store._tx():  # sync finishes a close that failed partway, so phones and this Mac agree
+            self._set("closing", n)
         path = files.epoch_path(n)
         keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
         self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0))
@@ -590,7 +597,8 @@ class Keeper:
                 self.store.conn.execute(f"DELETE FROM {table}")
             self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
-                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error')")
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
+                                    "OR key LIKE 'removing:%'")
             self._set("epoch", n)
             self._set("checkpoint_position", 0)
             self._set("closed", 1)
