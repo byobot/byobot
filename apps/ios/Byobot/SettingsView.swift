@@ -97,7 +97,7 @@ struct SettingsView: View {
     }
 }
 
-/// The equipment you have, so swaps you can do come first. Nothing picked means everything counts.
+/// The equipment you have where you are, or by default, so swaps you can do come first.
 private struct EquipmentSection: View {
     @EnvironmentObject var model: AppModel
 
@@ -108,18 +108,18 @@ private struct EquipmentSection: View {
                 Text("Your activities don't list any equipment yet.").foregroundStyle(.secondary)
             }
             ForEach(all, id: \.self) { item in
-                Toggle(item.replacingOccurrences(of: "-", with: " ").capitalized, isOn: Binding(
+                Toggle(item.replacingOccurrences(of: "_", with: " ").capitalized, isOn: Binding(
                     get: { model.book.equipment?.contains(item) ?? true },
                     set: { on in
                         var have = model.book.equipment ?? Set(all)
                         if on { have.insert(item) } else { have.remove(item) }
-                        model.setEquipment(have == Set(all) ? nil : have)
+                        model.setEquipment(have == Set(all) && model.book.location(model.book.currentLocationId) == nil ? nil : have)
                     }))
             }
         } header: {
-            Text("Your equipment")
+            Text(model.book.location(model.book.currentLocationId).map { "Equipment at \($0.name)" } ?? "Your equipment")
         } footer: {
-            Text("Swaps you have the equipment for come first.")
+            Text("Swaps you have the equipment for come first. A location without its own list uses your default.")
         }
     }
 }

@@ -251,10 +251,18 @@ extension Logbook {
             .first { !finished.contains($0.id) && workout($0).next != nil }
     }
 
-    /// The equipment you have; nil means you haven't said, so everything counts.
-    public var equipment: Set<String>? { state.equipment.map(Set.init) }
+    /// The equipment you have where you are: the location's, else your default; nil means everything counts.
+    public var equipment: Set<String>? {
+        (location(currentLocationId)?.equipment ?? state.equipment).map(Set.init)
+    }
 
+    /// Sets the equipment at where you are, or your default when you haven't picked a location.
     public mutating func setEquipment(_ items: Set<String>?) {
+        if var here = location(currentLocationId) {
+            here.payload.equipment = items?.sorted()
+            put("location", here.id, here.payload)
+            return
+        }
         state.equipment = items?.sorted()
         let value = state.equipment.map { JSONValue.array($0.map(JSONValue.string)) } ?? .null
         put("setting", SettingId.equipment.rawValue, SettingPayload(value: value))

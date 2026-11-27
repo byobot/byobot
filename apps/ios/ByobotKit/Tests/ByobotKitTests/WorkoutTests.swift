@@ -55,6 +55,20 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(book.alternatives(for: PlannedEffort(id: "e", activityId: "nope")), [])
     }
 
+    func testEachLocationHasItsOwnEquipmentAndYourDefaultFillsIn() throws {
+        var book = try makeBook()
+        book.setEquipment(["cable"])
+        let gym = book.addLocation(name: "Example Gym")
+        XCTAssertEqual(book.equipment, ["cable"], "a location without its own list uses your default")
+        book.setEquipment(["dumbbell", "pull_up_bar"])
+        XCTAssertEqual(book.location(gym.id)?.equipment, ["dumbbell", "pull_up_bar"])
+        XCTAssertEqual(book.state.equipment, ["cable"])
+        let pullUp = try XCTUnwrap(book.library.first { $0.id == "pull_up" })
+        XCTAssertEqual(pullUp.needs, ["pull_up_bar"], "your own body you always have")
+        book.setLocation(nil)
+        XCTAssertEqual(book.equipment, ["cable"])
+    }
+
     // MARK: Order and swaps
 
     func testSlotsFollowThePlanThenYourOrder() throws {
