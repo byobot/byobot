@@ -165,6 +165,13 @@ def unstamped(raw: Any) -> Any:
     return out
 
 
+def stamped(payload: dict, at: str) -> dict:
+    """A health sample with `at` as its revision time, for a changed one sent again without a time of its own."""
+    if MAPPERS.get((payload.get("source"), payload.get("source_type")), (None,))[0] is not _sample_revised:
+        return payload
+    return {**payload, "raw": {**payload["raw"], "modified_at": at}}
+
+
 def revised(payload: dict) -> str:
     """When a revision was made, by its own source's account; "" when the source doesn't say."""
     found = MAPPERS.get((payload.get("source"), payload.get("source_type")))
@@ -175,13 +182,14 @@ def revised(payload: dict) -> str:
 
 
 def revision_order(event: dict) -> tuple:
-    """Revisions in the order their source made them: by revision time as an instant, else as they arrived."""
+    """Revisions in the order their source made them: by revision time as an instant. Ties, and revisions without
+    one, go by id, which every device derives alike, so every device picks the same current revision."""
     try:
         at = datetime.fromisoformat(revised(event["payload"]).replace("Z", "+00:00"))
         instant = at.timestamp() if at.tzinfo else None
     except ValueError:
         instant = None
-    return (instant is not None, instant or 0.0, event["hlc"], event["id"])
+    return (instant is not None, instant or 0.0, event["id"])
 
 
 def read(payload: dict, related: Related) -> dict:
