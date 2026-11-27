@@ -170,7 +170,8 @@ class Auth:
         method = meta.get("token_endpoint_auth_method", "client_secret_basic")
         if method not in AUTH_METHODS:
             raise OAuthError("invalid_client_metadata", f"token_endpoint_auth_method must be one of {', '.join(AUTH_METHODS)}")
-        if not set(meta.get("grant_types", ["authorization_code"])) <= {"authorization_code", "refresh_token"}:
+        grants = meta.get("grant_types", ["authorization_code"])
+        if not isinstance(grants, list) or not set(map(str, grants)) <= {"authorization_code", "refresh_token"}:
             raise OAuthError("invalid_client_metadata", "only authorization_code and refresh_token grants are supported")
         name = meta.get("client_name")
         name = name.strip()[:100] if isinstance(name, str) and name.strip() else "MCP client"
@@ -479,7 +480,7 @@ class Handler(serve.Handler):
                 tries = pairing.tries_left if pairing else 0
             if ok:
                 code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"])
-                self.server.log(f"approved {client['client_name']}")
+                self.server.log(serve.printable(f"approved {client['client_name']}"))
                 self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
                 return
             message = "That code isn't right." if is_open and tries else ""
