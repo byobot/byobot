@@ -326,6 +326,9 @@ def test_commands_hold_writes_to_the_registry(pair):
                 commands.log(a, ME, [record])
     with pytest.raises(ValidationFailed, match="sleep_stage has no value napping"):
         commands.observe(a, ME, "sleep_stage", "napping", start="2026-03-02T01:00:00-05:00")
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    with pytest.raises(ValidationFailed, match="unknown code tempo_typo"):
+        commands.edit(a, ME, "effort", e["record"]["id"], {"metrics": {"tempo_typo": {"value": 1}}})
 
 
 def test_measures_are_kept_in_each_codes_own_unit_too(pair):
