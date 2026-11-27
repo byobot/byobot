@@ -1,7 +1,7 @@
 """Workouts seen by more than one author, read as one: your sessions and each source's, merged.
 
-A source workout joins another workout when they overlap by at least half the shorter one, or when you said
-it is the same as it. Two of your own sessions never merge. Each value comes from the best item that has it:
+A source workout joins another workout when they overlap by at least half the shorter one (one with no end
+joins one it falls within), or when you said it is the same as it. Two of your own sessions never merge. Each value comes from the best item that has it:
 yours first, then sources in `source_priority` order (its `codes` override `default` for those codes); the merged
 workout keeps which record gave each value.
 
@@ -91,6 +91,9 @@ def priority(conn: sqlite3.Connection) -> tuple[list[str], dict[str, list[str]]]
 
 
 def _overlap(a: dict, b: dict) -> bool:
+    point, other = sorted((a, b), key=lambda x: x["end"] - x["start"])
+    if point["end"] == point["start"]:
+        return other["start"] <= point["start"] < other["end"]
     shared = min(a["end"], b["end"]) - max(a["start"], b["start"])
     return shared > 0 and shared >= SAME * min(a["end"] - a["start"], b["end"] - b["start"])
 
