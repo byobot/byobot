@@ -83,6 +83,16 @@ def test_a_recovery_is_dated_when_its_sleep_ends_even_if_the_sleep_comes_later(s
     assert seen(store, "recovery_score") == ["2026-03-02T07:45:00.000-05:00"]
 
 
+def test_an_observation_id_is_its_record_and_code_so_a_new_field_moves_none(store):
+    sources.ingest(store, "whoop", [("recovery", "7", recovery())])
+    rid = sources.record_id(store, "whoop", "recovery", "7")
+    ids = lambda: dict(store.conn.execute("SELECT code, id FROM observations"))
+    assert ids() == {"recovery_score": f"{rid}:recovery_score"}
+    more = {**recovery(), "updated_at": "2026-03-02T14:00:00Z", "score": {"resting_heart_rate": 52, "recovery_score": 61}}
+    sources.ingest(store, "whoop", [("recovery", "7", more)])
+    assert ids() == {"recovery_score": f"{rid}:recovery_score", "resting_heart_rate": f"{rid}:resting_heart_rate"}
+
+
 def test_a_deletion_hides_the_record_and_a_new_revision_brings_it_back(store):
     sources.ingest(store, "whoop", [("sleep", "s1", sleep())])
     sources.ingest(store, "whoop", [], [("sleep", "s1")])

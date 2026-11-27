@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import sqlite3
@@ -294,15 +295,17 @@ def _source_record(conn, c, rid, p):
         return
     oid, fix = overlays.get("correct", (None, {}))
     fixed = {code: oid for code in fix.get("metrics", {})}
-    observations = [o for o in read["observations"] if _storable(o)]
-    for n, o in enumerate(observations):
+    observations, ids = [o for o in read["observations"] if _storable(o)], collections.Counter()
+    for o in observations:
         o = {**o, "modality": "sensed"}
         mine = oid if o["code"] in fixed or ("value" in fix and len(observations) == 1) else None
         if o["code"] in fixed:
             o = {**o, **{k: v for k, v in fix["metrics"][o["code"]].items() if k in ("value", "unit")}}
         elif mine:
             o = {**o, **{k: fix[k] for k in ("value", "unit") if k in fix}}
-        _observation(conn, c, f"{rid}:{n}", o, p["source"], rid, mine)
+        ids[o["code"]] += 1
+        n = ids[o["code"]]
+        _observation(conn, c, f"{rid}:{o['code']}" + (f":{n}" if n > 1 else ""), o, p["source"], rid, mine)
     session = read["session"]
     if session:
         time = {**session["time"], **fix.get("time", {})}
