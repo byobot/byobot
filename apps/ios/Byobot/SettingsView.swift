@@ -40,6 +40,17 @@ struct SettingsView: View {
             } footer: {
                 Text("Syncs with your Mac through your own Google Drive when the laptop is out of reach. Everything is encrypted on this phone first.")
             }
+            if !model.book.conflicts.isEmpty {
+                Section {
+                    ForEach(model.book.conflicts) { conflict in
+                        NavigationLink(ConflictView.title(conflict)) { ConflictView(conflict: conflict) }
+                    }
+                } header: {
+                    Text("Conflicts")
+                } footer: {
+                    Text("Two devices or your coach changed these at once. Pick the version to keep.")
+                }
+            }
             Section {
                 LabeledContent("Waiting to send", value: String(model.state.pending.count))
                 ForEach(model.state.rejected) { rejected in

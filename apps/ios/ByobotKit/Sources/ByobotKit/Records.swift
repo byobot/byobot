@@ -18,19 +18,22 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public var library: Bool?
     /// The kind version its payload needs (1 when absent). Above this app's, the app leaves the record as it is.
     public var kindVersion: Int?
+    /// In a conflict, every current version, the one shown included.
+    public var versions: [ConflictVersion]?
 
     public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil,
-                kindVersion: Int? = nil) {
+                kindVersion: Int? = nil, versions: [ConflictVersion]? = nil) {
         self.id = id
         self.payload = payload
         self.prev = prev
         self.conflict = conflict
         self.library = library
         self.kindVersion = kindVersion
+        self.versions = versions
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, payload, prev, conflict, library
+        case id, payload, prev, conflict, library, versions
         case kindVersion = "kind_version"
     }
 

@@ -968,6 +968,30 @@ public struct Rejection: Codable, Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// One current version of a record in conflict.
+public struct ConflictVersion: Codable, Equatable, Hashable, Sendable {
+    public var eventId: String
+    /// What it holds; absent when this version removed the record.
+    public var payload: JSONValue?
+    public var actor: Actor
+    /// When its author wrote it, for display.
+    public var ts: String
+
+    public init(eventId: String, payload: JSONValue? = nil, actor: Actor, ts: String) {
+        self.eventId = eventId
+        self.payload = payload
+        self.actor = actor
+        self.ts = ts
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case eventId = "event_id"
+        case payload
+        case actor
+        case ts
+    }
+}
+
 public struct Attachment: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
     public var mediaType: String

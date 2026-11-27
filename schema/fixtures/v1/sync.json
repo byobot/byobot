@@ -249,12 +249,125 @@
             "prev": [
               "0193a0b0-0000-7000-8000-0000000000e1"
             ],
-            "conflict": true
+            "conflict": true,
+            "versions": [
+              {
+                "event_id": "0193a0b0-0000-7000-8000-0000000000e1",
+                "payload": {
+                  "scheduled_on": "2026-11-23",
+                  "name": "Lower A",
+                  "blocks": [
+                    {
+                      "id": "b1",
+                      "efforts": [
+                        {
+                          "id": "e1",
+                          "activity_id": "barbell_back_squat"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "actor": {
+                  "kind": "human",
+                  "id": "me"
+                },
+                "ts": "2026-11-23T08:00:00-05:00"
+              },
+              {
+                "event_id": "0193a0b0-0000-7000-8000-0000000000e2",
+                "actor": {
+                  "kind": "agent",
+                  "id": "example-coach"
+                },
+                "ts": "2026-11-23T08:01:00-05:00"
+              }
+            ]
           }
         ],
         "sessions": [],
         "efforts": []
-      }
+      },
+      "description": "Each current version of a record in conflict; one removed it."
+    },
+    {
+      "name": "sync/plan-window-conflict-one-version",
+      "def": "plan_window",
+      "valid": false,
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "conflict": true,
+            "versions": [
+              {
+                "event_id": "0193a0b0-0000-7000-8000-0000000000e1",
+                "payload": {
+                  "scheduled_on": "2026-11-23",
+                  "name": "Lower A",
+                  "blocks": [
+                    {
+                      "id": "b1",
+                      "efforts": [
+                        {
+                          "id": "e1",
+                          "activity_id": "barbell_back_squat"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "actor": {
+                  "kind": "human",
+                  "id": "me"
+                },
+                "ts": "2026-11-23T08:00:00-05:00"
+              }
+            ]
+          }
+        ],
+        "sessions": [],
+        "efforts": []
+      },
+      "description": "A conflict has at least two versions."
     },
     {
       "name": "sync/plan-window-device-state",

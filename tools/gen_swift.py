@@ -60,6 +60,7 @@ TYPES: dict[tuple[str, str | None], str] = {
     ("sync", "samples_response"): "SamplesResponse",
     ("sync", "erased_record"): "ErasedRecord",
     ("sync", "rejection"): "Rejection",
+    ("sync", "version"): "ConflictVersion",
 }
 
 # Enums and objects declared inline on a property: (file, definition, property) -> Swift name.

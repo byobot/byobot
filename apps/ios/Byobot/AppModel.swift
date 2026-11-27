@@ -455,6 +455,11 @@ final class AppModel: ObservableObject, SyncBook {
         change { $0.addLocation(name: name) }
     }
 
+    func resolve(_ conflict: Conflict, keeping version: ConflictVersion) {
+        change { $0.resolve(conflict, keeping: version) }
+        Task { await sync() }
+    }
+
     func startClock(_ slots: [Slot], for planned: PlannedSession) {
         rest = nil
         clock = RunningClock(plannedSessionId: planned.id, slotIds: slots.map(\.id), startedAt: Date())

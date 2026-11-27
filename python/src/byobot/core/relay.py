@@ -127,13 +127,22 @@ HISTORY_DAYS = 60
 
 
 def _entry(store: Store, kind: str, rid: str) -> dict | None:
-    """A live record as the phone keeps it: its payload, and the version a change to it names as prev."""
+    """A live record as the phone keeps it: its payload, and the version a change to it names as prev. In a conflict,
+    every current version too, so the phone can show them and resolve it."""
     found = store.get(kind, rid)
     if found is None:
         return None
-    return {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
-            "kind_version": reducers.lowest(store.contract, kind, found["payload"]),
-            **({"conflict": True} if found["conflict"] else {})}
+    entry = {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
+             "kind_version": reducers.lowest(store.contract, kind, found["payload"])}
+    if found["conflict"]:
+        heads = [store.event(h) for h in store.record(kind, rid)["heads"]]
+        entry |= {"conflict": True, "versions": [_version(store, h) for h in heads if h]}
+    return entry
+
+
+def _version(store: Store, event: dict) -> dict:
+    return {"event_id": event["id"], **({"payload": store._read(event)} if event["op"] == "put" else {}),
+            "actor": event["actor"], "ts": event["ts"]}
 
 
 def _entries(store: Store, kind: str, ids) -> list[dict]:

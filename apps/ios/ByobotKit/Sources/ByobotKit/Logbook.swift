@@ -117,22 +117,22 @@ public struct Logbook: Sendable {
     @discardableResult
     mutating func put<P: Encodable>(_ kind: String, _ id: String, _ payload: P, known: [String]? = nil,
                                     reverts: String? = nil) -> Event {
-        append(kind, id, .put, Payloads.json(payload), known: known, reverts: reverts)
+        append(kind, id, .put, Payloads.json(payload), prev: prev(kind, id, known: known), reverts: reverts)
     }
 
     @discardableResult
     mutating func retract(_ kind: String, _ id: String, reverts: String? = nil) -> Event {
-        append(kind, id, .retract, .object([:]), known: nil, reverts: reverts)
+        append(kind, id, .retract, .object([:]), prev: prev(kind, id), reverts: reverts)
     }
 
-    private mutating func append(_ kind: String, _ id: String, _ op: Op, _ payload: JSONValue, known: [String]?,
-                                 reverts: String?) -> Event {
+    mutating func append(_ kind: String, _ id: String, _ op: Op, _ payload: JSONValue, prev: [String],
+                         reverts: String?) -> Event {
         let now = clock()
         let hlc = HLC.next(after: state.hlc, now: now)
         let event = Event(id: UUID7.make(at: now), schemaVersion: ContractVersion.schema,
                           record: RecordRef(kind: kind, id: id), op: op,
                           kindVersion: op == .put ? KindVersion.lowest(kind, payload) : nil, hlc: hlc, ts: Timestamp.string(now),
-                          deviceId: state.deviceId, actor: actor, prev: prev(kind, id, known: known), reverts: reverts,
+                          deviceId: state.deviceId, actor: actor, prev: prev, reverts: reverts,
                           payload: payload)
         state.hlc = hlc
         state.events.append(event)

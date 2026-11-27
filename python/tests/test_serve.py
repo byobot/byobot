@@ -177,11 +177,32 @@ def test_plan_window_shows_a_conflict(store):
     for name in ("Upper A (phone)", "Upper A (coach)"):
         store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
                           "payload": {**payload, "name": name}}])
-    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    window = serve.plan_window(store, "2026-11-22", "2026-12-05")
+    assert sync_errors("plan_window", window) == []
+    [entry] = [s for s in window["planned_sessions"] if s["id"] == UPPER]
     assert entry["conflict"] is True and entry["prev"] == [store.record("planned_session", UPPER)["current"]]
+    assert {v["event_id"] for v in entry["versions"]} == set(store.record("planned_session", UPPER)["heads"])
+    assert sorted(v["payload"]["name"] for v in entry["versions"]) == ["Upper A (coach)", "Upper A (phone)"]
+    assert all(v["actor"] == ME and v["ts"] for v in entry["versions"])
     store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": entry["prev"],
                       "payload": {**entry["payload"], "notes": "from the phone"}}])
     assert store.record("planned_session", UPPER)["conflict"]  # a phone edit keeps the conflict
+
+
+def test_a_phone_resolves_a_conflict_by_naming_every_version(store):
+    seed(store)
+    tips, payload = store.record("planned_session", UPPER)["tips"], store.get("planned_session", UPPER)["payload"]
+    for name in ("Upper A (phone)", "Upper A (coach)"):
+        store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
+                          "payload": {**payload, "name": name}}])
+    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    kept = next(v for v in entry["versions"] if v["payload"]["name"] == "Upper A (phone)")
+    resolve = _event("planned_session", UPPER, kept["payload"], prev=[v["event_id"] for v in entry["versions"]])
+    assert serve.accept_events(store, PHONE, [resolve], ME)[0]["status"] == "accepted"
+    assert not store.record("planned_session", UPPER)["conflict"]
+    assert store.get("planned_session", UPPER)["payload"]["name"] == "Upper A (phone)"
+    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    assert "versions" not in entry and "conflict" not in entry
 
 
 def test_plan_window_outside_the_dates_still_brings_the_last_time(store):

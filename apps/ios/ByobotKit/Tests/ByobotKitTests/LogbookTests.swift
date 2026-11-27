@@ -427,6 +427,33 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.state.rejected.first?.eventId, "refused-50")
     }
 
+    func testAConflictShowsEachVersionAndKeepingOneNamesThemAll() throws {
+        var window = try Fixtures.window()
+        let i = try XCTUnwrap(window.plannedSessions.firstIndex { $0.id == "sess-upper" })
+        guard case .object(var coach) = Payloads.json(window.plannedSessions[i].payload) else { return XCTFail() }
+        coach["name"] = .string("Upper superset (coach)")
+        window.plannedSessions[i].conflict = true
+        window.plannedSessions[i].versions = [
+            ConflictVersion(eventId: "v-phone", payload: Payloads.json(window.plannedSessions[i].payload),
+                            actor: Actor(kind: .human, id: "me"), ts: "2026-11-23T08:00:00Z"),
+            ConflictVersion(eventId: "v-coach", payload: .object(coach), actor: Actor(kind: .agent, id: "example-coach"),
+                            ts: "2026-11-23T08:01:00Z"),
+        ]
+        var book = makeLogbook(plan: window)
+        let conflict = try XCTUnwrap(book.conflicts.first)
+        XCTAssertEqual(book.conflicts.count, 1)
+        XCTAssertEqual(conflict.recordId, "sess-upper")
+        XCTAssertEqual(conflict.fields, ["name"])
+        let kept = book.resolve(conflict, keeping: conflict.versions[1])
+        XCTAssertEqual(kept.prev, ["v-phone", "v-coach"])
+        XCTAssertEqual(kept.payload, .object(coach))
+        XCTAssertEqual(book.conflicts, [], "resolved here, waiting to send")
+        var other = makeLogbook(plan: window)
+        let removed = other.resolve(conflict, keeping: ConflictVersion(eventId: "v-phone", actor: Actor(kind: .human, id: "me"),
+                                                                       ts: "2026-11-23T08:02:00Z"))
+        XCTAssertEqual(removed.op, .retract, "a version without a payload removed the record")
+    }
+
     func testAnErasedLocationIsNoLongerWhereYouAre() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         book.setLocation("hotel")
