@@ -95,7 +95,8 @@
             "synergists": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }
           }
         },
-        "equipment": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+        "load_type": { "$ref": "common.schema.json#/$defs/slug", "description": "How it's loaded, one of library/vocabulary.json's `load_types`: `barbell`, `dumbbell`, `kettlebell`, `cable`, `machine` (a weight stack on a fixed path), `plate_loaded_machine`, `bodyweight` (held or worn weight is its `load`) or `band`." },
+        "equipment": { "description": "Kit it needs besides its load, such as `bench` or `smith_machine`.", "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
         "movement_type": { "$ref": "common.schema.json#/$defs/slug", "description": "`compound` or `isolation` in the library." },
         "fatigue": { "type": "integer", "minimum": 1, "maximum": 4 },
         "resistance_curve": {
@@ -120,6 +121,7 @@
       "required": ["name"],
       "properties": {
         "name": { "$ref": "common.schema.json#/$defs/name" },
+        "equipment": { "description": "Load types and kit you have here. Without it, the `equipment` setting counts.", "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
         "notes": { "$ref": "common.schema.json#/$defs/text" }
       },
       "unevaluatedProperties": false
@@ -367,7 +369,7 @@
       "description": "The zone for anything that has no offset of its own."
     },
     "equipment": {
-      "description": "Equipment you have, for ranking swaps. Null means everything.",
+      "description": "Load types and kit you have where a location doesn't say, for ranking swaps. Null means everything.",
       "oneOf": [
         { "type": "null" },
         { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }

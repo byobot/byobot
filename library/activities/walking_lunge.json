@@ -1,9 +1,7 @@
 {
   "id": "walking_lunge",
   "name": "Walking Lunge",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

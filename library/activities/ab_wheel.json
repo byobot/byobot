@@ -1,9 +1,7 @@
 {
   "id": "ab_wheel",
   "name": "Ab Wheel",
-  "equipment": [
-    "bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 2,
   "resistance_curve": {

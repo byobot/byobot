@@ -1,9 +1,7 @@
 {
   "id": "plate_loaded_leg_press",
   "name": "Leg Press (Plate-Loaded)",
-  "equipment": [
-    "plates"
-  ],
+  "load_type": "plate_loaded_machine",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

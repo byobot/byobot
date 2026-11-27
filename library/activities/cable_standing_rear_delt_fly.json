@@ -1,9 +1,7 @@
 {
   "id": "cable_standing_rear_delt_fly",
   "name": "Cable Standing Rear Delt Fly",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

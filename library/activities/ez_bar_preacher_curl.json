@@ -1,8 +1,10 @@
 {
   "id": "ez_bar_preacher_curl",
   "name": "EZ Barbell Preacher Curl",
+  "load_type": "barbell",
   "equipment": [
-    "ez_barbell"
+    "bench",
+    "ez_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

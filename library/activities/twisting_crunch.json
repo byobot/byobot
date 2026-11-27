@@ -1,9 +1,7 @@
 {
   "id": "twisting_crunch",
   "name": "Twisting Crunch",
-  "equipment": [
-    "bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

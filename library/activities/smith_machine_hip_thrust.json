@@ -1,8 +1,10 @@
 {
   "id": "smith_machine_hip_thrust",
   "name": "Smith Machine Hip Thrust",
+  "load_type": "plate_loaded_machine",
   "equipment": [
-    "plates"
+    "bench",
+    "smith_machine"
   ],
   "movement_type": "compound",
   "fatigue": 3,

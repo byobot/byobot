@@ -1,9 +1,7 @@
 {
   "id": "hammer_seated_shoulder_press",
   "name": "Hammer Seated Shoulder Press",
-  "equipment": [
-    "plates"
-  ],
+  "load_type": "plate_loaded_machine",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

@@ -1,9 +1,7 @@
 {
   "id": "cable_seated_row",
   "name": "Cable Seated Row",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

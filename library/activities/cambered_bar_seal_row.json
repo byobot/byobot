@@ -1,8 +1,9 @@
 {
   "id": "cambered_bar_seal_row",
   "name": "Cambered Bar Seal Row",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "bench"
   ],
   "movement_type": "compound",
   "fatigue": 3,

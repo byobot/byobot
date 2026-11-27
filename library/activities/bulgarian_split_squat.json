@@ -1,9 +1,7 @@
 {
   "id": "bulgarian_split_squat",
   "name": "Bulgarian Split Squat",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

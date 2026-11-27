@@ -1,8 +1,8 @@
 """The activity library that ships with byobot.
 
 ``library/`` at the repository root holds one ``activities/<id>.json`` per
-activity and ``vocabulary.json``, the muscle, equipment and movement type names
-library files use. Built packages carry a copy in ``byobot/_library``. ``BYOBOT_LIBRARY``
+activity and ``vocabulary.json``, the muscle, load type, equipment and movement
+type names library files use. Built packages carry a copy in ``byobot/_library``. ``BYOBOT_LIBRARY``
 points at another library directory.
 """
 
@@ -44,7 +44,7 @@ def activities(root: Path | None = None) -> list[dict]:
 
 
 def vocabulary(root: Path | None = None) -> dict:
-    """The muscle, equipment and movement type names library activities use."""
+    """The muscle, load type, equipment and movement type names library activities use."""
     return _read(root or library_dir())[1]
 
 

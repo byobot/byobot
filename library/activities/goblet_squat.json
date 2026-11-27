@@ -1,9 +1,7 @@
 {
   "id": "goblet_squat",
   "name": "Goblet Squat",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

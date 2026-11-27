@@ -1,9 +1,7 @@
 {
   "id": "cable_rope_overhead_triceps_extension",
   "name": "Cable Overhead Triceps Extension (With Rope)",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

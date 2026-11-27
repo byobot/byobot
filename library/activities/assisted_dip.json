@@ -1,9 +1,7 @@
 {
   "id": "assisted_dip",
   "name": "Assisted Dip",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

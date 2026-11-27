@@ -1,8 +1,9 @@
 {
   "id": "chin_up",
   "name": "Chin-Up",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "pull_up_bar"
   ],
   "movement_type": "compound",
   "fatigue": 3,

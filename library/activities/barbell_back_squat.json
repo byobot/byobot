@@ -1,8 +1,9 @@
 {
   "id": "barbell_back_squat",
   "name": "Barbell Back Squat",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "rack"
   ],
   "movement_type": "compound",
   "fatigue": 4,

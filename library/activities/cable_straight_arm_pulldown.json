@@ -1,9 +1,7 @@
 {
   "id": "cable_straight_arm_pulldown",
   "name": "Cable Straight Arm Pulldown",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

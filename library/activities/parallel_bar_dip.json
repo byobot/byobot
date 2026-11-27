@@ -1,8 +1,9 @@
 {
   "id": "parallel_bar_dip",
   "name": "Parallel Bar Dip",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "dip_bars"
   ],
   "movement_type": "compound",
   "fatigue": 3,

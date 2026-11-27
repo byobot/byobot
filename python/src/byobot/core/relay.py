@@ -168,7 +168,7 @@ def _device_state(store: Store, device_id: str | None) -> dict:
             "rejected": store.rejections(device_id) if device_id else []}
 
 
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
+_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment", "targets", "default_metrics",
              "resistance_curve")
 _JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 

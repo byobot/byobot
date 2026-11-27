@@ -1,9 +1,7 @@
 {
   "id": "machine_seated_leg_extension",
   "name": "Machine Seated Leg Extension",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

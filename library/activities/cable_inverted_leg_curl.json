@@ -1,9 +1,7 @@
 {
   "id": "cable_inverted_leg_curl",
   "name": "Cable Inverted Leg Curl",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 2,
   "resistance_curve": {

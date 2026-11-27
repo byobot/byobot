@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_standing_overhead_press",
   "name": "Dumbbell Standing Overhead Press",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

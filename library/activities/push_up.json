@@ -1,9 +1,7 @@
 {
   "id": "push_up",
   "name": "Push-Up",
-  "equipment": [
-    "weighted_bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "compound",
   "fatigue": 3,
   "resistance_curve": {

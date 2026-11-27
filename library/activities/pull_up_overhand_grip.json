@@ -1,8 +1,9 @@
 {
   "id": "pull_up_overhand_grip",
   "name": "Pull-Up (Overhand Grip)",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "pull_up_bar"
   ],
   "movement_type": "compound",
   "fatigue": 3,

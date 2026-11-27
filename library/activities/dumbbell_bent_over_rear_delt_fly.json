@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_bent_over_rear_delt_fly",
   "name": "Dumbbell Bent Over Rear Delt Fly",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

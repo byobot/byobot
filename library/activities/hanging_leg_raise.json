@@ -1,8 +1,9 @@
 {
   "id": "hanging_leg_raise",
   "name": "Hanging Leg Raise",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "pull_up_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

@@ -242,7 +242,7 @@ def test_mascot_renders(tier):
 
 
 LIBRARY = [
-    {"id": "x.pull_up", "name": "Pull-up", "targets": {"main": ["lats"], "synergists": ["biceps"]}, "equipment": ["bar"]},
+    {"id": "x.pull_up", "name": "Pull-up", "targets": {"main": ["lats"], "synergists": ["biceps"]}, "equipment": ["pull_up_bar"]},
     {"id": "x.lat_pulldown", "name": "Lat pulldown", "targets": {"main": ["lats"], "synergists": []}},
 ]
 

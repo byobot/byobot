@@ -1,9 +1,7 @@
 {
   "id": "cable_v_bar_pushdown",
   "name": "Cable Triceps Pushdown (V-Bar)",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

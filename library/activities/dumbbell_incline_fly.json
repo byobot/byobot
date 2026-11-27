@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_incline_fly",
   "name": "Incline Dumbbell Fly",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
