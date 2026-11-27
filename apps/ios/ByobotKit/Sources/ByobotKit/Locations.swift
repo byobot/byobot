@@ -70,9 +70,13 @@ extension Logbook {
 
     /// Where a set happened: its own location, else its session's.
     public func locationId(of effort: PerformedEffort) -> String? {
+        locationId(of: effort, sessions: latestSessions)
+    }
+
+    func locationId(of effort: PerformedEffort, sessions: [String: PerformedSession]) -> String? {
         if let own = effort.locationId { return own }
         guard let session = effort.sessionId else { return nil }
-        return latestSessions[session]?.locationId ?? state.plan?.sessions.first { $0.id == session }?.locationId
+        return sessions[session]?.locationId ?? state.plan?.sessions.first { $0.id == session }?.locationId
     }
 
     /// The sets of an activity from the last time you did it outside `sessionId`, in the order done.
@@ -84,12 +88,13 @@ extension Logbook {
         guard let here = place, mine.contains(where: { $0.metrics?["load"] != nil }) else {
             return LastTime(efforts: Self.latestOccasion(mine), locationId: nil, elsewhere: false)
         }
-        let atHere = mine.filter { self.locationId(of: $0) == here }
+        let sessions = latestSessions
+        let atHere = mine.filter { self.locationId(of: $0, sessions: sessions) == here }
         if !atHere.isEmpty {
             return LastTime(efforts: Self.latestOccasion(atHere), locationId: here, elsewhere: false)
         }
         let latest = Self.latestOccasion(mine)
-        return LastTime(efforts: latest, locationId: latest.first.flatMap { self.locationId(of: $0) },
+        return LastTime(efforts: latest, locationId: latest.first.flatMap { self.locationId(of: $0, sessions: sessions) },
                         elsewhere: !latest.isEmpty)
     }
 
