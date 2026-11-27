@@ -84,7 +84,7 @@ def test_sample_batches_over_the_limit_are_split(store, folder, keeper):
 
 
 def test_a_damaged_recovery_key_doesnt_stop_recovery(store, folder, keeper, tmp_path):
-    keeper.compact()
+    keeper.start_epoch()
     folder.files[files.recovery_path(1)] = folder.files[files.recovery_path(1)][:-5]
     again = Keeper.recover(Store(tmp_path / "new-mac.db"), folder, keeper.recovery_code, Clock())
     assert again.epoch == 3

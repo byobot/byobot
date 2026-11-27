@@ -438,7 +438,7 @@ def test_queries_read_only_documented_tables_and_columns(tmp_path):
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         s.conn.executescript("CREATE TABLE stray (secret TEXT);")
         cloud = [r[0] for r in s.conn.execute("SELECT name FROM sqlite_schema WHERE name LIKE 'cloud_%'")]
-    assert len(cloud) == 5
+    assert len(cloud) == 4
     for table in [*cloud, "stray"]:
         with pytest.raises(ValidationFailed):
             query(tmp_path / "s.db", f"SELECT * FROM {table}")
