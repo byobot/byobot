@@ -1,19 +1,19 @@
 {
-  "id": "ez_barbell_spider_curl",
-  "name": "EZ Barbell Spider Curl",
+  "id": "dumbbell_fly",
+  "name": "Flat Dumbbell Fly",
   "equipment": [
-    "ez_barbell"
+    "dumbbell"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {
-    "stretch": 1,
-    "middle": 3,
-    "contract": 3
+    "stretch": 3,
+    "middle": 2,
+    "contract": 1
   },
   "targets": {
     "main": [
-      "biceps"
+      "pecs"
     ],
     "synergists": []
   }

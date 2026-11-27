@@ -1,22 +1,23 @@
 {
-  "id": "face_pulls",
-  "name": "Face Pulls",
+  "id": "dumbbell_hyperextension",
+  "name": "Hyperextension (With Dumbbell)",
   "equipment": [
-    "cable"
+    "dumbbell"
   ],
   "movement_type": "isolation",
-  "fatigue": 1,
+  "fatigue": 2,
   "resistance_curve": {
-    "stretch": 3,
+    "stretch": 1,
     "middle": 3,
     "contract": 3
   },
   "targets": {
     "main": [
-      "rear_delts"
+      "erector_spinae"
     ],
     "synergists": [
-      "traps"
+      "glutes",
+      "hamstrings"
     ]
   }
 }

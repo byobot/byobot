@@ -1,19 +1,19 @@
 {
-  "id": "ez_barbell_preacher_curl",
-  "name": "EZ Barbell Preacher Curl",
+  "id": "cable_straight_bar_pushdown",
+  "name": "Cable Pushdown (With Straight Bar)",
   "equipment": [
-    "ez_barbell"
+    "cable"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {
-    "stretch": 2,
+    "stretch": 1,
     "middle": 3,
-    "contract": 1
+    "contract": 3
   },
   "targets": {
     "main": [
-      "biceps"
+      "triceps"
     ],
     "synergists": []
   }

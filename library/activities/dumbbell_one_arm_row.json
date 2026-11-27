@@ -1,8 +1,8 @@
 {
-  "id": "assisted_dips",
-  "name": "Assisted Dips",
+  "id": "dumbbell_one_arm_row",
+  "name": "Single Arm Dumbbell Row",
   "equipment": [
-    "machine"
+    "dumbbell"
   ],
   "movement_type": "compound",
   "fatigue": 3,
@@ -13,10 +13,11 @@
   },
   "targets": {
     "main": [
-      "pecs"
+      "lats"
     ],
     "synergists": [
-      "triceps"
+      "biceps",
+      "rear_delts"
     ]
   }
 }

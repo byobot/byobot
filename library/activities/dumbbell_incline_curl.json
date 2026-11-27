@@ -1,6 +1,6 @@
 {
-  "id": "dumbbell_shrugs",
-  "name": "Dumbbell Shrugs",
+  "id": "dumbbell_incline_curl",
+  "name": "Seated Dumbbell Incline Curl",
   "equipment": [
     "dumbbell"
   ],
@@ -9,11 +9,11 @@
   "resistance_curve": {
     "stretch": 3,
     "middle": 3,
-    "contract": 3
+    "contract": 1
   },
   "targets": {
     "main": [
-      "traps"
+      "biceps"
     ],
     "synergists": []
   }

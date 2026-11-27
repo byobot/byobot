@@ -1,6 +1,6 @@
 {
-  "id": "single_leg_press_plate_loaded",
-  "name": "Single Leg Press (Plate-Loaded)",
+  "id": "plate_loaded_leg_press",
+  "name": "Leg Press (Plate-Loaded)",
   "equipment": [
     "plates"
   ],
