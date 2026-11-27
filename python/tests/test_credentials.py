@@ -29,6 +29,7 @@ def test_profiles_keep_separate_credentials(monkeypatch):
 
 
 def test_keychain_account_names_the_profile(monkeypatch):
+    monkeypatch.delenv("BYOBOT_HOME")  # the default home keeps the names it always had
     calls = []
     monkeypatch.setattr(credentials, "_keychain", lambda: True)
     monkeypatch.setattr(credentials.subprocess, "run",
