@@ -1,16 +1,21 @@
 """The core store and its commands, on small hand-made histories."""
 
+from __future__ import annotations
+
+import copy
 import json
 import os
 import sqlite3
 import stat
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from byobot.core import commands, sources
+from byobot.core import commands, reducers, relay, sources
 from byobot.core.contract import Contract
 from byobot.core.store import Store, query
 from byobot.util import Conflict, NotFound, ValidationFailed
@@ -710,3 +715,255 @@ def test_an_existing_stores_files_are_made_private_when_opened(tmp_path):
     opened(home / "byobot.db")
     assert {f.name: mode(f) for f in home.iterdir() if f.name.startswith("byobot.db")} == {
         f.name: 0o600 for f in home.iterdir() if f.name.startswith("byobot.db")}
+
+
+EST = timezone(timedelta(hours=-5))
+
+
+DERIVED = ("activities", "locations", "settings", "plans", "planned_sessions", "planned_blocks", "planned_efforts",
+           "sessions", "efforts", "observations", "metrics", "source_records", "source_links", "source_sessions",
+           "overlays", "occurrences", "occurrence_items", "occurrence_metrics")
+
+
+def open_store(path, device_id="laptop", wall=None, **kw) -> Store:
+    return Store(path, device_id=device_id, wall=wall or Wall(), **kw)
+
+
+def whoop_workout(wid: str, start: str, end: str, updated="2026-03-02T16:00:00.000Z", strain=10.0, hr=140,
+                  offset="-05:00") -> dict:
+    return {"id": wid, "start": start, "end": end, "timezone_offset": offset, "updated_at": updated,
+            "sport_name": "running", "score_state": "SCORED",
+            "score": {"strain": strain, "average_heart_rate": hr, "max_heart_rate": hr + 30}}
+
+
+def derived(store: Store) -> dict:
+    """Every derived table's rows, sorted, so two stores (or one before and after a rebuild) compare exactly."""
+    out = {}
+    for table in DERIVED:
+        rows = [json.dumps(dict(r), sort_keys=True) for r in store.conn.execute(f"SELECT * FROM {table}")]
+        out[table] = sorted(rows)
+    out["records"] = sorted(json.dumps(dict(r), sort_keys=True) for r in store.conn.execute("SELECT * FROM records"))
+    return out
+
+
+def _bad(kind, store, logged, imported):
+    if kind == "lone_surrogate":  # valid JSON ("\ud800"), but not encodable as UTF-8 for SQLite
+        e = copy.deepcopy(logged)
+        e["id"] = "019c0000-0000-7000-8000-0000000000a1"
+        e["payload"]["notes"] = json.loads('"set \\ud800"')
+        return e
+    if kind == "bare_id_of_a_held_source_event":  # the duplicate check reads `record` before the schema check
+        return {"id": imported["id"]}
+    if kind == "deep_nesting":  # canonical JSON recurses in Python
+        e = copy.deepcopy(logged)
+        e["id"] = "019c0000-0000-7000-8000-0000000000a2"
+        deep: list = []
+        for _ in range(1500):
+            deep = [deep]
+        e["payload"]["metrics"]["x.deep"] = {"value": 1, "unit": deep}
+        return e
+    raise AssertionError(kind)
+
+
+@pytest.mark.parametrize("kind", ["lone_surrogate", "bare_id_of_a_held_source_event", "deep_nesting"])
+def test_a_bad_event_is_rejected_and_the_rest_of_its_batch_kept(tmp_path, kind):
+    with open_store(tmp_path / "a.db") as s:
+        [logged] = commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
+        [imported] = sources.ingest(s, "whoop", [("workout", "3001", whoop_workout(
+            "3001", "2026-03-02T14:00:00.000Z", "2026-03-02T15:00:00.000Z"))])
+        good = copy.deepcopy(logged)
+        good.update(id="019c0000-0000-7000-8000-0000000000a3", prev=[logged["id"]], hlc="1900000000000-000000")
+        good["payload"]["metrics"]["reps"]["value"] = 9
+        out = s.accept_many([_bad(kind, s, logged, imported), good])
+        assert out[0][0] == "rejected" and out[1] == ("accepted", "")
+
+
+def test_an_agent_writing_a_lone_surrogate_gets_a_validation_error(tmp_path):
+    with open_store(tmp_path / "a.db") as s:
+        p = effort()
+        p["notes"] = json.loads('"set \\udc00"')
+        with pytest.raises(ValidationFailed):
+            commands.log(s, ME, [{"kind": "effort", "payload": p}])
+
+
+def test_editing_a_set_logged_with_a_code_this_registry_lacks_changes_what_was_asked(tmp_path):
+    """A newer app logs a set with a registry code this install doesn't have yet (delivery keeps it). An edit of
+    only `reps` here re-checks the whole payload against this registry and is refused, telling the person to use a
+    registry code they never wrote; no edit or agent fix of that set works until this install upgrades."""
+    with open_store(tmp_path / "a.db") as s:
+        [first] = commands.log(s, ME, [{"kind": "effort", "payload": effort()}])
+        newer = copy.deepcopy(first)
+        newer.update(id="019c0000-0000-7000-8000-0000000000c1", prev=[first["id"]], hlc="1900000000000-000000",
+                     device_id="phone")
+        newer["payload"]["metrics"]["cadence"] = {"value": 30}  # a code from a later registry
+        assert s.accept(newer) == ("accepted", "")
+        rid = first["record"]["id"]
+        commands.edit(s, ME, "effort", rid, {"metrics": {"reps": {"value": 7}}})
+        payload = s.get("effort", rid)["payload"]
+    assert payload["metrics"] == {"reps": {"value": 7}, "cadence": {"value": 30}}
+
+
+def _race(path: Path, monkeypatch, first_writes: bool) -> dict:
+    """Two processes open a store that doesn't exist yet. Both read user_version 0 before either commits; the
+    first finishes creating it (and, if asked, imports a WHOOP workout) while the second waits for its write lock."""
+    first_in_tx, release, second_read, first_done = (threading.Event() for _ in range(4))
+    seed, real_tx = reducers.seed_library, Store._tx
+
+    def slow_seed(conn):
+        if threading.current_thread().name == "first":
+            first_in_tx.set()
+            assert release.wait(10)
+        seed(conn)
+
+    def tx(self):
+        if threading.current_thread().name == "second" and not second_read.is_set():
+            second_read.set()  # user_version (0) is read; its transaction starts once the first is done
+            assert first_done.wait(10)
+        return real_tx(self)
+
+    monkeypatch.setattr(reducers, "seed_library", slow_seed)
+    monkeypatch.setattr(Store, "_tx", tx)
+    seen = {}
+
+    def first():
+        with Store(path, wall=Wall()) as s:
+            seen["first"] = (s.store_id, s._get("store_key"))
+            if first_writes:
+                sources.ingest(s, "whoop", [("workout", "1001", whoop_workout(
+                    "1001", "2026-03-02T14:00:00.000Z", "2026-03-02T15:00:00.000Z"))])
+        first_done.set()
+
+    def second():
+        with Store(path, wall=Wall()) as s:
+            seen["second"] = (s.store_id, s._get("store_key"))
+
+    a = threading.Thread(target=first, name="first")
+    a.start()
+    assert first_in_tx.wait(10)
+    b = threading.Thread(target=second, name="second")
+    b.start()
+    assert second_read.wait(10)
+    release.set()
+    a.join(20)
+    b.join(20)
+    monkeypatch.undo()
+    return seen
+
+
+def test_two_processes_creating_one_store_keep_the_first_ones_identity(tmp_path, monkeypatch):
+    seen = _race(tmp_path / "byobot.db", monkeypatch, first_writes=False)
+    assert seen["first"] == seen["second"], "the second open replaced the store id and key the first handed out"
+
+
+def test_a_store_created_by_two_processes_at_once_can_still_be_restored(tmp_path, monkeypatch):
+    """The import made under the first key no longer verifies under the second, so the backup is refused whole."""
+    path = tmp_path / "byobot.db"
+    _race(path, monkeypatch, first_writes=True)
+    with open_store(path) as s:
+        backup = list(s.export())
+    with open_store(tmp_path / "restored.db", device_id="new-laptop") as fresh:
+        fresh.restore(backup)
+        assert len(fresh.events()) == 1
+
+
+BASE = datetime(2020, 1, 1, 9, tzinfo=EST)
+
+
+def _steps_to_log_today(tmp_path, earlier: int) -> int:
+    """SQLite virtual-machine steps (in hundreds) spent writing one session after `earlier` past sessions:
+    deterministic, unlike wall time."""
+    with open_store(tmp_path / f"n{earlier}.db") as s:
+        for k in range(0, earlier, 500):
+            commands.log(s, ME, [{"kind": "session", "payload": session(
+                (BASE + timedelta(hours=12 * i)).isoformat(), (BASE + timedelta(hours=12 * i, minutes=60)).isoformat())}
+                for i in range(k, min(earlier, k + 500))])
+        count = [0]
+
+        def tally():
+            count[0] += 1
+            return 0
+
+        s.conn.set_progress_handler(tally, 100)
+        at = BASE + timedelta(hours=12 * earlier)
+        commands.log(s, ME, [{"kind": "session", "payload": session(at.isoformat(),
+                                                                    (at + timedelta(minutes=60)).isoformat())}])
+        s.conn.set_progress_handler(None, 0)
+        return count[0]
+
+
+def test_logging_todays_session_costs_the_same_after_years_of_workouts(tmp_path):
+    """occurrences._items_in looks for workouts with `start_ms <= hi AND end >= lo`; the start_ms index bounds only
+    the top, so every workout that started before today is read on every session write, WHOOP import and phone
+    sync, and a rebuild or restore is quadratic. S15's growth checks use sets only, so they never see it."""
+    small, large = _steps_to_log_today(tmp_path, 250), _steps_to_log_today(tmp_path, 4000)
+    assert large <= 2 * small + 5, f"one session write took {small} then {large} hundred VM steps"
+
+
+@pytest.mark.parametrize("kind", ["session", "observation"])
+def test_an_impossible_date_is_refused_not_kept_out_of_every_read(tmp_path, kind):
+    """The timestamp pattern lets 2026-02-30 through. With an end, the time-order rule parses it and the write is
+    refused; with a start alone nothing parses it until the reducer, whose ValueError makes the record project as
+    nothing. The write answers 'accepted', `get` returns it, and no list, review or query ever shows it."""
+    start = "2026-02-30T09:00:00-05:00"
+    with open_store(tmp_path / "a.db") as s:
+        try:
+            if kind == "session":
+                p = session()
+                p["time"] = {"start": start}
+                [e] = commands.log(s, ME, [{"kind": "session", "payload": p}])
+            else:
+                payload = {"code": "body_mass", "value": 80, "unit": "kg", "time": {"start": start}}
+                [e] = commands.log(s, ME, [{"kind": "observation", "payload": payload}])
+        except ValidationFailed:
+            return
+        table = {"session": "sessions", "observation": "observations"}[kind]
+        live = s.get(kind, e["record"]["id"]) is not None
+        shown = s.rows(f"SELECT id FROM {table} WHERE id = ?", (e["record"]["id"],))
+    assert live and shown, f"the {kind} was accepted and is live, but no derived table holds it"
+
+
+def test_editing_a_session_to_an_impossible_date_does_not_make_it_vanish(tmp_path):
+    with open_store(tmp_path / "a.db") as s:
+        [e] = commands.log(s, ME, [{"kind": "session", "payload": session()}])
+        rid = e["record"]["id"]
+        try:
+            commands.edit(s, ME, "session", rid, {"time": {"start": "2026-02-29T09:00:00-05:00", "end": None}})
+        except ValidationFailed:
+            pass
+        shown = s.rows("SELECT id FROM sessions WHERE id = ?", (rid,))
+        occurrence = s.rows("SELECT id FROM occurrence_items WHERE id = ?", (rid,))
+    assert shown and occurrence, "an accepted edit with a date that doesn't exist removed the session from reads"
+
+
+def test_an_evening_session_written_in_utc_lands_on_its_home_zone_day(tmp_path):
+    store = open_store(tmp_path / "a.db")
+    commands.log(store, ME, [{"kind": "setting", "id": "home_zone", "payload": {"value": "America/New_York"}}])
+    # 8 pm on Nov 19 in New York, written by an agent in UTC.
+    [rec] = commands.log(store, ME, [{"kind": "session", "payload": {
+        "name": "lift", "time": {"start": "2026-11-20T01:00:00Z", "end": "2026-11-20T02:00:00Z"}}}])
+    day = store.rows("SELECT local_date FROM sessions WHERE id = ?", (rec["record"]["id"],))[0]["local_date"]
+    assert day == "2026-11-19"
+
+
+def _grams(source_id):
+    return {"source": "apple_health", "source_id": source_id, "type": "HKQuantityTypeIdentifierBodyMass",
+            "value": 80000, "unit": "g", "start": "2026-03-02T07:00:00-05:00", "end": "2026-03-02T07:00:00-05:00"}
+
+
+def test_a_unit_learned_on_upgrade_converts_imported_observations_too(tmp_path):
+    """`use()` re-derives authored kinds when the registry's units change, but not source records, whose
+    observations and workout metrics carry `std_value` just the same. They keep the old answer until a manual
+    `byobot rebuild`, and every read in the code's own unit (review, the views, agents' queries) misses them."""
+    path = tmp_path / "a.db"
+    with open_store(path) as s:
+        relay.accept_samples(s, {"samples": [_grams("g-1")], "deleted": []})
+        registry = copy.deepcopy(s.contract.registry)
+        assert s.rows("SELECT std_value FROM observations") == [{"std_value": None}]
+    registry["codes"]["body_mass"]["units"]["g"] = 0.001  # a later release accepts grams
+    upgraded = Contract(registry)
+    with open_store(path, contract=upgraded) as s:  # the upgrade's first open runs use()
+        after_open = s.rows("SELECT std_value FROM observations")
+        s.rebuild()
+        after_rebuild = s.rows("SELECT std_value FROM observations")
+    assert after_rebuild == [{"std_value": 80.0}]
+    assert after_open == after_rebuild, "the upgrade left the imported weight unconverted"
