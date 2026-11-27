@@ -22,6 +22,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import tempfile
 import threading
 import sys
 import time
@@ -34,6 +35,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, mcp, serve, util
+from byobot.cloud.lock import held
 from byobot.commands import Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
@@ -90,6 +92,7 @@ class Grant:
     client_id: str
     redirect_uri: str
     challenge: str
+    generation: int  # revoke_all moves oauth.json past this, and the code with it
     expires_at: float = field(default_factory=lambda: time.monotonic() + CODE_TTL_S)
 
 
@@ -99,6 +102,7 @@ class Auth:
     Approved clients and token hashes live in the file, read on every check, so
     ``byobot remote --revoke`` takes effect while a server runs. Clients that have
     registered but not been approved yet, and authorization codes, stay in memory.
+    A change is written only if no other process wrote the file since it was read.
     """
 
     def __init__(self, path: Path, resource: str | None = None):
@@ -110,24 +114,45 @@ class Auth:
 
     # -- the file --
 
+    def _raw(self) -> bytes:
+        try:
+            return self.path.read_bytes()
+        except FileNotFoundError:
+            return b""
+
     def _load(self) -> dict:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             data = {}
         return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {}),
-                "keys": data.get("keys", {})}
+                "keys": data.get("keys", {}), "generation": data.get("generation", 0)}
 
     def _save(self, data: dict) -> None:
         now = time.time()
         for kind in ("access", "refresh"):
             data[kind] = {h: t for h, t in data[kind].items() if t["expires_at"] > now}
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=1)
-        os.replace(tmp, self.path)
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")  # mode 0600
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=1)
+            os.replace(tmp, self.path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
+    def _change(self, fn: Callable[[dict], Any]) -> Any:
+        """Apply ``fn`` to the file's data and write it, again from a fresh read if another process wrote it meanwhile."""
+        with self.lock:
+            while True:
+                seen = self._raw()
+                data = self._load()
+                out = fn(data)
+                with held(self.path.with_name(self.path.name + ".lock")):
+                    if self._raw() == seen:
+                        self._save(data)
+                        return out
 
     # -- clients --
 
@@ -195,9 +220,10 @@ class Auth:
     def grant(self, client_id: str, redirect_uri: str, challenge: str) -> str:
         code = secrets.token_urlsafe(32)
         with self.lock:
+            generation = self._load()["generation"]
             now = time.monotonic()
             self.grants = {k: g for k, g in self.grants.items() if g.expires_at > now}
-            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge)
+            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation)
         return code
 
     def exchange(self, client: dict, code: Any, redirect_uri: Any, verifier: Any) -> dict:
@@ -212,27 +238,34 @@ class Auth:
         expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
         if not secrets.compare_digest(expected, grant.challenge):
             raise OAuthError("invalid_grant", "code_verifier does not match")
-        return self._issue(client)
+        return self._issue(client, grant.generation)
 
     def refresh(self, client: dict, token: Any) -> dict:
-        with self.lock:
-            data = self._load()
-            held = data["refresh"].pop(_hash(token), None) if isinstance(token, str) else None
-            if held is None or held["expires_at"] < time.time() or held["client_id"] != client["client_id"]:
+        h, cid = _hash(token) if isinstance(token, str) else None, client["client_id"]
+
+        def rotate(data: dict) -> None:
+            held = data["refresh"].pop(h, None)
+            if held is None or held["expires_at"] < time.time() or held["client_id"] != cid:
                 raise OAuthError("invalid_grant", "the refresh token is unknown, used or expired")
-            self._save(data)
+
+        self._change(rotate)
         return self._issue(client)
 
-    def _issue(self, client: dict) -> dict:
+    def _issue(self, client: dict, generation: int | None = None) -> dict:
+        """Tokens for an approved client, or, with the generation of its code, for one approved since the last revoke."""
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        now = time.time()
+        cid, now = client["client_id"], time.time()
+
+        def add(data: dict) -> None:
+            if (cid not in data["clients"]) if generation is None else (generation != data["generation"]):
+                raise OAuthError("invalid_grant", "this assistant was disconnected; connect it again")
+            data["clients"][cid] = dict(client)
+            data["access"][_hash(access)] = {"client_id": cid, "expires_at": now + ACCESS_TTL_S}
+            data["refresh"][_hash(refresh)] = {"client_id": cid, "expires_at": now + REFRESH_TTL_S}
+
+        self._change(add)
         with self.lock:
-            self.pending.pop(client["client_id"], None)
-            data = self._load()
-            data["clients"][client["client_id"]] = dict(client)
-            data["access"][_hash(access)] = {"client_id": client["client_id"], "expires_at": now + ACCESS_TTL_S}
-            data["refresh"][_hash(refresh)] = {"client_id": client["client_id"], "expires_at": now + REFRESH_TTL_S}
-            self._save(data)
+            self.pending.pop(cid, None)
         return {"access_token": access, "token_type": "Bearer", "expires_in": ACCESS_TTL_S,
                 "refresh_token": refresh, "scope": SCOPE}
 
@@ -255,19 +288,23 @@ class Auth:
         if not PROFILE_NAME.fullmatch(name):
             raise ValidationFailed(f"API key names are lowercase letters, digits and _, not {name!r}")
         key = "byobot_" + secrets.token_urlsafe(32)
-        with self.lock:
-            data = self._load()
+
+        def add(data: dict) -> None:
             data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time())}
-            self._save(data)
+
+        self._change(add)
         return key
 
     def revoke_all(self) -> int:
-        with self.lock:
-            data = self._load()
+        def clear(data: dict) -> int:
             count = len(data["clients"]) + len(data["keys"])
+            data.update(clients={}, access={}, refresh={}, keys={}, generation=data["generation"] + 1)
+            return count
+
+        count = self._change(clear)
+        with self.lock:
             self.pending.clear()
             self.grants.clear()
-            self._save({"clients": {}, "access": {}, "refresh": {}, "keys": {}})
         return count
 
 
