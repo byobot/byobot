@@ -25,7 +25,7 @@ def test_every_healthkit_type_in_the_registry_maps():
 def test_healthkit_units_take_the_registry_spelling():
     c = Contract.shipped()
     for unit, ucum in telemetry.UNITS.items():
-        code = next((k for k, s in c.registry["codes"].items() if s.get("unit") == ucum), None)
+        code = next((k for k, s in c.registry["codes"].items() if s.get("unit") == ucum and "healthkit" in s), None)
         if ucum is None or code is None:
             continue
         payload = telemetry.observation({"type": next(t for t, k in telemetry.codes().items() if k == code),
