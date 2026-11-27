@@ -234,7 +234,7 @@ extension MetricRegistry {
 /// UCUM units as the app shows them: `[lb_av]` → `lb`, `/min` → `bpm`.
 public enum UnitLabel {
     static let labels = ["[lb_av]": "lb", "[mi_i]": "mi", "[yd_i]": "yd", "[ft_i]": "ft", "/min": "bpm",
-                         "%{1RM}": "% 1RM", "Cel": "°C", "mm[Hg]": "mmHg", "s/[mi_i]": "s/mi", "s/(100.m)": "s/100 m",
+                         "Cel": "°C", "mm[Hg]": "mmHg", "s/[mi_i]": "s/mi", "s/(100.m)": "s/100 m",
                          "s/(500.m)": "s/500 m", "mL/(kg.min)": "mL/kg/min"]
 
     public static func text(_ unit: String) -> String {

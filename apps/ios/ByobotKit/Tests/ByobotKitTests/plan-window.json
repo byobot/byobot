@@ -519,9 +519,8 @@
          "reps": {
           "min": 8
          },
-         "load": {
-          "value": 70,
-          "unit": "%{1RM}"
+         "pct_of_1rm": {
+          "value": 70
          }
         }
        }
