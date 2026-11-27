@@ -341,7 +341,7 @@ class V1:
 
     def upgrade(self, rep: Replica, version: int) -> None:
         contract = Contract.shipped().newer(
-            version, {k: {"category": "act", "version": v, "description": k} for k, v in NEW_IN.items()
+            version, {k: {"version": v, "description": k} for k, v in NEW_IN.items()
                       if v <= version})
         contract.schemas = copy.deepcopy(contract.schemas)  # the newer install knows the field it added
         contract.schemas["records"]["$defs"]["effort"]["properties"]["x_new_field"] = {"type": "integer"}

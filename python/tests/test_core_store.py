@@ -145,7 +145,7 @@ def test_unknown_kinds_and_versions_are_kept_then_projected_after_an_upgrade(pai
     meal = {**e, "id": "019aa000-0000-7000-8000-0000000000bb", "record": {"kind": "meal", "id": e["record"]["id"]}}
     assert [o for o, _ in b.accept_many([newer, meal])] == ["stored_unprojected"] * 2
     assert b.get("effort", e["record"]["id"]) is None
-    b.use(Contract.shipped().newer(2, {"meal": {"category": "act", "version": 2, "description": "A meal."}}))
+    b.use(Contract.shipped().newer(2, {"meal": {"version": 2, "description": "A meal."}}))
     assert b.get("effort", e["record"]["id"])["payload"]["bar_speed"] == {"value": 0.6}
     assert b.get("meal", e["record"]["id"]) is not None
 
