@@ -58,7 +58,6 @@ func encodeNumber(_ n: Double, into c: inout SingleValueEncodingContainer) throw
     }
 }
 
-/// A number, text or true/false: a measure's value, or a sample's.
 extension Sequence where Element == UInt8 {
     /// Lowercase hex, two digits a byte.
     var hex: String { map { String(format: "%02x", $0) }.joined() }
@@ -71,6 +70,7 @@ extension Sequence where Element == UInt8 {
     }
 }
 
+/// A number, text or true/false: a measure's value, or a sample's.
 public enum Scalar: Codable, Equatable, Hashable, Sendable {
     case number(Double)
     case string(String)
