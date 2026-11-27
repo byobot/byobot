@@ -45,13 +45,15 @@ def _home_zone(store: Store) -> tzinfo | None:
 
 def _local(ts: Any, zone: tzinfo | None) -> Any:
     """A time without an offset is local: in the home zone if one is set, else this machine's; the offset in
-    force then is written with it."""
+    force then is written with it. A time in UTC ("Z") is the same instant in the home zone, if one is set."""
     if not isinstance(ts, str):
         return ts
     try:
         at = datetime.fromisoformat(ts)
     except ValueError:
         return ts
+    if at.tzinfo and zone and ts.upper().endswith("Z"):
+        return stamp(at.astimezone(zone))
     if at.tzinfo:
         return ts
     return stamp(at.replace(tzinfo=zone) if zone else at.astimezone())
