@@ -146,12 +146,15 @@ class Store:
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
-            self._set("shape", reducers.SHAPE)
+            if not reshaped:
+                self._set("shape", reducers.SHAPE)
             if self._get("library") != library.fingerprint():
                 reducers.seed_library(self.conn)
                 self._set("library", library.fingerprint())
-        if reshaped:
-            self.rebuild()
+        if reshaped:  # the new shape is recorded with the rebuild, so one cut short runs again on the next open
+            with self._tx():
+                self.rebuild()
+                self._set("shape", reducers.SHAPE)
         self._repair_clock()
         if self._get("contract") != self.contract.fingerprint():
             self.use(self.contract)
