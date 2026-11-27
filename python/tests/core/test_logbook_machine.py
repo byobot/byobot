@@ -12,9 +12,9 @@ import random
 import tempfile
 from datetime import timedelta
 
-from hypothesis import settings
+from hypothesis import event, settings
 from hypothesis import strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
+from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 
 from .driver import Unsupported
 from .drivers.v1 import V1
@@ -47,16 +47,38 @@ class Logbook(RuleBasedStateMachine):
             self._settle(random.Random(0))
             for name in REPLICAS:
                 self.world.upgrade(name, 2)
-            first = self.world.snapshot(REPLICAS[0])
-            for name in REPLICAS:
-                self._matches(name)
-                assert equal(first, self.world.snapshot(name)), diff(first, self.world.snapshot(name))
-                self._no_erased_bytes(name)
+            self._agree()
+            self._resolve_every_conflict(random.Random(1))
+            self._settle(random.Random(2))
+            self._agree()
         finally:
             self.world.close()
             self.tmp.cleanup()
 
     # -- helpers ------------------------------------------------------------
+
+    def _agree(self) -> None:
+        first = self.world.snapshot(REPLICAS[0])
+        for name in REPLICAS:
+            self._matches(name)
+            assert equal(first, self.world.snapshot(name)), diff(first, self.world.snapshot(name))
+            self._no_erased_bytes(name)
+
+    def _resolvable(self, name: str) -> dict:
+        """The conflicts on records this machine names; a newer install's copies keep ids the driver can't map."""
+        conflicts = self.world.expected(name)["conflicts"]
+        return {r: v for r, v in conflicts.items() if tuple(r.split("/", 1)) in EDITABLE}
+
+    def _resolve_every_conflict(self, rng: random.Random) -> None:
+        """Each conflict left at the end resolved on some replica, so every history ends with resolves."""
+        for record, versions in sorted(self._resolvable(REPLICAS[0]).items()):
+            kind, rid = record.split("/", 1)
+            choice = rng.randrange(len(versions) + ((kind, rid) in EDITABLE[:5]))
+            r = rng.randrange(len(REPLICAS))
+            event(f"resolve {len(versions)} versions")
+            self._author(r, {"intent": "resolve", "record": [kind, rid],
+                             "choice": "remove" if choice == len(versions) else choice})
+            self._matches(REPLICAS[r])
 
     def _mark(self, record: str) -> str:
         mark = f"zq-mark-{sum(map(len, self.marks.values()))}-zq"
@@ -87,6 +109,13 @@ class Logbook(RuleBasedStateMachine):
         """The command layer erases only a record it holds that isn't erased yet."""
         shadow = self.world.shadows[REPLICAS[r]]
         return bool(shadow.by_record.get(record)) and record not in shadow.gone
+
+    def _exchange(self, sources: tuple[str, ...], names: tuple[str, ...]) -> None:
+        for src in sources:
+            for dst in names:
+                if src != dst:
+                    outcomes = self.world.deliver(dst, self.world.missing(src, dst))
+                    assert [o for o in outcomes if o[0] == "rejected"] == [], outcomes
 
     def _settle(self, rng: random.Random) -> None:
         for name in REPLICAS:
@@ -179,19 +208,47 @@ class Logbook(RuleBasedStateMachine):
         if held:
             self._author(r, {"intent": "undo", "change": held[-1 - pick % min(len(held), 6)].id})
 
-    @rule(r=replica, which=st.sampled_from(EDITABLE[:5]), choice=st.integers(0, 3))
-    def resolve(self, r, which, choice):
-        record = f"{which[0]}/{which[1]}"
-        versions = self.world.expected(REPLICAS[r])["conflicts"].get(record, [])
-        if versions:
-            pick = "remove" if choice == 3 else choice % len(versions)
-            self._author(r, {"intent": "resolve", "record": list(which), "choice": pick})
+    @rule(which=st.sampled_from(EDITABLE[:5]), sides=st.integers(2, 3), reps=st.integers(1, 9))
+    def edit_on_several_at_once(self, which, sides, reps):
+        """The same record edited on two or three replicas before they hear of each other: a conflict each time."""
+        kind, rid = which
+        names = REPLICAS[:sides]
+        if kind == "effort":
+            self._author(0, {"intent": "log_effort", "record": {"id": rid, "activity_id": "x.row", "performed_at": day(1),
+                                                                "notes": self._mark(f"effort/{rid}")}})
+        else:
+            self._author(0, {"intent": "log_session", "record": {"id": rid, "started_at": day(1, 10, 30),
+                                                                 "ended_at": day(1, 11, 30),
+                                                                 "notes": self._mark(f"session/{rid}")}})
+        self._exchange(names[:1], names)
+        for i in range(sides):
+            fields = {"notes": self._mark(f"{kind}/{rid}")}
+            if kind == "effort":
+                fields["metrics"] = {"reps": {"value": reps + i}}
+            self._author(i, {"intent": "edit", "record": [kind, rid], "fields": fields})
+        self._exchange(names, names)
 
-    @rule(r=replica, which=st.sampled_from(EDITABLE[:5]))
-    def erase(self, r, which):
-        if not self._erasable(r, f"{which[0]}/{which[1]}"):
+    @precondition(lambda self: any(self._resolvable(n) for n in REPLICAS))
+    @rule(r=replica, pick=st.integers(0, 50), choice=st.integers(0, 3))
+    def resolve(self, r, pick, choice):
+        conflicts = self._resolvable(REPLICAS[r])
+        if not conflicts:
             return
-        self._author(r, {"intent": "erase", "record": list(which)})
+        record = sorted(conflicts)[pick % len(conflicts)]
+        kind, rid = record.split("/", 1)
+        versions = conflicts[record]
+        removable = (kind, rid) in EDITABLE[:5]
+        version = "remove" if choice == 3 and removable else choice % len(versions)
+        event(f"resolve {len(versions)} versions")
+        self._author(r, {"intent": "resolve", "record": [kind, rid], "choice": version})
+
+    @rule(r=replica, pick=st.integers(0, 50))
+    def erase(self, r, pick):
+        held = [w for w in EDITABLE[:5] if self._erasable(r, f"{w[0]}/{w[1]}")]
+        if not held:
+            return
+        event("erase")
+        self._author(r, {"intent": "erase", "record": list(held[pick % len(held)])})
         self._no_erased_bytes(REPLICAS[r])
 
     # -- sources ------------------------------------------------------------
