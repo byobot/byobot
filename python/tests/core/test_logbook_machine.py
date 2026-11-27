@@ -319,12 +319,22 @@ Logbook.TestCase.settings = settings(settings.default, stateful_step_count=30)
 test_logbook = Logbook.TestCase
 
 
-@pytest.mark.xfail(strict=True, reason="open: without a revision time, revisions are ordered by when each device wrote "
-                                       "them, so one imported on two devices orders differently on each")
 def test_a_sample_without_a_revision_time_imported_on_two_devices_reads_the_same_on_both():
     state = Logbook()
     state.start()
     for r, at in ((0, 1), (0, 0), (1, 1)):
+        state.world.tick(60)
+        sample = health_workout("h1", day(at, 10, 1), day(at, 10, 59), 1000.0)
+        state.world.ingest(REPLICAS[r], "apple-health", [sample])
+    state.teardown()
+
+
+@pytest.mark.xfail(strict=True, reason="open: first imports without a revision time are ordered by when each device "
+                                       "wrote them, so one written on two devices orders differently on each")
+def test_first_imports_without_a_revision_time_on_three_devices_read_the_same_on_all():
+    state = Logbook()
+    state.start()
+    for r, at in ((0, 1), (1, 0), (2, 1)):
         state.world.tick(60)
         sample = health_workout("h1", day(at, 10, 1), day(at, 10, 59), 1000.0)
         state.world.ingest(REPLICAS[r], "apple-health", [sample])

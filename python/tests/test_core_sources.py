@@ -224,6 +224,19 @@ def test_without_revision_times_the_last_written_is_current(store):
         assert seen_value(store, "body_mass") == kg
 
 
+def test_a_changed_sample_without_a_revision_time_is_current_even_when_the_clock_went_back(store):
+    def weight(kg):
+        return {"source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+                "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": kg, "unit": "kg"}
+
+    sources.ingest_samples(store, [weight(80.1)])
+    sources.ingest_samples(store, [weight(80.2)])
+    store.wall.at -= timedelta(hours=1)
+    sources.ingest_samples(store, [weight(80.3)])
+    assert seen_value(store, "body_mass") == 80.3
+    assert sources.ingest_samples(store, [weight(80.3)]) == {"hume": []}  # the same content again writes nothing
+
+
 def seen_value(store, code):
     [v] = [r[0] for r in store.conn.execute("SELECT value FROM observations WHERE code = ?", (code,))]
     return v
