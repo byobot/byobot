@@ -35,9 +35,9 @@ LOGS = {
     "define_activity": "activity", "define_location": "location", "define_plan": "plan",
     "plan_session": "planned_session", "log_session": "session", "log_effort": "effort",
 }
-RANK = ("you", "whoop", "apple-health")
+RANK = ("you", "whoop", "apple_health")
 SAME_OCCURRENCE = 0.5  # share of the shorter workout two items must overlap to be one occurrence
-WORKOUT_TYPES = {("whoop", "workout"), ("apple-health", "HKWorkoutTypeIdentifier")}
+WORKOUT_TYPES = {("whoop", "workout"), ("apple_health", "HKWorkoutTypeIdentifier")}
 UNITS = {"s": 1, "min": 60, "h": 3600, "m": 1, "km": 1000, "mi": 1609.344}
 MASS = {"kg": 1, "g": 0.001, "lb": 0.45359237}
 

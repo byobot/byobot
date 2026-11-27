@@ -51,14 +51,14 @@ def test_s7_resending_identical_data_changes_nothing(world):
 
 def test_s7_a_workout_deleted_at_the_source_leaves_the_reads(world):
     world.replica("phone")
-    world.ingest("phone", "apple-health", [health_workout("h1", T("10:00"), T("10:45"), 7000)])
-    world.ingest("phone", "apple-health", {"samples": [], "deleted": [("HKWorkoutTypeIdentifier", "h1")]})
+    world.ingest("phone", "apple_health", [health_workout("h1", T("10:00"), T("10:45"), 7000)])
+    world.ingest("phone", "apple_health", {"samples": [], "deleted": [("HKWorkoutTypeIdentifier", "h1")]})
     assert world.occurrences("phone") == world.expected_occurrences("phone") == []
 
 
 # -- S8. the same workout from WHOOP, Apple Health and manual logging ----------------------------------
 
-ORDERS = list(permutations(("log", "whoop", "apple-health")))
+ORDERS = list(permutations(("log", "whoop", "apple_health")))
 WID = "9a1b0000-0000-4000-8000-000000000002"
 
 
@@ -69,7 +69,7 @@ def _arrive(world, step):
     elif step == "whoop":
         world.ingest("laptop", "whoop", {"workout": [whoop_workout(WID, T("10:02"), T("10:58"), T("11:05"))]})
     else:
-        world.ingest("laptop", "apple-health", [health_workout("h1", T("10:01"), T("10:59"), 9000)])
+        world.ingest("laptop", "apple_health", [health_workout("h1", T("10:01"), T("10:59"), 9000)])
 
 
 @pytest.mark.parametrize("order", ORDERS, ids="-".join)
@@ -105,7 +105,7 @@ def test_s8_the_log_is_the_same_whatever_order_connectors_ran_in(driver, tmp_pat
 
 @pytest.mark.parametrize("second", [
     pytest.param("whoop", id="both_whoop"),
-    pytest.param("apple-health", id="whoop_then_apple_health"),
+    pytest.param("apple_health", id="whoop_then_apple_health"),
 ])
 def test_s8_back_to_back_runs_overlapping_a_minute_stay_two(world, second):
     world.replica("laptop")
@@ -115,7 +115,7 @@ def test_s8_back_to_back_runs_overlapping_a_minute_stay_two(world, second):
         world.ingest("laptop", "whoop", {"workout": [
             whoop_workout("9a1b0000-0000-4000-8000-000000000004", T("10:30"), T("11:00"), T("11:05"))]})
     else:
-        world.ingest("laptop", "apple-health", [health_workout("h2", T("10:30"), T("11:00"), 5000)])
+        world.ingest("laptop", "apple_health", [health_workout("h2", T("10:30"), T("11:00"), 5000)])
     assert len(world.occurrences("laptop")) == 2
     assert world.occurrences("laptop") == world.expected_occurrences("laptop")
 

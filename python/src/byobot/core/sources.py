@@ -55,7 +55,6 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         raise ValidationFailed(f"{source}: {exc}") from None
 
 
-SAMPLE_SOURCES = {"apple-health": "apple_health"}  # v0's spelling, still sent by older phones
 SAMPLE_FIELDS = frozenset(documents()[0]["sync"]["$defs"]["sample"]["properties"])
 
 
@@ -73,7 +72,7 @@ def ingest_samples(store: Store, samples: list[dict], deleted: Iterable[dict] = 
     for s in samples:
         if not isinstance(s, dict) or not all(isinstance(s.get(k), str) for k in ("source", "source_id", "type")):
             raise ValidationFailed("each sample needs a source, a source_id and a type")
-        source = SAMPLE_SOURCES.get(s["source"], s["source"])
+        source = s["source"]
         kept = {k: v for k, v in s.items() if k in SAMPLE_FIELDS}
         for k in ("device", "origin_app"):  # apps name themselves, so these reach agents
             if isinstance(kept.get(k), str):
@@ -84,7 +83,7 @@ def ingest_samples(store: Store, samples: list[dict], deleted: Iterable[dict] = 
     for d in deleted:
         if not isinstance(d, dict) or not all(isinstance(d.get(k), str) for k in ("source", "source_id")):
             raise ValidationFailed("each deletion needs a source and a source_id")
-        source = SAMPLE_SOURCES.get(d["source"], d["source"])
+        source = d["source"]
         types = [sample_type(d["type"])] if isinstance(d.get("type"), str) else [r[0] for r in store.conn.execute(
             "SELECT source_type FROM source_records WHERE source = ? AND source_id = ?", (source, d["source_id"]))]
         by_source.setdefault(source, ([], []))[1].extend((t, d["source_id"]) for t in types)

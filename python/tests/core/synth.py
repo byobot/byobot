@@ -244,11 +244,11 @@ class _Gen:
             raw = {"duration_s": (ended - began).total_seconds(), "heart_rate_avg_bpm": rng.randint(110, 160)}
             if distance:
                 raw["distance_m"] = distance
-            sample = {"source": "apple-health", "source_id": hid, "type": "HKWorkoutTypeIdentifier",
+            sample = {"source": "apple_health", "source_id": hid, "type": "HKWorkoutTypeIdentifier",
                       "start": stamp(began, timedelta(0)), "end": stamp(ended, timedelta(0)), "value": HEALTHKIT[sport],
                       "raw": raw}
-            self.add(ended + timedelta(hours=2), "ingest", self.phone(d), "apple-health", [sample])
-            truth["sources"].append(("apple-health", hid))
+            self.add(ended + timedelta(hours=2), "ingest", self.phone(d), "apple_health", [sample])
+            truth["sources"].append(("apple_health", hid))
         if truth["sources"] or logged_by:
             self.p.workouts.append(truth)
 

@@ -55,8 +55,9 @@ def test_a_device_sends_only_apple_health_samples(store):
     sample = {"source": "apple_health", "source_id": "S1", "type": "HKQuantityTypeIdentifierBodyMass",
               "start": "2026-11-23T07:00:00Z", "value": 80.1, "unit": "kg"}
     assert relay.accept_samples(store, {"samples": [sample]})["written"] == 1
-    with pytest.raises(ValidationFailed):
-        relay.accept_samples(store, {"samples": [{**sample, "source": "whoop"}]})
+    for other in ("whoop", "apple-health"):
+        with pytest.raises(ValidationFailed):
+            relay.accept_samples(store, {"samples": [{**sample, "source": other}]})
     with pytest.raises(ValidationFailed):
         relay.accept_samples(store, {"samples": [sample] * (relay.MAX_BATCH + 1)})
 

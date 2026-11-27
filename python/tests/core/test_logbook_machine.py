@@ -216,7 +216,7 @@ class Logbook(RuleBasedStateMachine):
             if stamped:  # a changed sample says when; one that doesn't is ordered by its id
                 sample["raw"]["modified_at"] = day(at, 12, distance)
             batch = [sample]
-        self.world.ingest(REPLICAS[r], "apple-health", batch)
+        self.world.ingest(REPLICAS[r], "apple_health", batch)
 
     @rule(r=replica, wid=st.sampled_from(WORKOUTS), distance=st.none() | st.integers(1, 20))
     def correct_import(self, r, wid, distance):
@@ -325,7 +325,7 @@ def test_a_sample_without_a_revision_time_imported_on_two_devices_reads_the_same
     for r, at in ((0, 1), (0, 0), (1, 1)):
         state.world.tick(60)
         sample = health_workout("h1", day(at, 10, 1), day(at, 10, 59), 1000.0)
-        state.world.ingest(REPLICAS[r], "apple-health", [sample])
+        state.world.ingest(REPLICAS[r], "apple_health", [sample])
     state.teardown()
 
 

@@ -29,7 +29,6 @@ LOGS = {
 }
 READ_AS = {"meal": "effort"}  # a newer install's kind, written by this driver from an effort
 SELF = "self_reported"
-SOURCES = {"apple-health": "apple_health"}
 SOURCE_TYPES = ("sleep", "recovery", "cycle", "workout", "quantity_sample", "category_sample")
 FIELDS = {"duration_s": ("duration", "s"), "distance_m": ("distance", "m"), "heart_rate": ("heart_rate", "/min")}
 
@@ -202,7 +201,7 @@ class V1:
         raise Unsupported(f"{name} comes with a later core step")
 
     def _workout(self, store: Store, intent: dict) -> str:
-        return sources.record_id(store, SOURCES.get(intent["source"], intent["source"]), "workout", intent["source_id"])
+        return sources.record_id(store, intent["source"], "workout", intent["source_id"])
 
     def _records(self, kind: str, record: dict) -> list[dict]:
         rid = self.rid(kind, record["id"])
@@ -251,7 +250,7 @@ class V1:
             samples = batch.get("samples", []) if isinstance(batch, dict) else batch
             records = [(_sample_type(s["type"]), s["source_id"], s) for s in samples]
             deleted = [(_sample_type(t), i) for t, i in (batch.get("deleted", []) if isinstance(batch, dict) else [])]
-        return sources.ingest(rep.store, SOURCES.get(source, source), records, deleted)
+        return sources.ingest(rep.store, source, records, deleted)
 
     def log_events(self, rep: Replica) -> list[dict]:
         return rep.store.events()
@@ -290,7 +289,7 @@ class V1:
     def workouts(self, rep: Replica) -> list[dict]:
         """Occurrences with the provenance of each metric: you, or the source it came from."""
         conn, out = rep.store.conn, []
-        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health")}
+        named = {s: s for s in ("whoop", "apple_health")}
         for oid, start, end in conn.execute("SELECT id, started_at, ended_at FROM occurrences"):
             got, by = {}, {}
             for code, v, from_kind, from_id, overlay in conn.execute(
@@ -308,7 +307,7 @@ class V1:
         return sorted(({k: v for k, v in o.items() if k != "provenance"} for o in self.workouts(rep)), key=canonical)
 
     def source_history(self, rep: Replica, source: str, source_id: str) -> list[dict]:
-        name = SOURCES.get(source, source)
+        name = source
         return [e["payload"]["raw"] for t in SOURCE_TYPES
                 for e in sources.history(rep.store, sources.record_id(rep.store, name, t, source_id))]
 

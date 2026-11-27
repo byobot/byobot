@@ -116,8 +116,7 @@ def accept_samples(store: Store, body: Any) -> dict:
     deleted = body.get("deleted", []) if isinstance(body, dict) else None
     if not isinstance(samples, list) or not isinstance(deleted, list) or len(samples) + len(deleted) > MAX_BATCH:
         raise ValidationFailed(f"send {{samples: [...], deleted: [...]}} with at most {MAX_BATCH} in all")
-    if any(not isinstance(s, dict) or sources.SAMPLE_SOURCES.get(s.get("source"), s.get("source")) != "apple_health"
-           for s in samples + deleted):
+    if any(not isinstance(s, dict) or s.get("source") != "apple_health" for s in samples + deleted):
         raise ValidationFailed("a phone sends only apple_health samples")
     written = sources.ingest_samples(store, samples, deleted)
     return {"written": sum(len(e) for e in written.values()),
