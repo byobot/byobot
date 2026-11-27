@@ -269,7 +269,6 @@ final class CloudRelayTests: XCTestCase {
         relay.send(SampleBatch(deleted: [deletion("W1")]))
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
-        XCTAssertEqual(relay.held, [])
         let written = try await segment(k, folder, 2)
         XCTAssertEqual(try sourceIds(written, "deleted"), ["W1"])
     }

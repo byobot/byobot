@@ -121,8 +121,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     var sent: [String: Carried] = [:]
     /// Sample batches the keeper rejected, with why.
     public private(set) var rejected: [RejectedBatch] = []
-    /// Deletions an older app held back; they go on the next sync.
-    public private(set) var held: [Deletion] = []
     /// Events the keeper read since they were last taken.
     var delivered: [String] = []
     public private(set) var plan: PlanWindow?
@@ -131,7 +129,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var removed = false
 
     enum CodingKeys: String, CodingKey {
-        case version, epoch, seq, samples, sent, rejected, held, delivered, plan, receipts, removed
+        case version, epoch, seq, samples, sent, rejected, delivered, plan, receipts, removed
         case storeID = "store_id"
         case deviceID = "device_id"
         case keeperSign = "keeper_sign"
@@ -199,13 +197,13 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     public var joined: Bool { key != nil }
 
-    /// Every sample and deletion the keeper hasn't read: queued, in unread segments, or held. A phone leaving Drive
+    /// Every sample and deletion the keeper hasn't read: queued or in unread segments. A phone leaving Drive
     /// sync sends these another way, since Apple Health won't hand them over again.
     public var leftovers: SampleBatch {
         let batches = samples + sent.keys.sorted().flatMap { path in
             sent[path].map { c in c.samples.keys.sorted().compactMap { c.samples[$0] } } ?? []
         }
-        return SampleBatch(samples: batches.flatMap(\.samples), deleted: batches.flatMap(\.deleted) + held)
+        return SampleBatch(samples: batches.flatMap(\.samples), deleted: batches.flatMap(\.deleted))
     }
 
     /// The events the keeper read since this was last asked.
@@ -225,13 +223,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         guard !gone.isEmpty else { return }
         for i in samples.indices { samples[i].samples.removeAll { gone.contains($0.sourceId) } }
         samples.removeAll { $0.size == 0 }
-    }
-
-    mutating func release() {
-        guard !held.isEmpty else { return }
-        drop(Set(held.map(\.sourceId)))
-        queue(SampleBatch(deleted: held))
-        held = []
     }
 
     mutating func queue(_ batch: SampleBatch) {
@@ -267,7 +258,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         guard !removed, key != nil else { return report(0, pending) }
         try await readPlan(folder, listing)
         settle(listing)
-        release()
         let written = try await send(folder, identity, pending, force: moved, save: save)
         return report(written, pending)
     }
