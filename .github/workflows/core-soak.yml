@@ -1,13 +1,19 @@
 name: Core soak
 
+# GitHub runs schedules late or drops them under load, so there are two a day.
 on:
   schedule:
     - cron: "17 6 * * *"
+    - cron: "43 17 * * *"
   workflow_dispatch:
     inputs:
       seed:
         description: Hypothesis seed (defaults to the run id)
         required: false
+
+concurrency:
+  group: core-soak
+  cancel-in-progress: false
 
 permissions:
   contents: read
