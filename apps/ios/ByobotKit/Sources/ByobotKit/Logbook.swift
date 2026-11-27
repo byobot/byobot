@@ -346,18 +346,22 @@ public struct Logbook: Sendable {
         return order.compactMap { byId[$0] }
     }
 
-    /// Whether the plan carries the sets and sessions of a planned session, or of a session logged against one.
-    func carries(plannedSession: String?, session: String?) -> Bool {
+    /// Whether the plan carries the sets and sessions of a planned session, of a session logged against one, or of
+    /// a day (`yyyy-mm-dd`) in its history.
+    func carries(plannedSession: String?, session: String?, day: String? = nil) -> Bool {
         guard let plan = state.plan else { return false }
         if let plannedSession, plan.plannedSessions.contains(where: { $0.id == plannedSession }) { return true }
         if let session, plan.sessions.contains(where: { $0.id == session }) { return true }
+        if let since = plan.since, let day, day >= since, day <= plan.to { return true }
         return false
     }
 
     /// Sets as this phone shows them: the pulled ones with this phone's changes on top.
     func currentEfforts(matching: (JSONValue) -> Bool = { _ in true }) -> [PerformedEffort] {
-        current("effort", state.plan?.efforts ?? [],
-                covered: { carries(plannedSession: $0.plannedSessionId, session: $0.sessionId) }, matches: matching)
+        current("effort", state.plan?.efforts ?? [], covered: {
+            carries(plannedSession: $0.plannedSessionId, session: $0.sessionId,
+                    day: $0.sessionId == nil ? String($0.performedAt.prefix(10)) : nil)
+        }, matches: matching)
     }
 
     public var activeSession: PerformedSession? {
@@ -367,8 +371,9 @@ public struct Logbook: Sendable {
 
     /// The latest version of each session this phone knows of.
     var latestSessions: [String: PerformedSession] {
-        let sessions = current("session", state.plan?.sessions ?? [],
-                               covered: { carries(plannedSession: $0.plannedSessionId, session: nil) })
+        let sessions = current("session", state.plan?.sessions ?? [], covered: {
+            carries(plannedSession: $0.plannedSessionId, session: nil, day: String($0.startedAt.prefix(10)))
+        })
         return Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
     }
 

@@ -378,6 +378,28 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.logged(for: planned)[pullUp.id]?[1], "the laptop holds it and took it back")
     }
 
+    func testThePlansHistoryGivesLastTimeForAnExerciseNotInThePlan() throws {
+        var window = try Fixtures.window()
+        window.since = "2026-09-26"
+        window.efforts = [PerformedEffort(id: "old-fly", activityId: "x.cable_fly", performedAt: "2026-06-01T08:00:00Z",
+                                          locationId: "hotel", metrics: ["load": .exact(20, unit: "kg")])]
+        let book = makeLogbook(plan: window)
+        XCTAssertEqual(book.lastTime("x.cable_fly", at: "hotel").efforts.map(\.id), ["old-fly"])
+    }
+
+    func testASetTheLaptopRemovedFromItsHistoryLeavesThePhone() throws {
+        var book = makeLogbook(plan: try Fixtures.window())
+        let set = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: try XCTUnwrap(book.state.events.last).hlc]
+        book.applyPlan(window)
+        XCTAssertEqual(book.efforts(of: "run").map(\.id), [set.id], "a plan without history can't speak for it")
+        window.since = "2026-09-26"
+        book.applyPlan(window)
+        XCTAssertEqual(book.efforts(of: "run"), [], "its day is in the plan's history, and the laptop no longer has it")
+    }
+
     func testThePhoneKeepsWhatIsWaitingAndAMonthOfWhatWasSent() throws {
         let clock = TickingClock()
         var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: { clock.read() })

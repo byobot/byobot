@@ -184,26 +184,55 @@ def test_plan_window_shows_a_conflict(store):
     assert store.record("planned_session", UPPER)["conflict"]  # a phone edit keeps the conflict
 
 
-def test_plan_window_outside_the_dates_is_empty(store):
+def test_plan_window_outside_the_dates_still_brings_the_last_time(store):
     seed(store)
     window = serve.plan_window(store, "2030-01-01", "2030-01-07")
-    assert window["planned_sessions"] == [] and window["efforts"] == [] and window["sessions"] == []
+    assert window["planned_sessions"] == [] and window["since"] == "2029-11-02"
+    assert [s["id"] for s in window["sessions"]] == [DONE] and len(window["efforts"]) == 1
+
+
+def squats(store, visits, activity="x.barbell_back_squat"):
+    for i, (day, location) in enumerate(visits):
+        sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
+        write(store, ("session", sid, {"name": "Squats", "location_id": location,
+                                       "time": {"start": f"{day}T08:00:00Z"}}),
+              *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
+                  "activity_id": activity, "round": n, "time": {"start": f"{day}T08:0{n}:00Z"},
+                  "links": {"part_of": {"kind": "session", "id": sid}},
+                  "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
 
 
 def test_plan_window_brings_the_last_two_times_at_each_location(store):
     seed(store)
-    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel_gym")]):
-        sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
-        write(store, ("session", sid, {"name": "Squats", "location_id": location,
-                                       "time": {"start": f"2026-11-{day}T08:00:00Z"}}),
-              *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
-                  "activity_id": "x.barbell_back_squat", "round": n, "time": {"start": f"2026-11-{day}T08:0{n}:00Z"},
-                  "links": {"part_of": {"kind": "session", "id": sid}},
-                  "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
+    squats(store, [("2026-07-10", "home"), ("2026-07-12", "home"), ("2026-07-14", "home"), ("2026-07-15", "hotel_gym")])
     window = serve.plan_window(store, "2026-11-25", "2026-11-30")
     ours = [e["id"][-2:] for e in window["efforts"] if e["id"].startswith("0193a0b0-0000-7000-8000-0000000006")]
     assert ours == ["11", "12", "21", "22", "31", "32"] and len(window["efforts"]) == 7  # and the seeded gym visit
     assert [p["id"] for p in window["planned_sessions"]] == [UPPER]
+
+
+def test_plan_window_brings_the_last_time_of_an_exercise_the_plan_doesnt_have(store):
+    seed(store)
+    write(store, ("activity", "x.cable_fly", {"name": "Cable fly"}))
+    squats(store, [("2026-06-01", "home"), ("2026-06-03", "example_gym")], activity="x.cable_fly")
+    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    flies = [e for e in window["efforts"] if e["payload"]["activity_id"] == "x.cable_fly"]
+    assert len(flies) == 4  # each gym's last time, for a swap or an exercise added on the day
+    sessions = {s["id"] for s in window["sessions"]}
+    assert {e["payload"]["links"]["part_of"]["id"] for e in flies} <= sessions
+
+
+def test_plan_window_carries_the_history_before_it(store):
+    seed(store)
+    squats(store, [("2026-09-20", "home"), ("2026-09-30", "home"), ("2026-10-10", "home")])
+    write(store, ("effort", None, {"activity_id": "x.barbell_back_squat", "time": {"start": "2026-10-11T08:00:00Z"},
+                                   "metrics": {"reps": {"value": 3}}}), actor=ME)
+    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    assert window["since"] == "2026-09-26"
+    days = sorted(s["payload"]["time"]["start"][:10] for s in window["sessions"])
+    assert days == ["2026-09-30", "2026-10-10", "2026-11-23"]  # the one before since is no longer a last time
+    assert any("links" not in e["payload"] for e in window["efforts"])  # and a set outside a session
+    assert sync_errors("plan_window", window) == []
 
 
 # -- over HTTPS ----------------------------------------------------------------

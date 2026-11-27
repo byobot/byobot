@@ -285,6 +285,10 @@
         "to": {
           "$ref": "common.schema.json#/$defs/date"
         },
+        "since": {
+          "$ref": "common.schema.json#/$defs/date",
+          "description": "The first day of logged history the plan carries: sessions on or after it through `to`, and their efforts."
+        },
         "activities": {
           "type": "array",
           "items": {
@@ -321,14 +325,14 @@
           "items": {
             "$ref": "#/$defs/entry"
           },
-          "description": "Sessions logged against the planned sessions in the window."
+          "description": "Sessions logged against the planned sessions in the window, those from `since` through `to`, and those holding the last two times each activity was done at each location."
         },
         "efforts": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/entry"
           },
-          "description": "Efforts logged against them, and those of the last two times each planned activity was done at each location."
+          "description": "The efforts of those sessions, those logged against the planned sessions, and those outside a session from `since` through `to`."
         },
         "store_id": {
           "$ref": "common.schema.json#/$defs/uuid",

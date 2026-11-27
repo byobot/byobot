@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import date, timedelta
 from typing import Any
 
 from ..util import ValidationFailed
@@ -122,6 +123,7 @@ def accept_samples(store: Store, body: Any) -> dict:
 # -- what a relay reads --------------------------------------------------------
 
 PLAN_SETTINGS = ("equipment", "current_location", "home_zone")
+HISTORY_DAYS = 60
 
 
 def _entry(store: Store, kind: str, rid: str) -> dict | None:
@@ -142,8 +144,9 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
     Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions, the sessions and efforts already logged against them, and the efforts of the last two times
-    each planned activity was done at each location.
+    planned sessions, and what was logged: the sessions against the planned ones, those of the ``HISTORY_DAYS``
+    before ``start`` through ``end``, and those holding the last two times each activity was done at each
+    location, all with their efforts, and efforts logged outside a session in those days.
 
     Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
@@ -168,19 +171,31 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
     plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
                 "(SELECT value FROM json_each(?))) OR (starts_on <= ? AND (ends_on IS NULL OR ends_on >= ?)) "
                 "ORDER BY starts_on, id", json.dumps(planned), end, start)
-    window = json.dumps(planned)
+    since = _since(start)
+    window, recent = json.dumps(planned), json.dumps(_recent_efforts(store))
     sessions = ids("SELECT id FROM sessions WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                   "ORDER BY start_ms, id", window)
+                   "OR (local_date >= ? AND local_date <= ?) "
+                   "OR id IN (SELECT session_id FROM efforts WHERE id IN (SELECT value FROM json_each(?))) "
+                   "ORDER BY start_ms, id", window, since, end, recent)
     efforts = ids("SELECT id FROM efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) "
-                  "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
-                  json.dumps(sessions))
-    efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
-    return {"from": start, "to": end, "activities": activities,
+                  "OR session_id IN (SELECT value FROM json_each(?)) "
+                  "OR (session_id IS NULL AND local_date >= ? AND local_date <= ?) "
+                  "OR id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id",
+                  window, json.dumps(sessions), since, end, recent)
+    return {"from": start, "to": end, "since": since, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
             "sessions": _entries(store, "session", sessions),
             "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
+
+
+def _since(start: str) -> str:
+    """The first day of logged history the plan carries."""
+    try:
+        return (date.fromisoformat(start) - timedelta(days=HISTORY_DAYS)).isoformat()
+    except ValueError:
+        return start
 
 
 def _device_state(store: Store, device_id: str | None) -> dict:
@@ -196,21 +211,18 @@ _ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment
 _JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 
 
-def _recent_efforts(store: Store, planned: list[str], times: int = 2) -> list[str]:
-    """Efforts from the last `times` occasions each planned activity was done, per location."""
+def _recent_efforts(store: Store, times: int = 2) -> list[str]:
+    """Efforts from the last `times` occasions each activity was done, per location."""
     rows = store.conn.execute("""
-        WITH wanted AS (
-          SELECT DISTINCT activity_id FROM planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?))),
-        done AS (
+        WITH done AS (
           SELECT e.id, e.activity_id, e.start_ms, coalesce(e.location_id, s.location_id, '') AS location_id,
                  coalesce(e.session_id, e.local_date) AS occasion
-          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id
-          WHERE e.activity_id IN (SELECT activity_id FROM wanted)),
+          FROM efforts e LEFT JOIN sessions s ON s.id = e.session_id),
         occasions AS (
           SELECT activity_id, location_id, occasion, dense_rank() OVER (
             PARTITION BY activity_id, location_id ORDER BY max(start_ms) DESC, occasion DESC) AS n
           FROM done GROUP BY activity_id, location_id, occasion)
         SELECT d.id FROM done d JOIN occasions o ON o.activity_id = d.activity_id AND o.occasion = d.occasion
           AND o.location_id = d.location_id
-        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (json.dumps(planned), times))
+        WHERE o.n <= ? ORDER BY d.start_ms, d.id""", (times,))
     return [r[0] for r in rows]

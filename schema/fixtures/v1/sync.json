@@ -260,10 +260,11 @@
       "name": "sync/plan-window-device-state",
       "def": "plan_window",
       "valid": true,
-      "description": "The store's id, the hub's clock, what was erased, its kind versions, and the asking phone's latest event held and refused events.",
+      "description": "The first day of history, the store's id, the hub's clock, what was erased, its kind versions, and the asking phone's latest event held and refused events.",
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",

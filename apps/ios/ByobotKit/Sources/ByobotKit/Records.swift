@@ -73,11 +73,14 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var settings: [Setting]
     public var plans: [Plan]
     public var plannedSessions: [PlannedSession]
-    /// Sessions logged against the planned sessions.
+    /// Sessions logged against the planned sessions, those from `since` on, and those holding the last two times
+    /// each activity was done at each location.
     public var sessions: [PerformedSession]
-    /// Efforts logged against them, and the last two times each planned activity was done at each location.
+    /// The efforts of those sessions and of the planned ones, and those outside a session from `since` on.
     public var efforts: [PerformedEffort]
     // Older laptops send none of these.
+    /// The first day of logged history the plan carries.
+    public var since: String?
     /// The laptop's store as of this read; it changes when the laptop is restored from another store's backup.
     public var storeId: String?
     /// The laptop's clock.
@@ -92,7 +95,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
-                sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
+                sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [], since: String? = nil,
                 storeId: String? = nil, hlc: String? = nil, erased: [ErasedRecord]? = nil,
                 kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
         self.from = from
@@ -104,6 +107,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.plannedSessions = plannedSessions
         self.sessions = sessions
         self.efforts = efforts
+        self.since = since
         self.storeId = storeId
         self.hlc = hlc
         self.erased = erased
@@ -113,7 +117,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case from, to, activities, locations, settings, plans, sessions, efforts, hlc, erased, received, rejected
+        case from, to, since, activities, locations, settings, plans, sessions, efforts, hlc, erased, received, rejected
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
         case storeId = "store_id"
