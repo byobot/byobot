@@ -96,7 +96,7 @@ def _version(event: dict) -> str:
 
 class Store:
     def __init__(self, path: Path | str, *, contract: Contract | None = None, device_id: str | None = None,
-                 wall: Callable[[], datetime] = _local_now, new_id: Callable[[], str] = uuid7):
+                 wall: Callable[[], datetime] = _local_now, new_id: Callable[[], str] = uuid7, migrate: bool = True):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.contract = contract or Contract.shipped()
@@ -112,7 +112,7 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=5000")
         # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
         self.conn.execute("PRAGMA secure_delete=ON")
-        self._migrate(device_id)
+        self._migrate(device_id, migrate)
         self._compact()
 
     def close(self) -> None:
@@ -124,7 +124,7 @@ class Store:
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
-    def _migrate(self, device_id: str | None) -> None:
+    def _migrate(self, device_id: str | None, migrate: bool) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
             self.conn.close()
@@ -133,6 +133,11 @@ class Store:
                                   "aside to start a new store, and import your sources again")
             raise ByobotError(f"{self.path} was written by a newer byobot (store version {version}); upgrade byobot")
         reshaped = version != 0 and self._get("shape") != self._shape(self.contract)
+        # A store already at this version and shape opens without the write lock, so a read never waits on a
+        # writer; `migrate=False` (each hub request) leaves the shape to whoever opened it with migration.
+        if version and (not reshaped or not migrate) and device_id in (None, self._get("device_id")):
+            self._repair_clock()
+            return
         with self._tx():
             if reshaped:
                 reducers.drop(self.conn)
@@ -441,8 +446,9 @@ class Store:
     @staticmethod
     def _shape(contract: Contract) -> str:
         """Everything derived tables are computed from besides the logbook: their DDL and rules, the contract
-        and the library. Any change rebuilds them."""
-        return hashlib.sha256(jcs([reducers.SHAPE, contract.fingerprint(), library.fingerprint()]).encode()).hexdigest()
+        and the library, plus the store's own DDL so a new table is made. Any change rebuilds them."""
+        parts = [DDL, reducers.SHAPE, contract.fingerprint(), library.fingerprint()]
+        return hashlib.sha256(jcs(parts).encode()).hexdigest()
 
     def use(self, contract: Contract) -> None:
         """Switch to another contract (an upgrade or a downgrade) and re-derive every record. The new shape is
@@ -614,8 +620,14 @@ class Store:
                 found = device_id
         if found is None:
             return None
-        with self._tx():
-            self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+        self.conn.execute("PRAGMA busy_timeout=0")
+        try:
+            with self._tx():
+                self.conn.execute("UPDATE peers SET last_seen_at = ? WHERE device_id = ?", (stamp(self.wall()), found))
+        except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
+            pass
+        finally:
+            self.conn.execute("PRAGMA busy_timeout=5000")
         return self.peer(found)
 
     def peers(self) -> list[dict]:
@@ -831,6 +843,11 @@ def _canonical(event: dict) -> str:
         return text
     except (TypeError, ValueError, RecursionError):
         return ""
+
+
+def busy(exc: BaseException) -> bool:
+    """Whether a store call failed only because another process held the write lock past the busy timeout."""
+    return isinstance(exc, sqlite3.OperationalError) and str(exc).startswith(("database is locked", "database is busy"))
 
 
 def _statements(ddl: str) -> list[str]:
