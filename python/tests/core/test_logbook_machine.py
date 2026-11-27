@@ -64,9 +64,14 @@ class Logbook(RuleBasedStateMachine):
             assert equal(first, self.world.snapshot(name)), diff(first, self.world.snapshot(name))
             self._no_erased_bytes(name)
 
+    def _resolvable(self, name: str) -> dict:
+        """The conflicts on records this machine names; a newer install's copies keep ids the driver can't map."""
+        conflicts = self.world.expected(name)["conflicts"]
+        return {r: v for r, v in conflicts.items() if tuple(r.split("/", 1)) in EDITABLE}
+
     def _resolve_every_conflict(self, rng: random.Random) -> None:
         """Each conflict left at the end resolved on some replica, so every history ends with resolves."""
-        for record, versions in sorted(self.world.expected(REPLICAS[0])["conflicts"].items()):
+        for record, versions in sorted(self._resolvable(REPLICAS[0]).items()):
             kind, rid = record.split("/", 1)
             choice = rng.randrange(len(versions) + ((kind, rid) in EDITABLE[:5]))
             r = rng.randrange(len(REPLICAS))
@@ -223,10 +228,10 @@ class Logbook(RuleBasedStateMachine):
             self._author(i, {"intent": "edit", "record": [kind, rid], "fields": fields})
         self._exchange(names, names)
 
-    @precondition(lambda self: any(self.world.expected(n)["conflicts"] for n in REPLICAS))
+    @precondition(lambda self: any(self._resolvable(n) for n in REPLICAS))
     @rule(r=replica, pick=st.integers(0, 50), choice=st.integers(0, 3))
     def resolve(self, r, pick, choice):
-        conflicts = self.world.expected(REPLICAS[r])["conflicts"]
+        conflicts = self._resolvable(REPLICAS[r])
         if not conflicts:
             return
         record = sorted(conflicts)[pick % len(conflicts)]
