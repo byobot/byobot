@@ -220,6 +220,6 @@ final class Pinner: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 
     static func fingerprint(_ der: Data) -> String {
-        SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: der).hex
     }
 }

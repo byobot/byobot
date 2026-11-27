@@ -26,7 +26,7 @@ final class CloudRelayTests: XCTestCase {
                     .object(["seq": .number(Double($0.0)), "line": .number(Double($0.1)), "reason": .string($0.2)])
                 })
             }
-            let messages: [JSONValue] = [.object(["plan": try CloudRelay.encode(window)]),
+            let messages: [JSONValue] = [.object(["plan": try Payloads.encode(window)]),
                                          .object(["receipts": .object([relayID: .object(mine)])])]
             let data = try Cloud.writeSegment(kind: "plan", storeID: store, deviceID: id, epoch: 1, seq: seq,
                                               messages: messages, key: epochKey, signer: identity)
@@ -92,7 +92,7 @@ final class CloudRelayTests: XCTestCase {
     }
 
     func sourceIds(_ messages: [[String: JSONValue]]?, _ field: String) throws -> [String] {
-        let batches = try (messages ?? []).compactMap { $0["samples"] }.map { try CloudRelay.decode(SampleBatch.self, $0) }
+        let batches = try (messages ?? []).compactMap { $0["samples"] }.map { try Payloads.decode(SampleBatch.self, $0) }
         return batches.flatMap { field == "samples" ? $0.samples.map(\.sourceId) : $0.deleted.map(\.sourceId) }
     }
 
@@ -177,7 +177,7 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(report.written, 1)
         guard case .object(let body)? = try await segment(k, folder, 1)?.first?["events"],
               case .array(let events)? = body["events"] else { return XCTFail("no events message") }
-        XCTAssertEqual(try events.map { try CloudRelay.decode(Event.self, $0).id }, [event(1).id, event(2).id])
+        XCTAssertEqual(try events.map { try Payloads.decode(Event.self, $0).id }, [event(1).id, event(2).id])
         XCTAssertNotNil(body["kinds"])
         report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 0)  // still unread, not sent again

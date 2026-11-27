@@ -56,7 +56,7 @@ public struct PairingLink: Equatable, Sendable {
         var b64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b64.count % 4 != 0 { b64 += "=" }
         guard let data = Data(base64Encoded: b64) else { return nil }
-        return data.map { String(format: "%02x", $0) }.joined()
+        return data.hex
     }
 
     /// The link with only its hosts on this network, or nil when it has none. A link can come from

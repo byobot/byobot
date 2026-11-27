@@ -142,19 +142,22 @@ extension Record where Payload == PlannedSessionPayload {
 enum Payloads {
     static func json<T: Encodable>(_ value: T) -> JSONValue {
         // Every payload type here encodes; a failure would be a bug in the generated types.
-        (try? JSONValue.parse(JSONEncoder().encode(value))) ?? .object([:])
+        (try? encode(value)) ?? .object([:])
     }
 
-    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) -> T? {
-        guard let data = try? JSONEncoder().encode(value) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+    static func encode<T: Encodable>(_ value: T) throws -> JSONValue {
+        try JSONValue.parse(JSONEncoder().encode(value))
+    }
+
+    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
+        try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
     }
 }
 
 extension Event {
     /// The payload as a kind's type, when it is one.
     public func decoded<T: Decodable>(_ type: T.Type) -> T? {
-        op == .put ? Payloads.decode(T.self, payload) : nil
+        op == .put ? (try? Payloads.decode(T.self, payload)) : nil
     }
 }
 
@@ -227,8 +230,6 @@ public enum DerivedId {
         var bytes = Array(Insecure.SHA1.hash(data: Data(ns + name)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
-        let h = bytes.map { String(format: "%02x", $0) }.joined()
-        return [h.prefix(8), h.dropFirst(8).prefix(4), h.dropFirst(12).prefix(4), h.dropFirst(16).prefix(4),
-                h.dropFirst(20)].joined(separator: "-")
+        return bytes.uuid
     }
 }

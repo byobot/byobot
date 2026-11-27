@@ -101,14 +101,14 @@ public enum Google {
         let answer = try await token(http, [("client_id", signIn.clientID), ("code", code),
                                             ("code_verifier", signIn.verifier), ("grant_type", "authorization_code"),
                                             ("redirect_uri", signIn.redirect)])
-        guard let refresh = text(answer, "refresh_token"), let access = text(answer, "access_token") else {
+        guard let refresh = Cloud.text(answer, "refresh_token"), let access = Cloud.text(answer, "access_token") else {
             throw DriveError.upstream("Google gave no refresh token. Try again.")
         }
         if answer["refresh_token_expires_in"] != nil {
             throw DriveError.upstream("Your Google Cloud project is in Testing, which signs byobot out every seven "
                                       + "days. Publish it so it's In production, then sign in again.")
         }
-        let granted = Set((text(answer, "scope") ?? scope).split(separator: " ").map(String.init))
+        let granted = Set((Cloud.text(answer, "scope") ?? scope).split(separator: " ").map(String.init))
         guard granted == [scope] else {
             throw DriveError.upstream("Google granted more than byobot asks for. Give the consent screen only the "
                                       + "drive.appdata scope, then sign in again.")
@@ -132,7 +132,7 @@ public enum Google {
         var body: [String: JSONValue] = [:]
         if case .object(let o)? = try? JSONValue.parse(data) { body = o }
         guard response.statusCode == 200 else {
-            if text(body, "error") == "invalid_grant" { throw DriveError.notConnected(signedOut) }
+            if Cloud.text(body, "error") == "invalid_grant" { throw DriveError.notConnected(signedOut) }
             throw DriveError.upstream("Google refused the sign-in (\(response.statusCode)).")
         }
         return body
@@ -154,11 +154,6 @@ public enum Google {
     static func base64url(_ data: Data) -> String {
         data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-    }
-
-    static func text(_ object: [String: JSONValue], _ key: String) -> String? {
-        if case .string(let s)? = object[key] { return s }
-        return nil
     }
 
     static func seconds(_ value: JSONValue?) -> TimeInterval {
@@ -196,11 +191,11 @@ public actor Drive {
     func refresh() async throws {
         let answer = try await Google.token(http, [("client_id", tokens.clientID), ("grant_type", "refresh_token"),
                                                    ("refresh_token", tokens.refreshToken)])
-        guard let access = Google.text(answer, "access_token") else {
+        guard let access = Cloud.text(answer, "access_token") else {
             throw DriveError.upstream("Google gave no access token.")
         }
         tokens.accessToken = access
-        tokens.refreshToken = Google.text(answer, "refresh_token") ?? tokens.refreshToken
+        tokens.refreshToken = Cloud.text(answer, "refresh_token") ?? tokens.refreshToken
         tokens.expiresAt = now().addingTimeInterval(Google.seconds(answer["expires_in"]))
         await saved(tokens)
     }
@@ -257,9 +252,9 @@ public actor Drive {
               case .object(let error)? = body["error"] else { return ("", "") }
         var reason = ""
         if case .array(let errors)? = error["errors"], case .object(let first)? = errors.first {
-            reason = Google.text(first, "reason") ?? ""
+            reason = Cloud.text(first, "reason") ?? ""
         }
-        return (String((Google.text(error, "message") ?? "").prefix(200)), reason)
+        return (String((Cloud.text(error, "message") ?? "").prefix(200)), reason)
     }
 }
 
@@ -304,14 +299,14 @@ public actor DriveFolder: CloudFolder {
 
     func path(_ file: [String: JSONValue]) -> String? {
         guard file["trashed"] != .bool(true), case .object(let props)? = file["appProperties"],
-              props[Self.store] == .string(storeID), let name = Google.text(file, "name"),
+              props[Self.store] == .string(storeID), let name = Cloud.text(file, "name"),
               name.hasPrefix(storeID + "/") else { return nil }
         return try? Self.safe(String(name.dropFirst(storeID.count + 1)))  // a name byobot never writes is left alone
     }
 
     func add(_ file: [String: JSONValue]) {
-        guard let path = path(file), let id = Google.text(file, "id") else { return }
-        index?[path, default: []].append((id, Google.text(file, "sha256Checksum") ?? "id:\(id)"))
+        guard let path = path(file), let id = Cloud.text(file, "id") else { return }
+        index?[path, default: []].append((id, Cloud.text(file, "sha256Checksum") ?? "id:\(id)"))
     }
 
     func dropID(_ id: String) {
@@ -323,7 +318,7 @@ public actor DriveFolder: CloudFolder {
     }
 
     func load() async throws {
-        token = Google.text(try await drive.json("GET", "/changes/startPageToken"), "startPageToken")
+        token = Cloud.text(try await drive.json("GET", "/changes/startPageToken"), "startPageToken")
         index = [:]
         loadedAt = Date()
         var query = [("spaces", "appDataFolder"), ("pageSize", "1000"), ("orderBy", "createdTime"),
@@ -334,7 +329,7 @@ public actor DriveFolder: CloudFolder {
             if case .array(let files)? = page["files"] {
                 for case .object(let f) in files { add(f) }
             }
-            guard let next = Google.text(page, "nextPageToken") else { return }
+            guard let next = Cloud.text(page, "nextPageToken") else { return }
             query.removeAll { $0.0 == "pageToken" }
             query.append(("pageToken", next))
         }
@@ -353,7 +348,7 @@ public actor DriveFolder: CloudFolder {
                 ("fields", "nextPageToken,newStartPageToken,changes(fileId,removed,file(\(Self.fields)))")])
             if case .array(let changes)? = page["changes"] {
                 for case .object(let c) in changes {
-                    guard let id = Google.text(c, "fileId") else { continue }
+                    guard let id = Cloud.text(c, "fileId") else { continue }
                     var ours = (index ?? [:]).values.contains { $0.contains { $0.id == id } }
                     dropID(id)
                     if c["removed"] != .bool(true), case .object(let file)? = c["file"] {
@@ -363,11 +358,11 @@ public actor DriveFolder: CloudFolder {
                     seen = seen || ours
                 }
             }
-            if let fresh = Google.text(page, "newStartPageToken") {
+            if let fresh = Cloud.text(page, "newStartPageToken") {
                 token = fresh
                 return seen
             }
-            guard let next = Google.text(page, "nextPageToken") else { return seen }
+            guard let next = Cloud.text(page, "nextPageToken") else { return seen }
             pageToken = next
         }
     }
@@ -428,12 +423,12 @@ public actor DriveFolder: CloudFolder {
                     continue
                 }
                 add(found)
-                if let other = Google.text(found, "sha256Checksum"), other != sum { throw CloudExists(path) }
+                if let other = Cloud.text(found, "sha256Checksum"), other != sum { throw CloudExists(path) }
                 return
             }
             add(made)
             try keep(path, nil)
-            if let other = Google.text(made, "sha256Checksum"), other != sum {
+            if let other = Cloud.text(made, "sha256Checksum"), other != sum {
                 try await delete(path)
                 throw DriveError.upstream("\(path) reached Google Drive damaged and was deleted. It goes again next sync.")
             }
@@ -477,6 +472,6 @@ public actor DriveFolder: CloudFolder {
     }
 
     static func checksum(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: data).hex
     }
 }

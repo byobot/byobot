@@ -340,11 +340,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                   let found = try? Cloud.readSegment(data, path: path, storeID: storeID, key: key,
                                                      signPublic: keeperSign),
                   let value = found.messages.first(where: { $0["plan"] != nil })?["plan"],
-                  let window = try? Self.decode(PlanWindow.self, value) else { continue }
+                  let window = try? Payloads.decode(PlanWindow.self, value) else { continue }
             plan = window
             planPath = path
             receipts = found.messages.first(where: { $0["receipts"] != nil })?["receipts"]
-                .flatMap { try? Self.decode([String: Receipt].self, $0) } ?? [:]
+                .flatMap { try? Payloads.decode([String: Receipt].self, $0) } ?? [:]
             return
         }
     }
@@ -388,7 +388,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             let batch = Array(todo.prefix(Self.maxBatch))
             var messages: [JSONValue] = []
             if !batch.isEmpty {
-                messages.append(.object(["events": try Self.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
+                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
             }
             var room = Self.maxBatch - batch.count
             var batches: [SampleBatch] = []
@@ -399,7 +399,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             var lines: [Int: SampleBatch] = [:]
             for b in batches {
                 lines[messages.count] = b
-                messages.append(.object(["samples": try Self.encode(b)]))
+                messages.append(.object(["samples": try Payloads.encode(b)]))
             }
             if messages.isEmpty && !force { break }
             seq += 1
@@ -444,13 +444,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         return devices.contains { if case .object(let d) = $0 { return d["id"] == .string(deviceID) } else { return false } }
     }
 
-    static func encode<T: Encodable>(_ value: T) throws -> JSONValue {
-        try JSONValue.parse(try JSONEncoder().encode(value))
-    }
-
-    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(type, from: try JSONEncoder().encode(value))
-    }
 }
 
 /// A folder in memory, for tests.
@@ -460,7 +453,7 @@ public actor MemoryCloudFolder: CloudFolder {
     public init() {}
 
     public func list() -> [String: String] {
-        files.mapValues { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        files.mapValues { SHA256.hash(data: $0).hex }
     }
 
     public func read(_ path: String) -> Data? { files[path] }

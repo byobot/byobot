@@ -59,6 +59,18 @@ func encodeNumber(_ n: Double, into c: inout SingleValueEncodingContainer) throw
 }
 
 /// A number, text or true/false: a measure's value, or a sample's.
+extension Sequence where Element == UInt8 {
+    /// Lowercase hex, two digits a byte.
+    var hex: String { map { String(format: "%02x", $0) }.joined() }
+
+    /// Sixteen bytes written as a UUID.
+    var uuid: String {
+        let h = hex
+        return [h.prefix(8), h.dropFirst(8).prefix(4), h.dropFirst(12).prefix(4), h.dropFirst(16).prefix(4),
+                h.dropFirst(20)].joined(separator: "-")
+    }
+}
+
 public enum Scalar: Codable, Equatable, Hashable, Sendable {
     case number(Double)
     case string(String)
