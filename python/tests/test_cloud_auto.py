@@ -6,11 +6,11 @@ import pytest
 from byobot import commands
 from byobot.cloud.drive import Drive, DriveFolder, UpstreamError
 from byobot.cloud.lock import held
-from byobot.cloud.relay import Relay
 from byobot.commands import Context, run
 from byobot.serve import CloudPoller
 from byobot.util import ValidationFailed
 
+from cloud_doubles import Relay
 from test_cloud_commands import CLI, cloud, fake  # noqa: F401 - fixtures
 from test_cloud_keeper import PHONE, event
 
@@ -173,7 +173,7 @@ def test_cloud_off_can_delete_the_folder(phone, fake):
 
 
 def test_a_read_during_recover_finds_the_keeper_busy(store, tmp_path, monkeypatch):
-    from byobot.cloud.folder import MemoryFolder
+    from cloud_doubles import MemoryFolder
     from byobot.cloud.keeper import Keeper
     from byobot.core.store import Store
     from test_cloud_keeper import Clock, joined

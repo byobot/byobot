@@ -11,11 +11,11 @@ its key, and deletes its key files, checkpoint and plan as "leftovers" before wr
 import pytest
 
 from _drive_helpers import PHONES, Clock, Flaky, joined
+from cloud_doubles import MemoryFolder
+from fake_drive import Killed
 from byobot.cloud import files
-from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.util import ByobotError
-from fake_drive import Killed
 
 
 def test_a_phone_still_moves_after_a_failed_compact_is_run_again(store, monkeypatch):
@@ -82,7 +82,7 @@ def test_a_removed_phone_cant_read_what_the_keeper_writes_next(store, monkeypatc
 def test_the_same_after_drive_loses_the_epoch_file_upload_s_answer(store, tmp_path):
     from byobot.cloud import drive as drive_module
     from byobot.cloud.drive import UpstreamError
-    from byobot.cloud.relay import Relay
+    from cloud_doubles import Relay
     from fake_drive import FakeDrive
     from test_cloud_drive import folder_on
 

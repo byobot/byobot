@@ -7,13 +7,14 @@ import pytest
 
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError
-from byobot.cloud.folder import Exists, LocalFolder, MemoryFolder
+from byobot.cloud.folder import Exists
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay, parse_join
 from byobot.link import pairing_link
 from byobot.core import commands, hlc
 from byobot.core.store import Store
 from byobot.util import ByobotError, uuid7
+
+from cloud_doubles import LocalFolder, MemoryFolder, Relay, parse_join
 
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
 OTHER = "0193a0b0-0000-7000-8000-00000000ab02"

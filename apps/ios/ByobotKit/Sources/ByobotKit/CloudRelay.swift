@@ -1,5 +1,5 @@
 // The phone as a relay in cloud protocol 1: it sends what it logged through the cloud folder and reads the keeper's
-// plan. It follows python/src/byobot/cloud/relay.py.
+// plan. It follows python/tests/cloud_doubles.py.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 

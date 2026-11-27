@@ -12,10 +12,10 @@ from byobot import commands, credentials
 from byobot.cloud import drive
 from byobot.cloud import keeper as keeper_module
 from byobot.cloud.drive import Drive, DriveFolder
-from byobot.cloud.relay import Relay
 from byobot.commands import Context, run
 from byobot.util import ByobotError
 
+from cloud_doubles import Relay
 from fake_drive import FakeDrive
 from test_cloud_drive import signed_in
 from test_cloud_keeper import PHONE, event

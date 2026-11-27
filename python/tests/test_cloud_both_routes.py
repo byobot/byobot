@@ -6,18 +6,18 @@ import threading
 import pytest
 
 from byobot import serve
-from byobot.cloud.folder import LocalFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
 from byobot.core import hlc, relay as rules
 from byobot.core.store import Store
 from byobot.util import uuid7
 
+from cloud_doubles import LocalFolder, Relay
 from test_cloud_keeper import PHONE, Clock
 from test_serve import Client, _pair
 
 ME = {"kind": "human", "id": "me"}
 START = 1795400000000
+BODY_MASS = "HKQuantityTypeIdentifierBodyMass"
 
 
 class Phone:
@@ -60,13 +60,13 @@ class Phone:
                 "start": f"{date}T07:30:00-05:00", "end": f"{date}T08:20:00-05:00"}}, prev=[session["id"]])
             out.append(("events", [session, *sets]))
             out.append(("events", [*later, finished]))
-            weight = {"source": "apple_health", "source_id": f"W{day}", "type": "HKQuantityTypeIdentifierBodyMass",
+            weight = {"source": "apple_health", "source_id": f"W{day}", "type": BODY_MASS,
                       "start": f"{date}T06:30:00-05:00", "end": f"{date}T06:30:00-05:00", "value": 80 + day / 10, "unit": "kg"}
             weights.append(weight)
             out.append(("samples", {"samples": [weight]}))
             if day in (5, 6):  # an older weigh-in, then one deleted right after it was logged
                 gone = "W3" if day == 5 else "W6"
-                out.append(("samples", {"deleted": [{"source": "apple_health", "source_id": gone}]}))
+                out.append(("samples", {"deleted": [{"source": "apple_health", "source_id": gone, "type": BODY_MASS}]}))
         return out
 
 
@@ -104,8 +104,7 @@ def hub(byobot_home):
 
 
 class Routes:
-    """The phone with both routes. A deletion of a sample the keeper hasn't read yet goes by the cloud relay, which
-    drops a sample not yet sent; anything else may go either way."""
+    """The phone with both routes: anything may go either way."""
 
     def __init__(self, hub, store, tmp_path):
         self.hub, self.store = hub, store
@@ -116,8 +115,6 @@ class Routes:
         self.relay.sync()
 
     def by_hub(self, what, body):
-        if what == "samples" and self.relay.unread() & {d["source_id"] for d in body.get("deleted", [])}:
-            return self.by_cloud(what, body)
         status, answer = self.hub.call("POST", f"/v1/{what}", {"events": body} if what == "events" else body)
         assert status == 200, answer
 
@@ -139,12 +136,12 @@ class Routes:
 
 
 def weighed(source_id="W1"):
-    return {"source": "apple_health", "source_id": source_id, "type": "HKQuantityTypeIdentifierBodyMass",
+    return {"source": "apple_health", "source_id": source_id, "type": BODY_MASS,
             "start": "2026-11-23T06:30:00-05:00", "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}
 
 
 def deletion(source_id="W1"):
-    return {"deleted": [{"source": "apple_health", "source_id": source_id}]}
+    return {"deleted": [{"source": "apple_health", "source_id": source_id, "type": BODY_MASS}]}
 
 
 def samples(store):
@@ -173,12 +170,11 @@ def test_a_week_through_both_routes_lands_as_through_the_hub(hub, store, tmp_pat
     assert held(store) == wanted
 
 
-def test_a_deletion_of_a_sample_in_flight_goes_at_once(hub, store, tmp_path):
+def test_a_deletion_by_the_hub_of_a_sample_still_in_the_folder_holds(hub, store, tmp_path):
     phone = Routes(hub, store, tmp_path)
     phone.by_cloud("samples", {"samples": [weighed()]})
     phone.relay.sync()
     phone.by_hub("samples", deletion())
-    assert phone.relay.sync()["written"] == 1
     phone.settle()
     assert samples(store) == [] and store.rows("SELECT code FROM observations") == []
 

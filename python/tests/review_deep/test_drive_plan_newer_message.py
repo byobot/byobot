@@ -3,7 +3,7 @@ doesn't know. Once a newer Mac adds any message to the plan, an older phone take
 never learns its sets landed, keeps every segment in `sent`, and sends its samples again each epoch."""
 
 from _drive_helpers import Clock, effort, joined
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 
 

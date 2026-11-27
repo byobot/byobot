@@ -7,13 +7,12 @@ import pytest
 from byobot.cloud import keeper as keeper_module
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError, Identity, recovery_code
-from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 from byobot.util import ByobotError
 
+from cloud_doubles import MemoryFolder, Relay
 from test_cloud_keeper import ME, OTHER, PHONE, Clock, event, joined
 
 SECRET = "zq-erase-me-7f3a"

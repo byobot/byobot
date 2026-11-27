@@ -5,7 +5,7 @@ right, background sync stops without a word for as long as the clock had been ah
 import time
 
 from _drive_helpers import Clock
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper, due, tried
 from byobot.commands import autosync
 

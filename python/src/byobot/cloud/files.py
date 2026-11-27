@@ -29,6 +29,10 @@ def epoch_number(path: str) -> int | None:
     return int(found[1]) if found else None
 
 
+def is_epoch_file(path: str) -> bool:
+    return epoch_number(path) is not None
+
+
 def epoch_dir(epoch: int) -> str:
     """The digits that name an epoch in paths."""
     return f"{epoch:010d}"
