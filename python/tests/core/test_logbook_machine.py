@@ -205,15 +205,16 @@ class Logbook(RuleBasedStateMachine):
         self.world.ingest(REPLICAS[r], "whoop", {"workout": [workout]})
 
     @rule(r=replica, hid=st.sampled_from(("h1", "h2")), distance=st.integers(1, 9), at=st.integers(0, 6),
-          delete=st.booleans())
-    def import_health(self, r, hid, distance, at, delete):
+          delete=st.booleans(), stamped=st.booleans())
+    def import_health(self, r, hid, distance, at, delete, stamped):
         self.world.tick(60)
         if delete:
             batch = {"samples": [], "deleted": [("HKWorkoutTypeIdentifier", hid)]}
         else:
             minute = int(hid[1]) * 2
             sample = health_workout(hid, day(at, 10, minute - 1), day(at, 10, 57 + minute), distance * 1000.0)
-            sample["raw"]["modified_at"] = day(at, 12, distance)  # a changed sample says when; see the test below
+            if stamped:  # a changed sample says when; one that doesn't is ordered by its id
+                sample["raw"]["modified_at"] = day(at, 12, distance)
             batch = [sample]
         self.world.ingest(REPLICAS[r], "apple-health", batch)
 
