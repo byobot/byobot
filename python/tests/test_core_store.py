@@ -273,6 +273,15 @@ def test_an_estimate_keeps_its_bounds_and_attachments(pair):
     assert a.get("observation", o["record"]["id"])["payload"]["attachments"] == photo
 
 
+def test_an_observation_may_be_a_range_alone(pair):
+    a, _ = pair
+    commands.log(a, ME, [{"kind": "observation", "payload": {
+        "code": "heart_rate", "min": 48, "max": 71, "unit": "/min", "modality": "sensed",
+        "time": {"start": "2026-03-02T00:30:00-05:00", "end": "2026-03-02T06:40:00-05:00"}}}])
+    row = a.rows("SELECT value, min, max, std_min, std_max FROM observations")
+    assert row == [{"value": None, "min": 48, "max": 71, "std_min": 48, "std_max": 71}]
+
+
 def test_local_dates_and_offsets_come_from_the_record(pair):
     a, _ = pair
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {
