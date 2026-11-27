@@ -8,7 +8,6 @@ import json
 import socket
 import ssl
 import threading
-import warnings
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -43,9 +42,6 @@ class Client:
         """(status, body) or raises ConnectionError when the server closes without answering."""
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with warnings.catch_warnings():  # deprecated, but it's the form code scanning recognises
-            warnings.simplefilter("ignore", DeprecationWarning)
-            ctx.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=timeout)
