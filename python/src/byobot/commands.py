@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from byobot import __version__, credentials, library, whoop
+from byobot import __version__, credentials, library, swaps, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
@@ -718,6 +718,88 @@ def _workout(store: Store, row: dict) -> None:
         if m["text"] is not None:
             value["value"] = m["text"]
         row["metrics"][m["code"]] = {**value, "from": {"kind": m["from_kind"], "id": m["from_id"]}}
+
+
+def _activities(store: Store) -> list[dict]:
+    rows = store.rows("SELECT id, name, tags, targets, load_type, equipment FROM activities ORDER BY id")
+    for row in rows:
+        for col in ("tags", "targets", "equipment"):
+            row[col] = json.loads(row[col]) if isinstance(row[col], str) else row[col]
+    return rows
+
+
+def _equipment(store: Store, location: str | None) -> list[str] | None:
+    """The equipment you have at a location, else your default; None means everything counts."""
+    if location is not None:
+        found = store.get("location", location)
+        if found is None:
+            raise NotFound(f"no location {location}")
+        if isinstance(found["payload"].get("equipment"), list):
+            return found["payload"]["equipment"]
+    rows = store.rows("SELECT value FROM settings WHERE id = 'equipment'")
+    value = json.loads(rows[0]["value"]) if rows else None
+    return value if isinstance(value, list) else None
+
+
+@command(
+    "swap list",
+    "Swaps for an activity, ranked as the app ranks them: activities that work the same muscles, the ones you have "
+    "the equipment for first.",
+    Param("activity", "string", "The activity to swap out.", required=True, positional=True),
+    Param("location", "string", "Rank by the equipment at this location, else your default (the equipment "
+          "setting). Without either, everything counts."),
+    Param("limit", "integer", "At most this many.", default=8, bounds=(1, 1000)),
+    description="A swap scores 3 for each main muscle it shares, 1 for each muscle one works as main and the other "
+                "as synergist, 0.5 for each shared synergist, less 1.5 for each main muscle the original doesn't "
+                "work and 1 for each it leaves out.",
+)
+def _swap_list(ctx: Context, activity: str, location: str | None = None, limit: int = 8) -> dict:
+    store = ctx.store()
+    library = _activities(store)
+    original = next((a for a in library if a["id"] == activity), None)
+    if original is None:
+        raise NotFound(f"no activity {activity}")
+    have = _equipment(store, location)
+    found = swaps.alternatives(original, library, None if have is None else set(have), limit)
+    items = [{**{k: a["activity"][k] for k in ("id", "name", "targets", "load_type", "equipment")
+                 if a["activity"][k] is not None},
+              "score": a["score"], "missing_equipment": a["missing_equipment"]} for a in found]
+    return {"activity_id": activity, "location_id": location, "equipment": have, "count": len(items),
+            "items": items, **untrusted("items")}
+
+
+@command(
+    "effort history",
+    "The sets you did of an activity, the last times you did it, newest first, each time with where it was.",
+    Param("activity", "string", "The activity.", required=True, positional=True),
+    Param("location", "string", "Where you train now. Sets with a load compare only within one location, so only "
+          "sets there come back; with none there, the latest anywhere, marked elsewhere."),
+    Param("limit", "integer", "At most this many times.", default=3, bounds=(1, 1000)),
+    description="A time is one session's sets, or a set logged without a session. This is the app's last time at "
+                "the gym.",
+)
+def _effort_history(ctx: Context, activity: str, location: str | None = None, limit: int = 3) -> dict:
+    store = ctx.store()
+    sets = store.rows(
+        "SELECT e.id, e.session_id, coalesce(e.location_id, s.location_id) AS location_id, e.performed_at,"
+        " e.local_date, e.start_ms, e.side, e.planned_session_id, e.planned_effort_id FROM efforts e"
+        " LEFT JOIN sessions s ON s.id = e.session_id WHERE e.activity_id = ? ORDER BY e.start_ms, e.id", (activity,))
+    if not sets and not store.rows("SELECT 1 FROM activities WHERE id = ?", (activity,)):
+        raise NotFound(f"no activity {activity}")
+    for row in sets:
+        row["metrics"] = metrics_of(store, "effort", row["id"])
+    elsewhere = False
+    if location is not None and any("load" in r["metrics"] for r in sets):
+        here = [r for r in sets if r["location_id"] == location]
+        sets, elsewhere = (here, False) if here else (sets, bool(sets))
+    times: dict[str, list[dict]] = {}
+    for row in sets:
+        times.setdefault(row["session_id"] or row["id"], []).append(row)
+    latest = sorted(times.values(), key=lambda t: (t[-1]["start_ms"], t[-1]["id"]), reverse=True)[:limit]
+    return {"activity_id": activity, "location_id": location, "elsewhere": elsewhere, "times": [
+        {"date": t[-1]["local_date"], "session_id": t[-1]["session_id"], "location_id": t[-1]["location_id"],
+         "sets": [{k: v for k, v in r.items() if k not in ("session_id", "local_date", "start_ms") and v is not None}
+                  for r in t]} for t in latest]}
 
 
 @command(
