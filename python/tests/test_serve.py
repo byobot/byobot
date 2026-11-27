@@ -1096,7 +1096,7 @@ BASE = "https://example-laptop.example.ts.net"
 def remote_server(byobot_home):
     Store(byobot_home / "byobot.db").close()
     server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     yield server
     server.shutdown()
@@ -1443,21 +1443,10 @@ def test_an_event_body_with_a_huge_integer_gets_an_answer(server):
     assert status == 400, answer
 
 
-@pytest.fixture
-def remote_running(byobot_home):
-    Store(byobot_home / "byobot.db").close()
-    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield server
-    server.shutdown()
-    server.server_close()
-
-
-def test_an_unauthenticated_registration_with_a_huge_integer_gets_an_answer(remote_running):
+def test_an_unauthenticated_registration_with_a_huge_integer_gets_an_answer(remote_server):
     body = (b'{"redirect_uris": ["https://client.example/cb"], "token_endpoint_auth_method": "none", "x": '
             + b"9" * 5000 + b"}")
-    conn = http.client.HTTPConnection("127.0.0.1", remote_running.server_address[1], timeout=10)
+    conn = http.client.HTTPConnection("127.0.0.1", remote_server.server_address[1], timeout=10)
     try:
         conn.request("POST", "/oauth/register", body=body, headers={"Content-Type": "application/json"})
         try:
