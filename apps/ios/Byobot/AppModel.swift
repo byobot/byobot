@@ -173,6 +173,7 @@ final class AppModel: ObservableObject, SyncBook {
         defer { leaving -= 1 }
         await finishSyncing()
         await settle(leaving: server, token: Keychain.token(for: server.deviceId))
+        guard self.server == server else { return }
         Keychain.deleteToken(for: server.deviceId)
         change {
             $0.state.server = nil
