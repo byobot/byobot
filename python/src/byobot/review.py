@@ -193,7 +193,7 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
                                        " UNION SELECT planned_session_id FROM efforts WHERE planned_session_id IS NOT NULL")}
     planned = store.rows("SELECT id, scheduled_on, name, plan_id, location_id, status FROM planned_sessions"
                          " WHERE scheduled_on >= ? ORDER BY scheduled_on, id", [first])
-    past = [p for p in planned if p["scheduled_on"] < last and p["status"] != "skipped"]
+    past = [p for p in planned if p["scheduled_on"] < last and p["status"] not in ("skipped", "cancelled")]
     daily = _daily(store, (start - timedelta(days=1)).isoformat(), after)
     return {
         "from": first,
