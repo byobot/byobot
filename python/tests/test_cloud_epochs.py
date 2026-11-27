@@ -294,3 +294,23 @@ def test_status_says_where_the_folder_stands(store, folder, keeper):
     status = keeper.status()
     assert status["epoch"] == 1 and status["recovery"] and status["cleanup_waits_on"] == []
     assert [d["class"] for d in status["devices"]] == ["keeper", "relay"]
+
+
+def test_a_start_cut_short_whose_key_file_the_folder_doesnt_list_yet_runs_again(store, folder, keeper):
+    relay = joined(keeper, folder)
+    create, listed, hidden = folder.create, folder.list, set()
+
+    def lost(path, data):  # the file lands and the answer doesn't
+        create(path, data)
+        if path.startswith("keys/"):
+            hidden.add(path)
+            raise ByobotError("can't reach Google Drive")
+
+    folder.create = lost
+    folder.list = lambda: {p: c for p, c in listed().items() if p not in hidden}
+    with pytest.raises(ByobotError):
+        keeper.start_epoch()
+    folder.create = create
+    keeper.sync()
+    relay.sync()
+    assert relay.epoch == keeper.epoch == 2 and relay.key == keeper.key(2)

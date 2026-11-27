@@ -1059,6 +1059,29 @@
    }
   },
   {
+   "name": "source_record/deleted-before-held",
+   "outcome": "accepted",
+   "description": "The phone said a sample was deleted before the Mac held it; the empty prev keeps it from ever showing.",
+   "data": {
+    "id": "478dab99-9d45-5333-84fc-032353d705ab",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "retract",
+    "hlc": "1795156100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {}
+   }
+  },
+  {
    "name": "source_record/erase",
    "outcome": "accepted",
    "description": "You erase a source's record; erase is yours, not the connector's.",

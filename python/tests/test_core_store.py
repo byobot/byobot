@@ -50,7 +50,7 @@ def reps(store, rid):
 def test_a_new_store_records_who_it_is(pair):
     a, _ = pair
     assert a.device_id == "phone" and len(a.store_key) == 32
-    assert a.conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert a.conn.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_log_refuses_an_id_in_use(pair):

@@ -912,7 +912,8 @@
             "end": "2026-11-22T07:00:00-05:00",
             "value": 82.4,
             "unit": "kg",
-            "device": "Example scale"
+            "device": "Example scale",
+            "origin_app": "com.example.scale"
           }
         ],
         "deleted": [

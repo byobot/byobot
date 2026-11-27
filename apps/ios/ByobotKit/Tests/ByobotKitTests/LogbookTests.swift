@@ -625,6 +625,7 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertEqual(sample.value, .number(82.4))
         XCTAssertEqual(sample.unit, "kg")
         XCTAssertEqual(sample.device, "Example Scale")
+        XCTAssertEqual(sample.originApp, "com.example.scale", "the app that wrote it, which Health can't tell later")
         XCTAssertNil(sample.raw)
         XCTAssertTrue(matches(sample.start, try Fixtures.pattern("timestamp")))
         XCTAssertNil(HealthMapping.sample(reading(.quantity("HKQuantityTypeIdentifierBodyMass", 0))))
