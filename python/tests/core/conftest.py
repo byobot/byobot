@@ -11,7 +11,9 @@ from .drivers.v1 import V1
 from .harness import World
 from .model import Reference
 
-DRIVERS = {"model": Reference, "v1": V1, "cloud": Cloud}
+_ALL = {"model": Reference, "v1": V1, "cloud": Cloud}
+# BYOBOT_DRIVERS=v1 runs one driver; the default runs all three.
+DRIVERS = {k: v for k, v in _ALL.items() if k in (os.environ.get("BYOBOT_DRIVERS") or ",".join(_ALL)).split(",")}
 
 _quiet = [HealthCheck.function_scoped_fixture, HealthCheck.too_slow, HealthCheck.data_too_large]
 settings.register_profile("ci", max_examples=60, derandomize=True, deadline=None, suppress_health_check=_quiet)
