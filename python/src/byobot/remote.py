@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, mcp, serve, util
 from byobot.cloud.lock import held
-from byobot.commands import Context
+from byobot.commands import REGISTRY, Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
 
@@ -569,7 +569,8 @@ class Handler(serve.Handler):
             server.protocol = session["protocol"]
         server.ctx = Context(actor={}, path=self.server.db)
         try:
-            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            if not _writes(message):
+                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
             reply = server.handle(message)
         finally:
             server.close()
@@ -627,10 +628,11 @@ class Handler(serve.Handler):
         server = mcp.Server()
         server.client = {"name": client["client_name"]}
         server.ctx = Context(actor={}, path=self.server.db)
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:
-            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
-            reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                   "params": {"name": name, "arguments": args}})
+            if not _writes(call):
+                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            reply = server.handle(call)
         finally:
             server.close()
         if "error" in reply:
@@ -640,6 +642,15 @@ class Handler(serve.Handler):
         body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
         failed = isinstance(body, dict) and "error" in body and result["isError"]
         self._send(HTTPStatus.BAD_REQUEST if failed else HTTPStatus.OK, body)
+
+
+def _writes(message: Any) -> bool:
+    """Whether a message calls a tool that writes. Those aren't under the read deadline: imports wait on the network."""
+    if isinstance(message, list):
+        return any(_writes(m) for m in message)
+    params = message.get("params") if isinstance(message, dict) and message.get("method") == "tools/call" else None
+    name = params.get("name") if isinstance(params, dict) else None
+    return any(c.tool == name and not c.read_only for c in REGISTRY.values())
 
 
 def openapi(base: str) -> dict:
