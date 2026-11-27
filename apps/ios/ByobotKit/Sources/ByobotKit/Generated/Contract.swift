@@ -926,7 +926,7 @@ public struct SyncStatus: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.
+/// POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write op put or retract of any kind but source_record. A kind the laptop doesn't know yet is stored, unprojected, for a newer byobot.
 public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     public var events: [Event]
     /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.

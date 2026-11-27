@@ -11,13 +11,12 @@ from typing import Any
 
 from ..util import ValidationFailed
 from . import reducers, sources
-from .commands import AUTHORED
 from .contract import sync_errors
 from .store import Store, busy
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
-KINDS = (*AUTHORED, "overlay")
+CONNECTOR_KINDS = ("source_record",)  # a phone writes any other kind; one this byobot doesn't know is stored for later
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
 EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
@@ -56,7 +55,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
     """Accept a device's events one by one, in order. Retrying an event already accepted is harmless.
 
     ``device_id`` and ``actor`` are the authenticated device's. An event that names another device or actor, or
-    writes a record a person doesn't write, is rejected and not written. So is a put on top of a version newer
+    writes a record only a connector writes, is rejected and not written. A kind this byobot doesn't know is stored,
+    unprojected, for a newer one. So is a put on top of a version newer
     than ``kinds``, the app's kind versions (all 1 when it sends none).
     """
     results = []
@@ -84,7 +84,7 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) 
         reason = "events must be authored by the paired device that pushes them"
     elif event.get("actor") != actor:
         reason = "events must be authored by the paired device's user"
-    elif record.get("kind") not in KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
+    elif record.get("kind") in CONNECTOR_KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
         reason = "a phone writes only what a person writes"
     elif _too_new(store, event, kinds):
         reason = "a newer byobot wrote this record; update the app to change it"
@@ -157,7 +157,7 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     before ``start`` through ``end``, and those holding the last two times each activity was done at each
     location, all with their efforts, and efforts logged outside a session in those days.
 
-    Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
+    Beside them: this store's id and clock, the erased records a phone may hold, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
     """
     with store.snapshot():
@@ -209,7 +209,8 @@ def _since(start: str) -> str:
 
 def _device_state(store: Store, device_id: str | None) -> dict:
     received = store.received(device_id) if device_id else None
-    return {"store_id": store.store_id, "hlc": store.hlc, "erased": [{"kind": k, "id": i} for k, i in store.erased() if k in KINDS],
+    erased = [{"kind": k, "id": i} for k, i in store.erased() if k not in CONNECTOR_KINDS]
+    return {"store_id": store.store_id, "hlc": store.hlc, "erased": erased,
             "kind_versions": {k: v["version"] for k, v in store.contract.registry["kinds"].items()},
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}

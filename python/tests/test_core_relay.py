@@ -25,6 +25,16 @@ def test_a_device_writes_only_what_its_person_writes(store):
     assert [r["status"] for r in relay.accept_events(store, PHONE, sent)] == ["accepted"] + ["rejected"] * 6
 
 
+def test_a_kind_this_byobot_doesnt_know_is_kept_for_a_newer_one(store):
+    note = event(kind="note", payload={"text": "felt strong"})
+    assert relay.accept_events(store, PHONE, [note]) == [{"index": 0, "id": note["id"], "status": "stored_unprojected"}]
+    assert store.event(note["id"]) == note
+    store.accept({**event(kind="note", op="erase"), "record": note["record"], "device_id": "example-laptop",
+                  "actor": {"kind": "human", "id": "me"}, "prev": [note["id"]]})
+    assert {"kind": "note", "id": note["record"]["id"]} in relay.plan_window(store, "2026-11-23", "2026-11-23",
+                                                                              PHONE)["erased"]
+
+
 def test_a_push_is_counted_and_retrying_it_is_harmless(store):
     body = {"events": [event(), event(device_id="another-device")]}
     first = relay.push_events(store, PHONE, body)

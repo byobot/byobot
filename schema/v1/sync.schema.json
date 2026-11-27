@@ -381,7 +381,7 @@
           "items": {
             "$ref": "#/$defs/erased_record"
           },
-          "description": "Records a person writes that were erased. The app drops what it holds of them."
+          "description": "Erased records, but source records. The app drops what it holds of them."
         },
         "kind_versions": {
           "$ref": "#/$defs/kinds",
@@ -407,7 +407,7 @@
       }
     },
     "events_request": {
-      "description": "POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write a kind a person writes (activity, location, setting, plan, planned_session, session, effort, observation, overlay) with op put or retract.",
+      "description": "POST /v1/events. Events authored on the app, oldest first. Each must carry the paired device's id and the actor human/me, and write op put or retract of any kind but source_record. A kind the laptop doesn't know yet is stored, unprojected, for a newer byobot.",
       "type": "object",
       "required": [
         "events"
