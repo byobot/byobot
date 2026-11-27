@@ -8,6 +8,7 @@ the way the model breaks them.
 
 from __future__ import annotations
 
+import copy
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -339,9 +340,13 @@ class V1:
         return rep
 
     def upgrade(self, rep: Replica, version: int) -> None:
-        rep.store.use(Contract.shipped().newer(
+        contract = Contract.shipped().newer(
             version, {k: {"category": "act", "version": v, "description": k} for k, v in NEW_IN.items()
-                      if v <= version}))
+                      if v <= version})
+        contract.schemas = copy.deepcopy(contract.schemas)  # the newer install knows the field it added
+        contract.schemas["records"]["$defs"]["effort"]["properties"]["x_new_field"] = {"type": "integer"}
+        contract.registry["kinds"]["effort"].setdefault("since", {})["x_new_field"] = 2
+        rep.store.use(contract)
 
     def newer(self, events: list[dict], variant: str) -> list[dict]:
         out = []
