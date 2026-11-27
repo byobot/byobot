@@ -84,6 +84,7 @@ class Server:
         self.protocol = LATEST
         self.client = {"name": "mcp-client"}
         self.ctx: Context | None = None
+        self.quiet_errors = False  # over the network an exception's text stays in the log
 
     def _context(self, model: str | None) -> Context:
         actor = {"kind": "agent", "id": str(self.client.get("name") or "mcp-client")[:200]}
@@ -122,7 +123,8 @@ class Server:
             return _error(mid, METHOD_NOT_FOUND, f"method not found: {method}")
         except Exception as exc:  # never let one request kill the server
             print(f"byobot mcp: {method} failed: {exc!r}", file=sys.stderr)
-            return _error(mid, -32603, f"internal error: {exc}")
+            return _error(mid, -32603, "internal error; the byobot log has details" if self.quiet_errors
+                          else f"internal error: {exc}")
 
     def _initialize(self, params: dict) -> dict:
         requested = params.get("protocolVersion")
