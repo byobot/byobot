@@ -7,8 +7,6 @@ hidden folder can't be trashed. ``list`` reads the whole folder once, then only 
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import http.server
 import json
 import os
@@ -22,7 +20,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable
 
-from byobot import __version__, credentials
+from byobot import __version__, credentials, oauth
 from byobot.util import ByobotError, home
 
 from .folder import Exists, _safe, checksum
@@ -43,12 +41,8 @@ RETRY = {429, 500, 502, 503, 504}
 RATE = {"rateLimitExceeded", "userRateLimitExceeded"}
 
 
-class UpstreamError(ByobotError):
-    code = "upstream"
-
-
-class NotConnected(ByobotError):
-    code = "not_connected"
+PROVIDER = oauth.Provider(NAME, "Google Drive", TOKEN_URL, "`byobot cloud setup`", rotates=False)
+UpstreamError, NotConnected = oauth.UpstreamError, oauth.NotConnected
 
 
 class NotFound(Exception):
@@ -66,27 +60,10 @@ def _why(e: urllib.error.HTTPError) -> tuple[str, str]:
     except (ValueError, OSError):
         return "", ""
     err = body.get("error") if isinstance(body, dict) else None
-    if isinstance(err, str):  # the token endpoint
-        return body.get("error_description") or err, err
     if not isinstance(err, dict):
         return "", ""
     reasons = [x.get("reason", "") for x in err.get("errors") or [] if isinstance(x, dict)]
     return str(err.get("message", ""))[:200], reasons[0] if reasons else ""
-
-
-def _post_token(form: dict, opener: Callable) -> dict:
-    req = urllib.request.Request(TOKEN_URL, data=urllib.parse.urlencode(form).encode(), method="POST",
-                                 headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
-    try:
-        with opener(req) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        message, reason = _why(e)
-        if reason == "invalid_grant":
-            raise NotConnected("Google signed byobot out of Drive; run `byobot cloud setup` to sign in again") from None
-        raise UpstreamError(f"Google refused the sign-in ({e.code}{': ' + message if message else ''})") from None
-    except (urllib.error.URLError, OSError) as e:
-        raise UpstreamError(f"can't reach Google: {getattr(e, 'reason', e)}") from None
 
 
 # -- sign-in -------------------------------------------------------------------------------------------------------
@@ -106,38 +83,7 @@ def read_client(path: str | Path) -> dict:
 
 def wait_for_code(server: http.server.HTTPServer, state: str, timeout: float = 300) -> str:
     """Catch Google's redirect to this machine and return the authorization code."""
-    found: dict = {}
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
-            if "state" not in query:
-                self.send_response(404)
-                self.end_headers()
-                return
-            found.update(query)
-            ok = query.get("state") == state and "code" in query
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"byobot is signed in to Google Drive. You can close this tab." if ok
-                             else b"byobot couldn't sign in to Google Drive. Check the terminal.")
-
-        def log_message(self, *args: Any) -> None:
-            pass
-
-    server.RequestHandlerClass = Handler
-    server.timeout = 1
-    deadline = time.monotonic() + timeout
-    while not found and time.monotonic() < deadline:
-        server.handle_request()
-    if not found:
-        raise UpstreamError("no answer from Google's sign-in; run `byobot cloud setup` again")
-    if found.get("state") != state:
-        raise UpstreamError("the sign-in answer didn't match this request; run `byobot cloud setup` again")
-    if "code" not in found:
-        raise UpstreamError(f"Google didn't sign you in: {found.get('error_description') or found.get('error')}")
-    return found["code"]
+    return oauth.wait_for_code(server, state, PROVIDER, timeout=timeout)
 
 
 def sign_in(client: dict, opener: Callable = urllib.request.urlopen,
@@ -145,8 +91,7 @@ def sign_in(client: dict, opener: Callable = urllib.request.urlopen,
             wait: Callable[[http.server.HTTPServer, str], str] = wait_for_code) -> dict:
     """Sign in in the browser with PKCE and a loopback redirect, check the project is fit for daily use, and keep
     the refresh token in the Keychain."""
-    verifier = secrets.token_urlsafe(48)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    verifier, challenge = oauth.pkce()
     state = secrets.token_urlsafe(16)
     with http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler) as server:
         redirect = f"http://127.0.0.1:{server.server_address[1]}"
@@ -155,9 +100,9 @@ def sign_in(client: dict, opener: Callable = urllib.request.urlopen,
             "code_challenge": challenge, "code_challenge_method": "S256", "state": state,
             "access_type": "offline", "prompt": "consent"}))
         code = wait(server, state)
-    answer = _post_token({"client_id": client["client_id"], "client_secret": client["client_secret"], "code": code,
-                          "code_verifier": verifier, "grant_type": "authorization_code", "redirect_uri": redirect},
-                         opener)
+    answer = oauth.post_token(PROVIDER, {
+        "client_id": client["client_id"], "client_secret": client["client_secret"], "code": code,
+        "code_verifier": verifier, "grant_type": "authorization_code", "redirect_uri": redirect}, opener)
     if "refresh_token" not in answer:
         raise UpstreamError("Google gave no refresh token; run `byobot cloud setup` again")
     if "refresh_token_expires_in" in answer:
@@ -167,42 +112,25 @@ def sign_in(client: dict, opener: Callable = urllib.request.urlopen,
     if granted != {SCOPE}:
         raise ByobotError(f"Google granted {' '.join(sorted(granted))}; byobot wants only {SCOPE}. "
                           "Give the consent screen only that scope, then run `byobot cloud setup` again")
-    credentials.save(NAME, _tokens(client, answer, answer["refresh_token"]))
+    with credentials.locked(NAME):
+        credentials.save(NAME, oauth.tokens(client, answer))
     return {"signed_in": True, "scope": SCOPE}
-
-
-def _tokens(client: dict, answer: dict, refresh: str) -> dict:
-    return {**client, "refresh_token": refresh, "access_token": answer["access_token"],
-            "expires_at": time.time() + answer.get("expires_in", 3600)}
 
 
 # -- the API -------------------------------------------------------------------------------------------------------
 
 
-class Drive:
+class Drive(oauth.Session):
     """Drive API v3 calls with the saved sign-in: refreshes the access token, and backs off and retries when Drive
     is busy or the network drops."""
 
+    provider = PROVIDER
+
     def __init__(self, opener: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
                  stored: dict | None = None, tries: int = TRIES, timeout: float = TIMEOUT):
-        self.opener = opener or (lambda req: urllib.request.urlopen(req, timeout=timeout))
+        super().__init__(opener or (lambda req: urllib.request.urlopen(req, timeout=timeout)), stored)
         self.sleep = sleep
         self.tries = tries
-        self.stored = stored or credentials.load(NAME)
-        if self.stored is None:
-            raise NotConnected("byobot isn't signed in to Google Drive; run `byobot cloud setup` in a terminal")
-
-    def _refresh(self) -> None:
-        latest = credentials.load(NAME)
-        if latest and (latest.get("refresh_token"), latest.get("client_id")) != (
-                self.stored.get("refresh_token"), self.stored.get("client_id")):
-            self.stored = latest  # `cloud setup` signed in again meanwhile: never write the old sign-in back
-            raise UpstreamError("the Google sign-in changed; syncing again with the new one")
-        s = self.stored
-        answer = _post_token({"grant_type": "refresh_token", "refresh_token": s["refresh_token"],
-                              "client_id": s["client_id"], "client_secret": s["client_secret"]}, self.opener)
-        self.stored = _tokens(s, answer, answer.get("refresh_token", s["refresh_token"]))
-        credentials.save(NAME, self.stored)
 
     def call(self, method: str, url: str, params: dict | None = None, data: bytes | None = None,
              headers: dict | None = None) -> bytes:
@@ -211,8 +139,7 @@ class Drive:
             url += "?" + urllib.parse.urlencode(params)
         refreshed = False
         for attempt in range(self.tries):
-            if self.stored["expires_at"] - 60 < time.time():
-                self._refresh()
+            self._fresh()
             req = urllib.request.Request(url, data=data, method=method, headers={
                 **HEADERS, **(headers or {}), "Authorization": f"Bearer {self.stored['access_token']}"})
             try:

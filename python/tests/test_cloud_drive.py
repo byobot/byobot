@@ -6,6 +6,7 @@ from collections import Counter
 
 import pytest
 
+from byobot import oauth
 from byobot.cloud import drive as drive_module
 from byobot.cloud.drive import Drive, DriveFolder, NotConnected, UpstreamError
 from byobot.cloud.folder import Exists
@@ -110,12 +111,12 @@ def test_an_expired_token_is_refreshed_and_saved(fake, tmp_path):
 
 
 def test_a_revoked_sign_in_says_to_sign_in_again(fake, tmp_path, monkeypatch):
-    def refused(form, opener):
+    def refused(provider, form, opener):
         raise NotConnected("Google signed byobot out of Drive; run `byobot cloud setup` to sign in again")
 
     folder = folder_on(fake, tmp_path)
     folder.drive.stored["expires_at"] = 0
-    monkeypatch.setattr(drive_module, "_post_token", refused)
+    monkeypatch.setattr(oauth, "post_token", refused)
     with pytest.raises(NotConnected, match="cloud setup"):
         folder.list()
     with pytest.raises(NotConnected):
