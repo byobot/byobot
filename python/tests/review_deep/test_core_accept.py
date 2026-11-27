@@ -27,7 +27,10 @@ def _bad(kind, store, logged, imported):
     if kind == "deep_nesting":  # canonical JSON recurses in Python
         e = copy.deepcopy(logged)
         e["id"] = "019c0000-0000-7000-8000-0000000000a2"
-        e["payload"]["metrics"]["x.deep"] = {"value": 1, "unit": json.loads("[" * 1500 + "]" * 1500)}
+        deep: list = []
+        for _ in range(1500):
+            deep = [deep]
+        e["payload"]["metrics"]["x.deep"] = {"value": 1, "unit": deep}
         return e
     raise AssertionError(kind)
 
