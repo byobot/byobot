@@ -14,7 +14,7 @@ from _soak_helpers import V1, ModelReplica, Refused, World, diff, effort, equal 
 from core.driver import Unsupported  # noqa: E402
 
 H = "human:me"
-ROW = {"intent": "define_activity", "record": {"id": "row", "name": "Row"}}
+ROW = {"intent": "define_activity", "record": {"id": "x.row", "name": "Row"}}
 ERASE = {"intent": "erase", "record": ["effort", "e1"]}
 
 

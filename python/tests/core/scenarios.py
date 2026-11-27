@@ -5,7 +5,7 @@ from __future__ import annotations
 from .harness import World
 
 
-def effort(rid: str = "e1", reps: int = 5, at: str = "2026-03-02T09:00:00.000Z", activity: str = "row") -> dict:
+def effort(rid: str = "e1", reps: int = 5, at: str = "2026-03-02T09:00:00.000Z", activity: str = "x.row") -> dict:
     return {"intent": "log_effort", "record": {"id": rid, "activity_id": activity, "performed_at": at,
                                                "metrics": {"reps": {"value": reps}}}}
 

@@ -586,6 +586,15 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertNil(Timestamp.zone(TimeZone(secondsFromGMT: 3600)!), "an offset is not a zone")
     }
 
+    func testATypedActivityIsOneYouHaveOrYoursUnderX() {
+        let known = [Activity(id: "barbell_back_squat", name: "Barbell Back Squat"), Activity(id: "x.cable_fly", name: "Cable Fly")]
+        XCTAssertEqual(ActivityId.make("Barbell back squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("barbell_back_squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("cable fly", known: known), "x.cable_fly")
+        XCTAssertEqual(ActivityId.make("Pull Up", known: known), "x.pull_up")
+        XCTAssertEqual(ActivityId.make("  ", known: known), "")
+    }
+
     func testContractDatesAreGregorianWhateverCalendarThePhoneShows() throws {
         XCTAssertEqual(Calendar.contract.identifier, .gregorian)
         XCTAssertEqual(Calendar.contract.timeZone, .current)

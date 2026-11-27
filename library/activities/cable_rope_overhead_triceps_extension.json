@@ -1,19 +1,19 @@
 {
-  "id": "incline_dumbbell_fly",
-  "name": "Incline Dumbbell Fly",
+  "id": "cable_rope_overhead_triceps_extension",
+  "name": "Cable Overhead Triceps Extension (With Rope)",
   "equipment": [
-    "dumbbell"
+    "cable"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {
     "stretch": 3,
-    "middle": 2,
-    "contract": 1
+    "middle": 3,
+    "contract": 3
   },
   "targets": {
     "main": [
-      "pecs"
+      "triceps"
     ],
     "synergists": []
   }

@@ -448,7 +448,7 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
     Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
     read_only=False,
-    description="One with the id of an activity that ships with byobot replaces it for you.",
+    description="Your own ids start with x., as in x.cable_fly; one with a library id replaces that activity for you.",
 )
 def _import_activities(ctx: Context, activities: Any, existing: str = "keep") -> dict:
     items = activities.get("activities") if isinstance(activities, dict) else activities
@@ -460,6 +460,7 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
         errors = store.contract.payload_errors("activity", payload, rid if isinstance(rid, str) else None)
         if not isinstance(rid, str) or errors:
             raise ValidationFailed(f"activity {i} is not valid", details=errors or ["it needs an id"])
+        core.check_activity_id(rid)
     added, replaced, kept, changes = [], [], [], []
     for item in items:
         rid, payload = item["id"], {k: v for k, v in item.items() if k != "id"}

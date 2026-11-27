@@ -1,19 +1,19 @@
 {
-  "id": "ez_barbell_curl",
-  "name": "EZ Barbell Curl",
+  "id": "dumbbell_incline_fly",
+  "name": "Incline Dumbbell Fly",
   "equipment": [
-    "ez_barbell"
+    "dumbbell"
   ],
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {
-    "stretch": 1,
-    "middle": 3,
+    "stretch": 3,
+    "middle": 2,
     "contract": 1
   },
   "targets": {
     "main": [
-      "biceps"
+      "pecs"
     ],
     "synergists": []
   }

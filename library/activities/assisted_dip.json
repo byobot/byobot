@@ -1,11 +1,11 @@
 {
-  "id": "barbell_bent_over_row_45_degrees",
-  "name": "Barbell Bent Over Row (45 Degrees)",
+  "id": "assisted_dip",
+  "name": "Assisted Dip",
   "equipment": [
-    "barbell"
+    "machine"
   ],
   "movement_type": "compound",
-  "fatigue": 4,
+  "fatigue": 3,
   "resistance_curve": {
     "stretch": 3,
     "middle": 3,
@@ -13,12 +13,10 @@
   },
   "targets": {
     "main": [
-      "traps"
+      "pecs"
     ],
     "synergists": [
-      "biceps",
-      "lats",
-      "rear_delts"
+      "triceps"
     ]
   }
 }

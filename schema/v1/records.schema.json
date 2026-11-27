@@ -144,7 +144,7 @@
       "required": ["id", "activity_id"],
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
-        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
         "side": { "$ref": "#/$defs/side" },
         "metrics": { "$ref": "common.schema.json#/$defs/metrics", "description": "Targets." },
         "notes": { "$ref": "common.schema.json#/$defs/text" }
@@ -212,7 +212,7 @@
       "allOf": [{ "$ref": "#/$defs/header" }],
       "required": ["activity_id", "time", "modality"],
       "properties": {
-        "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+        "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
         "round": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Which round of the planned block." },
         "side": { "$ref": "#/$defs/side" },
         "location_id": { "$ref": "common.schema.json#/$defs/slug", "description": "Omit to take the session's." },
@@ -280,7 +280,7 @@
           "properties": {
             "name": { "$ref": "common.schema.json#/$defs/name" },
             "time": { "$ref": "common.schema.json#/$defs/time" },
-            "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+            "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
             "location_id": { "$ref": "common.schema.json#/$defs/slug" },
             "metrics": { "$ref": "common.schema.json#/$defs/metrics" },
             "value": { "type": ["number", "string", "boolean"] },
@@ -305,7 +305,7 @@
             "additionalProperties": false,
             "required": ["activity_id"],
             "properties": {
-              "activity_id": { "$ref": "common.schema.json#/$defs/slug" },
+              "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
               "reason": { "$ref": "common.schema.json#/$defs/text" }
             }
           }
