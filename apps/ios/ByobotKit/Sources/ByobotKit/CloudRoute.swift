@@ -31,25 +31,26 @@ public actor CloudRoute {
     /// Source ids of samples the Mac hasn't read yet. A deletion of one of these goes this way, never by the laptop.
     public var unread: Set<String> { relay.unread }
 
-    /// Hands the relay what's waiting, syncs once and says what the Mac has taken.
-    public func sync(events: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws -> Result {
-        try await queue(events: events, samples: samples, deleted: deleted)
-        return try await sync()
+    /// Hands the relay the Apple Health readings, syncs once with the logbook's waiting events and says what the
+    /// Mac has taken.
+    public func sync(pending: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws -> Result {
+        try await queue(samples: samples, deleted: deleted)
+        return try await sync(pending: pending)
     }
 
-    /// Hands the relay what's waiting and saves it, so it goes on a later sync even if this one fails.
-    public func queue(events: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws {
-        relay.log(events)
+    /// Hands the relay Apple Health readings and saves it, so they go on a later sync even if this one fails.
+    /// Events stay in the logbook until the Mac has read them.
+    public func queue(samples: [Sample] = [], deleted: [Deletion] = []) async throws {
         if !samples.isEmpty || !deleted.isEmpty { relay.send(SampleBatch(samples: samples, deleted: deleted)) }
         try await save(relay)
     }
 
-    /// Syncs once and says what the Mac has taken.
-    public func sync() async throws -> Result {
+    /// Syncs once, sending what of `pending` the folder doesn't hold yet, and says what the Mac has taken.
+    public func sync(pending: [Event]) async throws -> Result {
         var working = relay
         let report: CloudRelay.Report
         do {
-            report = try await working.sync(folder, identity: identity, save: save)
+            report = try await working.sync(folder, identity: identity, pending: pending, save: save)
             relay = working
         } catch {
             relay = working  // what it sent before failing stays sent
@@ -81,10 +82,11 @@ public final class DriveRoute: SyncRoute {
         var outcome = RouteOutcome()
         guard isCurrent() else { return outcome }
         do {
-            try await route.queue(events: book.book.pendingEvents, samples: health.samples, deleted: health.deleted)
+            try await route.queue(samples: health.samples, deleted: health.deleted)
             outcome.tookHealth = true
-            let result = try await route.sync()
+            let result = try await route.sync(pending: book.book.pendingEvents)
             book.change {
+                if let plan = result.plan { $0.setAside(plan.rejected) }
                 $0.delivered(result.delivered)
                 if takePlan, let plan = result.plan {
                     $0.applyPlan(plan)

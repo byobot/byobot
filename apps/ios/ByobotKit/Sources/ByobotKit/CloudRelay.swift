@@ -113,8 +113,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     /// The epoch's key. It is kept in the keychain, not with the rest: see `epochKey`.
     var key: Data?
     var seq = 0
-    /// Every event it was given and the keeper hasn't read yet.
-    public private(set) var events: [String: Event] = [:]
     /// Sample batches not yet in a segment.
     public private(set) var samples: [SampleBatch] = []
     var sent: [String: Carried] = [:]
@@ -130,7 +128,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var removed = false
 
     enum CodingKeys: String, CodingKey {
-        case version, epoch, seq, events, samples, sent, rejected, held, delivered, plan, receipts, removed
+        case version, epoch, seq, samples, sent, rejected, held, delivered, plan, receipts, removed
         case storeID = "store_id"
         case deviceID = "device_id"
         case keeperSign = "keeper_sign"
@@ -207,10 +205,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         return SampleBatch(samples: batches.flatMap(\.samples), deleted: batches.flatMap(\.deleted) + held)
     }
 
-    public mutating func log(_ events: [Event]) {
-        for event in events { self.events[event.id] = event }
-    }
-
     /// The events the keeper read since this was last asked.
     public mutating func takeDelivered() -> Set<String> {
         defer { delivered = [] }
@@ -265,11 +259,12 @@ public struct CloudRelay: Codable, Equatable, Sendable {
 
     // MARK: sync
 
-    /// Takes a newer epoch's key, reads the plan, then sends what the keeper doesn't hold. `save` is called before
-    /// each segment is written, so a relay that dies mid-write never reuses its seq.
-    public mutating func sync(_ folder: some CloudFolder, identity: CloudIdentity,
+    /// Takes a newer epoch's key, reads the plan, then sends what the keeper doesn't hold of `pending`, the
+    /// logbook's events still waiting. `save` is called before each segment is written, so a relay that dies
+    /// mid-write never reuses its seq.
+    public mutating func sync(_ folder: some CloudFolder, identity: CloudIdentity, pending: [Event] = [],
                               save: (CloudRelay) async throws -> Void = { _ in }) async throws -> Report {
-        guard !removed else { return Report(epoch: epoch, written: 0, pending: events.count, removed: true) }
+        guard !removed else { return report(0, pending) }
         let listing = try await folder.list()
         let moved = try await adopt(folder, listing, identity)
         if removed {  // no keeper reads what it left in the folder now
@@ -277,15 +272,18 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 try? await folder.delete(path)
             }
         }
-        guard !removed, key != nil else {
-            return Report(epoch: epoch, written: 0, pending: events.count, removed: removed)
-        }
+        guard !removed, key != nil else { return report(0, pending) }
         try await readPlan(folder, listing)
-        if let plan { applyPlan(plan) }
         settle(listing)
         release()
-        let written = try await send(folder, identity, force: moved, save: save)
-        return Report(epoch: epoch, written: written, pending: events.count, removed: false)
+        let written = try await send(folder, identity, pending, force: moved, save: save)
+        return report(written, pending)
+    }
+
+    func report(_ written: Int, _ pending: [Event]) -> Report {
+        let done = Set(delivered)
+        return Report(epoch: epoch, written: written, pending: pending.filter { !done.contains($0.id) }.count,
+                      removed: removed)
     }
 
     mutating func adopt(_ folder: some CloudFolder, _ listing: [String: String], _ me: CloudIdentity) async throws -> Bool {
@@ -351,12 +349,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         }
     }
 
-    mutating func applyPlan(_ plan: PlanWindow) {
-        let erased = Set(plan.erased.map { RecordRef(kind: $0.kind, id: $0.id) })
-        guard !erased.isEmpty else { return }
-        events = events.filter { !erased.contains($0.value.record) }
-    }
-
     /// Drops what a read segment carried; queues again the samples of one that left the folder unread.
     mutating func settle(_ listing: [String: String]) {
         let mine = receipts[deviceID]
@@ -366,7 +358,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         for path in sent.keys.sorted() {
             guard let carried = sent[path], let seq = Cloud.parseName(path)?.seq else { continue }
             if read.contains(seq) {
-                for id in carried.events where events.removeValue(forKey: id) != nil { delivered.append(id) }
+                delivered.append(contentsOf: carried.events)
                 for line in carried.samples.keys.sorted() {
                     if let reason = why["\(seq)/\(line)"], let batch = carried.samples[line] {
                         rejected.append(RejectedBatch(reason: reason, samples: batch))
@@ -380,11 +372,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         }
     }
 
-    mutating func send(_ folder: some CloudFolder, _ me: CloudIdentity, force: Bool,
+    mutating func send(_ folder: some CloudFolder, _ me: CloudIdentity, _ pending: [Event], force: Bool,
                        save: (CloudRelay) async throws -> Void) async throws -> Int {
         guard let epoch, let key else { return 0 }
-        let inFolder = Set(sent.values.flatMap(\.events))
-        var todo = events.values.filter { !inFolder.contains($0.id) }.sorted { ($0.hlc, $0.id) < ($1.hlc, $1.id) }
+        let skip = Set(sent.values.flatMap(\.events)).union(delivered)
+        var todo = pending.filter { !skip.contains($0.id) }.sorted { ($0.hlc, $0.id) < ($1.hlc, $1.id) }
         var force = force, written = 0, skips = 0
         while !todo.isEmpty || !samples.isEmpty || force {
             let batch = Array(todo.prefix(Self.maxBatch))
@@ -421,7 +413,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 continue
             } catch {
                 sent[path] = nil
-                samples.insert(contentsOf: batches, at: 0)  // its events are still in `events`; its samples go back in line
+                samples.insert(contentsOf: batches, at: 0)  // its events are still pending; its samples go back in line
                 throw error
             }
             todo.removeFirst(batch.count)

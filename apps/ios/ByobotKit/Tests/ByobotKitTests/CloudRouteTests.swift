@@ -21,10 +21,10 @@ final class CloudRouteTests: XCTestCase {
         let folder = MemoryCloudFolder(), kept = Kept()
         let route = try await makeRoute(k, folder, kept)
         let event = CloudRelayTests.event(1)
-        var result = try await route.sync(events: [event])
+        var result = try await route.sync(pending: [event])
         XCTAssertEqual(result.delivered, [])
         try await k.publish(folder, read: [1])
-        result = try await route.sync(events: [])
+        result = try await route.sync(pending: [event])
         XCTAssertEqual(result.delivered, [event.id])
         XCTAssertNotNil(result.plan)
         let saved = await kept.relay, relay = await route.relay
@@ -35,11 +35,11 @@ final class CloudRouteTests: XCTestCase {
         var k = try CloudRelayTests.keeper()
         let folder = MemoryCloudFolder(), kept = Kept()
         let route = try await makeRoute(k, folder, kept)
-        _ = try await route.sync(events: [], samples: [CloudRelayTests.weighed("W1")])
+        _ = try await route.sync(pending: [], samples: [CloudRelayTests.weighed("W1")])
         var unread = await route.unread
         XCTAssertEqual(unread, ["W1"])
         try await k.publish(folder, read: [1])
-        _ = try await route.sync(events: [])
+        _ = try await route.sync(pending: [])
         unread = await route.unread
         XCTAssertEqual(unread, [])
     }

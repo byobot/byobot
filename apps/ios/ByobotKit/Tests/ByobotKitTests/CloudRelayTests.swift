@@ -159,8 +159,7 @@ final class CloudRelayTests: XCTestCase {
         let k = try keeper(), folder = MemoryCloudFolder()
         await folder.put(Cloud.epochPath(1), k.epochFile)
         var relay = try await CloudRelay.join(folder, link: k.link, deviceID: k.relayID, identity: k.relay)
-        relay.log([event(1)])
-        let report = try await relay.sync(folder, identity: k.relay)
+        let report = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         XCTAssertNil(report.epoch)
         XCTAssertEqual(report.written, 0)
         XCTAssertFalse(relay.joined)
@@ -172,19 +171,20 @@ final class CloudRelayTests: XCTestCase {
         var k = try keeper()
         let folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(2), event(1)])
-        var report = try await relay.sync(folder, identity: k.relay)
+        let pending = [event(2), event(1)]
+        var report = try await relay.sync(folder, identity: k.relay, pending: pending)
         XCTAssertEqual(report.written, 1)
         guard case .object(let body)? = try await segment(k, folder, 1)?.first?["events"],
               case .array(let events)? = body["events"] else { return XCTFail("no events message") }
         XCTAssertEqual(try events.map { try Payloads.decode(Event.self, $0).id }, [event(1).id, event(2).id])
         XCTAssertNotNil(body["kind_versions"])
-        report = try await relay.sync(folder, identity: k.relay)
+        report = try await relay.sync(folder, identity: k.relay, pending: pending)
         XCTAssertEqual(report.written, 0)  // still unread, not sent again
         var delivered = relay.takeDelivered()
         XCTAssertEqual(delivered, [])
         try await k.publish(folder, read: [1])
-        report = try await relay.sync(folder, identity: k.relay)
+        report = try await relay.sync(folder, identity: k.relay, pending: pending)
+        XCTAssertEqual(report.written, 0)
         XCTAssertEqual(report.pending, 0)
         delivered = relay.takeDelivered()
         XCTAssertEqual(delivered, [event(1).id, event(2).id])
@@ -192,16 +192,13 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(delivered, [])
     }
 
-    func testEventsOfAnErasedRecordAreNotSent() async throws {
-        var k = try keeper()
-        let folder = MemoryCloudFolder()
+    func testTheRelayKeepsNoEventsOfItsOwn() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(1)])
-        try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: event(1).record.id)])
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
+        await folder.delete(Cloud.segmentPath(kind: "segment", epoch: 1, seq: 1, deviceID: k.relayID))
         let report = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(report.written, 0)
-        XCTAssertEqual(report.pending, 0)
-        XCTAssertNotNil(relay.plan)
+        XCTAssertEqual(report.written, 0, "an event the logbook no longer has waiting isn't sent again")
     }
 
     func testANewerPlanReplacesTheOneBeforeIt() async throws {
@@ -221,10 +218,9 @@ final class CloudRelayTests: XCTestCase {
         var relay = try await joined(k, folder)
         try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: "x")])
         _ = try await relay.sync(folder, identity: k.relay)
-        relay.log([event(1)])
-        _ = try await relay.sync(folder, identity: k.relay)
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         try await k.publish(folder, read: [1], plan: .object(["from": .number(1)]))
-        let report = try await relay.sync(folder, identity: k.relay)
+        let report = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         XCTAssertEqual(report.pending, 0)
         XCTAssertEqual(relay.takeDelivered(), [event(1).id])
         XCTAssertEqual(relay.plan?.erased.map(\.id), ["x"], "the last plan it could read stays")
@@ -330,14 +326,13 @@ final class CloudRelayTests: XCTestCase {
     func testAFailedUploadKeepsItsSamplesForTheNextSync() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
-        relay.log([event(1)])
         relay.send(SampleBatch(samples: [weighed("W1")]))
         do {
-            _ = try await relay.sync(Failing(folder, failures: 1), identity: k.relay)
+            _ = try await relay.sync(Failing(folder, failures: 1), identity: k.relay, pending: [event(1)])
             XCTFail("the upload failed")
         } catch is URLError {}
         XCTAssertEqual(relay.unread, ["W1"])
-        _ = try await relay.sync(folder, identity: k.relay)
+        _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         let sent = try await segment(k, folder, 2)
         XCTAssertEqual(try sourceIds(sent, "samples"), ["W1"])
         XCTAssertNotNil(sent?.first?["events"])
