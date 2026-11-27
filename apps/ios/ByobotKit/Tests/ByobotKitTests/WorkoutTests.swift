@@ -68,8 +68,6 @@ final class WorkoutTests: XCTestCase {
         workout = book.workout(lower)
         XCTAssertEqual(workout.exercises.map(\.id), ["e-amrap", "e-warm", "e-squat"])
         XCTAssertEqual(workout.slots.first?.id, "e-amrap:1")
-        XCTAssertEqual(workout.changeNotes,
-                       "Changed the order: Barbell back squat, Barbell back squat, Barbell back squat.")
         let overlay = try XCTUnwrap(book.state.events.last)
         XCTAssertEqual(overlay.record, RecordRef(kind: "overlay", id: Logbook.rearrangeId(lower.id)))
         XCTAssertEqual(overlay.decoded(OverlayPayload.self),
@@ -92,20 +90,20 @@ final class WorkoutTests: XCTestCase {
         var workout = book.workout(upper)
         let slot = try XCTUnwrap(workout.next)
         XCTAssertEqual(slot.activityId, "lat_pulldown")
-        XCTAssertEqual(workout.notes(for: slot, nil), "In place of Pull-up: bar taken")
+        XCTAssertEqual(workout.notes(for: slot, nil), "bar taken", "only what you typed")
 
         let metrics = Prefill.asPlanned(slot, previous: nil, lastTime: nil)
         XCTAssertEqual(metrics, ["reps": .exact(6)], "the plan's load was for pull-ups")
         let set = book.logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id,
                                  round: slot.round, notes: workout.notes(for: slot, "felt easy"))
         XCTAssertEqual(set.plannedEffortId, "e-pullup")
-        XCTAssertEqual(set.notes, "In place of Pull-up: bar taken. felt easy")
+        XCTAssertEqual(set.notes, "bar taken. felt easy")
         workout = book.workout(upper)
         XCTAssertEqual(workout.exercises.first?.done, 1)
         XCTAssertEqual(workout.next?.id, "e-dip:1")
 
         let finished = try XCTUnwrap(book.finishSession(notes: "Good one"))
-        XCTAssertEqual(finished.notes, "Good one Swapped Pull-up for Lat pulldown (bar taken).")
+        XCTAssertEqual(finished.notes, "Good one", "the swap is in the logged set, not in generated words")
 
         book.swap("e-pullup", to: nil, for: upper.id)
         XCTAssertNil(book.changes(for: upper.id).swaps)

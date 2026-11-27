@@ -208,16 +208,13 @@ public struct Logbook: Sendable {
         return planned.first { has($0.id) }?.id ?? answered
     }
 
-    /// Finish the active session: write it again with its end time and what you changed from the plan.
+    /// Finish the active session: write it again with its end time and any note you typed.
     @discardableResult
     public mutating func finishSession(notes: String? = nil) -> PerformedSession? {
         guard var session = activeSession else { return nil }
         session.payload.time.end = Timestamp.string(clock())
         session.payload.status = .completed
-        let changed = session.plannedSessionId.flatMap { id in state.plan?.plannedSessions.first { $0.id == id } }
-            .flatMap { workout($0).changeNotes }
-        let parts = [notes?.isEmpty == false ? notes : nil, changed].compactMap { $0 }
-        if !parts.isEmpty { session.payload.notes = parts.joined(separator: " ") }
+        if let notes, !notes.isEmpty { session.payload.notes = notes }
         let event = put("session", session.id, session.payload)
         state.activeSessionId = nil
         session.prev = [event.id]
