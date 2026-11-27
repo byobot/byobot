@@ -248,3 +248,12 @@ def test_s10_a_reordered_or_inserted_exercise_keeps_its_logged_sets(world):
     ids = [b["efforts"][0]["id"] for b in plan["blocks"]]
     assert ids[1:] == ["ps1.pe1", "ps1.pe0"] and ids[0] not in ids[1:]
     assert diff(world.snapshot("phone"), world.expected("phone")) == []
+
+
+def test_soak_a_session_without_an_end_joins_the_workout_around_it(world):
+    world.replica("laptop")
+    logged = session("s1", T("10:00"), None)
+    del logged["record"]["ended_at"]
+    world.author("laptop", logged)
+    world.ingest("laptop", "whoop", {"workout": [whoop_workout(WID, T("09:58"), T("11:00"), T("11:05"))]})
+    assert len(world.occurrences("laptop")) == 1, world.occurrences("laptop")
