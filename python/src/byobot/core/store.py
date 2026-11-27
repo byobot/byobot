@@ -17,9 +17,10 @@ import secrets
 import sqlite3
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 from .. import library
 from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
@@ -160,6 +161,8 @@ class Store:
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
+            # Another process may have created the store while this one waited for the write lock.
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
             if version == 0:
                 self._set("store_id", uuid7())
                 self._set("store_key", secrets.token_hex(32))
@@ -201,6 +204,18 @@ class Store:
                     conn.execute("RELEASE tx")
 
         return _Tx()
+
+    @contextmanager
+    def snapshot(self) -> Iterator[None]:
+        """Reads inside see one version of the store, whatever commits meanwhile."""
+        own = not self.conn.in_transaction
+        if own:
+            self.conn.execute("BEGIN")
+        try:
+            yield
+        finally:
+            if own:
+                self.conn.execute("COMMIT")
 
     # -- meta ----------------------------------------------------------------
 
@@ -565,14 +580,8 @@ class Store:
     def export(self) -> Iterable[str]:
         """The whole logbook as JSON lines: a header with the store's id and key, then every event in arrival
         order. Paired devices stay behind; they pair again with the restored store."""
-        own = not self.conn.in_transaction
-        if own:
-            self.conn.execute("BEGIN")  # one snapshot, so a write meanwhile can't make the count disagree
-        try:
+        with self.snapshot():  # so a write meanwhile can't make the count disagree
             events, key = self.events(), self._get("store_key")
-        finally:
-            if own:
-                self.conn.execute("COMMIT")
         yield jcs({"byobot_export": EXPORT_VERSION, "schema_version": 1, "store_id": self.store_id,
                    "store_key": key, "exported_at": stamp(self.wall()), "events": len(events)}) + "\n"
         for event in events:

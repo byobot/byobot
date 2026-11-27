@@ -67,3 +67,24 @@ def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session
     commands.edit(one, ME, "effort", rid, {"links": {"part_of": {"kind": "session", "id": sb}}})
     commands.erase(one, ME, "session", sa, with_efforts=True)
     assert one.get("effort", rid) is not None, "an effort now in session b was erased with session a"
+
+
+
+def _effort(reps=5):
+    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
+            "metrics": {"reps": {"value": reps}}}
+
+
+def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
+    a = Store(tmp_path / "a.db", device_id="phone", wall=Wall())
+    b = Store(tmp_path / "b.db", device_id="laptop", wall=Wall())
+    b.adopt(a.store_id, a._get("store_key"))
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": _effort()}])
+    rid = e["record"]["id"]
+    b.accept_many(a.events())
+    six = commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
+    commands.edit(b, AGENT, "effort", rid, {"metrics": {"reps": {"value": 7}}})
+    a.accept_many(b.events())
+    fixed = commands.resolve(a, ME, "effort", rid, six["id"])
+    commands.undo(a, ME, fixed["id"])
+    assert a.conflicts("effort", rid), "undo of a resolve kept only one side; the other version is no longer shown"

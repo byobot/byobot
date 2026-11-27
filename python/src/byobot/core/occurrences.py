@@ -29,6 +29,8 @@ CREATE INDEX IF NOT EXISTS occurrence_items_occurrence ON occurrence_items (occu
 CREATE TABLE IF NOT EXISTS occurrence_metrics (
   occurrence_id TEXT NOT NULL, code TEXT NOT NULL, value REAL, text TEXT, unit TEXT, std_value REAL, std_unit TEXT,
   from_kind TEXT NOT NULL, from_id TEXT NOT NULL, overlay_id TEXT, PRIMARY KEY (occurrence_id, code));
+CREATE INDEX IF NOT EXISTS sessions_span ON sessions (coalesce(end_ms, start_ms) - start_ms);
+CREATE INDEX IF NOT EXISTS source_sessions_span ON source_sessions (coalesce(end_ms, start_ms) - start_ms);
 """
 TABLES = ("occurrences", "occurrence_items", "occurrence_metrics")
 ITEMS = {"session": ("sessions", "you"), "source_record": ("source_sessions", None)}
@@ -55,8 +57,11 @@ def links(conn: sqlite3.Connection, kind: str, rid: str) -> set[tuple[str, str]]
 def _items_in(conn: sqlite3.Connection, lo: int, hi: int) -> set[tuple[str, str]]:
     out = set()
     for kind, (table, _) in ITEMS.items():
+        # The longest span bounds the scan from below, so it doesn't read every earlier workout.
+        longest = conn.execute(f"SELECT max(coalesce(end_ms, start_ms) - start_ms) FROM {table}").fetchone()[0] or 0
         out |= {(kind, r[0]) for r in conn.execute(
-            f"SELECT id FROM {table} WHERE start_ms <= ? AND coalesce(end_ms, start_ms) >= ?", (hi, lo))}
+            f"SELECT id FROM {table} WHERE start_ms BETWEEN ? AND ? AND coalesce(end_ms, start_ms) >= ?",
+            (lo - longest, hi, lo))}
     return out
 
 
