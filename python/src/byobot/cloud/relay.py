@@ -171,7 +171,7 @@ class Relay:
                 return  # never step back to an older plan
             try:
                 _, messages = segment.read(self.folder.read(path) or b"", path=path, store_id=self.store_id,
-                                           key=self.key, sign_public=self.keeper_sign)
+                                           key=self.key, sign_public=self.keeper_sign, skip_unknown=True)
             except CloudError:
                 continue
             plan = next((m["plan"] for m in messages if "plan" in m), None)

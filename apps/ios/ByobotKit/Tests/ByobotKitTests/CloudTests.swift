@@ -124,6 +124,18 @@ final class CloudTests: XCTestCase {
                                                    storeID: store, key: key, signPublic: me.signPublic))
     }
 
+    func testAMessageANewerByobotAddedIsLeftOut() throws {
+        let me = CloudIdentity(), key = Data((0..<32).map { UInt8($0) })
+        let plan: JSONValue = .object(["receipts": .object([:])])
+        let store = "0193a0b0-0000-7000-8000-00000000c001"
+        let data = try Cloud.writeSegment(kind: "plan", storeID: store, deviceID: "dev-1", epoch: 3, seq: 7,
+                                          messages: [plan, .object(["reminders": .object([:])])], key: key,
+                                          signer: me)
+        let path = Cloud.segmentPath(kind: "plan", epoch: 3, seq: 7, deviceID: nil)
+        let found = try Cloud.readSegment(data, path: path, storeID: store, key: key, signPublic: me.signPublic)
+        XCTAssertEqual(found.messages.map { JSONValue.object($0) }, [plan])
+    }
+
     func testGzipRoundTripsAndRefusesOneCutShort() throws {
         let text = Data(String(repeating: "{\"end\":{\"lines\":0}}\n", count: 500).utf8)
         let packed = try Cloud.gzip(text)

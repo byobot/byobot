@@ -25,7 +25,7 @@
       "additionalProperties": false
     },
     "message": {
-      "description": "One line of a segment's body. A relay writes events and samples; the keeper writes events, a checkpoint's events, and a plan with its receipts.",
+      "description": "One line of a segment's body. A relay writes events and samples; the keeper writes events, a checkpoint's events, and a plan with its receipts. A relay reading a plan leaves out a message it doesn't know; the keeper keeps a segment holding one unread until it is upgraded.",
       "oneOf": [
         {"type": "object", "required": ["events"], "properties": {"events": {"$ref": "sync.schema.json#/$defs/events_request"}}, "additionalProperties": false},
         {"type": "object", "required": ["samples"], "properties": {"samples": {"$ref": "sync.schema.json#/$defs/samples_request"}}, "additionalProperties": false},
