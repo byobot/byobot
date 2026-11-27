@@ -902,13 +902,27 @@ def test_plan_and_status_give_up_on_a_long_query(server, monkeypatch):
 
 
 def test_default_profile_keeps_8765_and_profiles_get_their_own_port(byobot_home, monkeypatch):
-    assert serve.choose_port("127.0.0.1") == serve.DEFAULT_PORT
+    assert serve.choose_port() == serve.DEFAULT_PORT
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
-    port = serve.choose_port("127.0.0.1")
+    port = serve.choose_port()
     assert port > serve.DEFAULT_PORT + 1
     serve.serve_dir().mkdir(parents=True)
     (serve.serve_dir() / "port").write_text("9001\n")
-    assert serve.choose_port("127.0.0.1") == 9001
+    assert serve.choose_port() == 9001
+
+
+def test_choosing_a_port_probes_loopback_only(byobot_home, monkeypatch):
+    bound = []
+
+    class Probe(serve.socket.socket):
+        def bind(self, address):
+            bound.append(address[0])
+            return super().bind((address[0], 0))
+
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    monkeypatch.setattr(serve.util.socket, "socket", Probe)
+    serve.choose_port()
+    assert bound and set(bound) == {"127.0.0.1"}
 
 
 def test_profile_shows_in_the_server_name(monkeypatch):

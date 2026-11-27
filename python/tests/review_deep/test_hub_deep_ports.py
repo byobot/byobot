@@ -23,6 +23,6 @@ class _Busy(socket.socket):
 def test_a_named_profile_hub_never_takes_the_remote_port(monkeypatch):
     monkeypatch.setenv("BYOBOT_PROFILE", "example")
     monkeypatch.setattr(serve.socket, "socket", _Busy)
-    port = serve.choose_port("127.0.0.1")
+    port = serve.choose_port()
     remote_ports = range(remote.DEFAULT_PORT, remote.DEFAULT_PORT + 100)
     assert port not in remote_ports, f"serve chose {port}, which `byobot remote` uses or will choose"

@@ -371,9 +371,9 @@ def test_remote_revoke_disconnects_everyone(capsys, auth):
 
 
 def test_remote_ports_differ_per_profile(monkeypatch, byobot_home):
-    assert remote.choose_port("127.0.0.1") == remote.DEFAULT_PORT
+    assert remote.choose_port() == remote.DEFAULT_PORT
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
-    assert remote.choose_port("127.0.0.1") > remote.DEFAULT_PORT
+    assert remote.choose_port() > remote.DEFAULT_PORT
 
 
 # -- API keys -------------------------------------------------------------------
