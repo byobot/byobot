@@ -417,18 +417,26 @@ def _overlap(a: dict, b: dict) -> bool:
 def _clusters(items: list[dict], links: dict[str, str]) -> list[list[dict]]:
     items = sorted(items, key=lambda i: (millis(i["start"]), i["id"]))
     clusters: list[list[dict]] = []
-    for item in items:
-        home = None
-        for c in clusters:
-            linked = links.get(item["id"]) in {i["id"] for i in c} or any(links.get(i["id"]) == item["id"] for i in c)
-            yours = item["rank"] == "you" and any(i["rank"] == "you" for i in c)
-            if linked or (not yours and any(_overlap(item, i) for i in c)):
-                home = c
-                break
-        if home is None:
-            clusters.append([item])
-        else:
-            home.append(item)
+    present = {i["id"] for i in items}
+
+    def tied(item: dict, ids: set) -> bool:
+        return links.get(item["id"]) in ids or any(links.get(i) == item["id"] for i in ids)
+
+    for by_link in (True, False):
+        for item in items:
+            if tied(item, present) != by_link:
+                continue
+            home = None
+            for c in clusters:
+                if item["rank"] == "you" and any(i["rank"] == "you" for i in c):
+                    continue
+                if tied(item, {i["id"] for i in c}) if by_link else any(_overlap(item, i) for i in c):
+                    home = c
+                    break
+            if home is None:
+                clusters.append([item])
+            else:
+                home.append(item)
     return clusters
 
 
