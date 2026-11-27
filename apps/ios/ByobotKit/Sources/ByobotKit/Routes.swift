@@ -98,12 +98,13 @@ public final class HubRoute: SyncRoute {
                 try await push(book)
                 try await pull(book)
             }
-            for start in stride(from: 0, to: health.samples.count, by: 1000) {
-                let part = Array(health.samples[start..<min(start + 1000, health.samples.count)])
+            let limit = CloudRelay.maxBatch
+            for start in stride(from: 0, to: health.samples.count, by: limit) {
+                let part = Array(health.samples[start..<min(start + limit, health.samples.count)])
                 _ = try await transport.push(samples: part, deleted: [])
             }
-            for start in stride(from: 0, to: health.deleted.count, by: 1000) {
-                let part = Array(health.deleted[start..<min(start + 1000, health.deleted.count)])
+            for start in stride(from: 0, to: health.deleted.count, by: limit) {
+                let part = Array(health.deleted[start..<min(start + limit, health.deleted.count)])
                 _ = try await transport.push(samples: [], deleted: part)
             }
             outcome.tookHealth = true
@@ -123,7 +124,7 @@ public final class HubRoute: SyncRoute {
 
     func push(_ book: any SyncBook) async throws {
         while true {
-            let batch = Array(book.book.pendingEvents.prefix(500))
+            let batch = Array(book.book.pendingEvents.prefix(CloudRelay.maxBatch))
             if batch.isEmpty { return }
             let before = book.book.state.pending.count
             let response = try await transport.push(events: batch)

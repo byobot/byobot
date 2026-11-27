@@ -120,10 +120,10 @@ final class RouteTests: XCTestCase {
 
     @MainActor
     func testTheHubPushesInBatches() async throws {
-        let hub = FakeHub(), book = FakeBook(Self.pending(600))
+        let hub = FakeHub(), book = FakeBook(Self.pending(CloudRelay.maxBatch + 100))
         _ = await HubRoute(hub).sync(book, health: SampleBatch(), takePlan: true)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "events 500", "events 100", "plan"])
+        XCTAssertEqual(calls, ["store", "plan", "events \(CloudRelay.maxBatch)", "events 100", "plan"])
         XCTAssertTrue(book.book.pendingEvents.isEmpty)
     }
 
@@ -134,18 +134,18 @@ final class RouteTests: XCTestCase {
         let outcome = await HubRoute(hub).sync(book, health: SampleBatch(), takePlan: true)
         XCTAssertNil(outcome.error)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "events 500", "plan"])
+        XCTAssertEqual(calls, ["store", "plan", "events 600", "plan"])
         XCTAssertEqual(book.book.pendingEvents.count, 600)
     }
 
     @MainActor
     func testTheHubSendsAppleHealthInBatches() async throws {
         let hub = FakeHub(), book = FakeBook()
-        let ids = (1...1500).map { "W\($0)" }
+        let ids = (1...CloudRelay.maxBatch + 500).map { "W\($0)" }
         let outcome = await HubRoute(hub).sync(book, health: Self.health(samples: ids, deleted: ["D1"]), takePlan: true)
         XCTAssertTrue(outcome.tookHealth)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "samples 1000 deleted 0", "samples 500 deleted 0",
+        XCTAssertEqual(calls, ["store", "plan", "samples \(CloudRelay.maxBatch) deleted 0", "samples 500 deleted 0",
                                "samples 0 deleted 1"])
     }
 
