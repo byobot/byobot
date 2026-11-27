@@ -113,13 +113,14 @@ class ModelReplica:
         return (wall, 0) if wall > self.floor[0] else (self.floor[0], self.floor[1] + 1)
 
     def _write(self, at: str, actor: str, kind: str, rid: str, op: str, content: Any, reverts: str | None = None,
-               wid: str | None = None, read: bool = False, on: str | None = None) -> Write:
+               wid: str | None = None, read: bool = False, on: str | None = None, after: frozenset | None = None) -> Write:
         """`read`: the write was made from the record's current version, and names only that one; `on` names it."""
         record = key(kind, rid)
         cur = self.current(record) if read and on is None else None
         if read and self._unread(record):
             raise Refused(f"{record} holds a version written by a newer byobot")
-        prior = frozenset({on}) if on else frozenset({cur.id}) if cur else frozenset(self.by_record.get(record, ()))
+        prior = after if after is not None else frozenset({on}) if on else frozenset({cur.id}) if cur \
+            else frozenset(self.by_record.get(record, ()))
         if wid is None:
             self.authored += 1
             wid = f"{self.name}:{self.authored}"
@@ -270,6 +271,8 @@ class ModelReplica:
             raise Refused(f"can't undo a {target.op}")
         if [h.id for h in self.heads(target.record)] != [target.id]:
             raise Refused(f"{target.record} changed after {target.id}")
+        if any(p not in self.writes for p in target.prior):
+            raise Refused(f"the version before {target.id} isn't here yet")
         out = []
         for before in self.heads(target.record, set(target.prior)) or [None]:
             put = before is not None and before.op != "retract"
@@ -283,13 +286,13 @@ class ModelReplica:
         versions = sorted({canonical(_version(h)): _version(h) for h in heads}.values(), key=canonical)
         if len(versions) < 2:
             raise Refused(f"{kind} {rid} has no conflict")
-        choice = intent["choice"]
+        choice, seen = intent["choice"], frozenset(h.id for h in heads)  # a resolve names the versions it chose between
         if choice == "remove":
-            return self._write(at, actor, kind, rid, "retract", None)
+            return self._write(at, actor, kind, rid, "retract", None, after=seen)
         picked = versions[choice] if isinstance(choice, int) else choice
         if picked.get("_removed"):
-            return self._write(at, actor, kind, rid, "retract", None)
-        return self._write(at, actor, kind, rid, "put", picked)
+            return self._write(at, actor, kind, rid, "retract", None, after=seen)
+        return self._write(at, actor, kind, rid, "put", picked, after=seen)
 
     def _overlay(self, intent: dict, at: str, actor: str) -> Write:
         target = f"{intent['source']}:workout:{intent['source_id']}"
