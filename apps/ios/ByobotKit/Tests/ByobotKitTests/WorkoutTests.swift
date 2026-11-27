@@ -45,7 +45,7 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(Swaps.alternatives(to: Activity(id: "x", name: "X"), in: library), [], "no muscles, no guesses")
     }
 
-    struct Swap: Decodable, Equatable {
+    struct SwapCase: Decodable, Equatable {
         var id: String
         var score: Double
         var missingEquipment: [String]
@@ -75,9 +75,9 @@ final class WorkoutTests: XCTestCase {
             }
             var limit = 8
             if case .number(let n)? = item["limit"] { limit = Int(n) }
-            let expected = try JSONDecoder().decode([Swap].self, from: Fixtures.data(item["expect"] ?? .array([])))
+            let expected = try JSONDecoder().decode([SwapCase].self, from: Fixtures.data(item["expect"] ?? .array([])))
             let got = Swaps.alternatives(to: original, in: library, equipment: equipment, limit: limit)
-                .map { Swap(id: $0.id, score: $0.score, missingEquipment: $0.missingEquipment) }
+                .map { SwapCase(id: $0.id, score: $0.score, missingEquipment: $0.missingEquipment) }
             XCTAssertEqual(got, expected, name)
         }
     }
