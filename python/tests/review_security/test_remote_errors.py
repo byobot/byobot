@@ -16,6 +16,6 @@ def test_an_unexpected_error_keeps_its_text_off_the_network(running, byobot_home
         raise RuntimeError("/home/example-user/.byobot/byobot.db is locked")
 
     monkeypatch.setattr(mcp, "run", broken)
-    resp, raw = request(running, "POST", "/api/tools/status", {}, {"Authorization": f"Bearer {key}"})
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {}, {"Authorization": f"Bearer {key}"})
     assert resp.status == 500 and b"example-user" not in raw
     assert "internal error" in json.loads(raw)["message"]

@@ -449,7 +449,7 @@ def test_a_read_only_key_reads_but_does_not_write(running):
     auth = {"X-API-Key": key}
     names = {t["name"] for t in json.loads(request(running, "GET", "/api/v1/tools", headers=auth)[1])["tools"]}
     assert "query" in names and "log" not in names
-    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "plank",
+    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "x.plank",
                                                                "payload": {"name": "Plank"}}, auth)
     assert resp.status == 403 and json.loads(raw)["error"] == "forbidden"
     assert request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 200
@@ -460,7 +460,7 @@ def test_approving_for_reading_only_grants_read(running):
     _, tokens = connect(running, read_only="1")
     assert tokens["scope"] == "read"
     resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
-        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}})
+        "kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}}})
     assert json.loads(raw)["result"]["isError"] is True
 
 

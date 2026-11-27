@@ -39,8 +39,8 @@ def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_
     monkeypatch.setitem(commands.REGISTRY, "log", dataclasses.replace(cmd, handler=slow))
     key = running.auth.create_key("example_assistant")
     resp, raw = request(running, "POST", "/api/v1/tools/log",
-                        {"kind": "activity", "id": "plank", "payload": {"name": "Plank"}},
+                        {"kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}},
                         {"Authorization": f"Bearer {key}"})
     assert resp.status == 200, raw
     with Store(byobot_home / "byobot.db") as s:
-        assert s.get("activity", "plank") is not None
+        assert s.get("activity", "x.plank") is not None
