@@ -26,16 +26,16 @@ def test_s7_a_rescored_night_keeps_both_revisions(world):
 
 def test_s7_a_corrected_weight_keeps_both_readings(world):
     world.replica("phone")
-    world.ingest("phone", "apple-health", [weight("w-1", T("07:00"), 80.4, T("07:00"))])
-    world.ingest("phone", "apple-health", [weight("w-1", T("07:00"), 80.1, T("09:00"))])
-    assert [h["value"] for h in world.source_history("phone", "apple-health", "w-1")] == [80.4, 80.1]
+    world.ingest("phone", "apple_health", [weight("w-1", T("07:00"), 80.4, T("07:00"))])
+    world.ingest("phone", "apple_health", [weight("w-1", T("07:00"), 80.1, T("09:00"))])
+    assert [h["value"] for h in world.source_history("phone", "apple_health", "w-1")] == [80.4, 80.1]
 
 
 def test_s7_an_older_revision_arriving_later_stays_older(world):
     world.replica("phone")
-    world.ingest("phone", "apple-health", [weight("w-1", T("07:00"), 80.1, T("09:00"))])
-    world.ingest("phone", "apple-health", [weight("w-1", T("07:00"), 80.4, T("07:00"))])
-    assert [h["value"] for h in world.source_history("phone", "apple-health", "w-1")] == [80.4, 80.1]
+    world.ingest("phone", "apple_health", [weight("w-1", T("07:00"), 80.1, T("09:00"))])
+    world.ingest("phone", "apple_health", [weight("w-1", T("07:00"), 80.4, T("07:00"))])
+    assert [h["value"] for h in world.source_history("phone", "apple_health", "w-1")] == [80.4, 80.1]
     assert diff(world.snapshot("phone"), world.expected("phone")) == []
 
 

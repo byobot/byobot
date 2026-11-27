@@ -335,5 +335,5 @@ def test_first_imports_without_a_revision_time_on_three_devices_read_the_same_on
     for r, at in ((0, 1), (1, 0), (2, 1)):
         state.world.tick(60)
         sample = health_workout("h1", day(at, 10, 1), day(at, 10, 59), 1000.0)
-        state.world.ingest(REPLICAS[r], "apple-health", [sample])
+        state.world.ingest(REPLICAS[r], "apple_health", [sample])
     state.teardown()

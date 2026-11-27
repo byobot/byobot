@@ -64,7 +64,7 @@ def health_workout(sid: str, start: str, end: str, distance: float) -> dict:
 
 
 def weight(sid: str, at: str, kg: float, modified: str | None = None) -> dict:
-    sample = {"source": "apple-health", "source_id": sid, "type": "HKQuantityTypeIdentifierBodyMass", "start": at, "end": at,
+    sample = {"source": "apple_health", "source_id": sid, "type": "HKQuantityTypeIdentifierBodyMass", "start": at, "end": at,
               "value": kg, "unit": "kg"}
     if modified:
         sample["raw"] = {"modified_at": modified}
