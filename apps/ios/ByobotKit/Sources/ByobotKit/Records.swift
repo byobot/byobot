@@ -84,18 +84,6 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     }
 }
 
-extension KindVersion {
-    /// The lowest version of `kind` that holds `payload`. Writes are stamped with it, so installs that know only
-    /// older versions still read them.
-    public static func lowest(_ kind: String, _ payload: JSONValue) -> Int {
-        var version = reshaped[kind] ?? 1
-        if case .object(let fields) = payload, let added = since[kind] {
-            for key in fields.keys { version = max(version, added[key] ?? 1) }
-        }
-        return min(version, all[kind] ?? 1)
-    }
-}
-
 public typealias Activity = Record<ActivityPayload>
 public typealias Location = Record<LocationPayload>
 public typealias Plan = Record<PlanPayload>

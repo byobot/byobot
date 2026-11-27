@@ -126,13 +126,12 @@ def test_plan_window_is_contract_shaped(store):
 
 
 def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
-    spec = Contract.shipped().registry["kinds"]["effort"]
-    hub = Store(tmp_path / "hub.db", contract=Contract.shipped().newer(2, {"effort": {**spec, "version": 2,
-                                                                                    "since": {"tempo": 2}}}))
+    hub = Store(tmp_path / "hub.db")
     payload = {"activity_id": "x.barbell_back_squat", "metrics": {"reps": {"value": 5}},
                "time": {"start": "2026-11-23T07:40:00-05:00"}}
-    [plain, fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload},
-                                           {"kind": "effort", "payload": {**payload, "tempo": "fast"}}])
+    [plain] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
+    hub.use(Contract.shipped().newer(2))
+    [fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
     entries = {e["id"]: e["kind_version"] for e in serve._entries(hub, "effort", [plain["record"]["id"],
                                                                                fast["record"]["id"]])}
     assert entries == {plain["record"]["id"]: 1, fast["record"]["id"]: 2}

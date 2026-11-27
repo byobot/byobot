@@ -138,7 +138,7 @@ public struct Logbook: Sendable {
         let hlc = HLC.next(after: state.hlc, now: now)
         let event = Event(id: UUID7.make(at: now), schemaVersion: ContractVersion.schema,
                           record: RecordRef(kind: kind, id: id), op: op,
-                          kindVersion: op == .put ? KindVersion.lowest(kind, payload) : nil, hlc: hlc, ts: Timestamp.string(now),
+                          kindVersion: op == .put ? (KindVersion.all[kind] ?? 1) : nil, hlc: hlc, ts: Timestamp.string(now),
                           deviceId: state.deviceId, actor: actor, prev: prev, reverts: reverts,
                           payload: payload)
         state.hlc = hlc

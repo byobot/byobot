@@ -416,7 +416,7 @@ class Store:
             (kind, rid, current and current["id"], int(live), int(conflict), int(erased),
              jcs([h["id"] for h in heads]), jcs([t["id"] for t in tips])))
         if self.contract.version(kind) is not None:
-            self._project(kind, rid, self._read(current) if live else None)
+            self._project(kind, rid, current["payload"] if live else None)
 
     def _project(self, kind: str, rid: str, payload: dict | None) -> None:
         """Rewrite one record's rows, then what reads it: the source records it feeds and the merged workouts
@@ -457,7 +457,7 @@ class Store:
     def _reproject(self, rid: str) -> None:
         found = self.record("source_record", rid)
         if found and found["live"]:
-            self._project("source_record", rid, self._read(self.event(found["current"])))
+            self._project("source_record", rid, self.event(found["current"])["payload"])
 
     def _resolve_all(self) -> None:
         occurrences.clear(self.conn)
@@ -522,11 +522,8 @@ class Store:
         if not found or not found["live"]:
             return None
         event = self.event(found["current"])
-        return {"kind": kind, "id": rid, "payload": self._read(event), "event": event, "conflict": found["conflict"],
+        return {"kind": kind, "id": rid, "payload": event["payload"], "event": event, "conflict": found["conflict"],
                 "newer": found["tips"] != found["heads"]}
-
-    def _read(self, event: dict) -> dict:
-        return reducers.upcast(self.contract, event["record"]["kind"], event.get("kind_version"), event["payload"])
 
     def newer(self, kind: str | None = None) -> set[tuple[str, str]]:
         """Records that also hold a version written by a newer byobot."""
@@ -542,7 +539,7 @@ class Store:
         for r in self.conn.execute(sql, (kind,) if kind else ()):
             event = _envelope(r)
             out.append({"kind": r["kind"], "id": r["record_id"], "conflict": bool(r["r_conflict"]),
-                        "newer": bool(r["r_newer"]), "payload": self._read(event), "event": event})
+                        "newer": bool(r["r_newer"]), "payload": event["payload"], "event": event})
         return out
 
     def conflicts(self, kind: str | None = None, rid: str | None = None) -> list[dict]:
@@ -734,7 +731,7 @@ class Store:
                  "actor": {k: v for k, v in actor.items() if k in ("kind", "id", "model")},
                  "prev": prev, "payload": change.get("payload", {}) if op != "erase" else {}}
         if op == "put":
-            event["kind_version"] = change.get("kind_version") or reducers.lowest(self.contract, kind, event["payload"])
+            event["kind_version"] = change.get("kind_version") or self.contract.version(kind) or 1
         if change.get("reverts"):
             event["reverts"] = change["reverts"]
         if batch:

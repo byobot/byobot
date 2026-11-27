@@ -609,7 +609,6 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(sides, [.left, .other("diagonal")])
         XCTAssertFalse(Side.allCases.contains(.other("diagonal")))
         XCTAssertEqual(String(decoding: try JSONEncoder().encode(sides), as: UTF8.self), #"["left","diagonal"]"#)
-        XCTAssertEqual(KindVersion.lowest("effort", .object(["round": .number(1)])), 1)
     }
 
     func testThePulledVersionWinsOnceThePhoneHasSynced() throws {

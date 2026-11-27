@@ -31,6 +31,7 @@ from .snapshot import canonical, empty, key, num, occurrence
 
 AUTHORED = ("activity", "location", "plan", "planned_session", "session", "effort")
 NEW_IN = {"meal": 2}  # kinds a newer install writes, by the version that introduced them
+RAISED = ("effort",)  # kinds whose version an upgrade raises
 LOGS = {
     "define_activity": "activity", "define_location": "location", "define_plan": "plan",
     "plan_session": "planned_session", "log_session": "session", "log_effort": "effort",
@@ -122,7 +123,8 @@ class ModelReplica:
         if wid is None:
             self.authored += 1
             wid = f"{self.name}:{self.authored}"
-        w = Write(wid, self.name, at, actor, kind, rid, op, content, prior, self._clock(at), reverts)
+        w = Write(wid, self.name, at, actor, kind, rid, op, content, prior, self._clock(at), reverts,
+                  self.version if op == "put" and kind in RAISED else 1)  # a writer writes the version it knows
         self.deliver([w])
         return w
 

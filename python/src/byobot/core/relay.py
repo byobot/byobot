@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from ..util import ValidationFailed
-from . import reducers, sources
+from . import sources
 from .contract import sync_errors
 from .store import Store, busy
 
@@ -34,11 +34,7 @@ def _needs(store: Store, event: dict) -> float:
     """The kind version an app must know to change a record on top of this event."""
     if event["op"] != "put":
         return 1
-    if not store.contract.understands(event):
-        return float("inf")
-    kind = event["record"]["kind"]
-    return reducers.lowest(store.contract, kind, reducers.upcast(store.contract, kind, event.get("kind_version"),
-                                                                 event["payload"]))
+    return event["kind_version"] if store.contract.understands(event) else float("inf")
 
 
 def _too_new(store: Store, event: dict, kinds: dict) -> bool:
@@ -136,7 +132,7 @@ def _entry(store: Store, kind: str, rid: str) -> dict | None:
     if found is None:
         return None
     entry = {"id": rid, "payload": found["payload"], "prev": [found["event"]["id"]],
-             "kind_version": reducers.lowest(store.contract, kind, found["payload"])}
+             "kind_version": found["event"]["kind_version"]}
     if found["conflict"]:
         heads = [store.event(h) for h in store.record(kind, rid)["heads"]]
         entry |= {"conflict": True, "versions": [_version(store, h) for h in heads if h]}
@@ -144,7 +140,7 @@ def _entry(store: Store, kind: str, rid: str) -> dict | None:
 
 
 def _version(store: Store, event: dict) -> dict:
-    return {"event_id": event["id"], **({"payload": store._read(event)} if event["op"] == "put" else {}),
+    return {"event_id": event["id"], **({"payload": event["payload"]} if event["op"] == "put" else {}),
             "actor": event["actor"], "ts": event["ts"]}
 
 
@@ -178,7 +174,7 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
             row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
             payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
             activities.append({"id": r["id"], "payload": payload, "prev": [],
-                               "kind_version": reducers.lowest(store.contract, "activity", payload), "library": True})
+                               "kind_version": store.contract.version("activity"), "library": True})
     planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
                   "ORDER BY scheduled_on, name, id", start, end)
     plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "

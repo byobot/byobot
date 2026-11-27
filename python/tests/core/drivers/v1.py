@@ -19,7 +19,7 @@ from byobot.core.contract import SLUG_KINDS, Contract
 from byobot.core.store import Store
 
 from ..driver import Unsupported, parse
-from ..model import AUTHORED, NEW_IN
+from ..model import AUTHORED, NEW_IN, RAISED
 from ..snapshot import canonical, empty, key, num, occurrence
 
 NAMESPACE = uuid.UUID("6f1d3c52-8a27-4f0e-9b61-2d7c0e5a9f14")
@@ -338,12 +338,12 @@ class V1:
         return rep
 
     def upgrade(self, rep: Replica, version: int) -> None:
+        raised = {k: {**Contract.shipped().registry["kinds"][k], "version": version} for k in RAISED}
         contract = Contract.shipped().newer(
-            version, {k: {"version": v, "description": k} for k, v in NEW_IN.items()
-                      if v <= version})
+            1, {**raised, **{k: {"version": v, "description": k} for k, v in NEW_IN.items()
+                             if v <= version}})
         contract.schemas = copy.deepcopy(contract.schemas)  # the newer install knows the field it added
         contract.schemas["records"]["$defs"]["effort"]["properties"]["x_new_field"] = {"type": "integer"}
-        contract.registry["kinds"]["effort"].setdefault("since", {})["x_new_field"] = 2
         rep.store.use(contract)
 
     def newer(self, events: list[dict], variant: str) -> list[dict]:
