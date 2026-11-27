@@ -336,10 +336,13 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(saved.map(\.seq), [1])
         XCTAssertEqual(saved.first?.inFlight, ["W1"])
         let data = try JSONEncoder().encode(relay)
-        XCTAssertEqual(try JSONDecoder().decode(CloudRelay.self, from: data), relay)
+        var back = try JSONDecoder().decode(CloudRelay.self, from: data)
+        XCTAssertFalse(back.joined)
+        back.restore(relay.epochKey)
+        XCTAssertEqual(back, relay)
     }
 
-    func testTheRelaysFileHasSnakeCaseKeys() async throws {
+    func testTheRelaysFileHasSnakeCaseKeysAndNoEpochKey() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
         let relay = try await joined(k, folder)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(relay)) as? [String: Any])
@@ -347,7 +350,31 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(object["store_id"] as? String, k.store)
         XCTAssertNotNil(object["device_id"])
         XCTAssertNotNil(object["keeper_sign"])
+        XCTAssertNil(object["key"])
         XCTAssertNil(object["storeID"])
+    }
+
+    func testAKeyForAnotherEpochIsNotRestored() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        let relay = try await joined(k, folder)
+        let kept = try XCTUnwrap(relay.epochKey)
+        var back = try JSONDecoder().decode(CloudRelay.self, from: JSONEncoder().encode(relay))
+        back.restore(EpochKey(epoch: kept.epoch + 1, key: kept.key))
+        XCTAssertFalse(back.joined)
+        back.restore(nil)
+        XCTAssertFalse(back.joined)
+    }
+
+    func testARelayThatLostItsKeyReadsItAgainWithoutMoving() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        let relay = try await joined(k, folder)
+        var back = try JSONDecoder().decode(CloudRelay.self, from: JSONEncoder().encode(relay))
+        back.send(SampleBatch(samples: [weighed("W1")]))
+        let report = try await back.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.epoch, 1)
+        XCTAssertTrue(back.joined)
+        XCTAssertEqual(report.written, 1)
+        XCTAssertEqual(back.epochKey, relay.epochKey)
     }
 }
 #endif

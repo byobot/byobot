@@ -49,6 +49,19 @@ public struct CloudJoin: Equatable, Sendable {
     }
 }
 
+/// A relay's epoch key as the phone keeps it in the keychain.
+public struct EpochKey: Codable, Equatable, Sendable {
+    public static let currentVersion = 1
+    public var version = EpochKey.currentVersion
+    public var epoch: Int
+    public var key: Data
+
+    public init(epoch: Int, key: Data) {
+        self.epoch = epoch
+        self.key = key
+    }
+}
+
 /// Samples and deletions sent together, as in POST /v1/samples.
 public struct SampleBatch: Codable, Equatable, Sendable {
     public var samples: [Sample]
@@ -98,6 +111,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public let deviceID: String
     public let keeperSign: String
     public private(set) var epoch: Int?
+    /// The epoch's key. It is kept in the keychain, not with the rest: see `epochKey`.
     var key: Data?
     var seq = 0
     /// Every event it was given and the keeper hasn't read yet.
@@ -117,11 +131,24 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var removed = false
 
     enum CodingKeys: String, CodingKey {
-        case version, epoch, key, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
+        case version, epoch, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
         case storeID = "store_id"
         case deviceID = "device_id"
         case keeperSign = "keeper_sign"
         case planPath = "plan_path"
+    }
+
+    /// The epoch's key, to keep in the keychain.
+    public var epochKey: EpochKey? {
+        guard let epoch, let key else { return nil }
+        return EpochKey(epoch: epoch, key: key)
+    }
+
+    /// Puts back the key kept for this relay's epoch. One for another epoch is left out; the relay reads its
+    /// key file again.
+    public mutating func restore(_ kept: EpochKey?) {
+        guard let kept, kept.version <= EpochKey.currentVersion, kept.epoch == epoch else { return }
+        key = kept.key
     }
 
     public struct Report: Equatable, Sendable {
@@ -265,7 +292,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     mutating func adopt(_ folder: some CloudFolder, _ listing: [String: String], _ me: CloudIdentity) async throws -> Bool {
         let epochs = listing.keys.compactMap(Self.epochNumber).sorted(by: >)
         for n in epochs {
-            if let epoch, n <= epoch { break }
+            if let epoch, n < epoch || (n == epoch && key != nil) { break }
             let body: [String: JSONValue]
             do {
                 body = try Cloud.readEpoch(try await folder.read(Cloud.epochPath(n)) ?? Data(), keeperSign: keeperSign,
@@ -282,13 +309,15 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             }
             guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: keeperSign,
                                                   storeID: storeID, epoch: n) else { continue }
-            let first = epoch == nil
+            let moved = epoch != nil && epoch != n
+            if epoch != n {
+                plan = nil
+                planPath = nil
+                receipts = [:]
+            }
             epoch = n
             key = opened
-            plan = nil
-            planPath = nil
-            receipts = [:]
-            return !first
+            return moved
         }
         if epoch == nil {  // admitted mid-epoch: no epoch file lists it yet, its key file does
             for n in epochs {

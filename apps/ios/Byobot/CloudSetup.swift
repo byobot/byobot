@@ -11,20 +11,27 @@ import UIKit
 enum CloudSetup {
     static let google = "byobot.google"
     static let keys = "byobot.cloud-keys"
+    static let epochKeys = "byobot.cloud-epoch"
 
     static var dir: URL { AppModel.stateFile().deletingLastPathComponent() }
     static var file: URL { dir.appendingPathComponent("cloud.json") }
     static var journal: URL { dir.appendingPathComponent("drive-ids.json") }
 
-    /// The relay. A file from a newer app is left alone.
+    /// The relay, with its epoch key from the keychain. A file from a newer app is left alone.
     static func load() -> CloudRelay? {
         guard let data = try? Data(contentsOf: file),
-              let relay = try? JSONDecoder().decode(CloudRelay.self, from: data),
+              var relay = try? JSONDecoder().decode(CloudRelay.self, from: data),
               relay.version <= CloudRelay.currentVersion else { return nil }
+        relay.restore(Keychain.data(service: epochKeys, account: relay.storeID)
+            .flatMap { try? JSONDecoder().decode(EpochKey.self, from: $0) })
         return relay
     }
 
+    /// The epoch key goes to the keychain first, so the file never names an epoch whose key was lost.
     static func store(_ relay: CloudRelay) throws {
+        if let key = relay.epochKey {
+            try Keychain.set(try JSONEncoder().encode(key), service: epochKeys, account: relay.storeID)
+        }
         try JSONEncoder().encode(relay).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
@@ -70,10 +77,12 @@ enum CloudSetup {
 
     /// Forgets the relay and the sign-in. The keys stay, so joining again later is the same phone.
     static func forget() {
-        if let left = load()?.leftovers {
+        let relay = load()
+        if let left = relay?.leftovers {
             let had = carry()
             keepCarry(SampleBatch(samples: had.samples + left.samples, deleted: had.deleted + left.deleted))
         }
+        if let relay { Keychain.delete(service: epochKeys, account: relay.storeID) }
         try? FileManager.default.removeItem(at: file)
         try? FileManager.default.removeItem(at: journal)
         Keychain.delete(service: google, account: "drive")
