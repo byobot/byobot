@@ -25,4 +25,4 @@ CI runs all of these. A change is done when they pass.
 
 ## Privacy
 
-This repo is public and handles health data. Use only example data: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example-gym`. No real names, emails, devices, hostnames, IPs, places or health data in code, tests, commits, commit metadata, branch names or PRs. Commit with a noreply email.
+This repo is public and handles health data. Use only example data: device `Example iPhone`, hostname `example-laptop`, addresses in `192.0.2.0/24`, location id `example_gym`. No real names, emails, devices, hostnames, IPs, places or health data in code, tests, commits, commit metadata, branch names or PRs. Commit with a noreply email.
