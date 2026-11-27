@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS rejections (
 CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_shown (event_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
   PRIMARY KEY (path, line));
 """
@@ -758,7 +757,7 @@ def ddl() -> str:
 _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
 # The store's own key, the paired devices' token hashes and Drive sync's keys and bookkeeping stay out of queries.
 _UNREADABLE = {("meta", None), ("devices", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
-               ("cloud_read", None), ("cloud_shown", None), ("cloud_refused", None)}
+               ("cloud_read", None), ("cloud_refused", None)}
 
 
 @functools.cache

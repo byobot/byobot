@@ -213,9 +213,7 @@ def test_a_keeper_killed_mid_upload_recovers_on_its_next_run(fake, tmp_path, sto
     settled(fake, mac, relay)
     held = mac.run(lambda s, k: {e["id"] for e in s.events()})
     assert {e["id"] for e in sets} <= held
-    unshown = mac.run(lambda s, k: s.rows("SELECT id FROM events WHERE id NOT IN (SELECT event_id FROM cloud_shown) "
-                                         "AND seq > ?", (int(k.state.get("checkpoint_position")),)))
-    assert unshown == []
+    assert mac.run(lambda s, k: s.events(since=k.published())) == []
 
 
 @pytest.mark.parametrize("nth", range(5))

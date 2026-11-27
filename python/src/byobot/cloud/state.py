@@ -1,4 +1,4 @@
-"""The keeper's own tables in the store: cloud_meta, cloud_keys, cloud_read, cloud_refused, cloud_shown, and the
+"""The keeper's own tables in the store: cloud_meta, cloud_keys, cloud_read, cloud_refused, and the
 Drive columns of devices. Callers hold the transaction."""
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ COLUMNS = "id, class, box, sign, joined_epoch, moved_epoch, last_seq, removed, l
 ENROL = ("INSERT INTO devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT "
          "(id) DO UPDATE SET class = excluded.class, box = excluded.box, sign = excluded.sign, joined_epoch = "
          "excluded.joined_epoch, moved_epoch = excluded.moved_epoch, last_seq = NULL, removed = 0")
-TABLES = ("cloud_meta", "cloud_keys", "cloud_read", "cloud_shown", "cloud_refused")
+TABLES = ("cloud_meta", "cloud_keys", "cloud_read", "cloud_refused")
 
 
 class State:
@@ -100,7 +100,7 @@ class State:
                           f"NULL, last_seq = NULL, removed = 0 WHERE {where}")
         self.conn.execute("DELETE FROM devices WHERE class IS NULL AND token_sha256 IS NULL")
 
-    # -- cloud_read, cloud_refused, cloud_shown ------------------------------------------
+    # -- cloud_read, cloud_refused --------------------------------------------------------
 
     def checksums(self) -> dict[str, str]:
         return dict(self.conn.execute("SELECT path, checksum FROM cloud_read"))
@@ -133,12 +133,6 @@ class State:
 
     def refused(self) -> list[tuple[str, int, str]]:
         return [tuple(r) for r in self.conn.execute("SELECT path, line, reason FROM cloud_refused ORDER BY path, line")]
-
-    def shown(self) -> set[str]:
-        return {r[0] for r in self.conn.execute("SELECT event_id FROM cloud_shown")}
-
-    def show(self, ids: Iterable[str]) -> None:
-        self.conn.executemany("INSERT OR IGNORE INTO cloud_shown VALUES (?)", [(i,) for i in ids])
 
     def clear(self, *tables: str) -> None:
         for table in tables:

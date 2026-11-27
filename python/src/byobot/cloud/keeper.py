@@ -244,7 +244,7 @@ class Keeper:
         with self.store.transaction():
             self.state.set("epoch", n)
             self.state.set("checkpoint_position", position)
-            self.state.clear("cloud_shown")
+            self.state.unset("published_position")
             self.state.unset("plan_digest")
             self.state.unset("epoch_pending")
             self.state.unset("missing_since")
@@ -456,8 +456,7 @@ class Keeper:
         except CloudError as exc:
             return str(exc)
         rejected: list[tuple[int, str]] = []
-        shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
-        apply(self.store, writer, device["class"], messages, shown, lambda i, why: rejected.append((i, why)))
+        apply(self.store, writer, device["class"], messages, lambda i, why: rejected.append((i, why)))
         with self.store.transaction():
             self.state.refuse((path, i, why) for i, why in rejected)
         erased = set(self.store.erased())
@@ -484,24 +483,29 @@ class Keeper:
                     return True
         return False
 
-    def _shown(self, ids: list[str]) -> None:
-        with self.store.transaction():
-            self.state.show(ids)
-
     # -- writing -------------------------------------------------------------------
 
     def publish_events(self) -> int:
-        """Publish every event this store holds that the folder doesn't show yet: its own, the source events it
-        derived, and whatever a hub-paired phone pushed."""
-        shown = self.state.shown()
-        events = [e for e in self.store.events(since=int(self.state.get("checkpoint_position")))
-                  if e["id"] not in shown]
+        """Publish every event that arrived since the last publish: its own, the source events it derived, and what
+        phones sent, by the hub or Drive. A relay's events come back to it; readers skip events they hold."""
+        since = self.published()
+        with self.store.snapshot():
+            events = self.store.events(since=since)
+            positions = [r["seq"] for r in self.store.rows("SELECT seq FROM events WHERE seq > ? ORDER BY seq",
+                                                           (since,))]
+        done = 0
         for part in _parts(events):
             with self.store.transaction():
                 seq = self._next_seq()
             self._segment("segment", seq, [{"events": {"events": part}}])
-            self._shown([e["id"] for e in part])
+            done += len(part)
+            with self.store.transaction():
+                self.state.set("published_position", positions[done - 1])
         return len(events)
+
+    def published(self) -> int:
+        """The arrival position the folder shows events up to: the checkpoint's, then each segment's."""
+        return max(int(self.state.get("checkpoint_position")), int(self.state.get("published_position") or 0))
 
     def plan(self) -> dict:
         """The plan window every relay reads, with each relay's latest event held and rejected events."""
@@ -679,10 +683,10 @@ class Keeper:
                 self.folder.delete(p)
             listing += late
         with self.store.transaction():
-            self.state.clear("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused")
+            self.state.clear("cloud_keys", "cloud_read", "cloud_refused")
             self.state.leave(relays_only=True)
             self.state.unset("join", "last_join", "plan_digest", "epoch_pending", "missing_since", "starting", "error",
-                             "closing", "previous_identity", prefixes=["removing:", "rejoined:"])
+                             "closing", "previous_identity", "published_position", prefixes=["removing:", "rejoined:"])
             self.state.set("epoch", n)
             self.state.set("checkpoint_position", 0)
             self.state.set("closed", 1)
@@ -832,7 +836,6 @@ def _events(message: dict) -> list[dict]:
 
 
 def apply(store: Store, writer: str, cls: str, messages: list[dict],
-          shown: Callable[[list[str]], None] = lambda ids: None,
           rejected: Callable[[int, str], None] = lambda line, why: None) -> list[tuple[str, str]]:
     """Accept a verified segment's messages from its writer: a relay's through the hub's rules, the keeper's as
     they are. One (outcome, reason) per event, in order; a rejected samples message goes to ``rejected``."""
@@ -860,5 +863,4 @@ def apply(store: Store, writer: str, cls: str, messages: list[dict],
         else:
             got = store.accept_many(events)
         out += got
-        shown([e["id"] for e, (status, _) in zip(events, got) if status != "rejected" and isinstance(e, dict)])
     return out
