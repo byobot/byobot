@@ -65,12 +65,21 @@ public enum Timestamp {
         string(Date())
     }
 
+    /// Built once: ISO8601DateFormatter is thread-safe, and building one per parse is slow.
+    private final class Parsers: @unchecked Sendable {
+        let fraction = Timestamp.formatter(TimeZone(identifier: "UTC")!)
+        let plain: ISO8601DateFormatter = {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            return f
+        }()
+    }
+
+    private static let parsers = Parsers()
+
     /// Parse any contract timestamp (any offset, with or without a fraction).
     public static func date(_ text: String) -> Date? {
-        if let d = formatter(TimeZone(identifier: "UTC")!).date(from: text) { return d }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: text)
+        parsers.fraction.date(from: text) ?? parsers.plain.date(from: text)
     }
 
     /// The phone's IANA zone, where the contract can name it.
