@@ -45,7 +45,7 @@ struct WorkoutView: View {
         .sheet(item: $logForm) { form in
             NavigationStack {
                 LogEffortView(planned: form.slot.effort, round: form.slot.round,
-                              activity: model.plan?.activity(form.slot.activityId), previous: nil,
+                              activity: model.plan?.activity(form.slot.activityId),
                               editing: form.editing, prefill: form.editing == nil ? form.values : nil,
                               onSave: saver(form))
             }
@@ -62,7 +62,7 @@ struct WorkoutView: View {
         }
         .sheet(isPresented: $unplanned) {
             NavigationStack {
-                LogEffortView(planned: nil, round: nil, activity: nil, previous: nil)
+                LogEffortView(planned: nil, round: nil, activity: nil)
             }
             .environmentObject(model)
         }

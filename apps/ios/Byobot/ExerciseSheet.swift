@@ -33,7 +33,7 @@ struct ExerciseSheet: View {
             .sheet(item: $editing) { form in
                 NavigationStack {
                     LogEffortView(planned: form.slot.effort, round: form.slot.round,
-                                  activity: model.plan?.activity(form.slot.activityId), previous: nil, editing: form.editing)
+                                  activity: model.plan?.activity(form.slot.activityId), editing: form.editing)
                 }
                 .environmentObject(model)
             }
