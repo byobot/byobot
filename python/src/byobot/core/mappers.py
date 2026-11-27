@@ -36,7 +36,7 @@ def _scored(raw: dict) -> dict:
 STAGES = {"total_light_sleep_time_milli": "sleep_light_duration", "total_slow_wave_sleep_time_milli":
           "sleep_deep_duration", "total_rem_sleep_time_milli": "sleep_rem_duration",
           "total_awake_time_milli": "sleep_awake_duration"}
-RECOVERY = (("recovery_score", "recovery_score", "%"), ("resting_heart_rate", "resting_heart_rate", "/min"),
+RECOVERY = (("recovery_score", "whoop_recovery_score", "%"), ("resting_heart_rate", "resting_heart_rate", "/min"),
             ("hrv_rmssd_milli", "hrv_rmssd", "ms"), ("spo2_percentage", "oxygen_saturation", "%"),
             ("skin_temp_celsius", "skin_temperature", "Cel"))
 SPORTS = {"weightlifting_msk": "strength training", "strength-trainer": "strength training", "hiit": "HIIT",
@@ -52,7 +52,7 @@ def whoop_sleep(raw: dict, related: Related) -> dict:
     for key, code in STAGES.items():
         if (score.get("stage_summary") or {}).get(key) is not None:
             found.append(_quantity(code, score["stage_summary"][key] / 1000, "s", start, end))
-    for key, code, unit in (("sleep_performance_percentage", "sleep_performance", "%"),
+    for key, code, unit in (("sleep_performance_percentage", "whoop_sleep_performance", "%"),
                             ("respiratory_rate", "respiratory_rate", "/min")):
         if score.get(key) is not None:
             found.append(_quantity(code, score[key], unit, end))
@@ -77,7 +77,7 @@ def whoop_cycle(raw: dict, related: Related) -> dict:
     score = _scored(raw)
     if score.get("strain") is None:
         return {"observations": []}
-    return {"observations": [_quantity("strain", score["strain"], None, _at(raw["start"], raw.get("timezone_offset")))]}
+    return {"observations": [_quantity("whoop_strain", score["strain"], None, _at(raw["start"], raw.get("timezone_offset")))]}
 
 
 def whoop_workout(raw: dict, related: Related) -> dict:
@@ -89,7 +89,7 @@ def whoop_workout(raw: dict, related: Related) -> dict:
     score = _scored(raw)
     for key, code, unit in (("average_heart_rate", "heart_rate", "/min"), ("max_heart_rate", "heart_rate_max", "/min"),
                             ("distance_meter", "distance", "m"), ("kilojoule", "active_energy", "kJ"),
-                            ("strain", "strain", None)):
+                            ("strain", "whoop_strain", None)):
         if score.get(key) is not None:
             metrics[code] = {"value": score[key], "unit": unit} if unit else {"value": score[key]}
     sport = raw.get("sport_name") or "workout"

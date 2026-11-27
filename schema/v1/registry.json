@@ -281,8 +281,8 @@
       ],
       "healthkit": "HKQuantityTypeIdentifierBasalEnergyBurned"
     },
-    "strain": {
-      "description": "The source's strain score, 0 to 21.",
+    "whoop_strain": {
+      "description": "WHOOP's strain score, 0 to 21.",
       "value": "number",
       "minimum": 0,
       "maximum": 21,
@@ -615,8 +615,8 @@
         "observation"
       ]
     },
-    "sleep_performance": {
-      "description": "The source's sleep score.",
+    "whoop_sleep_performance": {
+      "description": "WHOOP's sleep performance score.",
       "value": "quantity",
       "unit": "%",
       "units": {
@@ -629,8 +629,8 @@
       ],
       "scope": "source"
     },
-    "recovery_score": {
-      "description": "The source's recovery score.",
+    "whoop_recovery_score": {
+      "description": "WHOOP's recovery score.",
       "value": "quantity",
       "unit": "%",
       "units": {
