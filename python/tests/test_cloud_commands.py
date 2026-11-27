@@ -13,6 +13,7 @@ from byobot import commands, credentials
 from byobot.cloud import drive
 from byobot.cloud.drive import Drive, DriveFolder
 from byobot.cloud.relay import Relay
+from byobot.link import pairing_link
 from byobot.commands import Context, run
 from byobot.core import commands as core
 from byobot.util import ByobotError, ValidationFailed
@@ -53,7 +54,7 @@ def test_setup_join_sync_status_remove_and_compact(cloud, fake, tmp_path):
     assert out["epoch"] == 1 and len(out["recovery_code"]) > 10
     assert credentials.load("google")["ios_client_id"] == "ios.apps.example"
     join = run("cloud join", ctx, {"wait": False})
-    assert join["link"].startswith("byobot://cloud-join?") and "client=ios.apps.example" in join["link"]
+    assert join["link"].startswith("byobot://pair?v=1&") and "client=ios.apps.example" in join["link"]
     phone = Relay.join(DriveFolder(ctx.store().store_id, Drive(fake), journal=tmp_path / "phone.json"),
                        join["link"], PHONE)
     assert run("cloud sync", ctx, {})["join"] == "admitted"
@@ -79,8 +80,7 @@ def test_join_waits_until_the_phone_joins(cloud, fake, tmp_path, monkeypatch):
         if not any(f"/devices/{PHONE}" in n for n in fake.names()):
             secret = json.loads(store.conn.execute("SELECT value FROM cloud_meta WHERE key = 'join'").fetchone()[0])
             keeper = store.conn.execute("SELECT sign FROM devices WHERE class = 'keeper'").fetchone()[0]
-            link = "byobot://cloud-join?" + urllib.parse.urlencode(
-                {"store": store.store_id, "secret": secret["secret"], "keeper": keeper})
+            link = pairing_link(store_id=store.store_id, secret=secret["secret"], keeper_key=keeper)
             Relay.join(DriveFolder(store.store_id, Drive(fake), journal=tmp_path / "phone.json"), link, PHONE)
 
     monkeypatch.setattr(commands.time, "sleep", phone_scans)

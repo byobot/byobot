@@ -1066,9 +1066,8 @@ def _cloud_join(ctx: Context, wait: bool = True) -> dict:
 
     keeper = _keeper(ctx)
     with _lock(keeper.store):  # a sync in `serve` ending the last code doesn't unset this one
-        code = keeper.join_code()
-    ios = (credentials.load(drive.NAME) or {}).get("ios_client_id")
-    link = code["link"] + (f"&client={ios}" if ios else "")
+        code = keeper.join_code((credentials.load(drive.NAME) or {}).get("ios_client_id"))
+    link = code["link"]
     out = {"link": link, "expires": datetime.fromtimestamp(code["expires"]).astimezone().isoformat(timespec="seconds")}
     if sys.stderr.isatty():
         sys.stderr.write("\nIn the byobot app, turn on Drive sync and scan this:\n\n")

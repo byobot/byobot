@@ -4,8 +4,8 @@ The laptop running ``byobot serve`` is the hub. A phone pairs with it once,
 then pulls the plan and pushes what it logged. Nothing goes through a cloud.
 
 * **Transport.** HTTPS with a self-signed certificate that byobot creates on
-  first run and keeps in ``$BYOBOT_HOME/serve``. The phone pins the
-  certificate's SHA-256 fingerprint, which it learns from the pairing QR code
+  first run and keeps in ``$BYOBOT_HOME/serve``. The phone pins the SHA-256
+  fingerprint of its public key, which it learns from the pairing QR code
   (or confirms by eye when pairing by hand), so nobody on the network can read
   or change what is synced.
 * **Pairing.** ``byobot serve`` shows a one-time six-digit code, valid for ten
@@ -33,7 +33,6 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
@@ -52,13 +51,14 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, NoReturn
-from urllib.parse import parse_qs, quote, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from byobot import __version__, util
 from byobot.core.contract import SCHEMA_VERSION, Contract
 from byobot.core.relay import (PERSON, Cut, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
 from byobot.core.store import Store, busy
+from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 DEFAULT_PORT = 8765
@@ -87,7 +87,7 @@ def serve_dir() -> Path:
 
 
 def ensure_certificate(device_id: str, directory: Path | None = None) -> tuple[Path, Path, str]:
-    """The server's certificate and key, made on first use. Returns (cert, key, SHA-256 fingerprint)."""
+    """The server's certificate and key, made on first use. Returns (cert, key, public key fingerprint)."""
     directory = directory or serve_dir()
     cert_path, key_path = directory / "cert.pem", directory / "key.pem"
     if not (cert_path.is_file() and key_path.is_file()):
@@ -128,9 +128,14 @@ def _make_certificate(device_id: str, cert_path: Path, key_path: Path) -> None:
 
 
 def fingerprint(cert_pem_or_der: bytes) -> str:
-    """Lowercase hex SHA-256 of the certificate's DER bytes (what the phone pins)."""
-    der = ssl.PEM_cert_to_DER_cert(cert_pem_or_der.decode()) if cert_pem_or_der.startswith(b"-----") else cert_pem_or_der
-    return hashlib.sha256(der).hexdigest()
+    """Lowercase hex SHA-256 of the certificate's public key, as SubjectPublicKeyInfo DER (what the phone pins), so
+    a certificate renewed with the same key keeps its phones."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    pem = cert_pem_or_der.startswith(b"-----")
+    cert = x509.load_pem_x509_certificate(cert_pem_or_der) if pem else x509.load_der_x509_certificate(cert_pem_or_der)
+    return hashlib.sha256(cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).hexdigest()
 
 
 def short_fingerprint(fp: str) -> str:
@@ -181,23 +186,6 @@ class Pairing:
             return True
         self.tries_left -= 1
         return False
-
-
-def pairing_link(hosts: list[str], port: int, code: str, fp: str) -> str:
-    """``byobot://pair?v=0&host=...&port=...&code=...&fp=...``; ``fp`` is the fingerprint in unpadded base64url."""
-    fp64 = base64.urlsafe_b64encode(bytes.fromhex(fp)).decode().rstrip("=")
-    query = [("v", str(PROTOCOL))] + [("host", h) for h in hosts] + [("port", str(port)), ("code", code), ("fp", fp64)]
-    return "byobot://pair?" + urlencode(query, quote_via=quote)
-
-
-def parse_pairing_link(link: str) -> dict:
-    """The inverse of :func:`pairing_link` (the app has its own; this one is for tests and tools)."""
-    parts = urlsplit(link)
-    if parts.scheme != "byobot" or parts.netloc != "pair":
-        raise ValueError("not a byobot pairing link")
-    q = parse_qs(parts.query)
-    fp = base64.urlsafe_b64decode(q["fp"][0] + "=" * (-len(q["fp"][0]) % 4)).hex()
-    return {"v": int(q["v"][0]), "hosts": q.get("host", []), "port": int(q["port"][0]), "code": q["code"][0], "fp": fp}
 
 
 def lan_hosts() -> list[str]:
@@ -708,7 +696,8 @@ def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool |
         info["code"] = pairing.code
         if tls:
             info["hosts"] = lan_hosts()
-            info["link"] = pairing_link(info["hosts"], info["port"], pairing.code, info["fingerprint"])
+            info["link"] = pairing_link(hosts=info["hosts"], port=info["port"], code=pairing.code,
+                                        pin=info["fingerprint"])
     return server, info
 
 
@@ -726,7 +715,7 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
     (serve_dir() / "port").write_text(f"{info['port']}\n")
     err = sys.stderr
     err.write(f"byobot serve · {info['name']} · port {info['port']} · store {db_path()}\n")
-    err.write(f"certificate fingerprint {short_fingerprint(info['fingerprint'])} (full: {info['fingerprint']})\n")
+    err.write(f"key fingerprint {short_fingerprint(info['fingerprint'])} (full: {info['fingerprint']})\n")
     if "link" in info:
         err.write("\nScan this with your iPhone camera to pair the byobot app:\n\n")
         try:

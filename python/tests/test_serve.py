@@ -1,5 +1,6 @@
 """``byobot serve``: the LAN sync endpoint the app pairs with, over real HTTPS."""
 
+import base64
 import hashlib
 import http.client
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from byobot import serve
+from byobot import link, serve
 from byobot.core import commands, hlc
 from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
@@ -37,20 +38,32 @@ def test_sync_fixture(item):
 def test_pairing_link_fixture(item):
     if not item["valid"]:
         with pytest.raises((ValueError, KeyError)):
-            parsed = serve.parse_pairing_link(item["link"])
-            if parsed["v"] != serve.PROTOCOL:
-                raise ValueError("protocol")
+            link.parse_pairing_link(item["link"])
         return
-    parsed = serve.parse_pairing_link(item["link"])
-    assert parsed["v"] == serve.PROTOCOL
-    assert {k: parsed[k] for k in ("hosts", "port", "code", "fp")} == item["expect"]
+    parsed = link.parse_pairing_link(item["link"])
+    assert parsed.pop("v") == link.VERSION and parsed == item["expect"]
 
 
 def test_pairing_link_round_trips():
-    fp = hashlib.sha256(b"x").hexdigest()
-    link = serve.pairing_link(["host.local", "192.0.2.2"], 8765, "012345", fp)
-    assert serve.parse_pairing_link(link) == {"v": 1, "hosts": ["host.local", "192.0.2.2"], "port": 8765,
-                                             "code": "012345", "fp": fp}
+    pin = hashlib.sha256(b"x").hexdigest()
+    made = link.pairing_link(hosts=["host.local", "192.0.2.2"], port=8765, code="012345", pin=pin)
+    assert link.parse_pairing_link(made) == {"v": 1, "hosts": ["host.local", "192.0.2.2"], "port": 8765,
+                                             "code": "012345", "pin": pin}
+
+
+def test_the_pin_is_the_public_key_s_so_a_renewed_certificate_keeps_it(byobot_home):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+
+    cert_path, key_path, pin = serve.ensure_certificate("dev_1")
+    old = x509.load_pem_x509_certificate(cert_path.read_bytes())
+    key = serialization.load_pem_private_key(key_path.read_bytes(), None)
+    renewed = (x509.CertificateBuilder().subject_name(old.subject).issuer_name(old.issuer).public_key(key.public_key())
+               .serial_number(x509.random_serial_number()).not_valid_before(old.not_valid_before_utc)
+               .not_valid_after(old.not_valid_after_utc).sign(key, hashes.SHA256()))
+    der = renewed.public_bytes(serialization.Encoding.DER)
+    assert der != old.public_bytes(serialization.Encoding.DER) and serve.fingerprint(der) == pin
+    assert serve.fingerprint(base64.b64decode(SYNC["pin"]["certificate"])) == SYNC["pin"]["pin"]
 
 
 # -- pairing codes -------------------------------------------------------------
@@ -274,7 +287,7 @@ class Client:
         conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=10)
         try:
             conn.connect()
-            served = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest()
+            served = serve.fingerprint(conn.sock.getpeercert(binary_form=True))
             assert served == self.fp, "certificate does not match the pinned fingerprint"
             headers = {"Content-Type": "application/json"}
             tok = token if token is not None else self.token
@@ -333,7 +346,7 @@ def test_certificate_is_made_once_and_kept(server, byobot_home):
     with db(byobot_home) as s:
         _, _, again = serve.ensure_certificate(s.device_id)
     assert again == info["fingerprint"]
-    assert info["link"].startswith("byobot://pair?v=1&") and serve.parse_pairing_link(info["link"])["fp"] == again
+    assert info["link"].startswith("byobot://pair?v=1&") and link.parse_pairing_link(info["link"])["pin"] == again
 
 
 def test_plain_http_is_refused(server):
@@ -652,7 +665,7 @@ def _raw_exchange(port, fp, request: bytes, timeout: float = 3) -> bytes:
     sock = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
         tls = ctx.wrap_socket(sock, server_hostname="127.0.0.1")
-        assert hashlib.sha256(tls.getpeercert(binary_form=True)).hexdigest() == fp
+        assert serve.fingerprint(tls.getpeercert(binary_form=True)) == fp
         tls.sendall(request)
         tls.settimeout(timeout)
         chunks = []
@@ -711,7 +724,7 @@ def _tls_client(port, fp):
     ctx.verify_mode = ssl.CERT_NONE
     sock = socket.create_connection(("127.0.0.1", port), timeout=5)
     tls = ctx.wrap_socket(sock, server_hostname="127.0.0.1")
-    assert hashlib.sha256(tls.getpeercert(binary_form=True)).hexdigest() == fp
+    assert serve.fingerprint(tls.getpeercert(binary_form=True)) == fp
     return tls
 
 

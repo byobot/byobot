@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 from ..core.relay import MAX_BATCH
+from ..link import parse_pairing_link
 from ..util import ByobotError
 from . import files, segment
 from .crypto import CloudError, Identity, join_proof, unb64
@@ -18,12 +18,14 @@ from .folder import Exists, Folder
 
 
 def parse_join(link: str) -> dict:
-    """The store, one-time secret and keeper's signing key in a ``byobot://cloud-join`` link."""
-    parts = urlsplit(link)
-    query = {k: v[0] for k, v in parse_qs(parts.query).items()}
-    if parts.scheme != "byobot" or parts.netloc != "cloud-join" or not {"store", "secret", "keeper"} <= set(query):
-        raise ByobotError("that isn't a byobot cloud join code")
-    return {"store_id": query["store"], "secret": query["secret"], "keeper": query["keeper"]}
+    """The store, one-time secret and keeper's signing key in a ``byobot://pair`` link."""
+    try:
+        found = parse_pairing_link(link)
+    except (ValueError, KeyError) as exc:
+        raise ByobotError(f"that isn't a byobot join code this version understands ({exc})") from None
+    if "store_id" not in found:
+        raise ByobotError("that link pairs with a laptop; it holds no Drive join code")
+    return {k: found[k] for k in ("store_id", "secret", "keeper_key")}
 
 
 @dataclass
@@ -49,7 +51,7 @@ class Relay:
     @classmethod
     def join(cls, folder: Folder, link: str, device_id: str, **kw: Any) -> Relay:
         code = parse_join(link)
-        relay = cls(folder, code["store_id"], device_id, code["keeper"], **kw)
+        relay = cls(folder, code["store_id"], device_id, code["keeper_key"], **kw)
         public = relay.identity.public()
         proof = join_proof(unb64(code["secret"]), relay.store_id, device_id, public)
         if not relay._keeper_here(folder.list()):

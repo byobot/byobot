@@ -12,12 +12,12 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Any, Callable
-from urllib.parse import urlencode
 
 from .. import __version__
 from ..core import relay as rules
 from ..core import sources
 from ..core.store import Store, stamp
+from ..link import pairing_link
 from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
@@ -287,8 +287,9 @@ class Keeper:
 
     # -- joining -------------------------------------------------------------------
 
-    def join_code(self) -> dict:
-        """A one-time code a phone scans to join: valid ten minutes, for one device. It holds no key."""
+    def join_code(self, client: str | None = None) -> dict:
+        """A one-time code a phone scans to join: valid ten minutes, for one device. It holds no key. ``client`` is
+        the Google client id the phone signs in with."""
         secret = secrets.token_bytes(16)
         expires = self.clock() + JOIN_TTL_S
         sealed = self._sealed(self.folder.list()) if self.folder is not None and self._get("join") else None
@@ -297,10 +298,10 @@ class Keeper:
                 self._take(sealed)
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
             self._unset("last_join")
-        code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper": self.identity.public()["sign"],
+        code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper_key": self.identity.public()["sign"],
                 "expires": expires}
-        return {**code, "link": "byobot://cloud-join?" + urlencode(
-            {"store": code["store_id"], "secret": code["secret"], "keeper": code["keeper"]})}
+        return {**code, "link": pairing_link(store_id=code["store_id"], secret=code["secret"],
+                                             keeper_key=code["keeper_key"], client=client)}
 
     def _admit(self, listing: dict[str, str]) -> dict:
         join = json.loads(self._get("join") or "null")

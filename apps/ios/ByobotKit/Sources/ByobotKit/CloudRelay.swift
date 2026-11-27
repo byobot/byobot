@@ -24,26 +24,28 @@ public protocol CloudFolder: Sendable {
     func delete(_ path: String) async throws
 }
 
-/// What a `byobot://cloud-join` code holds.
+/// What a `byobot://pair` link holds for joining a Drive store.
 public struct CloudJoin: Equatable, Sendable {
     public let storeID: String
+    /// The one-time secret, standard base64.
     public let secret: String
-    public let keeper: String
+    /// The keeper's signing key, standard base64.
+    public let keeperKey: String
     /// The Google client id the phone signs in with.
     public let client: String?
 
+    /// Reads the Drive fields of a `byobot://pair` link.
     public init(link: String) throws {
-        guard let parts = URLComponents(string: link), parts.scheme == "byobot", parts.host == "cloud-join" else {
-            throw CloudError("that isn't a byobot cloud join code")
-        }
         var query: [String: String] = [:]
-        for item in parts.queryItems ?? [] where query[item.name] == nil { query[item.name] = item.value }
-        guard let store = query["store"], let secret = query["secret"], let keeper = query["keeper"] else {
-            throw CloudError("that isn't a byobot cloud join code")
+        for item in (try? PairingLink.items(link)) ?? [] where query[item.name] == nil { query[item.name] = item.value }
+        guard let store = query["store_id"], !store.isEmpty, query["provider"] == "google",
+              let secret = query["secret"].flatMap(PairingLink.data(fromBase64URL:)),
+              let keeper = query["keeper_key"].flatMap(PairingLink.data(fromBase64URL:)), keeper.count == 32 else {
+            throw CloudError("that isn't a byobot cloud join code this version understands")
         }
         storeID = store
-        self.secret = secret
-        self.keeper = keeper
+        self.secret = secret.base64EncodedString()
+        keeperKey = keeper.base64EncodedString()
         client = query["client"].flatMap { $0.isEmpty ? nil : $0 }
     }
 }
@@ -166,12 +168,12 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                             identity: CloudIdentity) async throws -> CloudRelay {
         let code = try CloudJoin(link: link)
         guard let secret = Data(base64Encoded: code.secret) else { throw CloudError("that isn't a byobot cloud join code") }
-        let relay = CloudRelay(storeID: code.storeID, deviceID: deviceID, keeperSign: code.keeper)
+        let relay = CloudRelay(storeID: code.storeID, deviceID: deviceID, keeperSign: code.keeperKey)
         let proof = Cloud.joinProof(secret: secret, storeID: code.storeID, deviceID: deviceID, identity: identity)
         var signed = false
         for path in try await folder.list().keys.filter({ Self.epochNumber($0) != nil }).sorted(by: >) {
             if let n = Self.epochNumber(path), let data = try await folder.read(path),
-               (try? Cloud.readEpoch(data, keeperSign: code.keeper, storeID: code.storeID, epoch: n)) != nil {
+               (try? Cloud.readEpoch(data, keeperSign: code.keeperKey, storeID: code.storeID, epoch: n)) != nil {
                 signed = true
                 break
             }

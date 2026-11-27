@@ -11,8 +11,12 @@ final class CloudRelayTests: XCTestCase {
         var seq = 1
 
         var link: String {
-            func q(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s }
-            return "byobot://cloud-join?store=\(store)&secret=\(q(joinSecret))&keeper=\(q(identity.signPublic))"
+            func url(_ s: String) -> String {
+                s.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "")
+            }
+            return "byobot://pair?v=1&store_id=\(store)&secret=\(url(joinSecret))&keeper_key=\(url(identity.signPublic))"
+                + "&provider=google"
         }
 
         /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it rejected.
@@ -147,12 +151,15 @@ final class CloudRelayTests: XCTestCase {
     }
 
     func testAJoinCodeIsReadWithOrWithoutItsGoogleClient() throws {
-        let code = try CloudJoin(link: "byobot://cloud-join?store=s&secret=a%2Bb%3D&keeper=k&client=ios.apps.example")
-        XCTAssertEqual(code.secret, "a+b=")
+        let link = "byobot://pair?v=1&store_id=s&secret=-_8&keeper_key=\(String(repeating: "A", count: 43))&provider=google"
+        let code = try CloudJoin(link: link + "&client=ios.apps.example")
+        XCTAssertEqual(code.secret, "+/8=")
+        XCTAssertEqual(code.keeperKey, Data(count: 32).base64EncodedString())
         XCTAssertEqual(code.client, "ios.apps.example")
-        XCTAssertNil(try CloudJoin(link: "byobot://cloud-join?store=s&secret=x&keeper=k").client)
-        XCTAssertThrowsError(try CloudJoin(link: "https://cloud-join?store=s&secret=x&keeper=k"))
-        XCTAssertThrowsError(try CloudJoin(link: "byobot://cloud-join?store=s&keeper=k"))
+        XCTAssertNil(try CloudJoin(link: link).client)
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "byobot://", with: "https://")))
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "provider=google", with: "provider=other")))
+        XCTAssertThrowsError(try CloudJoin(link: link.replacingOccurrences(of: "v=1", with: "v=2")))
     }
 
     func testARelayWithoutAKeyYetWritesNothing() async throws {

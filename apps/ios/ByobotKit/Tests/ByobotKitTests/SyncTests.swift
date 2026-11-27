@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 @testable import ByobotKit
 
@@ -48,16 +49,36 @@ final class SyncTests: XCTestCase {
             let link = try XCTUnwrap(item.string("link"))
             if item.bool("valid") == false {
                 XCTAssertThrowsError(try PairingLink(link: link), name)
+                XCTAssertThrowsError(try CloudJoin(link: link), name)
                 continue
             }
-            guard case .object(let expect)? = item["expect"], case .array(let hosts)? = expect["hosts"],
-                  case .number(let port)? = expect["port"] else { return XCTFail("\(name): bad fixture") }
-            let parsed = try PairingLink(link: link)
-            XCTAssertEqual(parsed.hosts.map { JSONValue.string($0) }, hosts, name)
-            XCTAssertEqual(parsed.port, Int(port), name)
-            XCTAssertEqual(parsed.code, expect.string("code"), name)
-            XCTAssertEqual(parsed.fingerprint, expect.string("fp"), name)
+            guard case .object(let expect)? = item["expect"] else { return XCTFail("\(name): bad fixture") }
+            if case .array(let hosts)? = expect["hosts"], case .number(let port)? = expect["port"] {
+                let parsed = try PairingLink(link: link)
+                XCTAssertEqual(parsed.hosts.map { JSONValue.string($0) }, hosts, name)
+                XCTAssertEqual(parsed.port, Int(port), name)
+                XCTAssertEqual(parsed.code, expect.string("code"), name)
+                XCTAssertEqual(parsed.fingerprint, expect.string("pin"), name)
+            } else {
+                XCTAssertThrowsError(try PairingLink(link: link), name)
+            }
+            if let store = expect.string("store_id") {
+                let join = try CloudJoin(link: link)
+                XCTAssertEqual(join.storeID, store, name)
+                XCTAssertEqual(join.secret, expect.string("secret"), name)
+                XCTAssertEqual(join.keeperKey, expect.string("keeper_key"), name)
+                XCTAssertEqual(join.client, expect.string("client"), name)
+            } else {
+                XCTAssertThrowsError(try CloudJoin(link: link), name)
+            }
         }
+    }
+
+    func testThePinIsTheSHA256OfThePublicKey() throws {
+        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/sync.json"),
+              case .object(let pin)? = doc["pin"], let der = pin.string("certificate").flatMap({ Data(base64Encoded: $0) }),
+              let certificate = SecCertificateCreateWithData(nil, der as CFData) else { return XCTFail("bad fixture") }
+        XCTAssertEqual(Pinner.fingerprint(certificate), pin.string("pin"))
     }
 
     func testLinksFromOutsideTheAppKeepOnlyLocalHosts() {

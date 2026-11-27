@@ -10,6 +10,7 @@ from byobot.cloud.crypto import CloudError
 from byobot.cloud.folder import Exists, LocalFolder, MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.cloud.relay import Relay, parse_join
+from byobot.link import pairing_link
 from byobot.core import commands, hlc
 from byobot.core.store import Store
 from byobot.util import ByobotError, uuid7
@@ -72,7 +73,7 @@ def test_setup_starts_an_epoch_and_only_once(store, folder, keeper):
 def test_a_join_code_holds_no_key(keeper):
     code = keeper.join_code()
     assert parse_join(code["link"]) == {"store_id": code["store_id"], "secret": code["secret"],
-                                        "keeper": code["keeper"]}
+                                        "keeper_key": code["keeper_key"]}
     assert keeper.key(1).hex() not in json.dumps(code)
 
 
@@ -171,8 +172,7 @@ def test_two_devices_answering_one_code_are_both_refused(store, folder, keeper):
 
 def test_a_join_code_expires_and_a_wrong_proof_is_ignored(store, folder, keeper, clock):
     code = keeper.join_code()
-    forged = code["link"].replace(code["secret"].replace("+", "%2B").replace("/", "%2F").replace("=", "%3D"),
-                                  "AAAAAAAAAAAAAAAAAAAAAA%3D%3D")
+    forged = pairing_link(store_id=code["store_id"], secret="A" * 22 + "==", keeper_key=code["keeper_key"])
     Relay.join(folder, forged, OTHER)
     assert "join" not in keeper.sync()
     clock.now += 601
@@ -193,9 +193,8 @@ def test_a_keeper_reopened_reads_nothing_twice(store, folder, keeper, clock):
 def test_a_relay_trusts_only_the_keeper_s_signature(store, folder, keeper):
     from byobot.cloud.crypto import Identity
     impostor = Identity.generate()
-    link = keeper.join_code()["link"].replace(keeper.identity.public()["sign"].replace("+", "%2B").replace(
-        "/", "%2F").replace("=", "%3D"), impostor.public()["sign"].replace("+", "%2B").replace("/", "%2F")
-        .replace("=", "%3D"))
+    code = keeper.join_code()
+    link = pairing_link(store_id=code["store_id"], secret=code["secret"], keeper_key=impostor.public()["sign"])
     with pytest.raises(ByobotError, match="doesn't hold that Mac's logbook"):
         Relay.join(folder, link, PHONE)
 
