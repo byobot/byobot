@@ -144,9 +144,6 @@ class Store:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
             self.conn.close()
-            if version == 5:
-                raise ByobotError(f"{self.path} was written before ids and codes were settled; rewrite it once with "
-                                  "tools/rewrite_store.py from byobot's source")
             if version < STORE_VERSION:
                 raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
                                   "aside to start a new store, and import your sources again")
