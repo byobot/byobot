@@ -11,7 +11,7 @@ import pytest
 
 from _drive_helpers import ME, Clock
 from byobot.cloud import segment
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.core.store import Store

@@ -7,9 +7,9 @@ import pytest
 from byobot.cloud import keeper as keeper_module
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError, Identity, recovery_code
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 from byobot.util import ByobotError

@@ -2,7 +2,7 @@
 deletes that segment the event is in no file of the folder, and recovery from the folder loses it."""
 
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.core.store import Store
 
 from test_cloud_keeper import Clock, event, joined

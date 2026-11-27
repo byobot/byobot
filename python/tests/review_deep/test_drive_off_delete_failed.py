@@ -6,7 +6,7 @@ import pytest
 
 from _drive_helpers import Clock, ME, joined
 from byobot.cloud.drive import UpstreamError
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.util import ByobotError

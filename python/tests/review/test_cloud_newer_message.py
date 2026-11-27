@@ -2,7 +2,7 @@
 the Mac is upgraded, so the phone and the Mac loop uploading and deleting it, and its events never land."""
 
 from byobot.cloud import segment
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 
 from test_cloud_keeper import PHONE, Clock, event, joined

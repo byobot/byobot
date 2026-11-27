@@ -12,7 +12,7 @@ import random
 
 from byobot.cloud import segment
 from byobot.cloud.crypto import CloudError, Identity, new_key
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import apply
 
 from .v1 import V1, Replica

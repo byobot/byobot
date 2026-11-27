@@ -26,9 +26,9 @@ import pytest
 from byobot import serve
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 from byobot.util import ByobotError

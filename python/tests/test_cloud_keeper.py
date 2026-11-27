@@ -7,9 +7,10 @@ import pytest
 
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError
-from byobot.cloud.folder import Exists, LocalFolder, MemoryFolder
+from byobot.cloud.folder import Exists
+from cloud_doubles import LocalFolder, MemoryFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay, parse_join
+from cloud_doubles import Relay, parse_join
 from byobot.link import pairing_link
 from byobot.core import commands, hlc
 from byobot.core.store import Store

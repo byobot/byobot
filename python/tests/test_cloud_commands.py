@@ -12,7 +12,7 @@ import pytest
 from byobot import commands, credentials
 from byobot.cloud import drive
 from byobot.cloud.drive import Drive, DriveFolder
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.link import pairing_link
 from byobot.commands import Context, run
 from byobot.core import commands as core

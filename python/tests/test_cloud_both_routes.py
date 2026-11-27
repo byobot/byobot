@@ -6,9 +6,9 @@ import threading
 import pytest
 
 from byobot import serve
-from byobot.cloud.folder import LocalFolder
+from cloud_doubles import LocalFolder
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.core import hlc, relay as rules
 from byobot.core.store import Store
 from byobot.util import uuid7

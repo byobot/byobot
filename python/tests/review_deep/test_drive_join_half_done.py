@@ -8,9 +8,9 @@ import pytest
 
 from _drive_helpers import PHONES, Clock, Flaky, effort
 from byobot.cloud import files
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import JOIN_TTL_S, Keeper
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 
 
 def _cut_short(store):

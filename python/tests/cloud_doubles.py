@@ -1,20 +1,22 @@
-"""A relay: a device that sends what it logged through the cloud folder and reads the keeper's plan.
+"""Cloud test doubles: folders in memory or on disk, and the reference relay the phone's relay follows.
 
-This is the reference the phone's relay follows. It keeps what it sent until the keeper's receipts list the segment
-that carried it, and sends again whatever was in a segment that left the folder unread.
+The relay keeps what it sent until the keeper's receipts list the segment that carried it, and sends again whatever
+was in a segment that left the folder unread.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from ..core.relay import MAX_BATCH
-from ..link import parse_pairing_link
-from ..util import ByobotError
-from . import files, segment
-from .crypto import CloudError, Identity, join_proof, unb64
-from .folder import Exists, Folder
+from byobot.cloud import files, segment
+from byobot.cloud.crypto import CloudError, Identity, join_proof, unb64
+from byobot.cloud.folder import Exists, Folder, _safe, checksum
+from byobot.core.relay import MAX_BATCH
+from byobot.link import parse_pairing_link
+from byobot.util import ByobotError
 
 
 def parse_join(link: str) -> dict:
@@ -252,3 +254,65 @@ class Relay:
             self.sent[path] = {"events": [e["id"] for e in batch], "samples": lines}
             written, force = written + 1, False
         return written
+
+
+class MemoryFolder:
+    """A folder in memory, for tests and the stress harness."""
+
+    def __init__(self):
+        self.files: dict[str, bytes] = {}
+
+    def list(self) -> dict[str, str]:
+        return {p: checksum(d) for p, d in sorted(self.files.items())}
+
+    def size(self) -> int:
+        return sum(len(d) for d in self.files.values())
+
+    def read(self, path: str) -> bytes | None:
+        return self.files.get(path)
+
+    def create(self, path: str, data: bytes) -> None:
+        if _safe(path) in self.files:
+            raise Exists(path)
+        self.files[path] = bytes(data)
+
+    def delete(self, path: str) -> None:
+        self.files.pop(path, None)
+
+
+class LocalFolder:
+    """The same layout on a local disk, under ``root/<store_id>``."""
+
+    def __init__(self, root: Path | str, store_id: str):
+        self.root = Path(root) / _safe(store_id)
+
+    def list(self) -> dict[str, str]:
+        out = {}
+        for p in sorted(self.root.rglob("*")) if self.root.is_dir() else []:
+            if p.is_file() and not p.name.startswith(".tmp-"):
+                out[p.relative_to(self.root).as_posix()] = checksum(p.read_bytes())
+        return out
+
+    def size(self) -> int:
+        return sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file()) if self.root.is_dir() else 0
+
+    def read(self, path: str) -> bytes | None:
+        try:
+            return (self.root / _safe(path)).read_bytes()
+        except FileNotFoundError:
+            return None
+
+    def create(self, path: str, data: bytes) -> None:
+        target = self.root / _safe(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".tmp-{os.getpid()}-{target.name}")
+        tmp.write_bytes(data)
+        try:
+            os.link(tmp, target)  # fails if the target exists, so a file is never replaced
+        except FileExistsError:
+            raise Exists(path) from None
+        finally:
+            tmp.unlink()
+
+    def delete(self, path: str) -> None:
+        (self.root / _safe(path)).unlink(missing_ok=True)

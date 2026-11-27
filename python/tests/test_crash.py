@@ -34,7 +34,7 @@ SESSION = "0193a0b0-0000-7000-a000-000000000100"
 
 def arm(kill_at: int) -> list[int]:
     """Count write steps from here on, and die just before step `kill_at` (never, if it is 0)."""
-    from byobot.cloud.folder import LocalFolder
+    from cloud_doubles import LocalFolder
 
     count = [0]
 
@@ -109,7 +109,7 @@ def phone_events(n: int, offset: int = 0) -> list[dict]:
 
 def work(op: str, root: Path) -> None:
     """What the child does to the store in `root`."""
-    from byobot.cloud.folder import LocalFolder
+    from cloud_doubles import LocalFolder
     from byobot.cloud.keeper import Keeper
     from byobot.core import commands, relay, sources
     from byobot.core.store import Store
@@ -144,9 +144,9 @@ def work(op: str, root: Path) -> None:
 
 def seed(root: Path, op: str) -> None:
     """The store each run starts from."""
-    from byobot.cloud.folder import LocalFolder
+    from cloud_doubles import LocalFolder
     from byobot.cloud.keeper import Keeper
-    from byobot.cloud.relay import Relay
+    from cloud_doubles import Relay
     from byobot.core import commands, relay, sources
     from byobot.core.store import Store
 

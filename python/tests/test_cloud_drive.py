@@ -11,7 +11,7 @@ from byobot.cloud import drive as drive_module
 from byobot.cloud.drive import Drive, DriveFolder, NotConnected, UpstreamError
 from byobot.cloud.folder import Exists
 from byobot.cloud.keeper import Keeper
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 
@@ -327,7 +327,7 @@ def test_a_file_byobot_never_writes_is_left_alone(fake, tmp_path, store, name):
 
 
 def test_a_planted_seq_doesnt_use_up_the_keepers(store):
-    from byobot.cloud.folder import MemoryFolder
+    from cloud_doubles import MemoryFolder
 
     folder = MemoryFolder()
     keeper = Keeper.setup(store, folder, Clock())

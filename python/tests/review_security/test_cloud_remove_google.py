@@ -10,7 +10,7 @@ from test_cloud_keeper import PHONE
 
 def joined(cloud, fake, tmp_path):  # noqa: F811
     from byobot.cloud.drive import Drive, DriveFolder
-    from byobot.cloud.relay import Relay
+    from cloud_doubles import Relay
 
     ctx = Context(actor=CLI)
     run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": "ios.apps.example"})

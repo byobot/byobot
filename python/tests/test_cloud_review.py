@@ -3,7 +3,7 @@
 import pytest
 
 from byobot.cloud import files
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.core.relay import MAX_BATCH

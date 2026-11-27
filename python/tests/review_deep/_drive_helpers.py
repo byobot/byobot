@@ -17,7 +17,7 @@ from byobot.cloud import segment  # noqa: E402
 from byobot.cloud.crypto import CloudError  # noqa: E402
 from byobot.cloud.folder import Exists, checksum  # noqa: E402
 from byobot.cloud.keeper import Keeper  # noqa: E402
-from byobot.cloud.relay import Relay  # noqa: E402
+from cloud_doubles import Relay  # noqa: E402
 from byobot.core import commands, hlc  # noqa: E402
 from byobot.util import ByobotError, uuid7  # noqa: E402
 

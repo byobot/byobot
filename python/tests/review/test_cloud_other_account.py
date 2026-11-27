@@ -12,7 +12,7 @@ from byobot import commands, credentials
 from byobot.cloud import drive
 from byobot.cloud import keeper as keeper_module
 from byobot.cloud.drive import Drive, DriveFolder
-from byobot.cloud.relay import Relay
+from cloud_doubles import Relay
 from byobot.commands import Context, run
 from byobot.util import ByobotError
 

@@ -5,7 +5,7 @@ segment they send is deleted unread and sent again, and nothing from the phone a
 import sqlite3
 
 from byobot.cloud import keeper as keeper_module
-from byobot.cloud.folder import MemoryFolder
+from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.core.store import Store
 
