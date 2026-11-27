@@ -142,7 +142,8 @@ def test_your_own_measurement_comes_first(capsys, store):
     sources.ingest_samples(store, [sample("hume", "HKQuantityTypeIdentifierBodyMass", "2026-11-20T07:00:00",
                                           "2026-11-20T07:00:00", 82.4, "kg")])
     store.close()
-    assert cli(capsys, "observe", "body_mass", "81.5", "--unit", "kg", "--start", "2026-11-20T08:00:00")[0] == 0
+    assert cli(capsys, "log", "observation",
+               '{"code": "body_mass", "value": 81.5, "unit": "kg", "time": {"start": "2026-11-20T08:00:00"}}')[0] == 0
     assert cli(capsys, "review", "--weeks", "1", "--until", "2026-11-22")[1]["body"] == [
         {"date": "2026-11-20", "weight_kg": 81.5}]
 

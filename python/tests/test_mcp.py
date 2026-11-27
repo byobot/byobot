@@ -128,7 +128,8 @@ def test_byobot_mcp_subprocess(byobot_home):
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": LATEST, "clientInfo": {"name": "e2e"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-         "params": {"name": "observe", "arguments": {"code": "body_mass", "value": 82.4, "unit": "kg"}}},
+         "params": {"name": "log", "arguments": {"kind": "observation",
+                                                "payload": {"code": "body_mass", "value": 82.4, "unit": "kg"}}}},
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
          "params": {"name": "list", "arguments": {"kind": "observations"}}},
     ]

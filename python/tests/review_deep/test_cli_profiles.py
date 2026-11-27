@@ -34,6 +34,6 @@ def test_cli_a_mistyped_profile_is_refused_not_created(byobot_home):
     assert via_cli(["--profile", "alex", "init"])[0] == "ok"
     assert via_cli(["--profile", "alex", "log", "location", '{"name": "Example gym"}', "--id", "example_gym"])[0] == "ok"
     read = via_cli(["--profile", "alxe", "list", "locations"])
-    write = via_cli(["--profile", "alxe", "observe", "body_mass", "80", "--unit", "kg"])
+    write = via_cli(["--profile", "alxe", "log", "observation", '{"code": "body_mass", "value": 80, "unit": "kg"}'])
     assert (read[0], write[0]) == ("error", "error")
     assert not (byobot_home / "profiles" / "alxe").exists()

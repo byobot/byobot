@@ -26,7 +26,7 @@ INSTRUCTIONS = (
     "byobot is the user's personal health store. Read with `list`, `review`, `query` (read-only SQL; `schema` "
     "with name 'sql' lists the tables; plan_vs_actual and strength_sets are ready-made views) and `schema`. "
     "Write with `log` (activities, locations, settings, plans, planned sessions, sessions, efforts, observations), "
-    "`observe` (one measurement), `edit`, `replan` and `remove`. Metrics are a map of registry codes such as "
+    "`edit`, `replan` and `remove`. Metrics are a map of registry codes such as "
     "{\"reps\": {\"value\": 5}, \"load\": {\"value\": 100, \"unit\": \"kg\"}}; your own codes start with x. "
     "What sources imported is changed with `correct`, `exclude` and `same_as`, never edited. Every write is recorded with you as its author and `undo` takes it back. If two writers changed a "
     "record at once, `conflicts` shows both versions and `resolve` ends it. "

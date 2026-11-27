@@ -22,10 +22,7 @@ def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
 
 
 def test_cli_a_text_value_is_taken_as_the_help_says(capsys):
-    """CLI-11: `observe` says its value is "a number, or text for a category" and `resolve` takes an event id or
-    "remove", but both are JSON arguments on the CLI, so `byobot observe x.mood good` and
-    `byobot resolve session ID remove` stop at "could not read JSON" unless the word is typed with JSON quotes."""
-    answer = via_cli(["observe", "x.mood", "good"])
-    assert answer[0] == "ok", answer
+    """CLI-11: `resolve` takes an event id or "remove", but it is a JSON argument on the CLI, so
+    `byobot resolve session ID remove` stops at "could not read JSON" unless the word is typed with JSON quotes."""
     via_cli(["resolve", "session", "example-id", "remove"])
     assert "could not read JSON" not in capsys.readouterr().err

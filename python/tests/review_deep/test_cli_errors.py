@@ -26,12 +26,13 @@ from byobot import cli  # noqa: E402
     (lambda tmp: None, ["review", "--until", "9999-12-31"]),
     (lambda tmp: None, ["review", "--until", "0001-01-07"]),
     (lambda tmp: None, ["review", "--weeks", "1000000"]),
-    (lambda tmp: None, ["observe", "body_mass", "80", "--unit", "kg", "--start", "9999-12-31T23:30:00"]),
+    (lambda tmp: None, ["log", "observation",
+                        '{{"code": "body_mass", "value": 80, "unit": "kg", "time": {{"start": "9999-12-31T23:30:00"}}}}']),
     (lambda tmp: None, ["validate", "[1, 2]"]),
     (lambda tmp: (tmp / "a-file").write_text("x"), ["--home", "{tmp}/a-file", "status"]),
     (lambda tmp: (tmp / "cut.jsonl").write_text('{"byobot_export": 1}\n'), ["restore", "{tmp}/cut.jsonl"]),
 ], ids=["@missing", "@folder", "@not-utf8", "export-missing-folder", "review-until-9999", "review-until-0001",
-        "review-weeks-huge", "observe-year-9999", "validate-a-list", "home-is-a-file",
+        "review-weeks-huge", "observation-year-9999", "validate-a-list", "home-is-a-file",
         "restore-header-without-id"])
 def test_cli_a_mistake_is_a_json_error_not_a_traceback(make, argv, tmp_path):
     """CLI-3."""
@@ -46,7 +47,8 @@ def test_cli_a_mistake_is_a_json_error_not_a_traceback(make, argv, tmp_path):
     ("review", {"until": "9999-12-31"}),
     ("review", {"weeks": 1000000}),
     ("validate", {"document": [1, 2]}),
-    ("observe", {"code": "body_mass", "value": 80, "unit": "kg", "start": "9999-12-31T23:30:00"}),
+    ("log", {"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg",
+                                                "time": {"start": "9999-12-31T23:30:00"}}}),
 ])
 def test_cli_mcp_answers_a_mistake_as_a_tool_error_not_an_internal_error(tool, args):
     """CLI-3: the same inputs over MCP are JSON-RPC -32603 "internal error", which agents treat as a server fault."""

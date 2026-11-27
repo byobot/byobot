@@ -266,25 +266,6 @@ def _check_references(store: Store, records: list[dict]) -> None:
 
 
 @command(
-    "observe",
-    "Record one measurement you took, such as your weight.",
-    Param("code", "string", "What was measured, as a registry code such as body_mass.", required=True,
-          positional=True),
-    Param("value", "json", "The value: a number, or text for a category.", required=True, positional=True,
-          schema={"type": ["number", "string"]}),
-    Param("unit", "string", "The unit, as the registry spells it, such as kg."),
-    Param("start", "string", "When, as a timestamp. Defaults to now; without an offset it's local time."),
-    Param("end", "string", "When it ended, for something measured over time."),
-    Param("notes", "string", "Anything worth keeping with it."),
-    read_only=False,
-    description="Codes and units are in `byobot schema registry`.",
-)
-def _observe(ctx: Context, code: str, value: Any, unit: str | None = None, start: str | None = None,
-             end: str | None = None, notes: str | None = None) -> dict:
-    return {"event": core.observe(ctx.store(), ctx.actor, code, value, unit, start, end, notes=notes)}
-
-
-@command(
     "edit",
     "Change a record you or your agent wrote, by a JSON merge patch over what it says now.",
     Param("kind", "string", "The record's kind.", required=True, choices=core.AUTHORED, positional=True),
