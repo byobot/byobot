@@ -922,6 +922,14 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
     store = ctx.store()
     if is_keeper(store):
         keeper = _keeper(ctx, off_ok=True)
+        if not keeper.is_closed and store.store_id not in drive.stores(keeper.folder.drive):
+            if saved:  # phones still use the account that holds the folder
+                credentials.save(drive.NAME, saved)
+            else:
+                credentials.delete(drive.NAME)
+            raise ValidationFailed("that Google account doesn't hold this store's Drive folder; sign in with the "
+                                   "account Drive sync uses, or run `byobot cloud off --delete yes` first to move "
+                                   "Drive sync to another account")
         keeper.on()
         return {"signed_in": True, "keeper": "already", **_sync(keeper)}
     folder = _drive_folder(store)

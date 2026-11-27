@@ -636,6 +636,11 @@ class Keeper:
     def is_off(self) -> bool:
         return self._get("off") is not None
 
+    @property
+    def is_closed(self) -> bool:
+        """Whether `cloud off --delete yes` closed the folder, so setup may start again in any account."""
+        return self._get("closed") is not None
+
     def forget(self) -> int:
         """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
