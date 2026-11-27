@@ -139,7 +139,7 @@ final class CloudRelayTests: XCTestCase {
         var relay = try await joined(k, folder)
         relay.send(SampleBatch(samples: [weighed("W1")]))
         _ = try await relay.sync(folder, identity: k.relay)  // in a segment the Mac hasn't read
-        relay.send(SampleBatch(samples: [weighed("W2")], deleted: [deletion("W1")]))  // W2 queued, W1's deletion held
+        relay.send(SampleBatch(samples: [weighed("W2")], deleted: [deletion("W1")]))  // W2 and W1's deletion queued
         XCTAssertEqual(relay.leftovers.samples.map(\.sourceId).sorted(), ["W1", "W2"])
         XCTAssertEqual(relay.leftovers.deleted.map(\.sourceId), ["W1"])
         try await k.publish(folder, read: [relay.seq])
@@ -230,19 +230,15 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(try sourceIds(written, "samples"), ["W1"])
     }
 
-    func testADeletionWaitsUntilTheKeeperReadsItsSample() async throws {
+    func testADeletionGoesAtOnceThoughTheKeeperHasntReadItsSample() async throws {
         var k = try keeper()
         let folder = MemoryCloudFolder()
         var relay = try await joined(k, folder)
         relay.send(SampleBatch(samples: [weighed("W1"), weighed("W2")]))
         _ = try await relay.sync(folder, identity: k.relay)
         relay.send(SampleBatch(deleted: [deletion("W1")]))
-        XCTAssertEqual(relay.held.map(\.sourceId), ["W1"])
         XCTAssertEqual(relay.unread, ["W1", "W2"])
-        var report = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(report.written, 0)
-        try await k.publish(folder, read: [1])
-        report = try await relay.sync(folder, identity: k.relay)
+        let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
         XCTAssertEqual(relay.held, [])
         let written = try await segment(k, folder, 2)

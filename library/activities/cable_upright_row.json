@@ -1,9 +1,7 @@
 {
   "id": "cable_upright_row",
   "name": "Cable Upright Row",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

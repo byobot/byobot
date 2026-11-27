@@ -55,6 +55,20 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(book.alternatives(for: PlannedEffort(id: "e", activityId: "nope")), [])
     }
 
+    func testEachLocationHasItsOwnEquipmentAndYourDefaultFillsIn() throws {
+        var book = try makeBook()
+        book.setEquipment(["cable"])
+        let gym = book.addLocation(name: "Example Gym")
+        XCTAssertEqual(book.equipment, ["cable"], "a location without its own list uses your default")
+        book.setEquipment(["dumbbell", "pull_up_bar"])
+        XCTAssertEqual(book.location(gym.id)?.equipment, ["dumbbell", "pull_up_bar"])
+        XCTAssertEqual(book.state.equipment, ["cable"])
+        let pullUp = try XCTUnwrap(book.library.first { $0.id == "pull_up" })
+        XCTAssertEqual(pullUp.needs, ["pull_up_bar"], "your own body you always have")
+        book.setLocation(nil)
+        XCTAssertEqual(book.equipment, ["cable"])
+    }
+
     // MARK: Order and swaps
 
     func testSlotsFollowThePlanThenYourOrder() throws {
@@ -68,11 +82,7 @@ final class WorkoutTests: XCTestCase {
         workout = book.workout(lower)
         XCTAssertEqual(workout.exercises.map(\.id), ["e-amrap", "e-warm", "e-squat"])
         XCTAssertEqual(workout.slots.first?.id, "e-amrap:1")
-        let overlay = try XCTUnwrap(book.state.events.last)
-        XCTAssertEqual(overlay.record, RecordRef(kind: "overlay", id: Logbook.rearrangeId(lower.id)))
-        XCTAssertEqual(overlay.decoded(OverlayPayload.self),
-                       OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: lower.id),
-                                      order: ["e-amrap", "e-warm", "e-squat"]))
+        XCTAssertFalse(book.state.events.contains { $0.record.kind == "overlay" }, "your order stays on this phone")
 
         // A superset alternates within each round, and its rest comes after the round's last effort.
         let upper = try book.workout(session("sess-upper"))
@@ -105,22 +115,14 @@ final class WorkoutTests: XCTestCase {
         let finished = try XCTUnwrap(book.finishSession(notes: "Good one"))
         XCTAssertEqual(finished.notes, "Good one", "the swap is in the logged set, not in generated words")
 
+        XCTAssertFalse(book.state.events.contains { $0.record.kind == "overlay" }, "the swap is in the logged set")
         book.swap("e-pullup", to: nil, for: upper.id)
-        XCTAssertNil(book.changes(for: upper.id).swaps)
-        XCTAssertEqual(book.state.events.last?.op, .retract, "back to the plan takes the overlay back")
+        XCTAssertNil(book.state.workouts?[upper.id], "back to the plan")
 
-        // Once sent, the laptop's overlay is what counts.
-        let sent = book.pendingEvents
-        book.applyPush(EventsResponse(results: sent.enumerated().map { EventResult(index: $0.offset, id: $0.element.id, status: .accepted) },
-                                      accepted: sent.count, duplicate: 0, storedUnprojected: 0, rejected: 0), sent: sent)
-        var window = try window()
-        window.overlays = [Overlay(id: Logbook.rearrangeId(upper.id),
-                                   payload: OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: upper.id),
-                                                           order: ["e-dip", "e-pullup"]), prev: ["o1"])]
-        book.applyPlan(window)
+        // Your order outlasts a pull while its planned session is in the window.
+        book.setOrder(["e-dip", "e-pullup"], for: upper.id)
+        book.applyPlan(try window())
         XCTAssertEqual(book.changes(for: upper.id), WorkoutChanges(order: ["e-dip", "e-pullup"]))
-        book.setOrder(["e-pullup", "e-dip"], for: upper.id)
-        XCTAssertEqual(book.state.events.last?.prev, ["o1"])
     }
 
     func testUpNextSkipsWhatYouFinished() throws {

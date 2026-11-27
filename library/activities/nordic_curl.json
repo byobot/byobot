@@ -1,9 +1,7 @@
 {
   "id": "nordic_curl",
   "name": "Nordic Curl",
-  "equipment": [
-    "bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 4,
   "resistance_curve": {

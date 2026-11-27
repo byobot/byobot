@@ -50,7 +50,4 @@ enum Format {
         guard let timestamp, let date = Timestamp.date(timestamp) else { return "Never" }
         return date.formatted(.relative(presentation: .named))
     }
-
-    /// An activity id from what someone typed: `Pull Up` → `pull_up`.
-    static func slug(_ text: String) -> String { Slug.make(text) }
 }

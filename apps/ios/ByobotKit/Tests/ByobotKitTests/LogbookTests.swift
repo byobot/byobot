@@ -586,6 +586,15 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertNil(Timestamp.zone(TimeZone(secondsFromGMT: 3600)!), "an offset is not a zone")
     }
 
+    func testATypedActivityIsOneYouHaveOrYoursUnderX() {
+        let known = [Activity(id: "barbell_back_squat", name: "Barbell Back Squat"), Activity(id: "x.cable_fly", name: "Cable Fly")]
+        XCTAssertEqual(ActivityId.make("Barbell back squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("barbell_back_squat", known: known), "barbell_back_squat")
+        XCTAssertEqual(ActivityId.make("cable fly", known: known), "x.cable_fly")
+        XCTAssertEqual(ActivityId.make("Pull Up", known: known), "x.pull_up")
+        XCTAssertEqual(ActivityId.make("  ", known: known), "")
+    }
+
     func testContractDatesAreGregorianWhateverCalendarThePhoneShows() throws {
         XCTAssertEqual(Calendar.contract.identifier, .gregorian)
         XCTAssertEqual(Calendar.contract.timeZone, .current)
@@ -616,6 +625,7 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertEqual(sample.value, .number(82.4))
         XCTAssertEqual(sample.unit, "kg")
         XCTAssertEqual(sample.device, "Example Scale")
+        XCTAssertEqual(sample.originApp, "com.example.scale", "the app that wrote it, which Health can't tell later")
         XCTAssertNil(sample.raw)
         XCTAssertTrue(matches(sample.start, try Fixtures.pattern("timestamp")))
         XCTAssertNil(HealthMapping.sample(reading(.quantity("HKQuantityTypeIdentifierBodyMass", 0))))

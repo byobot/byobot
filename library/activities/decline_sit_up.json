@@ -1,9 +1,7 @@
 {
   "id": "decline_sit_up",
   "name": "Decline Sit-Up",
-  "equipment": [
-    "weighted_bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

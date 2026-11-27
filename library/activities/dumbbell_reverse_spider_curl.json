@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_reverse_spider_curl",
   "name": "Dumbbell Reverse Spider Curl",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

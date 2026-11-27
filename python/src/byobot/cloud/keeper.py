@@ -195,9 +195,17 @@ class Keeper:
             self.folder.create(path, data)
         except Exists:
             if self.folder.read(path) != data:
-                raise ByobotError(f"{path} is already in the cloud folder with other content") from None
+                if not self._leftover(path):
+                    raise ByobotError(f"{path} is already in the cloud folder with other content") from None
+                self.folder.delete(path)
+                self.folder.create(path, data)
         self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, 'written') ON CONFLICT (path) DO UPDATE SET "
                                 "checksum = excluded.checksum, outcome = excluded.outcome", (path, checksum(data)))
+
+    def _leftover(self, path: str) -> bool:
+        """A file of a start not yet committed, which a lagging listing hid from its cleanup; no device uses it."""
+        n = int(self._get("starting") or 0)
+        return bool(n) and path.startswith((f"keys/{n:04d}/", f"checkpoints/{n:04d}/"))
 
     def _segment(self, kind: str, seq: int, messages: list[dict], epoch: int | None = None) -> str:
         epoch = self.epoch if epoch is None else epoch

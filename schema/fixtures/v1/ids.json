@@ -23,7 +23,8 @@
    "record_id": "8e79b667-e455-583a-88e3-61d76b1d1978",
    "mac": "2263ade95696e887ad1766ab47013c777ac259a5f6e3c1fb2ee2e3b87e76e182",
    "put_event_id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
-   "retract_event_id": "c4922a4b-df1f-50d2-a898-e67a4d540ba9"
+   "retract_event_id": "c4922a4b-df1f-50d2-a898-e67a4d540ba9",
+   "tombstone_event_id": "478dab99-9d45-5333-84fc-032353d705ab"
   },
   {
    "payload": {
@@ -47,7 +48,8 @@
    "record_id": "19b72b33-6dd0-5622-9580-9a410a1132f0",
    "mac": "fb041b6cb04e265f87b9c6856d12710d784d736f2d61cf6ed563774d99a3e3dd",
    "put_event_id": "4304e0dd-04d5-5ae6-84e6-5233339ba457",
-   "retract_event_id": "a8277182-a93f-5d0d-a8ed-63767168ddf6"
+   "retract_event_id": "a8277182-a93f-5d0d-a8ed-63767168ddf6",
+   "tombstone_event_id": "85c0a327-9b92-5d69-a332-5b4430692966"
   }
  ],
  "overlays": [
@@ -74,14 +76,6 @@
     "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
    },
    "record_id": "a2518174-ec83-5d08-be4d-f8d3dc76cb85"
-  },
-  {
-   "effect": "rearrange",
-   "target": {
-    "kind": "planned_session",
-    "id": "019aa000-0000-7000-8000-000000000102"
-   },
-   "record_id": "453d5c74-1e10-505f-8f8d-c8a44148345a"
   }
  ]
 }

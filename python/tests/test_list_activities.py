@@ -9,28 +9,30 @@ def define(capsys, activity):
 
 
 def test_list_activities_by_muscle_and_equipment(capsys):
-    for a in ({"id": "cable_row", "name": "Cable Row", "equipment": ["cable"],
+    for a in ({"id": "x.cable_row", "name": "Cable Row", "load_type": "cable",
                "targets": {"main": ["lats"], "synergists": ["biceps"]}},
-              {"id": "cable_curl", "name": "Cable Curl", "equipment": ["cable"], "targets": {"main": ["biceps"]}},
-              {"id": "dumbbell_row", "name": "Dumbbell Row", "equipment": ["dumbbell"], "targets": {"main": ["lats"]}},
-              {"id": "plank", "name": "Plank"}):
+              {"id": "x.cable_curl", "name": "Cable Curl", "load_type": "cable", "targets": {"main": ["biceps"]}},
+              {"id": "x.dumbbell_row", "name": "Dumbbell Row", "load_type": "dumbbell", "equipment": ["bench"],
+               "targets": {"main": ["lats"]}},
+              {"id": "x.plank", "name": "Plank"}):
         define(capsys, a)
 
     def ids(*argv):
         return [i["id"] for i in cli(capsys, "list", "activities", *argv)[1]["items"]]
 
-    assert ids("--muscle", "biceps") == ["cable_curl", "cable_row"]
-    assert ids("--muscle", "lats", "--equipment", "cable") == ["cable_row"]
-    assert ids("--source", "store", "--muscle", "lats", "--equipment", "dumbbell") == ["dumbbell_row"]
+    assert ids("--muscle", "biceps") == ["x.cable_curl", "x.cable_row"]
+    assert ids("--muscle", "lats", "--equipment", "cable") == ["x.cable_row"]
+    assert ids("--source", "store", "--muscle", "lats", "--equipment", "dumbbell") == ["x.dumbbell_row"]
+    assert ids("--equipment", "bench") == ["x.dumbbell_row"]
 
 
 def test_list_activities_brief(capsys):
-    define(capsys, {"id": "cable_row", "name": "Cable Row", "equipment": ["cable"], "targets": {"main": ["lats"]},
-                    "notes": "Neutral grip."})
-    define(capsys, {"id": "plank", "name": "Plank"})
+    define(capsys, {"id": "x.cable_row", "name": "Cable Row", "load_type": "cable", "equipment": ["bench"],
+                    "targets": {"main": ["lats"]}, "notes": "Neutral grip."})
+    define(capsys, {"id": "x.plank", "name": "Plank"})
     brief = cli(capsys, "list", "activities", "--detail", "brief")[1]["items"]
-    assert brief == [{"id": "cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "equipment": ["cable"],
-                      "source": "store"}, {"id": "plank", "name": "Plank", "source": "store"}]
+    assert brief == [{"id": "x.cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "load_type": "cable",
+                      "equipment": ["bench"], "source": "store"}, {"id": "x.plank", "name": "Plank", "source": "store"}]
 
 
 def test_schema_vocabulary(capsys, tmp_path, monkeypatch):

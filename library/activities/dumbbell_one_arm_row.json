@@ -1,0 +1,24 @@
+{
+  "id": "dumbbell_one_arm_row",
+  "name": "Single Arm Dumbbell Row",
+  "load_type": "dumbbell",
+  "equipment": [
+    "bench"
+  ],
+  "movement_type": "compound",
+  "fatigue": 3,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "lats"
+    ],
+    "synergists": [
+      "biceps",
+      "rear_delts"
+    ]
+  }
+}

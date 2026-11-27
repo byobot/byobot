@@ -1,8 +1,9 @@
 {
   "id": "trap_bar_deadlift",
   "name": "Trap-Bar Deadlift",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "trap_bar"
   ],
   "movement_type": "compound",
   "fatigue": 4,

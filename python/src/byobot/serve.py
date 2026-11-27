@@ -56,9 +56,9 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__, util
 from byobot.core.contract import SCHEMA_VERSION, Contract
-from byobot.core.relay import (PERSON, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
+from byobot.core.relay import (PERSON, Cut, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
-from byobot.core.store import Store
+from byobot.core.store import Store, busy
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 
 DEFAULT_PORT = 8765
@@ -275,6 +275,9 @@ class HTTPError(Exception):
     def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None):
         super().__init__(message)
         self.status, self.code, self.message, self.details = status, code, message, details
+
+
+BUSY = HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", "the laptop's store is busy with a long write; try again")
 
 
 class Server(ThreadingHTTPServer):
@@ -497,6 +500,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.NOT_FOUND, exc.to_dict())
         except (ValidationFailed, Conflict) as exc:
             self._send(HTTPStatus.BAD_REQUEST, exc.to_dict())
+        except sqlite3.OperationalError as exc:
+            if not busy(exc):
+                raise
+            self._fail(BUSY)
 
     def do_GET(self) -> None:  # noqa: N802
         self._dispatch({"/v1/hello": self.hello, "/v1/status": self.status, "/v1/plan": self.plan,
@@ -507,10 +514,15 @@ class Handler(BaseHTTPRequestHandler):
         if path in self._AUTH_POSTS:
             # Refuse a missing or unknown token before touching the body, however large it claims to be.
             try:
-                with Store(self.server.db) as store:
+                with Store(self.server.db, migrate=False) as store:
                     self._auth(store)
             except HTTPError as exc:
                 self._fail(exc)
+                return
+            except sqlite3.OperationalError as exc:
+                if not busy(exc):
+                    raise
+                self._fail(BUSY)
                 return
         self._dispatch({"/v1/pair": self.pair, "/v1/events": self.events, "/v1/samples": self.samples})
 
@@ -547,13 +559,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "wrong_code", "that code is not right",
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             self.peer = store.pair(device_id, name, token_hash(token))
         self.server.log(printable(f"paired {name} ({device_id})"))
         return {"token": token, "server": self._server_info(), "device": self.peer}
 
     def status(self) -> dict:
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             self._guard_reads(store)
             try:
                 counts = store.counts()
@@ -567,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
         today = date.today()
         start = q.get("from") or (today - timedelta(days=1)).isoformat()
         end = q.get("to") or (today + timedelta(days=13)).isoformat()
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             self._guard_reads(store)
             for label, value in (("from", start), ("to", end)):
                 if not DATE.fullmatch(value):
@@ -582,7 +594,7 @@ class Handler(BaseHTTPRequestHandler):
         after = q.get("after", "0")
         if not re.fullmatch(r"[0-9]{1,18}", after):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "after must be an arrival position")
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             self._guard_reads(store)
             try:
                 found = store.events(int(after), MAX_PULL + 1)
@@ -594,13 +606,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def events(self) -> dict:
         body = self._body()
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             peer = self._auth(store)
-            return push_events(store, peer["device_id"], body, actor_for_peer(peer))
+            try:
+                return push_events(store, peer["device_id"], body, actor_for_peer(peer))
+            except Cut as exc:
+                raise HTTPError(BUSY.status, BUSY.code, BUSY.message, {"results": exc.results}) from None
 
     def samples(self) -> dict:
         body = self._body()
-        with Store(self.server.db) as store:
+        with Store(self.server.db, migrate=False) as store:
             self._auth(store)
             return accept_samples(store, body)
 
@@ -629,7 +644,7 @@ class CloudPoller(threading.Thread):
         if not self.db.exists():
             return None
         try:
-            with Store(self.db) as store:
+            with Store(self.db, migrate=False) as store:
                 report = autosync(store, every=self.every / 2)  # another process synced in the last half minute
         except Exception as exc:  # noqa: BLE001 - serving goes on
             report = {"error": f"{type(exc).__name__}: {exc}"}

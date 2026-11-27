@@ -1,9 +1,7 @@
 {
   "id": "cable_wide_grip_lat_pulldown",
   "name": "Cable Wide-Grip Lat Pulldown",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

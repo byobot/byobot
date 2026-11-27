@@ -1,0 +1,21 @@
+{
+  "id": "kettlebell_swing",
+  "name": "Kettlebell Swing",
+  "load_type": "kettlebell",
+  "movement_type": "compound",
+  "fatigue": 4,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 2,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "glutes",
+      "hamstrings"
+    ],
+    "synergists": [
+      "erector_spinae"
+    ]
+  }
+}

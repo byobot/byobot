@@ -50,7 +50,7 @@ def reps(store, rid):
 def test_a_new_store_records_who_it_is(pair):
     a, _ = pair
     assert a.device_id == "phone" and len(a.store_key) == 32
-    assert a.conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert a.conn.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_log_refuses_an_id_in_use(pair):
@@ -271,6 +271,15 @@ def test_an_estimate_keeps_its_bounds_and_attachments(pair):
     row = a.rows("SELECT value, min, max, round(std_min, 1) AS low, round(std_max, 1) AS high FROM observations")
     assert row == [{"value": 180, "min": 176, "max": 184, "low": 79.8, "high": 83.5}]
     assert a.get("observation", o["record"]["id"])["payload"]["attachments"] == photo
+
+
+def test_an_observation_may_be_a_range_alone(pair):
+    a, _ = pair
+    commands.log(a, ME, [{"kind": "observation", "payload": {
+        "code": "heart_rate", "min": 48, "max": 71, "unit": "/min", "modality": "sensed",
+        "time": {"start": "2026-03-02T00:30:00-05:00", "end": "2026-03-02T06:40:00-05:00"}}}])
+    row = a.rows("SELECT value, min, max, std_min, std_max FROM observations")
+    assert row == [{"value": None, "min": 48, "max": 71, "std_min": 48, "std_max": 71}]
 
 
 def test_local_dates_and_offsets_come_from_the_record(pair):

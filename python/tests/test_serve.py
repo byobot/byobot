@@ -87,13 +87,13 @@ def write(store, *records, actor=AGENT):
 
 def lift(day, name, location="example_gym"):
     return {"scheduled_on": day, "name": name, "location_id": location, "links": {"part_of": {"kind": "plan", "id": PLAN}},
-            "blocks": [{"rounds": 3, "efforts": [{"activity_id": "barbell_back_squat",
+            "blocks": [{"rounds": 3, "efforts": [{"activity_id": "x.barbell_back_squat",
                                                   "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
 
 
 def seed(store):
     write(store,
-          ("activity", "barbell_back_squat", {"name": "Barbell back squat", "targets": {"main": ["quads"]}}),
+          ("activity", "x.barbell_back_squat", {"name": "Barbell back squat", "targets": {"main": ["quads"]}}),
           ("location", "example_gym", {"name": "Example gym"}),
           ("setting", "equipment", {"value": ["barbell", "rack"]}),
           ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
@@ -103,7 +103,7 @@ def seed(store):
     answers = {"kind": "planned_session", "id": LOWER}
     write(store, ("session", DONE, {"name": "Lower A", "location_id": "example_gym", "links": {"answers": answers},
                                     "time": {"start": "2026-11-23T07:30:00-05:00"}}),
-          ("effort", None, {"activity_id": "barbell_back_squat", "round": 1, "time": {"start": "2026-11-23T07:35:00-05:00"},
+          ("effort", None, {"activity_id": "x.barbell_back_squat", "round": 1, "time": {"start": "2026-11-23T07:35:00-05:00"},
                             "links": {"part_of": {"kind": "session", "id": DONE},
                                       "answers": {**answers, "part": f"{LOWER}.0.0"}},
                             "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}), actor=ME)
@@ -118,7 +118,7 @@ def test_plan_window_is_contract_shaped(store):
         assert entry["payload"] == store.get("planned_session", entry["id"])["payload"]  # exactly as authored
         assert entry["prev"] == store.record("planned_session", entry["id"])["tips"]
     assert [p["id"] for p in window["plans"]] == [PLAN]
-    assert [a["id"] for a in window["activities"]] == ["barbell_back_squat"]
+    assert [a["id"] for a in window["activities"]] == ["x.barbell_back_squat"]
     assert [s["id"] for s in window["settings"]] == ["equipment"]
     assert [s["id"] for s in window["sessions"]] == [DONE]
     [effort] = window["efforts"]
@@ -129,7 +129,7 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     spec = Contract.shipped().registry["kinds"]["effort"]
     hub = Store(tmp_path / "hub.db", contract=Contract.shipped().newer(2, {"effort": {**spec, "version": 2,
                                                                                     "since": {"tempo": 2}}}))
-    payload = {"activity_id": "barbell_back_squat", "modality": "self_reported", "metrics": {"reps": {"value": 5}},
+    payload = {"activity_id": "x.barbell_back_squat", "modality": "self_reported", "metrics": {"reps": {"value": 5}},
                "time": {"start": "2026-11-23T07:40:00-05:00"}}
     [plain, fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload},
                                            {"kind": "effort", "payload": {**payload, "tempo": "fast"}}])
@@ -158,7 +158,7 @@ def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
     assert sync_errors("plan_window", window) == []
 
 
-def test_plan_window_follows_replanning_undo_and_rearranging(store):
+def test_plan_window_follows_replanning_and_undo(store):
     seed(store)
     replanned = commands.replan(store, AGENT, LOWER, lift("2026-11-23", "Lower A (deload)"))
 
@@ -169,11 +169,6 @@ def test_plan_window_follows_replanning_undo_and_rearranging(store):
     assert names()[LOWER] == "Lower A (deload)"
     commands.undo(store, ME, replanned["id"])
     assert names()[LOWER] == "Lower A"
-    rid = store.contract.derived("overlay", ["rearrange", "planned_session", LOWER])
-    store.write(ME, [{"kind": "overlay", "id": rid, "op": "put", "payload": {
-        "effect": "rearrange", "target": {"kind": "planned_session", "id": LOWER}, "order": [f"{LOWER}.0.0"]}}])
-    window = serve.plan_window(store, "2026-11-01", "2026-12-31")
-    assert [o["payload"]["target"]["id"] for o in window["overlays"]] == [LOWER]
 
 
 def test_plan_window_shows_a_conflict(store):
@@ -202,7 +197,7 @@ def test_plan_window_brings_the_last_two_times_at_each_location(store):
         write(store, ("session", sid, {"name": "Squats", "location_id": location,
                                        "time": {"start": f"2026-11-{day}T08:00:00Z"}}),
               *[("effort", f"0193a0b0-0000-7000-8000-0000000006{i}{n}", {
-                  "activity_id": "barbell_back_squat", "round": n, "time": {"start": f"2026-11-{day}T08:0{n}:00Z"},
+                  "activity_id": "x.barbell_back_squat", "round": n, "time": {"start": f"2026-11-{day}T08:0{n}:00Z"},
                   "links": {"part_of": {"kind": "session", "id": sid}},
                   "metrics": {"load": {"value": 90 + i, "unit": "kg"}}}) for n in (1, 2)], actor=ME)
     window = serve.plan_window(store, "2026-11-25", "2026-11-30")
@@ -370,7 +365,7 @@ def test_push_events_round_trip(server, byobot_home):
     answers = {"kind": "planned_session", "id": LOWER}
     session = _event("session", sid, {"name": "Lower A", "modality": "self_reported", "links": {"answers": answers},
                                       "time": {"start": "2026-11-23T07:30:00-05:00"}})
-    effort = _event("effort", eid, {"activity_id": "barbell_back_squat", "round": 2, "modality": "self_reported",
+    effort = _event("effort", eid, {"activity_id": "x.barbell_back_squat", "round": 2, "modality": "self_reported",
                                     "time": {"start": "2026-11-23T07:40:00-05:00"},
                                     "links": {"part_of": {"kind": "session", "id": sid},
                                               "answers": {**answers, "part": f"{LOWER}.0.0"}},
@@ -462,7 +457,7 @@ def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
     _, info, client, _ = server
     _pair(client, info)
     eid = uuid7()
-    payload = {"activity_id": "barbell_back_squat", "modality": "self_reported",
+    payload = {"activity_id": "x.barbell_back_squat", "modality": "self_reported",
                "time": {"start": "2026-11-23T07:35:00-05:00"}, "metrics": {"reps": {"value": 5}}}
     original = _event("effort", eid, payload)
     fix = _event("effort", eid, {**payload, "metrics": {"reps": {"value": 4}}}, prev=[original["id"]])

@@ -1,8 +1,9 @@
 {
   "id": "smith_machine_deadlift",
   "name": "Smith Machine Deadlift",
+  "load_type": "plate_loaded_machine",
   "equipment": [
-    "plates"
+    "smith_machine"
   ],
   "movement_type": "compound",
   "fatigue": 4,

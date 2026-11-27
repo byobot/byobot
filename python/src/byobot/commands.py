@@ -8,6 +8,7 @@ import difflib
 import getpass
 import json
 import os
+import sqlite3
 import sys
 import time
 import webbrowser
@@ -21,7 +22,7 @@ from byobot import __version__, credentials, library, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
-from byobot.core.store import Store, ddl, query
+from byobot.core.store import Store, busy, ddl, query
 from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
                          sync_folder_warning)
 
@@ -108,7 +109,12 @@ def run(name: str, ctx: Context, args: dict) -> Any:
                 raise ValidationFailed(f"{p.name} must be from {p.bounds[0]} to {p.bounds[1]}")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
-    return cmd.handler(ctx, **clean)
+    try:
+        return cmd.handler(ctx, **clean)
+    except sqlite3.OperationalError as exc:
+        if not busy(exc):
+            raise
+        raise ByobotError("the store is busy with a long write in another process; try again in a moment") from None
 
 
 def _object(name: str, value: Any) -> dict:
@@ -441,14 +447,14 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
 
 @command(
     "import activities",
-    "Import your own activities, with the muscles they work and the equipment they need, so the app can "
+    "Import your own activities, with the muscles they work and how they are loaded, so the app can "
     "suggest swaps. Activities you already have are kept unless you say replace.",
     Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
           required=True, positional=True, schema={"type": ["object", "array"]}),
     Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
     read_only=False,
-    description="One with the id of an activity that ships with byobot replaces it for you.",
+    description="Your own ids start with x., as in x.cable_fly; one with a library id replaces that activity for you.",
 )
 def _import_activities(ctx: Context, activities: Any, existing: str = "keep") -> dict:
     items = activities.get("activities") if isinstance(activities, dict) else activities
@@ -460,6 +466,7 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
         errors = store.contract.payload_errors("activity", payload, rid if isinstance(rid, str) else None)
         if not isinstance(rid, str) or errors:
             raise ValidationFailed(f"activity {i} is not valid", details=errors or ["it needs an id"])
+        core.check_activity_id(rid)
     added, replaced, kept, changes = [], [], [], []
     for item in items:
         rid, payload = item["id"], {k: v for k, v in item.items() if k != "id"}
@@ -560,9 +567,9 @@ LISTS = {
     "sources": ("source_records", None, "revised_at DESC, id", "source_record"),
     "overlays": ("overlays", None, "id", "overlay"),
 }
-JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields",
-                "arrangement")
-BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
+JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
+BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
+                  "source")
 
 
 def _bound(at: str) -> str | int:
@@ -604,14 +611,15 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
     Param("source", "string", "Only this source, such as whoop (observations, sources, workouts), or for "
           "activities `library` (shipped with byobot) or `store` (yours)."),
     Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
-    Param("equipment", "string", "Only activities that use this equipment (activities)."),
+    Param("equipment", "string", "Only activities loaded this way, such as dumbbell, or needing this kit, such as "
+          "bench (activities)."),
     Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
           choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records on or after this date, or at or after this timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50, bounds=(0, MAX_LIMIT)),
-    description="Muscle and equipment names are in `byobot schema vocabulary`. Dates are local dates, as the "
-                "record was written.",
+    description="Muscle, load type and equipment names are in `byobot schema vocabulary`. Dates are local dates, "
+                "as the record was written.",
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
           muscle: str | None = None, equipment: str | None = None, detail: str = "full",
@@ -650,7 +658,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
                 where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
                              " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
                 params.extend([muscle, muscle])
-            add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
+            if equipment is not None:
+                where.append("(load_type = ? OR EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?))")
+                params.extend([equipment, equipment])
         if time is not None:
             for value, op in ((since, ">="), (until, "<")):
                 if value is not None:
@@ -728,8 +738,8 @@ SCHEMA_CHOICES = (*SCHEMA_NAMES, "sql", "vocabulary")
 
 @command(
     "schema",
-    "Show the byobot contract (JSON Schema and the code registry), the store's SQL tables, or the muscle and "
-    "equipment names (vocabulary).",
+    "Show the byobot contract (JSON Schema and the code registry), the store's SQL tables, or the muscle, load "
+    "type and equipment names (vocabulary).",
     Param("name", "string", "Which one. Leave out to list them.", choices=SCHEMA_CHOICES, positional=True),
 )
 def _schema(ctx: Context, name: str | None = None) -> Any:
@@ -1035,16 +1045,30 @@ def _cloud_status(ctx: Context) -> dict:
     "Remove a device from Drive sync, such as a lost phone. A new epoch starts with a key it doesn't get.",
     Param("device_id", "string", "The device to remove (see `byobot cloud status`).", required=True,
           positional=True),
+    Param("revoke_google", "string", "Also revoke Google access, for a lost or stolen phone. This signs out every "
+          "phone, not only this one. Asked in a terminal; no otherwise.", choices=("yes", "no")),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _cloud_remove(ctx: Context, device_id: str) -> dict:
+def _cloud_remove(ctx: Context, device_id: str, revoke_google: str | None = None) -> dict:
     keeper = _keeper(ctx)
     with _lock(keeper.store):
         epoch = keeper.remove(device_id)
-    return {"removed": device_id, "epoch": epoch,
-            "next": "A lost phone is still signed in to Google: in your Google Account's third-party connections, "
-                    "remove its access to your Google Cloud project's app."}
+    if revoke_google is None:
+        try:
+            answer = _ask("Also revoke Google access? Only for a lost or stolen phone: it signs out every phone, "
+                          "and the others join again. [y/N] ") if sys.stdin.isatty() else ""
+        except (EOFError, OSError):
+            answer = ""
+        revoke_google = "yes" if answer.lower() in ("y", "yes") else "no"
+    if revoke_google == "yes":
+        return {"removed": device_id, "epoch": epoch, "google_access": "revoke",
+                "next": "In your Google Account, open Security, then your connections to third-party apps, and remove "
+                        "your Google Cloud project's iOS app. Then run `byobot cloud join` for each phone you keep."}
+    return {"removed": device_id, "epoch": epoch, "google_access": "kept",
+            "note": "It can't read anything new, but it stays signed in to Google and could still delete files in "
+                    "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google yes` "
+                    "explains; that signs out every phone."}
 
 
 @command(

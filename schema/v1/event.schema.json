@@ -202,7 +202,32 @@
             "properties": {
               "kind": {
                 "enum": [
-                  "activity",
+                  "activity"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record": {
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/$defs/activity_id"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record": {
+            "properties": {
+              "kind": {
+                "enum": [
                   "location",
                   "setting"
                 ]
@@ -361,7 +386,6 @@
       "then": {
         "properties": {
           "prev": {
-            "minItems": 1,
             "maxItems": 1
           },
           "payload": {

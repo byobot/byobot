@@ -1,9 +1,7 @@
 {
   "id": "barbell_deadlift",
   "name": "Barbell Deadlift",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

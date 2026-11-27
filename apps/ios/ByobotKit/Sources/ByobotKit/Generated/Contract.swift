@@ -78,11 +78,10 @@ public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
     case correct
     case exclude
     case sameAs = "same_as"
-    case rearrange
     /// A value from a newer byobot, so one new value doesn't stop a whole read.
     case unknown
 
-    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs, .rearrange]
+    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs]
 
     public init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
@@ -165,6 +164,9 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var defaultMetrics: [String]?
     /// Muscles it works, named as in library/vocabulary.json where they fit.
     public var targets: Targets?
+    /// How it's loaded, one of library/vocabulary.json's `load_types`: `barbell`, `dumbbell`, `kettlebell`, `cable`, `machine` (a weight stack on a fixed path), `plate_loaded_machine`, `bodyweight` (held or worn weight is its `load`) or `band`.
+    public var loadType: String?
+    /// Kit it needs besides its load, such as `bench` or `smith_machine`.
     public var equipment: [String]?
     /// `compound` or `isolation` in the library.
     public var movementType: String?
@@ -173,11 +175,12 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var resistanceCurve: ResistanceCurve?
     public var notes: String?
 
-    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
+    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, loadType: String? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
         self.name = name
         self.tags = tags
         self.defaultMetrics = defaultMetrics
         self.targets = targets
+        self.loadType = loadType
         self.equipment = equipment
         self.movementType = movementType
         self.fatigue = fatigue
@@ -190,6 +193,7 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
         case tags
         case defaultMetrics = "default_metrics"
         case targets
+        case loadType = "load_type"
         case equipment
         case movementType = "movement_type"
         case fatigue
@@ -201,15 +205,19 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
 /// Where you train. Loads compare within one location.
 public struct LocationPayload: Codable, Equatable, Hashable, Sendable {
     public var name: String
+    /// Load types and kit you have here. Without it, the `equipment` setting counts.
+    public var equipment: [String]?
     public var notes: String?
 
-    public init(name: String, notes: String? = nil) {
+    public init(name: String, equipment: [String]? = nil, notes: String? = nil) {
         self.name = name
+        self.equipment = equipment
         self.notes = notes
     }
 
     enum CodingKeys: String, CodingKey {
         case name
+        case equipment
         case notes
     }
 }
@@ -431,7 +439,7 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One measured value: a weight, a blood pressure reading, a night's deep sleep. Sources' values become observations when read; this kind is for ones a person or agent writes. An estimate gives the bounds its `value` likely lies within.
+/// One measurement of one code: a weight, a blood pressure reading, a night's lowest and highest heart rate. Sources' values become observations when read; this kind is for ones a person or agent writes. `value`, `min`, `max` and `unit` are a measure, as under `metrics`: an exact value, a range, or an estimate with its bounds.
 public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
     /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
@@ -442,13 +450,13 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
     public var attachments: [Attachment]?
     public var code: String
-    public var value: Scalar
+    public var value: Scalar?
     public var min: Double?
     public var max: Double?
     public var unit: String?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
+    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar? = nil, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
         self.time = time
         self.modality = modality
         self.origin = origin
@@ -477,7 +485,7 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Your intent about a record that isn't yours: correct a source's values, exclude one, say it is the same as another record, or rearrange a planned session (exercise order and swaps). It survives re-imports and re-plans and never conflicts with its target.
+/// Your intent about a record that isn't yours: correct a source's values, exclude one, or say it is the same as another record. It survives re-imports and re-plans and never conflicts with its target.
 public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
     public var effect: OverlayEffect
     public var target: Ref
@@ -485,19 +493,13 @@ public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
     public var fields: CorrectedFields?
     /// For `same_as`: the record the target is the same as.
     public var with: Ref?
-    /// For `rearrange`: planned effort ids in the order you want them.
-    public var order: [String]?
-    /// For `rearrange`: planned effort id to the activity done instead.
-    public var swaps: [String: Swap]?
     public var notes: String?
 
-    public init(effect: OverlayEffect, target: Ref, fields: CorrectedFields? = nil, with: Ref? = nil, order: [String]? = nil, swaps: [String: Swap]? = nil, notes: String? = nil) {
+    public init(effect: OverlayEffect, target: Ref, fields: CorrectedFields? = nil, with: Ref? = nil, notes: String? = nil) {
         self.effect = effect
         self.target = target
         self.fields = fields
         self.with = with
-        self.order = order
-        self.swaps = swaps
         self.notes = notes
     }
 
@@ -506,8 +508,6 @@ public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
         case target
         case fields
         case with
-        case order
-        case swaps
         case notes
     }
 }
@@ -849,7 +849,7 @@ public struct PullResponse: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One sample as the app reads it from a health store.
+/// One sample as the app reads it from a health store. A Mac drops a field it doesn't know, so one a newer app adds changes no revision.
 public struct Sample: Codable, Equatable, Hashable, Sendable {
     /// Where the sample was read, such as apple_health.
     public var source: String
@@ -863,10 +863,12 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
     public var unit: String?
     /// The device or app that recorded it.
     public var device: String?
+    /// The bundle id of the app that wrote it to the health store, such as com.example.scale.
+    public var originApp: String?
     /// Anything else the health store gave, such as a workout's totals. A running total sent again during the day carries its `modified_at`.
     public var raw: JSONValue?
 
-    public init(source: String, sourceId: String, type: String, start: String, end: String? = nil, value: Scalar? = nil, unit: String? = nil, device: String? = nil, raw: JSONValue? = nil) {
+    public init(source: String, sourceId: String, type: String, start: String, end: String? = nil, value: Scalar? = nil, unit: String? = nil, device: String? = nil, originApp: String? = nil, raw: JSONValue? = nil) {
         self.source = source
         self.sourceId = sourceId
         self.type = type
@@ -875,6 +877,7 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
         self.value = value
         self.unit = unit
         self.device = device
+        self.originApp = originApp
         self.raw = raw
     }
 
@@ -887,6 +890,7 @@ public struct Sample: Codable, Equatable, Hashable, Sendable {
         case value
         case unit
         case device
+        case originApp = "origin_app"
         case raw
     }
 }
@@ -1096,21 +1100,6 @@ public struct ResistanceCurve: Codable, Equatable, Hashable, Sendable {
         case stretch
         case middle
         case contract
-    }
-}
-
-public struct Swap: Codable, Equatable, Hashable, Sendable {
-    public var activityId: String
-    public var reason: String?
-
-    public init(activityId: String, reason: String? = nil) {
-        self.activityId = activityId
-        self.reason = reason
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case activityId = "activity_id"
-        case reason
     }
 }
 

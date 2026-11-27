@@ -1,9 +1,7 @@
 {
   "id": "machine_triceps_extension",
   "name": "Machine Triceps Extension",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

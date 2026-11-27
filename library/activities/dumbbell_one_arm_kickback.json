@@ -1,0 +1,21 @@
+{
+  "id": "dumbbell_one_arm_kickback",
+  "name": "Dumbbell Single Arm Kickback",
+  "load_type": "dumbbell",
+  "equipment": [
+    "bench"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 1,
+    "middle": 1,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "triceps"
+    ],
+    "synergists": []
+  }
+}

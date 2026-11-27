@@ -5,19 +5,28 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from typing import Any
 
 from ..util import ValidationFailed
 from . import reducers, sources
 from .commands import AUTHORED
 from .contract import sync_errors
-from .store import Store
+from .store import Store, busy
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
 KINDS = (*AUTHORED, "overlay")
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
 EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+
+
+class Cut(Exception):
+    """A push stopped part way because the store was busy; `results` are the events settled before it."""
+
+    def __init__(self, results: list[dict]):
+        super().__init__("the store is busy")
+        self.results = results
 
 
 def _needs(store: Store, event: dict) -> float:
@@ -51,26 +60,37 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
     """
     results = []
     for i, event in enumerate(events):
-        result: dict[str, Any] = {"index": i, "id": event.get("id") if isinstance(event, dict) else None}
-        record = event.get("record") if isinstance(event, dict) else None
-        if not isinstance(event, dict) or not isinstance(record, dict):
-            reason = "not an event"
-        elif event.get("device_id") != device_id:
-            reason = "events must be authored by the paired device that pushes them"
-        elif event.get("actor") != actor:
-            reason = "events must be authored by the paired device's user"
-        elif record.get("kind") not in KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
-            reason = "a phone writes only what a person writes"
-        elif _too_new(store, event, kinds or {}):
-            reason = "a newer byobot wrote this record; update the app to change it"
-        else:
-            outcome, reason = store.accept(event)
-            results.append({**result, "status": outcome, **({"reason": reason} if reason else {})})
-            continue
-        results.append({**result, "status": "rejected", "reason": reason})
-    store.note_rejections(device_id, [(r["id"], r.get("reason", "") if r["status"] == "rejected" else None)
-                                      for r in results if isinstance(r["id"], str) and EVENT_ID.fullmatch(r["id"])])
+        try:
+            with store._tx():  # an event and its refusal, or the end of an earlier one, commit together
+                result = _settle(store, device_id, event, actor, kinds or {})
+                if isinstance(result["id"], str) and EVENT_ID.fullmatch(result["id"]):
+                    store.note_rejections(device_id, [
+                        (result["id"], result.get("reason", "") if result["status"] == "rejected" else None)])
+        except sqlite3.OperationalError as exc:
+            if not busy(exc):
+                raise
+            raise Cut(results) from exc
+        results.append({"index": i, **result})
     return results
+
+
+def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) -> dict:
+    result: dict[str, Any] = {"id": event.get("id") if isinstance(event, dict) else None}
+    record = event.get("record") if isinstance(event, dict) else None
+    if not isinstance(event, dict) or not isinstance(record, dict):
+        reason = "not an event"
+    elif event.get("device_id") != device_id:
+        reason = "events must be authored by the paired device that pushes them"
+    elif event.get("actor") != actor:
+        reason = "events must be authored by the paired device's user"
+    elif record.get("kind") not in KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
+        reason = "a phone writes only what a person writes"
+    elif _too_new(store, event, kinds):
+        reason = "a newer byobot wrote this record; update the app to change it"
+    else:
+        outcome, reason = store.accept(event)
+        return {**result, "status": outcome, **({"reason": reason} if reason else {})}
+    return {**result, "status": "rejected", "reason": reason}
 
 
 def push_events(store: Store, device_id: str, body: Any, actor: dict = PERSON) -> dict:
@@ -122,8 +142,8 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
     Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
-    efforts of the last two times each planned activity was done at each location.
+    planned sessions, the sessions and efforts already logged against them, and the efforts of the last two times
+    each planned activity was done at each location.
 
     Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
@@ -150,13 +170,11 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
                   "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
                   json.dumps(sessions))
     efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
-    overlays = ids("SELECT id FROM overlays WHERE effect = 'rearrange' AND target_kind = 'planned_session' "
-                   "AND target_id IN (SELECT value FROM json_each(?)) ORDER BY id", window)
     return {"from": start, "to": end, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
-            "overlays": _entries(store, "overlay", overlays), "sessions": _entries(store, "session", sessions),
+            "sessions": _entries(store, "session", sessions),
             "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
 
 
@@ -168,7 +186,7 @@ def _device_state(store: Store, device_id: str | None) -> dict:
             "rejected": store.rejections(device_id) if device_id else []}
 
 
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
+_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment", "targets", "default_metrics",
              "resistance_curve")
 _JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 

@@ -1,9 +1,7 @@
 {
   "id": "handle_lateral_raise",
   "name": "Handle Lateral Raise",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

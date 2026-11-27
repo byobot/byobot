@@ -1,9 +1,7 @@
 {
   "id": "barbell_front_raise",
   "name": "Barbell Front Raise",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

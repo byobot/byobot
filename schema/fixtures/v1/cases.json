@@ -5,7 +5,7 @@
   {
    "name": "activity/put",
    "outcome": "accepted",
-   "description": "An activity with the muscles it works, its equipment and how it trains.",
+   "description": "An activity with the muscles it works, how it's loaded, the kit it needs and how it trains.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000001",
     "schema_version": 1,
@@ -43,9 +43,119 @@
        "adductors"
       ]
      },
+     "load_type": "barbell",
+     "equipment": [
+      "rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "activity/yours",
+   "outcome": "accepted",
+   "description": "Your own activities are `x.` and a slug.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable_fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "activity/dotted-id",
+   "outcome": "rejected",
+   "description": "Only the `x.` prefix has a dot.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable.fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -60,7 +170,7 @@
   {
    "name": "location/put",
    "outcome": "accepted",
-   "description": "A place to train, named by a slug.",
+   "description": "A place to train, named by a slug, with what you have there.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000008",
     "schema_version": 1,
@@ -79,7 +189,14 @@
     },
     "prev": [],
     "payload": {
-     "name": "Example Gym"
+     "name": "Example Gym",
+     "equipment": [
+      "barbell",
+      "dumbbell",
+      "cable",
+      "bench",
+      "rack"
+     ]
     }
    }
   },
@@ -689,6 +806,71 @@
    }
   },
   {
+   "name": "observation/range",
+   "outcome": "accepted",
+   "description": "A range needs no invented value, as under `metrics`.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "min": 48,
+     "max": 71,
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T00:30:00-05:00",
+      "end": "2026-11-21T06:40:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/no-measure",
+   "outcome": "rejected",
+   "description": "An observation holds a value, a range or both.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T06:40:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
    "name": "observation/custom-code",
    "outcome": "accepted",
    "description": "Your own `x.` code.",
@@ -877,6 +1059,29 @@
    }
   },
   {
+   "name": "source_record/deleted-before-held",
+   "outcome": "accepted",
+   "description": "The phone said a sample was deleted before the Mac held it; the empty prev keeps it from ever showing.",
+   "data": {
+    "id": "478dab99-9d45-5333-84fc-032353d705ab",
+    "schema_version": 1,
+    "record": {
+     "kind": "source_record",
+     "id": "8e79b667-e455-583a-88e3-61d76b1d1978"
+    },
+    "op": "retract",
+    "hlc": "1795156100000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "connector",
+     "id": "whoop"
+    },
+    "prev": [],
+    "payload": {}
+   }
+  },
+  {
    "name": "source_record/erase",
    "outcome": "accepted",
    "description": "You erase a source's record; erase is yours, not the connector's.",
@@ -1032,8 +1237,8 @@
   },
   {
    "name": "overlay/rearrange",
-   "outcome": "accepted",
-   "description": "Your exercise order and a swap on an agent's planned session.",
+   "outcome": "rejected",
+   "description": "Order and swaps stay on the phone; what you did is in the logged sets.",
    "data": {
     "id": "019aa000-0000-7000-8000-00000000001b",
     "schema_version": 1,
@@ -1873,7 +2078,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -2371,7 +2576,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,

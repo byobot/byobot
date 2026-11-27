@@ -1,0 +1,18 @@
+{
+  "id": "dumbbell_single_leg_calf_raise_with_block",
+  "name": "Single Leg Dumbbell Calf Raise (With Block)",
+  "load_type": "dumbbell",
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 3,
+    "contract": 3
+  },
+  "targets": {
+    "main": [
+      "calves"
+    ],
+    "synergists": []
+  }
+}

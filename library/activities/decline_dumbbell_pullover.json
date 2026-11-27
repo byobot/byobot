@@ -1,8 +1,9 @@
 {
   "id": "decline_dumbbell_pullover",
   "name": "Decline Dumbbell Pullover",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

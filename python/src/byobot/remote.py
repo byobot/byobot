@@ -579,6 +579,7 @@ class Handler(serve.Handler):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
+        server.quiet_errors = True
         server.protocol = version or mcp.LATEST
         server.ctx = Context(actor={}, path=self.server.db)
         try:
@@ -619,6 +620,7 @@ class Handler(serve.Handler):
         if not isinstance(args, dict):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
+        server.quiet_errors = True
         server.ctx = Context(actor={}, path=self.server.db)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:

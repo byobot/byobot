@@ -1,9 +1,7 @@
 {
   "id": "cable_incline_fly",
   "name": "Cable Incline Fly",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

@@ -1,9 +1,7 @@
 {
   "id": "barbell_single_leg_deadlift",
   "name": "Barbell Single Leg Deadlift",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

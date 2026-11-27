@@ -1,9 +1,7 @@
 {
   "id": "barbell_reverse_lunge",
   "name": "Barbell Reverse Lunge",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

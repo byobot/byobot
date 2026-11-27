@@ -63,9 +63,9 @@ RESTING = {"source": "apple_health", "source_id": "r-1", "type": "HKQuantityType
 
 
 def test_log_list_and_query(capsys):
-    cli(capsys, "log", "activity", json.dumps({"name": "Plank", "default_metrics": ["duration"]}), "--id", "plank")
+    cli(capsys, "log", "activity", json.dumps({"name": "Plank", "default_metrics": ["duration"]}), "--id", "x.plank")
     code, out, _ = cli(capsys, "log", "effort",
-                       json.dumps({"activity_id": "plank", "metrics": {"duration": {"value": 60, "unit": "s"}}}))
+                       json.dumps({"activity_id": "x.plank", "metrics": {"duration": {"value": 60, "unit": "s"}}}))
     assert code == 0
     event = out["event"]
     assert event["actor"] == {"kind": "human", "id": "me"} and event["record"]["kind"] == "effort"
@@ -74,7 +74,7 @@ def test_log_list_and_query(capsys):
     code, listed, _ = cli(capsys, "list", "efforts")
     assert listed["count"] == 1 and listed["items"][0]["metrics"] == {"duration": {"value": 60, "unit": "s"}}
     assert listed["items"][0]["id"] == event["record"]["id"]
-    assert cli(capsys, "list", "efforts", "--activity", "row")[1]["count"] == 0
+    assert cli(capsys, "list", "efforts", "--activity", "x.row")[1]["count"] == 0
     assert cli(capsys, "list", "activities")[1]["items"][0]["default_metrics"] == ["duration"]
 
     code, rows, _ = cli(capsys, "query", "SELECT count(*) AS n FROM events")
@@ -82,12 +82,12 @@ def test_log_list_and_query(capsys):
 
 
 def test_planned_session_fills_ids_and_lists_nested(capsys):
-    for id, name in (("pull_up", "Pull-Up"), ("dip", "Dip")):
+    for id, name in (("x.pull_up", "Pull-Up"), ("x.dip", "Dip")):
         cli(capsys, "log", "activity", json.dumps({"name": name}), "--id", id)
     session = {"scheduled_on": "2026-11-23", "name": "Upper", "blocks": [
         {"rounds": 3, "metrics": {"rest": {"value": 90, "unit": "s"}}, "efforts": [
-            {"activity_id": "pull_up", "metrics": {"reps": {"min": 6, "max": 8}}},
-            {"activity_id": "dip", "metrics": {"reps": {"value": 10}}}]}]}
+            {"activity_id": "x.pull_up", "metrics": {"reps": {"min": 6, "max": 8}}},
+            {"activity_id": "x.dip", "metrics": {"reps": {"value": 10}}}]}]}
     code, out, _ = cli(capsys, "log", "planned_session", json.dumps(session))
     assert code == 0
     rid = out["event"]["record"]["id"]
@@ -96,7 +96,7 @@ def test_planned_session_fills_ids_and_lists_nested(capsys):
     planned = cli(capsys, "list", "planned")[1]["items"][0]
     assert planned["blocks"][0]["rounds"] == 3
     assert planned["blocks"][0]["metrics"] == {"rest": {"value": 90, "unit": "s"}}
-    assert [e["activity_id"] for e in planned["blocks"][0]["efforts"]] == ["pull_up", "dip"]
+    assert [e["activity_id"] for e in planned["blocks"][0]["efforts"]] == ["x.pull_up", "x.dip"]
     assert planned["blocks"][0]["efforts"][0]["metrics"] == {"reps": {"min": 6, "max": 8}}
 
 
@@ -120,24 +120,24 @@ def test_session_with_efforts_in_one_batch(capsys):
 def test_log_from_file_and_stdin(capsys, tmp_path, monkeypatch):
     path = tmp_path / "ex.json"
     path.write_text(json.dumps({"name": "Plank"}))
-    assert cli(capsys, "log", "activity", f"@{path}", "--id", "plank")[0] == 0
+    assert cli(capsys, "log", "activity", f"@{path}", "--id", "x.plank")[0] == 0
     monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(json.dumps({"name": "Row"})))
-    assert cli(capsys, "log", "activity", "-", "--id", "row")[0] == 0
+    assert cli(capsys, "log", "activity", "-", "--id", "x.row")[0] == 0
     assert cli(capsys, "list", "activities")[1]["count"] == 2
 
 
 def test_actor_flag(capsys):
     code, out, _ = cli(capsys, "--actor", "agent:claude-code:example-model-1", "log", "activity",
-                       json.dumps({"name": "Plank"}), "--id", "plank")
+                       json.dumps({"name": "Plank"}), "--id", "x.plank")
     assert out["event"]["actor"] == {"kind": "agent", "id": "claude-code", "model": "example-model-1"}
 
 
 def test_actor_env(capsys, monkeypatch):
     monkeypatch.setenv("BYOBOT_ACTOR", "agent:example-coach")
-    code, out, _ = cli(capsys, "log", "activity", json.dumps({"name": "Run"}), "--id", "run")
+    code, out, _ = cli(capsys, "log", "activity", json.dumps({"name": "Run"}), "--id", "x.run")
     assert out["event"]["actor"] == {"kind": "agent", "id": "example-coach"}
     monkeypatch.setenv("BYOBOT_ACTOR", "connector:whoop")
-    assert cli(capsys, "log", "activity", json.dumps({"name": "Row"}), "--id", "row")[0] == 1  # sources write imports
+    assert cli(capsys, "log", "activity", json.dumps({"name": "Row"}), "--id", "x.row")[0] == 1  # sources write imports
 
 
 def test_bad_actor(capsys):
@@ -147,13 +147,13 @@ def test_bad_actor(capsys):
 
 def test_invalid_log_exits_1_with_errors(capsys):
     code, out, err = cli(capsys, "log", "effort",
-                         json.dumps({"activity_id": "plank", "metrics": {"reps": {"value": 5, "unit": "kg"}}}))
+                         json.dumps({"activity_id": "x.plank", "metrics": {"reps": {"value": 5, "unit": "kg"}}}))
     assert code == 1 and out is None
     assert json.loads(err)["error"] == "invalid"
 
 
 def test_edit_and_undo(capsys):
-    _, out, _ = cli(capsys, "log", "effort", json.dumps({"activity_id": "pull_up", "metrics": {"reps": {"value": 8}}}))
+    _, out, _ = cli(capsys, "log", "effort", json.dumps({"activity_id": "x.pull_up", "metrics": {"reps": {"value": 8}}}))
     rid = out["event"]["record"]["id"]
     code, edit, _ = cli(capsys, "edit", "effort", rid, '{"metrics": {"reps": {"value": 7}}, "notes": "last one didn\'t count"}')
     assert code == 0 and edit["event"]["prev"] == [out["event"]["id"]]
@@ -166,10 +166,10 @@ def test_edit_and_undo(capsys):
 
 
 def test_remove_and_history(capsys):
-    cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "plank")
-    assert cli(capsys, "remove", "activity", "plank", "--reason", "typo")[0] == 0
+    cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")
+    assert cli(capsys, "remove", "activity", "x.plank", "--reason", "typo")[0] == 0
     assert cli(capsys, "list", "activities")[1]["count"] == 0
-    versions = cli(capsys, "history", "activity", "plank")[1]["versions"]
+    versions = cli(capsys, "history", "activity", "x.plank")[1]["versions"]
     assert [v["op"] for v in versions] == ["put", "retract"]
 
 
@@ -213,13 +213,13 @@ def test_schema(capsys):
 
 
 def test_rebuild_and_status(capsys):
-    cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "plank")
+    cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")
     assert cli(capsys, "rebuild")[1]["counts"]["activities"] == 1
     assert cli(capsys, "status")[1]["counts"]["events"] == 1
 
 
 def test_bad_json_argument(capsys):
-    code, _, err = cli(capsys, "log", "activity", "{not json", "--id", "plank")
+    code, _, err = cli(capsys, "log", "activity", "{not json", "--id", "x.plank")
     assert code == 1 and "could not read JSON" in json.loads(err)["message"]
 
 
@@ -242,22 +242,22 @@ def test_mascot_renders(tier):
 
 
 LIBRARY = [
-    {"id": "pull_up", "name": "Pull-up", "targets": {"main": ["lats"], "synergists": ["biceps"]}, "equipment": ["bar"]},
-    {"id": "lat_pulldown", "name": "Lat pulldown", "targets": {"main": ["lats"], "synergists": []}},
+    {"id": "x.pull_up", "name": "Pull-up", "targets": {"main": ["lats"], "synergists": ["biceps"]}, "equipment": ["pull_up_bar"]},
+    {"id": "x.lat_pulldown", "name": "Lat pulldown", "targets": {"main": ["lats"], "synergists": []}},
 ]
 
 
 def test_import_activities_keeps_yours_unless_told(capsys, tmp_path):
     library = tmp_path / "library.json"
     library.write_text(json.dumps({"activities": LIBRARY}))
-    cli(capsys, "log", "activity", '{"name": "Strict pull-up"}', "--id", "pull_up")
+    cli(capsys, "log", "activity", '{"name": "Strict pull-up"}', "--id", "x.pull_up")
     code, out, _ = cli(capsys, "import", "activities", f"@{library}")
     assert code == 0, out
-    assert out == {"added": ["lat_pulldown"], "replaced": [], "kept": ["pull_up"]}
+    assert out == {"added": ["x.lat_pulldown"], "replaced": [], "kept": ["x.pull_up"]}
     code, out, _ = cli(capsys, "query", "SELECT name FROM activities ORDER BY id")
     assert [r["name"] for r in out["rows"]] == ["Lat pulldown", "Strict pull-up"]
     code, out, _ = cli(capsys, "import", "activities", f"@{library}", "--existing", "replace")
-    assert out == {"added": [], "replaced": ["pull_up"], "kept": ["lat_pulldown"]}
+    assert out == {"added": [], "replaced": ["x.pull_up"], "kept": ["x.lat_pulldown"]}
     code, out, _ = cli(capsys, "import", "activities", '[{"id": "x", "name": "X", "targets": {"primary": ["lats"]}}]')
     assert code != 0
     assert cli(capsys, "query", "SELECT count(*) AS n FROM activities")[1]["rows"] == [{"n": 2}]
@@ -273,25 +273,25 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
     (lib / "vocabulary.json").write_text("{}")
-    (lib / "activities" / "dip.json").write_text(json.dumps({"id": "dip", "name": "Dip", "targets": {"main": ["triceps"]}}))
+    (lib / "activities" / "dip.json").write_text(json.dumps({"id": "x.dip", "name": "Dip", "targets": {"main": ["triceps"]}}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
-    cli(capsys, "log", "activity", '{"name": "Plank"}', "--id", "plank")
+    cli(capsys, "log", "activity", '{"name": "Plank"}', "--id", "x.plank")
     items = cli(capsys, "list", "activities")[1]["items"]
-    assert [(i["id"], i["source"]) for i in items] == [("dip", "library"), ("plank", "store")]
+    assert [(i["id"], i["source"]) for i in items] == [("x.dip", "library"), ("x.plank", "store")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
-    assert [i["id"] for i in cli(capsys, "list", "activities", "--source", "library")[1]["items"]] == ["dip"]
+    assert [i["id"] for i in cli(capsys, "list", "activities", "--source", "library")[1]["items"]] == ["x.dip"]
 
 
 def test_planned_session_must_name_existing_records(capsys):
-    for id, name in (("barbell_back_squat", "Barbell Back Squat"), ("hack_squat", "Hack Squat")):
+    for id, name in (("x.barbell_back_squat", "Barbell Back Squat"), ("x.hack_squat", "Hack Squat")):
         cli(capsys, "log", "activity", json.dumps({"name": name}), "--id", id)
     session = {"scheduled_on": "2026-11-23", "name": "Legs", "location_id": "example_gym",
                "links": {"part_of": {"kind": "plan", "id": P1}},
-               "blocks": [{"efforts": [{"activity_id": "barbell_back_squat"}, {"activity_id": "back_squat"}]}]}
+               "blocks": [{"efforts": [{"activity_id": "x.barbell_back_squat"}, {"activity_id": "back_squat"}]}]}
     code, out, err = cli(capsys, "log", "planned_session", json.dumps(session))
     assert code != 0
     details = json.loads(err)["details"]
-    assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["barbell_back_squat", "hack_squat"]},
+    assert details == [{"kind": "activity", "id": "back_squat", "did_you_mean": ["x.barbell_back_squat", "x.hack_squat"]},
                        {"kind": "location", "id": "example_gym"}, {"kind": "plan", "id": P1}]
     assert cli(capsys, "query", "SELECT count(*) AS n FROM planned_sessions")[1]["rows"] == [{"n": 0}]
 
@@ -306,3 +306,9 @@ def test_a_group_alone_shows_its_help(capsys):
     with pytest.raises(SystemExit) as exit:
         main(["import"])
     assert exit.value.code == 0 and "activities" in capsys.readouterr().out
+
+
+def test_your_own_activity_ids_start_with_x(capsys):
+    code, _, err = cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "plank")
+    assert code == 1 and "x.plank" in json.loads(err)["message"]
+    assert cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")[0] == 0

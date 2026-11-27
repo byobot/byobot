@@ -8,6 +8,7 @@ from datetime import datetime, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .. import library
 from ..util import Conflict, NotFound, ValidationFailed
 from . import mappers
 from .contract import instant
@@ -35,6 +36,12 @@ def merge_patch(target: Any, patch: Any) -> Any:
 def _authored(kind: str) -> None:
     if kind not in AUTHORED:
         raise ValidationFailed(f"{kind} records aren't written by hand")
+
+
+def check_activity_id(rid: Any) -> None:
+    """Your own activities are `x.` ids; a plain id is the library's, which yours may replace."""
+    if isinstance(rid, str) and not rid.startswith("x.") and rid not in {a["id"] for a in library.activities()}:
+        raise ValidationFailed(f"{rid} isn't a library activity; your own activities' ids start with x., as in x.{rid}")
 
 
 def _home_zone(store: Store) -> tzinfo | None:
@@ -104,6 +111,8 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     for r in records:
         _authored(r["kind"])
         rid = r.get("id") or store.new_record_id(r["kind"])
+        if r["kind"] == "activity":
+            check_activity_id(rid)
         payload = r["payload"]
         if r["kind"] == "planned_session" and isinstance(payload, dict):
             payload = _parts(rid, payload, [])
@@ -142,7 +151,7 @@ def correct(store: Store, actor: dict, target: str, fields: dict) -> dict:
     """Use your values over a source record's, whatever it later revises. `fields` merge into earlier corrections;
     a null takes one back."""
     found = store.get("overlay", store.contract.derived("overlay", ["correct", "source_record", target]))
-    fields = merge_patch(found["payload"]["fields"] if found else {}, fields)
+    fields = {k: v for k, v in merge_patch(found["payload"]["fields"] if found else {}, fields).items() if v != {}}
     if not fields:
         raise ValidationFailed("nothing left to correct; remove the correction instead")
     fields = _times(store, fields)

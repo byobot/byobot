@@ -1,0 +1,21 @@
+{
+  "id": "dumbbell_incline_fly",
+  "name": "Incline Dumbbell Fly",
+  "load_type": "dumbbell",
+  "equipment": [
+    "bench"
+  ],
+  "movement_type": "isolation",
+  "fatigue": 1,
+  "resistance_curve": {
+    "stretch": 3,
+    "middle": 2,
+    "contract": 1
+  },
+  "targets": {
+    "main": [
+      "pecs"
+    ],
+    "synergists": []
+  }
+}

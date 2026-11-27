@@ -113,7 +113,7 @@ struct LogEffortView: View {
     }
 
     private func save() {
-        let activityId = planned?.activityId ?? Format.slug(activityText)
+        let activityId = planned?.activityId ?? ActivityId.make(activityText, known: model.plan?.activities ?? [])
         guard !activityId.isEmpty else {
             error = "Name the activity."
             return

@@ -199,12 +199,9 @@ extension Logbook {
                                  atAnotherGym: plannedElsewhere(workout.session))
     }
 
-    /// Your order and swaps for a planned session: what you changed here since the last pull, else the laptop's.
+    /// Your order and swaps for a planned session, kept on this phone; what you did goes in the logged sets.
     public func changes(for plannedSessionId: String) -> WorkoutChanges {
-        if let mine = state.workouts?[plannedSessionId] { return mine }
-        let id = Self.rearrangeId(plannedSessionId)
-        guard let overlay = state.plan?.overlays.first(where: { $0.id == id }) else { return WorkoutChanges() }
-        return WorkoutChanges(order: overlay.order, swaps: overlay.swaps)
+        state.workouts?[plannedSessionId] ?? WorkoutChanges()
     }
 
     public func workout(_ planned: PlannedSession) -> Workout {
@@ -226,22 +223,12 @@ extension Logbook {
         setChanges(updated, for: plannedSessionId)
     }
 
-    /// Write the planned session's rearrange overlay, or take it back once nothing is changed.
     mutating func setChanges(_ changes: WorkoutChanges, for plannedSessionId: String) {
         let order = changes.order?.isEmpty == false ? changes.order : nil
         let swaps = changes.swaps?.isEmpty == false ? changes.swaps : nil
         var all = state.workouts ?? [:]
-        all[plannedSessionId] = WorkoutChanges(order: order, swaps: swaps)
+        all[plannedSessionId] = order == nil && swaps == nil ? nil : WorkoutChanges(order: order, swaps: swaps)
         state.workouts = all
-        let id = Self.rearrangeId(plannedSessionId)
-        if order == nil && swaps == nil {
-            let exists = state.plan?.overlays.contains { $0.id == id } == true
-                || written("overlay", as: OverlayPayload.self).contains { $0.id == id }
-            if exists { retract("overlay", id) }
-        } else {
-            put("overlay", id, OverlayPayload(effect: .rearrange, target: Ref(kind: "planned_session", id: plannedSessionId),
-                                              order: order, swaps: swaps))
-        }
     }
 
     /// The first planned session from `today` on that you haven't finished or logged in full.
@@ -251,10 +238,18 @@ extension Logbook {
             .first { !finished.contains($0.id) && workout($0).next != nil }
     }
 
-    /// The equipment you have; nil means you haven't said, so everything counts.
-    public var equipment: Set<String>? { state.equipment.map(Set.init) }
+    /// The equipment you have where you are: the location's, else your default; nil means everything counts.
+    public var equipment: Set<String>? {
+        (location(currentLocationId)?.equipment ?? state.equipment).map(Set.init)
+    }
 
+    /// Sets the equipment at where you are, or your default when you haven't picked a location.
     public mutating func setEquipment(_ items: Set<String>?) {
+        if var here = location(currentLocationId) {
+            here.payload.equipment = items?.sorted()
+            put("location", here.id, here.payload)
+            return
+        }
         state.equipment = items?.sorted()
         let value = state.equipment.map { JSONValue.array($0.map(JSONValue.string)) } ?? .null
         put("setting", SettingId.equipment.rawValue, SettingPayload(value: value))

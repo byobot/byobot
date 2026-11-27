@@ -1,8 +1,9 @@
 {
   "id": "barbell_hip_thrust",
   "name": "Barbell Hip Thrust",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "bench"
   ],
   "movement_type": "compound",
   "fatigue": 3,

@@ -1,8 +1,10 @@
 {
   "id": "smith_machine_seated_overhead_press_unsupported",
   "name": "Smith Machine Seated Overhead Press (Unsupported)",
+  "load_type": "plate_loaded_machine",
   "equipment": [
-    "plates"
+    "bench",
+    "smith_machine"
   ],
   "movement_type": "compound",
   "fatigue": 3,
