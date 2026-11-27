@@ -89,8 +89,11 @@ def command(name: str, summary: str, *params: Param, read_only: bool = True, cli
 
 def run(name: str, ctx: Context, args: dict) -> Any:
     cmd = REGISTRY[name]
-    known = {p.name for p in cmd.params}
-    clean = {k: v for k, v in args.items() if k in known and v is not None}
+    known = [p.name for p in cmd.params]
+    if unknown := sorted(set(args) - set(known)):
+        takes = f"; it takes {', '.join(known)}" if known else "; it takes none"
+        raise ValidationFailed(f"{cmd.name} does not take {', '.join(unknown)}{takes}")
+    clean = {k: v for k, v in args.items() if v is not None}
     for p in cmd.params:
         if p.required and p.name not in clean:
             raise ValidationFailed(f"missing required argument {p.name!r}")
