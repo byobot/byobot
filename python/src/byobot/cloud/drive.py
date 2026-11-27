@@ -45,12 +45,12 @@ PROVIDER = oauth.Provider(NAME, "Google Drive", TOKEN_URL, "`byobot cloud setup`
 UpstreamError, NotConnected = oauth.UpstreamError, oauth.NotConnected
 
 
-class NotFound(Exception):
-    pass
+class Gone(Exception):
+    """Drive answered 404."""
 
 
-class Conflict(Exception):
-    pass
+class Taken(Exception):
+    """Drive answered 409: the file id is already used."""
 
 
 def _why(e: urllib.error.HTTPError) -> tuple[str, str]:
@@ -134,7 +134,7 @@ class Drive(oauth.Session):
 
     def call(self, method: str, url: str, params: dict | None = None, data: bytes | None = None,
              headers: dict | None = None) -> bytes:
-        """One call's body. Raises NotFound on 404 and Conflict on 409."""
+        """One call's body. Raises Gone on 404 and Taken on 409."""
         if params:
             url += "?" + urllib.parse.urlencode(params)
         refreshed = False
@@ -152,9 +152,9 @@ class Drive(oauth.Session):
                     refreshed = True
                     continue
                 if e.code == 404:
-                    raise NotFound(url) from None
+                    raise Gone(url) from None
                 if e.code == 409:
-                    raise Conflict(url) from None
+                    raise Taken(url) from None
                 if e.code == 403 and reason == "storageQuotaExceeded":
                     raise UpstreamError("your Google Drive is full, so byobot can't upload; free some space") from None
                 if not (e.code in RETRY or (e.code == 403 and reason in RATE)) or attempt == self.tries - 1:
@@ -309,7 +309,7 @@ class DriveFolder:
         for file_id, _ in reversed(self._index.get(_safe(path), [])):  # a run that retried wrote the newest
             try:
                 return self.drive.call("GET", f"{API}/files/{file_id}", {"alt": "media"})
-            except NotFound:
+            except Gone:
                 self._drop_id(file_id)
         return None
 
@@ -326,10 +326,10 @@ class DriveFolder:
                 self._keep(path, file_id)
             try:
                 made = self._upload(file_id, path, data)
-            except Conflict:  # an earlier try with this id landed, or the id was used and deleted since
+            except Taken:  # an earlier try with this id landed, or the id was used and deleted since
                 try:
                     found = self.drive.json("GET", f"/files/{file_id}", {"fields": FIELDS})
-                except NotFound:
+                except Gone:
                     found = None
                 self._keep(path, None)
                 if found is None or self._path(found) != path:
@@ -364,6 +364,6 @@ class DriveFolder:
             self._sizes.pop(file_id, None)
             try:
                 self.drive.call("DELETE", f"{API}/files/{file_id}")
-            except NotFound:
+            except Gone:
                 pass
         self._keep(path, None)
