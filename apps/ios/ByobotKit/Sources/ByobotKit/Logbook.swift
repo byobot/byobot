@@ -151,7 +151,6 @@ public struct Logbook: Sendable {
         case "setting": return find(plan.settings)
         case "plan": return find(plan.plans)
         case "planned_session": return find(plan.plannedSessions)
-        case "overlay": return find(plan.overlays)
         case "session": return find(plan.sessions)
         case "effort": return find(plan.efforts)
         default: return nil
@@ -413,10 +412,11 @@ public struct Logbook: Sendable {
         let pulled = window.activities.map { Self.key("activity", $0.id) } + window.locations.map { Self.key("location", $0.id) }
             + window.settings.map { Self.key("setting", $0.id) } + window.plans.map { Self.key("plan", $0.id) }
             + window.plannedSessions.map { Self.key("planned_session", $0.id) }
-            + window.overlays.map { Self.key("overlay", $0.id) } + window.sessions.map { Self.key("session", $0.id) }
+            + window.sessions.map { Self.key("session", $0.id) }
             + window.efforts.map { Self.key("effort", $0.id) }
         for key in pulled where !waiting.contains(key) { state.heads?[key] = nil }
-        state.workouts = state.workouts?.filter { waiting.contains(Self.key("overlay", Self.rearrangeId($0.key))) }
+        let planned = Set(window.plannedSessions.map(\.id))
+        state.workouts = state.workouts?.filter { planned.contains($0.key) }
         if !waiting.contains(Self.key("setting", SettingId.equipment.rawValue)) {
             if case .array(let items)? = setting(.equipment) {
                 state.equipment = items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
@@ -516,10 +516,6 @@ public struct Logbook: Sendable {
             default: break
             }
         }
-    }
-
-    static func rearrangeId(_ plannedSessionId: String) -> String {
-        DerivedId.overlay(.rearrange, kind: "planned_session", id: plannedSessionId)
     }
 }
 
