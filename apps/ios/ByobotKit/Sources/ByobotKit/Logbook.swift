@@ -36,8 +36,12 @@ public struct AppState: Codable, Equatable, Sendable {
     public var locationId: String?
     /// The store that holds what this phone sent.
     public var storeId: String?
-    /// What was sent up to this clock reading went to another store, and is never sent again.
+    /// What was sent up to this clock reading went to another store, and is never sent again. Kept from before
+    /// the app kept `storeSpans`.
     public var resendAfter: String?
+    /// The store each event went to: one after a span's `after` went to its store, until the next span. Nil
+    /// until this phone first moves to another store.
+    public var storeSpans: [StoreSpan]?
     /// What was sent up to this clock reading, before the app kept which store it went to. The first plan
     /// shows whether this store holds it.
     public var unsureAfter: String?
@@ -47,6 +51,16 @@ public struct AppState: Codable, Equatable, Sendable {
         self.events = []
         self.pending = []
         self.rejected = []
+    }
+}
+
+public struct StoreSpan: Codable, Equatable, Hashable, Sendable {
+    public var storeId: String
+    public var after: String
+
+    public init(storeId: String, after: String) {
+        self.storeId = storeId
+        self.after = after
     }
 }
 
@@ -419,11 +433,12 @@ public struct Logbook: Sendable {
         return resent
     }
 
-    /// Queue again what the laptop no longer holds: this phone's events after `marker`, the latest it holds.
+    /// Queue again what the laptop no longer holds: this phone's events after `marker`, the latest it holds, that
+    /// went to its store.
     mutating func resend(after marker: String?) -> Int {
         let floor = Swift.max(marker ?? "", state.resendAfter ?? "")
         let skip = Set(state.pending).union(state.rejected.map(\.eventId))
-        let again = state.events.filter { !skip.contains($0.id) && $0.hlc > floor }
+        let again = state.events.filter { !skip.contains($0.id) && $0.hlc > floor && store(of: $0) == state.storeId }
         guard !again.isEmpty else { return 0 }
         let queued = Set(state.pending).union(again.map(\.id))
         state.pending = state.events.map(\.id).filter { queued.contains($0) }
@@ -435,17 +450,26 @@ public struct Logbook: Sendable {
         return again.count
     }
 
+    /// The store an event went to, as far as this phone knows.
+    func store(of event: Event) -> String? {
+        guard let spans = state.storeSpans, !spans.isEmpty else { return state.storeId }
+        return spans.last(where: { $0.after < event.hlc })?.storeId ?? spans[0].storeId
+    }
+
     /// Note the store this phone now sends to. Another store keeps what it took; this one gets what is
-    /// still waiting and what's logged from now on.
+    /// still waiting and what's logged from now on, and, when it is a store this phone sent to before, what it
+    /// took then and has lost since.
     public mutating func paired(storeId: String) {
         let pending = Set(state.pending)
         let last = state.events.last(where: { !pending.contains($0.id) })?.hlc ?? ""
         if state.storeId == nil {
             if last > (state.unsureAfter ?? "") { state.unsureAfter = last }
-        } else if state.storeId != storeId {
-            let floor = Swift.max(last, state.unsureAfter ?? "")
-            if floor > (state.resendAfter ?? "") { state.resendAfter = floor }
+        } else if let old = state.storeId, old != storeId {
+            if let unsure = state.unsureAfter, unsure > (state.resendAfter ?? "") { state.resendAfter = unsure }
             state.unsureAfter = nil
+            var spans = state.storeSpans ?? [StoreSpan(storeId: old, after: "")]
+            spans.append(StoreSpan(storeId: storeId, after: Swift.max(last, spans.last?.after ?? "")))
+            state.storeSpans = spans
         }
         state.storeId = storeId
     }
