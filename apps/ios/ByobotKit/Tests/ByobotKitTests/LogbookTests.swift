@@ -328,6 +328,35 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.applyPlan(window), 0)
     }
 
+    /// A new laptop set up as start `serve`, pair, then restore the backup: pairing again sends what the old
+    /// laptop took after the backup, and nothing that went only to the empty store.
+    func testPairingAgainAfterARestoreSendsWhatTheBackupMissed() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        for _ in 0..<10 { book.logEffort(activityId: "run", metrics: [:]) }
+        ack(&book)
+        let old = book.state.events
+        book.paired(storeId: "store-new")  // the new laptop's empty store
+        var window = try Fixtures.window()
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 0, "the empty store gets nothing old")
+        let onlyThere = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+
+        book.paired(storeId: "store-a")  // restored from a backup holding the first six
+        window.received = [book.state.deviceId: old[5].hlc]
+        XCTAssertEqual(book.applyPlan(window), 4)
+        XCTAssertEqual(book.pendingEvents.map(\.id), Array(old[6...].map(\.id)))
+        XCTAssertFalse(book.pendingEvents.contains { $0.record.id == onlyThere.id })
+        XCTAssertEqual(book.applyPlan(window), 0, "queued once")
+        ack(&book)
+
+        book.paired(storeId: "store-new")
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 1, "back on the other store, only what it took")
+        XCTAssertEqual(book.pendingEvents.map(\.record.id), [onlyThere.id])
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()
