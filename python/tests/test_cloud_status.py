@@ -3,9 +3,10 @@
 from pathlib import Path
 
 from byobot import commands
+from byobot.cloud import sync
 from byobot.cloud.drive import UpstreamError
+from byobot.cloud.sync import CloudPoller
 from byobot.commands import run
-from byobot.serve import CloudPoller
 from byobot.util import sync_folder_warning
 
 from test_cloud_auto import age, phone  # noqa: F401 - fixtures
@@ -32,8 +33,8 @@ def test_status_says_what_went_wrong_and_still_shows_the_devices(phone, monkeypa
     def full(store, quick=False):
         raise UpstreamError("your Google Drive is full, so byobot can't upload; free some space")
 
-    commands._folders.clear()
-    monkeypatch.setattr(commands, "_drive_folder", full)
+    sync._folders.clear()
+    monkeypatch.setattr(sync, "drive_folder", full)
     age(ctx)
     status = run("cloud status", ctx, {})
     assert status["on"] and status["error"].startswith("your Google Drive is full")
@@ -69,13 +70,13 @@ def test_status_shows_a_background_sync_failure_without_asking_drive(phone, monk
     def unreachable(store, quick=False):
         raise UpstreamError("can't reach Google Drive: offline")
 
-    commands._folders.clear()
-    monkeypatch.setattr(commands, "_drive_folder", unreachable)
+    sync._folders.clear()
+    monkeypatch.setattr(sync, "drive_folder", unreachable)
     age(ctx)
     CloudPoller(ctx.path, [].append).poll()
 
     def never(store, quick=False):
         raise AssertionError("asked Drive again")
 
-    monkeypatch.setattr(commands, "_drive_folder", never)
+    monkeypatch.setattr(sync, "drive_folder", never)
     assert run("cloud status", ctx, {})["error"] == "can't reach Google Drive: offline"

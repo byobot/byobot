@@ -9,7 +9,7 @@ import urllib.request
 import pytest
 
 from byobot import commands, credentials
-from byobot.cloud import drive, keeper as keeper_module
+from byobot.cloud import drive, keeper as keeper_module, sync
 from byobot.cloud.drive import Drive, DriveFolder
 from byobot.commands import Context, run
 from byobot.core import commands as core
@@ -33,7 +33,7 @@ def fake():
 def cloud(fake, monkeypatch, tmp_path):
     """A terminal, a sign-in that lands at once, and Drive faked."""
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr(commands, "_drive_folder", lambda store, quick=False: DriveFolder(
+    monkeypatch.setattr(sync, "drive_folder", lambda store, quick=False: DriveFolder(
         store.store_id, Drive(fake, sleep=lambda s: None), journal=tmp_path / f"{store.store_id}.json"))
 
     def sign_in(client, **_):
@@ -176,7 +176,7 @@ def test_setup_again_with_another_google_account_doesnt_strand_the_phone(monkeyp
     first, other = FakeDrive(), FakeDrive()
     account = {"drive": first}
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr(commands, "_drive_folder", lambda store, quick=False: DriveFolder(
+    monkeypatch.setattr(sync, "drive_folder", lambda store, quick=False: DriveFolder(
         store.store_id, Drive(account["drive"], sleep=lambda s: None), journal=tmp_path / "mac.json"))
     monkeypatch.setattr(drive, "sign_in", lambda client, **_: credentials.save(drive.NAME, {**signed_in(), **client}))
     monkeypatch.setattr(keeper_module, "MISSING_S", 0)

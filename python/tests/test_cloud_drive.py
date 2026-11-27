@@ -214,7 +214,7 @@ def test_a_keeper_killed_mid_upload_recovers_on_its_next_run(fake, tmp_path, sto
     held = mac.run(lambda s, k: {e["id"] for e in s.events()})
     assert {e["id"] for e in sets} <= held
     unshown = mac.run(lambda s, k: s.rows("SELECT id FROM events WHERE id NOT IN (SELECT event_id FROM cloud_shown) "
-                                         "AND seq > ?", (int(k._get("checkpoint_position")),)))
+                                         "AND seq > ?", (int(k.state.get("checkpoint_position")),)))
     assert unshown == []
 
 
@@ -443,8 +443,8 @@ def test_a_close_an_older_byobot_began_still_finishes(store):
     folder = MemoryFolder()
     keeper = Keeper.setup(store, folder, Clock())
     n = keeper.epoch + 1
-    with store._tx():
-        keeper._set("closing", n)
+    with store.transaction():
+        keeper.state.set("closing", n)
     me = [{"device_id": keeper.device_id, "device_class": "keeper", **keeper.identity.public()}]
     folder.create(files.epoch_path(n), files.epoch_file(keeper.identity, store.store_id, n, keeper.device_id, me, 0))
     keeper.forget()

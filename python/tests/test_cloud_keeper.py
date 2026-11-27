@@ -566,7 +566,7 @@ def test_a_code_shown_while_serve_ends_the_last_one_still_lets_the_phone_in(stor
     serve.clock = serve_clock
     serve.sync()
     serve.clock = clock
-    assert json.loads(join._get("join") or "null"), "the code `cloud join` just showed was unset"
+    assert json.loads(join.state.get("join") or "null"), "the code `cloud join` just showed was unset"
     phone = Relay.join(folder, shown["link"], PHONE)
     join.sync()
     assert join.last_join() == {"join": "admitted", "device": PHONE}

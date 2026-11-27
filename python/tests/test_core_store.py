@@ -807,7 +807,7 @@ def _race(path: Path, monkeypatch, first_writes: bool) -> dict:
     """Two processes open a store that doesn't exist yet. Both read user_version 0 before either commits; the
     first finishes creating it (and, if asked, imports a WHOOP workout) while the second waits for its write lock."""
     first_in_tx, release, second_read, first_done = (threading.Event() for _ in range(4))
-    seed, real_tx = reducers.seed_library, Store._tx
+    seed, real_tx = reducers.seed_library, Store.transaction
 
     def slow_seed(conn):
         if threading.current_thread().name == "first":
@@ -822,7 +822,7 @@ def _race(path: Path, monkeypatch, first_writes: bool) -> dict:
         return real_tx(self)
 
     monkeypatch.setattr(reducers, "seed_library", slow_seed)
-    monkeypatch.setattr(Store, "_tx", tx)
+    monkeypatch.setattr(Store, "transaction", tx)
     seen = {}
 
     def first():

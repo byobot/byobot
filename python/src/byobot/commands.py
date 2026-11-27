@@ -12,13 +12,13 @@ import sqlite3
 import sys
 import time
 import webbrowser
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
 from byobot import __version__, credentials, library, swaps, whoop
+from byobot.cloud import sync
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
@@ -881,35 +881,13 @@ def _devices_remove(ctx: Context, device_id: str) -> dict:
 # -- the cloud logbook ----------------------------------------------------------------------------------------------
 
 
-CLOUD_EVERY_S = 60  # how often a read, or `serve`, syncs with Drive
-
-
-def _drive_folder(store: Store, quick: bool = False) -> Any:
-    from byobot.cloud.drive import Drive, DriveFolder
-
-    return DriveFolder(store.store_id, Drive(tries=2, timeout=10) if quick else Drive())
-
-
-def lock_path(store: Store) -> Path:
-    """Beside the database, not named for its store id, which `cloud recover` changes."""
-    return Path(f"{store.path}.cloud-lock")
-
-
-@contextmanager
-def _lock(store: Store, wait: bool = True) -> Iterator[bool]:
-    from byobot.cloud.lock import held
-
-    with held(lock_path(store), wait) as mine:
-        yield mine
-
-
 def _keeper(ctx: Context, off_ok: bool = False) -> Any:
     from byobot.cloud.keeper import Keeper, is_keeper
 
     store = ctx.store()
     if not is_keeper(store):
         raise ValidationFailed("Drive sync isn't on for this store; run `byobot cloud setup` in a terminal")
-    keeper = Keeper(store, _drive_folder(store))
+    keeper = Keeper(store, sync.drive_folder(store))
     if keeper.is_off and not off_ok:
         raise ValidationFailed("Drive sync is off for this store; run `byobot cloud setup` to turn it on again")
     return keeper
@@ -918,40 +896,13 @@ def _keeper(ctx: Context, off_ok: bool = False) -> Any:
 def _sync(keeper: Any) -> dict:
     from byobot.cloud.keeper import tried
 
-    with _lock(keeper.store):
+    with sync.lock(keeper.store):
         tried(keeper.store)
         try:
             return keeper.sync()
         except ByobotError as exc:
             keeper.failed(exc.message)
             raise
-
-
-def autosync(store: Store, folder: Any = None, every: float = CLOUD_EVERY_S) -> dict | None:
-    """Sync with Drive when it's due, for the poller in `serve`, `remote` and `mcp`. Never waits on another process's
-    sync and never raises: serving goes on with what the store holds, and `cloud status` shows the error."""
-    from byobot.cloud.keeper import Keeper, due, tried
-
-    if not due(store, every):
-        return None
-    with _lock(store, wait=False) as mine:
-        if not mine or not due(store, every):
-            return None
-        tried(store)
-        keeper = Keeper(store, folder)
-        try:
-            if keeper.folder is None:  # one folder per store for the process, so the change feed carries on
-                keeper.folder = _folders.get(store.store_id) or _drive_folder(store, quick=True)
-                _folders[store.store_id] = keeper.folder
-            return keeper.sync()
-        except Exception as exc:  # noqa: BLE001 - Drive failing never fails a read
-            _folders.pop(store.store_id, None)
-            message = exc.message if isinstance(exc, ByobotError) else f"{type(exc).__name__}: {exc}"
-            keeper.failed(message)
-            return {"error": message}
-
-
-_folders: dict[str, Any] = {}
 
 
 def _ask(prompt: str, secret: bool = False) -> str:
@@ -1005,12 +956,12 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
                                    "Drive sync to another account")
         keeper.on()
         return _show_code(keeper, {"signed_in": True, "keeper": "already", **_sync(keeper)})
-    folder = _drive_folder(store)
+    folder = sync.drive_folder(store)
     others = drive.stores(folder.drive) - {store.store_id}
-    if others and not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+    if others and store.is_empty():
         raise ValidationFailed("your Google Drive already holds a byobot logbook; to carry it onto this computer, "
                                "run `byobot cloud recover` with its recovery code")
-    with _lock(store):
+    with sync.lock(store):
         keeper = Keeper.setup(store, folder, recovery=recovery)
     return _show_code(keeper, {"signed_in": True, "keeper": keeper.device_id, "epoch": keeper.epoch})
 
@@ -1044,8 +995,8 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
     from byobot.cloud.keeper import Keeper
 
     store = ctx.store()
-    folder = _drive_folder(store)
-    if not store.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone():  # a new computer: find the logbook
+    folder = sync.drive_folder(store)
+    if store.is_empty():  # a new computer: find the logbook
         found = sorted(drive.stores(folder.drive))
         if len(found) > 1:
             raise ValidationFailed("your Google Drive holds more than one byobot logbook; restore the right one from "
@@ -1053,7 +1004,7 @@ def _cloud_recover(ctx: Context, code: str | None = None) -> dict:
         if found:
             folder = DriveFolder(found[0], folder.drive)
     code = code or _ask("Recovery code (not shown): ", secret=True)
-    with _lock(store):
+    with sync.lock(store):
         keeper = Keeper.recover(store, folder, code)
     return {"recovered": True, **keeper.status()}
 
@@ -1070,7 +1021,7 @@ def _cloud_join(ctx: Context, wait: bool = True) -> dict:
     from byobot.cloud import drive
 
     keeper = _keeper(ctx)
-    with _lock(keeper.store):  # a sync in `serve` ending the last code doesn't unset this one
+    with sync.lock(keeper.store):  # a sync in `serve` ending the last code doesn't unset this one
         code = keeper.join_code((credentials.load(drive.NAME) or {}).get("ios_client_id"))
     link = code["link"]
     out = {"link": link, "expires": datetime.fromtimestamp(code["expires"]).astimezone().isoformat(timespec="seconds")}
@@ -1128,7 +1079,7 @@ def _cloud_status(ctx: Context) -> dict:
     if keeper.local_status().get("error"):  # the sync just before this failed; don't wait on Drive again
         return {"on": True, **keeper.local_status(), **warning}
     try:
-        keeper.folder = _drive_folder(store, quick=True)
+        keeper.folder = sync.drive_folder(store, quick=True)
         return {"on": True, **keeper.status(), **warning}
     except ByobotError as exc:
         return {"on": True, **keeper.local_status(), "error": exc.message, **warning}
@@ -1146,7 +1097,7 @@ def _cloud_status(ctx: Context) -> dict:
 )
 def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = None) -> dict:
     keeper = _keeper(ctx)
-    with _lock(keeper.store):
+    with sync.lock(keeper.store):
         epoch = keeper.remove(device_id)
     if revoke_google is None:
         try:
@@ -1173,7 +1124,7 @@ def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = Non
 )
 def _cloud_compact(ctx: Context) -> dict:
     keeper = _keeper(ctx)
-    with _lock(keeper.store):
+    with sync.lock(keeper.store):
         return {"epoch": keeper.compact()}
 
 
@@ -1188,7 +1139,7 @@ def _cloud_compact(ctx: Context) -> dict:
 )
 def _cloud_rotate(ctx: Context, recovery: bool = False) -> dict:
     keeper = _keeper(ctx)
-    with _lock(keeper.store):
+    with sync.lock(keeper.store):
         return _show_code(keeper, {"epoch": keeper.rotate(recovery=recovery)})
 
 
@@ -1207,7 +1158,7 @@ def _cloud_off(ctx: Context, delete: bool = False) -> dict:
     if not is_keeper(ctx.store()):
         return {"on": False}
     keeper = _keeper(ctx, off_ok=True)
-    with _lock(keeper.store):
+    with sync.lock(keeper.store):
         if delete:
             return {"on": False, "deleted": keeper.forget()}
         keeper.off()

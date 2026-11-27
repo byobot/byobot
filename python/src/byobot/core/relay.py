@@ -59,7 +59,7 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
     results = []
     for i, event in enumerate(events):
         try:
-            with store._tx():  # an event and its refusal, or the end of an earlier one, commit together
+            with store.transaction():  # an event and its refusal, or the end of an earlier one, commit together
                 result = _settle(store, device_id, event, actor, kind_versions or {})
                 if isinstance(result["id"], str) and EVENT_ID.fullmatch(result["id"]):
                     store.note_rejections(device_id, [
