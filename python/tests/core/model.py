@@ -202,8 +202,8 @@ class ModelReplica:
                 effort = {"performed_at": record["started_at"], **e, "session_id": record["id"]}
                 parts.append(("effort", e["id"], {k: v for k, v in effort.items() if k != "id"}))
         for k, rid, _ in parts:
-            if self.fields(key(k, rid)) is not None:
-                raise Refused(f"{k} {rid} already exists")
+            if self.fields(key(k, rid)) is not None or key(k, rid) in self.gone:
+                raise Refused(f"{k} {rid} already exists or was erased")
         return [self._write(at, actor, k, rid, "put", content, read=True) for k, rid, content in parts]
 
     def _replan(self, record: dict, at: str, actor: str) -> list[Write]:
