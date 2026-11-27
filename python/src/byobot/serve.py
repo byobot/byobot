@@ -56,7 +56,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from byobot import __version__, util
 from byobot.core.contract import SCHEMA_VERSION, Contract
-from byobot.core.relay import (PERSON, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
+from byobot.core.relay import (PERSON, Cut, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
 from byobot.core.store import Store, busy
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
@@ -585,7 +585,10 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         with Store(self.server.db, migrate=False) as store:
             peer = self._auth(store)
-            return push_events(store, peer["device_id"], body, actor_for_peer(peer))
+            try:
+                return push_events(store, peer["device_id"], body, actor_for_peer(peer))
+            except Cut as exc:
+                raise HTTPError(BUSY.status, BUSY.code, BUSY.message, {"results": exc.results}) from None
 
     def samples(self) -> dict:
         body = self._body()
