@@ -172,7 +172,7 @@
       "name": "plan",
       "path": "plan/0001-0000000002.seg",
       "def": "header",
-      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmSt38qnvZLjeBJap+HfVl8yYAylF9aT6TDvxxy4/rsFDmGlMDy7g1AUDgtACEmQa+4IfIfh9TIW/YdE+iJIIVEkLth+S9H0cFFACG4xAPYVClvgdqUsKIpaYRaqoKujmq6u+svSqgPZIml5oN64oZG5vHzIQLL6z2XpL8SNrTbi6yfA0sDAH5t9aozSmyFCkvRg+qxSu3TJnLN3mJg3sbZqNtUsgaipb/OuoR36O0Cv8ej5ifrtxuIU/EP7CHZmqNRdhuX4l5zT0VpZY1U74IJJy0T6t1nurvdGubcuYEfosrJRY/0CZgsATozoIfZu8+9EZrt9pzhjPxDsgbFxpEs4tKVf0k4XfLwx16UtRPQXSRIAlqyrj8ALPI8KzBwLzVUEzRizQ7VSPpmovg6+1tmenYHJKAqyZTCt2XxDx3ht/EBFburEUNvTiqN2pAb16t2RbHGWrMlVs1iZ/beGAQ==",
+      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmRtw+6nvZJYcEL6OD2Pcn3pr4if90RrXoGfiX0IYVszjt+c5TPqrawEmGJYgJjlSey3YeRU0Oc5WRHBWclcBfeGIZijh8sbL/Bo35i2jirQcFqDsST/K/Oc5wPqwCkHn+qa8vcBhkXQ4LdzAcRLTx8fBxxYHR7pf+n3dmECC/UscLdsQsPnQSqXL2qVSm74FZZOSg2fizNf3FneFPMMFgDE5WDKEcmGGxqOEI5mI4ded/pgy2hf7GHWXze4yUnlmLPlgAL3H7H/y0pdwHrd5Sivlk60mnfW/O4Jmk9P1JqmBSgszF/aQZXYCIDgnm4k4V+YqqnUATgtnKsJ/bziWxDRJFKvbv2Okt9nLLqQ7yfXh7Z3jxi6oAkMdem1X2e4ggSdH5Fb33T963Gnc0rLOeE3Ox6IfIKHzlSq9JrSRSqWY7YKhY5loLZkzEB93pMQExtP/p16+2zknVi9k5cngPxk8mlGSf/87YzchtF0uPOpR/kN",
       "expect": {
         "header": {
           "device_id": "0193a0b0-0000-7000-8000-00000000d001",
@@ -189,6 +189,7 @@
             "plan": {
               "from": "2026-11-22",
               "to": "2026-12-05",
+              "since": "2026-11-22",
               "activities": [],
               "locations": [],
               "settings": [],
@@ -197,7 +198,9 @@
               "overlays": [],
               "sessions": [],
               "efforts": [],
+              "store_id": "0193a0b0-0000-7000-8000-00000000c001",
               "hlc": "1795131000000-000001",
+              "removed": [],
               "erased": [],
               "kind_versions": {
                 "effort": 1
@@ -334,7 +337,7 @@
     {
       "name": "signed by another device",
       "path": "plan/0001-0000000002.seg",
-      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmSt38qnvZLjeBJap+HfVl8yYAylF9aT6TDvxxy4/rsFDmGlMDy7g1AUDgtACEmQa+4IfIfh9TIW/YdE+iJIIVEkLth+S9H0cFFACG4xAPYVClvgdqUsKIpaYRaqoKujmq6u+svSqgPZIml5oN64oZG5vHzIQLL6z2XpL8SNrTbi6yfA0sDAH5t9aozSmyFCkvRg+qxSu3TJnLN3mJg3sbZqNtUsgaipb/OuoR36O0Cv8ej5ifrtxuIU/EP7CHZmqNRdhuX4l5zT0VpZY1U74IJJy0T6t1nurvdGubcuYEfosrJRY/0CZgsATozoIfZu8+9EZrt9pzhjPxDsgbFxpEs4tKVf0k4XfLwx16UtRPQXSRIAlqyrj8ALPI8KzBwLzVUEzRizQ7VSPpmovg6+1tmenYHJKAqyZTCt2XxDx3ht/EBFburEUNvTiqN2pAb16t2RbHGWrMlVs1iZ/beGAQ==",
+      "data": "eyJkZXZpY2VfaWQiOiIwMTkzYTBiMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGQwMDEiLCJlcG9jaCI6MSwiZm9ybWF0IjoxLCJraW5kIjoicGxhbiIsIm1hZ2ljIjoiYnlvYm90LXNlZ21lbnQiLCJub25jZSI6IkF4WjRHcmt4dmdCM2dSTzIiLCJzZXEiOjIsInN0b3JlX2lkIjoiMDE5M2EwYjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxIn0K+5hf1GCRacgZqmRtw+6nvZJYcEL6OD2Pcn3pr4if90RrXoGfiX0IYVszjt+c5TPqrawEmGJYgJjlSey3YeRU0Oc5WRHBWclcBfeGIZijh8sbL/Bo35i2jirQcFqDsST/K/Oc5wPqwCkHn+qa8vcBhkXQ4LdzAcRLTx8fBxxYHR7pf+n3dmECC/UscLdsQsPnQSqXL2qVSm74FZZOSg2fizNf3FneFPMMFgDE5WDKEcmGGxqOEI5mI4ded/pgy2hf7GHWXze4yUnlmLPlgAL3H7H/y0pdwHrd5Sivlk60mnfW/O4Jmk9P1JqmBSgszF/aQZXYCIDgnm4k4V+YqqnUATgtnKsJ/bziWxDRJFKvbv2Okt9nLLqQ7yfXh7Z3jxi6oAkMdem1X2e4ggSdH5Fb33T963Gnc0rLOeE3Ox6IfIKHzlSq9JrSRSqWY7YKhY5loLZkzEB93pMQExtP/p16+2zknVi9k5cngPxk8mlGSf/87YzchtF0uPOpR/kN",
       "signer": "pNTMV/cE/MF2g03mQouPlMj+hJg5cad+HuWWCCViYiA=",
       "error": "signed"
     },
