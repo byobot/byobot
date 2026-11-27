@@ -58,14 +58,14 @@ public enum Demo {
         ]
         let time: [String: Any] = ["start": at(-3, minutes: -240), "end": at(-3, minutes: -190)]
         let sessions: [[String: Any]] = [
-            entry(past, ["name": "Lower body", "location_id": "example_gym", "modality": "self_reported",
+            entry(past, ["name": "Lower body", "location_id": "example_gym",
                          "status": "completed", "time": time]),
         ]
         var efforts: [[String: Any]] = []
         for (n, lift) in lifts.enumerated() {
             let payload: [String: Any] = [
                 "activity_id": lift.0, "location_id": "example_gym", "round": n == 1 ? 2 : 1,
-                "modality": "self_reported", "status": "completed", "links": partOfPast,
+                "status": "completed", "links": partOfPast,
                 "time": ["start": at(-3, minutes: -230 + n * 5)],
                 "metrics": ["reps": measure(lift.1), "load": measure(lift.2, "kg")],
             ]
