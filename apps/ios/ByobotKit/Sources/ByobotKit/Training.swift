@@ -238,9 +238,10 @@ extension Logbook {
 
     /// Sets the equipment at where you are, or your default when you haven't picked a location.
     public mutating func setEquipment(_ items: Set<String>?) {
-        if var here = location(currentLocationId) {
+        if let before = location(currentLocationId) {
+            var here = before
             here.payload.equipment = items?.sorted()
-            put("location", here.id, here.payload)
+            put("location", here.id, here.payload, over: before)
             return
         }
         let value = items.map { JSONValue.array($0.sorted().map(JSONValue.string)) } ?? .null

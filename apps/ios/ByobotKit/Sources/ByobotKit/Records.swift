@@ -10,7 +10,7 @@ import Foundation
 @dynamicMemberLookup
 public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
-    public var payload: Payload
+    public var payload: Payload { didSet { raw = nil } }
     public var prev: [String]
     /// Two writers changed it at once; this is the version reads show.
     public var conflict: Bool?
@@ -20,9 +20,11 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
     public var kindVersion: Int?
     /// In a conflict, every current version, the one shown included.
     public var versions: [ConflictVersion]?
+    /// The payload as written, fields this app doesn't know included, until `payload` changes here.
+    public internal(set) var raw: JSONValue?
 
     public init(id: String, payload: Payload, prev: [String] = [], conflict: Bool? = nil, library: Bool? = nil,
-                kindVersion: Int? = nil, versions: [ConflictVersion]? = nil) {
+                kindVersion: Int? = nil, versions: [ConflictVersion]? = nil, raw: JSONValue? = nil) {
         self.id = id
         self.payload = payload
         self.prev = prev
@@ -30,11 +32,46 @@ public struct Record<Payload: Codable & Hashable & Sendable>: Codable, Equatable
         self.library = library
         self.kindVersion = kindVersion
         self.versions = versions
+        self.raw = raw
     }
 
     enum CodingKeys: String, CodingKey {
         case id, payload, prev, conflict, library, versions
         case kindVersion = "kind_version"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        payload = try c.decode(Payload.self, forKey: .payload)
+        prev = try c.decodeIfPresent([String].self, forKey: .prev) ?? []
+        conflict = try c.decodeIfPresent(Bool.self, forKey: .conflict)
+        library = try c.decodeIfPresent(Bool.self, forKey: .library)
+        kindVersion = try c.decodeIfPresent(Int.self, forKey: .kindVersion)
+        versions = try c.decodeIfPresent([ConflictVersion].self, forKey: .versions)
+        raw = try c.decode(JSONValue.self, forKey: .payload)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        if let raw { try c.encode(raw, forKey: .payload) } else { try c.encode(payload, forKey: .payload) }
+        try c.encode(prev, forKey: .prev)
+        try c.encodeIfPresent(conflict, forKey: .conflict)
+        try c.encodeIfPresent(library, forKey: .library)
+        try c.encodeIfPresent(kindVersion, forKey: .kindVersion)
+        try c.encodeIfPresent(versions, forKey: .versions)
+    }
+
+    public static func == (a: Record, b: Record) -> Bool {
+        a.id == b.id && a.payload == b.payload && a.prev == b.prev && a.conflict == b.conflict
+            && a.library == b.library && a.kindVersion == b.kindVersion && a.versions == b.versions
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(payload)
+        hasher.combine(prev)
     }
 
     public subscript<T>(dynamicMember path: KeyPath<Payload, T>) -> T {
@@ -227,6 +264,26 @@ enum Payloads {
 
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
         try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
+    }
+
+    /// `raw` with only what changed from `old` to `new`: fields this app doesn't know, and values it didn't
+    /// touch, stay exactly as written.
+    static func patch(_ raw: JSONValue, from old: JSONValue, to new: JSONValue) -> JSONValue {
+        guard case .object(var out) = raw, case .object(let before) = old, case .object(let after) = new else {
+            return old == new ? raw : new
+        }
+        for key in Set(before.keys).union(after.keys) where before[key] != after[key] {
+            guard let value = after[key] else {
+                out[key] = nil
+                continue
+            }
+            if let was = before[key], let kept = out[key] {
+                out[key] = patch(kept, from: was, to: value)
+            } else {
+                out[key] = value
+            }
+        }
+        return .object(out)
     }
 }
 

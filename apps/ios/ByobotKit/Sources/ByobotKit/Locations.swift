@@ -83,9 +83,10 @@ extension Logbook {
     /// Where you're training. During a session it moves the whole session, sets already logged included.
     public mutating func setLocation(_ id: String?) {
         if id != pickedLocationId { setCurrentLocation(id) }
-        guard var session = activeSession, session.locationId != id else { return }
+        guard let before = activeSession, before.locationId != id else { return }
+        var session = before
         session.payload.locationId = id
-        put("session", session.id, session.payload)
+        put("session", session.id, session.payload, over: before)
     }
 
     /// Where a set happened: its own location, else its session's.

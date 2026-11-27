@@ -531,6 +531,37 @@ final class LogbookTests: XCTestCase {
         XCTAssertFalse(book.canUndo(remote.id))
     }
 
+    func testCorrectingOneFieldLeavesTheRestAsWritten() throws {
+        let planned = try plannedSession()
+        let base = remote(planned.blocks[0].efforts[0].id, metrics: [
+            "reps": .exact(8), "load": .exact(102.0583, unit: "kg"),
+            "distance": Measure(value: .number(60), min: 55, max: 65, unit: "m")])
+        guard case .object(var entry) = Payloads.json(base), case .object(var payload)? = entry["payload"] else {
+            return XCTFail("a record encodes as an object")
+        }
+        payload["grip"] = .string("wide")
+        entry["payload"] = .object(payload)
+        let pulled = try Payloads.decode(PerformedEffort.self, .object(entry))
+        var book = makeLogbook(plan: try window(efforts: [pulled]))
+
+        var fields = EffortForm.fields(planned: nil, activity: book.activity("pull_up"), filledFrom: pulled.metrics)
+        let reps = try XCTUnwrap(fields.firstIndex { $0.name == "reps" })
+        fields[reps].text = "7"
+        let metrics = try EffortForm.metrics(from: fields)
+        XCTAssertEqual(metrics["load"], pulled.metrics?["load"], "not rounded to what the field shows")
+        XCTAssertEqual(metrics["distance"], pulled.metrics?["distance"], "the estimate keeps its bounds")
+
+        book.editEffort(pulled, metrics: metrics, side: nil, notes: nil)
+        guard case .object(let written)? = book.pendingEvents.last?.payload,
+              case .object(let measures)? = written["metrics"] else { return XCTFail("an effort payload") }
+        XCTAssertEqual(written.string("grip"), "wide", "a field this app doesn't know stays")
+        XCTAssertEqual(measures["reps"], Payloads.json(Measure.exact(7)))
+        XCTAssertEqual(measures["load"], Payloads.json(Measure.exact(102.0583, unit: "kg")))
+
+        book.undoEffort(id: pulled.id)
+        XCTAssertEqual(book.pendingEvents.last?.payload, entry["payload"], "undo writes back exactly what was there")
+    }
+
     func testASetANewerAppWroteIsLeftAsItIs() throws {
         let planned = try plannedSession()
         var remote = remote(planned.blocks[0].efforts[0].id, metrics: ["reps": .exact(8)])

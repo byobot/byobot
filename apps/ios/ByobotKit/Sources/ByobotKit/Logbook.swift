@@ -115,9 +115,13 @@ public struct Logbook: Sendable {
     // MARK: Writing
 
     @discardableResult
-    mutating func put<P: Encodable>(_ kind: String, _ id: String, _ payload: P, known: [String]? = nil,
-                                    reverts: String? = nil) -> Event {
-        append(kind, id, .put, Payloads.json(payload), prev: prev(kind, id, known: known), reverts: reverts)
+    mutating func put<P: Codable & Hashable & Sendable>(_ kind: String, _ id: String, _ payload: P,
+                                                        over base: Record<P>? = nil, known: [String]? = nil,
+                                                        reverts: String? = nil) -> Event {
+        var json = Payloads.json(payload)
+        // A change to a record writes only what changed, so fields a newer byobot added stay.
+        if let base, let raw = base.raw { json = Payloads.patch(raw, from: Payloads.json(base.payload), to: json) }
+        return append(kind, id, .put, json, prev: prev(kind, id, known: known), reverts: reverts)
     }
 
     @discardableResult
@@ -231,9 +235,10 @@ public struct Logbook: Sendable {
         session.payload.time.end = Timestamp.string(clock())
         session.payload.status = .completed
         if let notes, !notes.isEmpty { session.payload.notes = notes }
-        let event = put("session", session.id, session.payload)
+        let event = put("session", session.id, session.payload, over: activeSession)
         state.activeSessionId = nil
         session.prev = [event.id]
+        session.raw = event.payload
         return session
     }
 
@@ -260,8 +265,9 @@ public struct Logbook: Sendable {
                 effort.payload.time.end = nil
             }
         }
-        let event = put("effort", original.id, effort.payload, known: original.prev)
+        let event = put("effort", original.id, effort.payload, over: original, known: original.prev)
         effort.prev = [event.id]
+        effort.raw = event.payload
         return effort
     }
 
@@ -271,7 +277,7 @@ public struct Logbook: Sendable {
     public mutating func undoEffort(id effortId: String) -> [Event] {
         guard canUndo(effortId), let last = lastEvent("effort", effortId) else { return [] }
         if let original = state.remoteOriginals?[effortId] {
-            return [put("effort", effortId, original.payload, reverts: last.id)]
+            return [put("effort", effortId, original.payload, over: original, reverts: last.id)]
         }
         return [retract("effort", effortId, reverts: last.id)]
     }
@@ -300,7 +306,7 @@ public struct Logbook: Sendable {
         }
         return order.compactMap { id in
             guard let event = latest[id], keep(event.payload) else { return nil }
-            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id]) }
+            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id], raw: event.payload) }
         }
     }
 
@@ -334,7 +340,7 @@ public struct Logbook: Sendable {
         for id in mine {
             guard let event = latest[id] else { continue }
             let record: Record<P>? = matches(event.payload)
-                ? event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id]) } : nil
+                ? event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id], raw: event.payload) } : nil
             if fresh(event, pending: pending) {
                 if byId[id] == nil { order.append(id) }
                 byId[id] = record
