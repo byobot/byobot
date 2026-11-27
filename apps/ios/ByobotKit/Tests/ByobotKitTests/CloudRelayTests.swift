@@ -425,4 +425,35 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(report.written, 1)
         XCTAssertEqual(back.epochKey, relay.epochKey)
     }
+
+    /// The shared folders a relay reads (cloud.json's `follow`), each to the epoch, key and keeper key the Mac's
+    /// reference relay takes.
+    func testFollowsEachSharedFolderLikeTheReferenceRelay() async throws {
+        let k = try keeper()
+        let cases = try Fixtures.cases("schema/fixtures/v1/cloud.json", key: "follow")
+        XCTAssertGreaterThanOrEqual(cases.count, 8)
+        for item in cases {
+            let name = item.string("name") ?? "?"
+            var relay = CloudRelay(storeID: k.store, deviceID: k.relayID, keeperSign: k.identity.signPublic)
+            for step in [item["first"], item["folder"]] {
+                guard case .object(let files)? = step else { continue }
+                let folder = MemoryCloudFolder()
+                for (path, value) in files {
+                    guard case .string(let text) = value, let data = Data(base64Encoded: text) else {
+                        return XCTFail("\(name): bad fixture")
+                    }
+                    await folder.put(path, data)
+                }
+                let listing = await folder.list()
+                _ = try await relay.adopt(folder, listing, k.relay)
+            }
+            guard case .object(let expect)? = item["expect"] else { return XCTFail("\(name): bad fixture") }
+            var epoch: Int?
+            if case .number(let n)? = expect["epoch"] { epoch = Int(n) }
+            XCTAssertEqual(relay.epoch, epoch, name)
+            XCTAssertEqual(relay.keeperSign, expect.string("keeper_key"), name)
+            XCTAssertEqual(relay.key?.base64EncodedString(), expect.string("key"), name)
+            XCTAssertEqual(relay.removed, expect.bool("removed"), name)
+        }
+    }
 }
