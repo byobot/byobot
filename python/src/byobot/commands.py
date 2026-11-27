@@ -13,7 +13,7 @@ import time
 import webbrowser
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -565,14 +565,20 @@ JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_c
 BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 
 
-def _bound(at: str) -> Any:
-    """A date bounds a local date; a timestamp bounds an instant."""
-    if len(at) == 10:
-        return at
+def _bound(at: str) -> str | int:
+    """A date (YYYY-MM-DD) bounds a local date; a timestamp bounds an instant, in epoch milliseconds."""
     try:
+        if len(at) == 10:
+            return date.fromisoformat(at).isoformat()
         return int(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000)
-    except ValueError:
-        raise ValidationFailed(f"{at!r} is not a date or a timestamp") from None
+    except (ValueError, OverflowError, OSError):
+        raise ValidationFailed(f"{at!r} is not a date (YYYY-MM-DD) or a timestamp") from None
+
+
+def _day(at: str) -> str:
+    """The date a bound names, for tables that keep dates."""
+    bound = _bound(at)
+    return bound if isinstance(bound, str) else at[:10]
 
 
 def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
@@ -623,9 +629,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
         sql, order, day = "SELECT seq, id, kind, record_id, op, hlc, ts, device_id, actor_kind, actor_id, " \
                           "actor_model, batch, reverts, payload FROM events", "seq DESC", "substr(ts, 1, 10)"
         add("kind = ?", type)
+        instant = "CAST(round((julianday(ts) - 2440587.5) * 86400000) AS INTEGER)"  # ts keeps its writer's offset
         for value, op in ((since, ">="), (until, "<")):
             if value is not None:
-                add(f"{'ts' if len(value) > 10 else day} {op} ?", value)
+                bound = _bound(value)
+                add(f"{day if isinstance(bound, str) else instant} {op} ?", bound)
     else:
         table, time, order, _ = LISTS[kind]
         sql = f"SELECT * FROM {table}"
@@ -646,7 +654,7 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
         if time is not None:
             for value, op in ((since, ">="), (until, "<")):
                 if value is not None:
-                    bound = _bound(value) if time == "start_ms" else value[:10]
+                    bound = _bound(value) if time == "start_ms" else _day(value)
                     add(f"{'local_date' if isinstance(bound, str) and time == 'start_ms' else time} {op} ?", bound)
     if where:
         sql += " WHERE " + " AND ".join(where)
