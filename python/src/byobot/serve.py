@@ -312,9 +312,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def setup(self) -> None:
         super().setup()
+        self._start()
+
+    def parse_request(self) -> bool:
+        self._start()  # setup() runs once per connection; each request on a kept-alive one starts afresh
+        return super().parse_request()
+
+    def _start(self) -> None:
         self.deadline = time.monotonic() + REQUEST_DEADLINE_S
         self._body_consumed = False
         self._continued = False
+        self.peer = None
         self.connection.settimeout(min(SOCKET_TIMEOUT_S, REQUEST_DEADLINE_S))
 
     def handle_expect_100(self) -> bool:
@@ -341,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         # Leaving an unread body on a keep-alive connection would desync the next request.
-        unread = self.command == "POST" and not self._body_consumed
+        unread = not self._body_consumed and (self.command == "POST" or self._has_body())
         if unread:
             self.send_header("Connection", "close")
         self.end_headers()
@@ -351,6 +359,13 @@ class Handler(BaseHTTPRequestHandler):
             # The refusal is already on the wire. Drop only what has already arrived so the
             # kernel does not answer close() with a RST that hides this response.
             self._discard_buffered()
+
+    def _has_body(self) -> bool:
+        headers = getattr(self, "headers", None)
+        if headers is None:
+            return False
+        return bool(headers.get_all("Transfer-Encoding")) or any(
+            v.strip() != "0" for v in headers.get_all("Content-Length") or [])
 
     def _discard_buffered(self) -> None:
         previous = self.connection.gettimeout()
