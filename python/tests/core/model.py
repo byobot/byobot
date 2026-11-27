@@ -406,6 +406,9 @@ def _source_item(source: str, rid: str, p: dict) -> dict:
 
 
 def _overlap(a: dict, b: dict) -> bool:
+    point, other = sorted((a, b), key=lambda x: millis(x["end"]) - millis(x["start"]))
+    if millis(point["end"]) == millis(point["start"]):
+        return millis(other["start"]) <= millis(point["start"]) < millis(other["end"])
     lo, hi = max(millis(a["start"]), millis(b["start"])), min(millis(a["end"]), millis(b["end"]))
     shorter = min(millis(a["end"]) - millis(a["start"]), millis(b["end"]) - millis(b["start"]))
     return hi - lo > 0 and hi - lo >= SAME_OCCURRENCE * shorter
