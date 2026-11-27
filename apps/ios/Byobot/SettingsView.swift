@@ -12,6 +12,15 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            if model.demo {
+                Section {
+                    Button("Leave the demo", role: .destructive) { model.leaveDemo() }
+                } header: {
+                    Text("Demo")
+                } footer: {
+                    Text("You're looking at sample data. Leaving drops it and everything logged here, so you can pair.")
+                }
+            }
             if let server = model.server {
                 Section("Laptop") {
                     LabeledContent("Name", value: server.name)

@@ -63,8 +63,24 @@ final class AppModel: ObservableObject, SyncBook {
     var state: AppState { book.state }
     var plan: PlanWindow? { book.state.plan }
     var server: PairedServer? { book.state.server }
-    /// Paired with a laptop, joined through Drive, or both.
-    var connected: Bool { server != nil || cloudStore != nil }
+    /// Paired with a laptop, joined through Drive, or both, or looking around the demo.
+    var connected: Bool { server != nil || cloudStore != nil || demo }
+    var demo: Bool { book.state.demo == true }
+
+    /// Sample data to look around with, such as for App Review. Nothing syncs.
+    func startDemo() {
+        change {
+            $0.state.demo = true
+            $0.applyPlan(Demo.window(today: LocalDate.today()))
+        }
+    }
+
+    /// Back to pairing, keeping nothing from the demo.
+    func leaveDemo() {
+        rest = nil
+        stopClock()
+        change { $0.state = AppState() }
+    }
 
     // MARK: Saving
 
@@ -83,6 +99,15 @@ final class AppModel: ObservableObject, SyncBook {
         return dir.appendingPathComponent("state.json")
     }
 
+    /// Application Support in the App Group set by `BYOBOT_APP_GROUP`, so a widget or watch app can read it.
+    nonisolated static func groupDirectory() -> URL? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ByobotAppGroup") as? String, !group.isEmpty,
+              let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            return nil
+        }
+        return container.appendingPathComponent("Library/Application Support", isDirectory: true)
+    }
+
     func save() {
         do {
             try file.save(book.state, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -97,15 +122,6 @@ final class AppModel: ObservableObject, SyncBook {
         body(&book)
         save()
         keepAwake()
-    }
-
-    /// Application Support in the App Group set by `BYOBOT_APP_GROUP`, so a widget or watch app can read it.
-    nonisolated static func groupDirectory() -> URL? {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "ByobotAppGroup") as? String, !group.isEmpty,
-              let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
-            return nil
-        }
-        return container.appendingPathComponent("Library/Application Support", isDirectory: true)
     }
 
     /// The screen stays on while a session runs, so the timers and the next set stay in view.
@@ -147,6 +163,7 @@ final class AppModel: ObservableObject, SyncBook {
     }
 
     func pair(hosts: [String], port: Int, code: String, fingerprint: String) async throws {
+        if demo { leaveDemo() }
         let client = SyncClient(hosts: hosts, port: port, fingerprint: fingerprint)
         leaving += 1
         do {
@@ -199,6 +216,7 @@ final class AppModel: ObservableObject, SyncBook {
         if let store = book.state.storeId, store != pending.code.storeID {
             throw CloudError("That code is for another logbook than the one this phone syncs with.")
         }
+        if demo { leaveDemo() }
         let tokens = try await GoogleSignInSheet().signIn(clientID: client)
         CloudSetup.keep(tokens)
         let identity = try CloudSetup.identity(for: state.deviceId)

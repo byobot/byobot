@@ -34,6 +34,8 @@ public struct AppState: Codable, Equatable, Sendable {
     /// The store each event went to: one after a span's `after` went to its store, until the next span. Nil
     /// until this phone first moves to another store.
     public var storeSpans: [StoreSpan]?
+    /// Sample data to look around with (see `Demo`): nothing syncs, and leaving it starts over.
+    public var demo: Bool?
 
     public init(deviceId: String = UUID7.make()) {
         self.deviceId = deviceId
@@ -51,6 +53,7 @@ public struct AppState: Codable, Equatable, Sendable {
         case remoteOriginals = "remote_originals"
         case storeId = "store_id"
         case storeSpans = "store_spans"
+        case demo
     }
 }
 

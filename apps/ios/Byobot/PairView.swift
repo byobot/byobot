@@ -56,6 +56,11 @@ struct PairView: View {
             if let error {
                 Section { Text(error).foregroundStyle(.red) }
             }
+            Section {
+                Button("Try it with sample data") { model.startDemo() }
+            } footer: {
+                Text("A sample plan and history to look around with. Nothing leaves this phone.")
+            }
         }
         .navigationTitle("Pair with your laptop")
     }
