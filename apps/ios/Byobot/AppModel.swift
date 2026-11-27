@@ -177,7 +177,6 @@ final class AppModel: ObservableObject, SyncBook {
         change {
             $0.state.server = nil
             $0.state.plan = nil
-            $0.state.planFetchedAt = nil
         }
     }
 

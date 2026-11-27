@@ -55,9 +55,8 @@ public enum LocationId {
 extension Logbook {
     /// Locations from your laptop and any added on this phone, by name.
     public var locations: [Location] {
-        var byId = Dictionary((state.plan?.locations ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        for location in written("location", as: LocationPayload.self) { byId[location.id] = location }
-        return byId.values.sorted { ($0.name.lowercased(), $0.id) < ($1.name.lowercased(), $1.id) }
+        current("location", state.plan?.locations ?? [])
+            .sorted { ($0.name.lowercased(), $0.id) < ($1.name.lowercased(), $1.id) }
     }
 
     public func location(_ id: String?) -> Location? {
@@ -67,7 +66,7 @@ extension Logbook {
     /// Where you are: the active session's location, else the last one you picked.
     public var currentLocationId: String? {
         if let session = activeSession { return session.locationId }
-        return state.locationId
+        return pickedLocationId
     }
 
     /// Add a location by name and train there from now on.
@@ -83,7 +82,7 @@ extension Logbook {
 
     /// Where you're training. During a session it moves the whole session, sets already logged included.
     public mutating func setLocation(_ id: String?) {
-        if id != state.locationId { setCurrentLocation(id) }
+        if id != pickedLocationId { setCurrentLocation(id) }
         guard var session = activeSession, session.locationId != id else { return }
         session.payload.locationId = id
         put("session", session.id, session.payload)

@@ -87,7 +87,7 @@ final class WorkoutTests: XCTestCase {
         let pullUp = try XCTUnwrap(try session("sess-upper").blocks.first?.efforts.first)
         XCTAssertNil(book.equipment)
         book.setEquipment(["cable"])
-        XCTAssertEqual(book.state.equipment, ["cable"])
+        XCTAssertEqual(book.defaultEquipment, ["cable"])
         XCTAssertEqual(book.alternatives(for: pullUp).first?.id, "lat_pulldown")
         XCTAssertEqual(book.alternatives(for: PlannedEffort(id: "e", activityId: "nope")), [])
     }
@@ -99,7 +99,7 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(book.equipment, ["cable"], "a location without its own list uses your default")
         book.setEquipment(["dumbbell", "pull_up_bar"])
         XCTAssertEqual(book.location(gym.id)?.equipment, ["dumbbell", "pull_up_bar"])
-        XCTAssertEqual(book.state.equipment, ["cable"])
+        XCTAssertEqual(book.defaultEquipment, ["cable"])
         let pullUp = try XCTUnwrap(book.library.first { $0.id == "pull_up" })
         XCTAssertEqual(pullUp.needs, ["pull_up_bar"], "your own body you always have")
         book.setLocation(nil)
@@ -299,7 +299,7 @@ final class WorkoutTests: XCTestCase {
         var lower = try session("sess-lower-a")
         lower.locationId = "example_gym"
         XCTAssertEqual(book.startSession(planned: lower).locationId, "example_gym")
-        XCTAssertEqual(book.state.locationId, "example_gym", "where you are now")
+        XCTAssertEqual(book.pickedLocationId, "example_gym", "where you are now")
         XCTAssertFalse(book.plannedElsewhere(lower))
         book.setLocation("hotel")
         XCTAssertTrue(book.plannedElsewhere(lower))

@@ -11,7 +11,6 @@ public struct AppState: Codable, Equatable, Sendable {
     public var deviceId: String
     public var server: PairedServer?
     public var plan: PlanWindow?
-    public var planFetchedAt: String?
     /// Every event written on this phone, in the order it was written.
     public var events: [Event]
     /// Ids of events the laptop hasn't taken yet, oldest first.
@@ -23,17 +22,10 @@ public struct AppState: Codable, Equatable, Sendable {
     public var lastHealthSyncAt: String?
     /// The last clock reading this phone wrote.
     public var hlc: String?
-    /// For each record written here (`kind/id`), the events a change to it names as `prev`, until a pull
-    /// brings the laptop's.
-    public var heads: [String: [String]]?
     /// Sets logged elsewhere, as they stood before this phone first corrected them.
     public var remoteOriginals: [String: PerformedEffort]?
     /// Your order and swaps for each planned session, by its id, until a pull brings the laptop's.
     public var workouts: [String: WorkoutChanges]?
-    /// Equipment you have, for ranking swaps. Nil means everything.
-    public var equipment: [String]?
-    /// Where the next session starts.
-    public var locationId: String?
     /// The store that holds what this phone sent.
     public var storeId: String?
     /// What was sent up to this clock reading went to another store, and is never sent again. Kept from before
@@ -96,8 +88,6 @@ public struct Logbook: Sendable {
 
     // MARK: Writing
 
-    static func key(_ kind: String, _ id: String) -> String { "\(kind)/\(id)" }
-
     @discardableResult
     mutating func put<P: Encodable>(_ kind: String, _ id: String, _ payload: P, known: [String]? = nil,
                                     reverts: String? = nil) -> Event {
@@ -121,23 +111,24 @@ public struct Logbook: Sendable {
         state.hlc = hlc
         state.events.append(event)
         state.pending.append(event.id)
-        var heads = state.heads ?? [:]
-        heads[Self.key(kind, id)] = [event.id]
-        state.heads = heads
         return event
     }
 
-    /// The events a change to the record names as `prev`: this phone's last write, else the laptop's.
+    /// The events a change to the record names as `prev`: this phone's last write while the laptop hasn't shown
+    /// it holds it, else the laptop's, else this phone's last write.
     func prev(_ kind: String, _ id: String, known: [String]? = nil) -> [String] {
-        if let mine = state.heads?[Self.key(kind, id)] { return mine }
+        let mine = lastEvent(kind, id)
+        if let mine, fresh(mine, pending: Set(state.pending)) { return [mine.id] }
         if let known { return known }
-        return entry(kind, id)?.prev ?? []
+        if let entry = entry(kind, id) { return entry.prev }
+        return mine.map { [$0.id] } ?? []
     }
 
     /// Whether the laptop's version of the record needs a newer app. Changing it here would drop what this app
     /// can't read, so the app leaves it as it is.
     public func isNewer(_ kind: String, _ id: String) -> Bool {
-        state.heads?[Self.key(kind, id)] == nil && (entry(kind, id)?.kindVersion ?? 1) > (KindVersion.all[kind] ?? 1)
+        if let mine = lastEvent(kind, id), fresh(mine, pending: Set(state.pending)) { return false }
+        return (entry(kind, id)?.kindVersion ?? 1) > (KindVersion.all[kind] ?? 1)
     }
 
     private func entry(_ kind: String, _ id: String) -> (prev: [String], kindVersion: Int?)? {
@@ -164,8 +155,8 @@ public struct Logbook: Sendable {
     /// Start a session, from a planned one or on its own, where it was planned or else where you last trained.
     @discardableResult
     public mutating func startSession(planned: PlannedSession? = nil, name: String? = nil) -> PerformedSession {
-        let location = planned?.locationId ?? state.locationId
-        if location != state.locationId { setCurrentLocation(location) }
+        let location = planned?.locationId ?? pickedLocationId
+        if location != pickedLocationId { setCurrentLocation(location) }
         let links = planned.map { p in
             Links(partOf: p.planId.map { Ref(kind: "plan", id: $0) }, answers: Ref(kind: "planned_session", id: p.id))
         }
@@ -258,8 +249,10 @@ public struct Logbook: Sendable {
 
     // MARK: Reading
 
+    /// This phone's last event for the record that the laptop didn't refuse.
     func lastEvent(_ kind: String, _ id: String) -> Event? {
-        state.events.last { $0.record.kind == kind && $0.record.id == id }
+        let refused = Set(state.rejected.map(\.eventId))
+        return state.events.last { $0.record.kind == kind && $0.record.id == id && !refused.contains($0.id) }
     }
 
     func wrote(_ kind: String, _ id: String) -> Bool {
@@ -278,8 +271,64 @@ public struct Logbook: Sendable {
         }
         return order.compactMap { id in
             guard let event = latest[id], keep(event.payload) else { return nil }
-            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: prev(kind, id)) }
+            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id]) }
         }
+    }
+
+    /// The laptop hasn't shown it holds this event of this phone's: it is waiting, or the pulled plan's latest of
+    /// this phone's events comes before it. An older laptop doesn't say, so then only waiting counts.
+    func fresh(_ event: Event, pending: Set<String>) -> Bool {
+        if pending.contains(event.id) { return true }
+        guard let received = state.plan?.received else { return false }
+        return event.hlc > (received[state.deviceId] ?? "")
+    }
+
+    /// The records of a kind as this phone shows them, by one rule: the pulled ones, with this phone's latest
+    /// version on top where it is fresh, and this phone's own records that the plan can't speak for (`covered`
+    /// is false: the plan would carry them if the laptop still had them). `matches` skips this phone's events
+    /// before they are decoded; a fresh one that doesn't match still hides the pulled version.
+    func current<P: Codable & Hashable & Sendable>(_ kind: String, _ pulled: [Record<P>],
+                                                    covered: (Record<P>) -> Bool = { _ in true },
+                                                    matches: (JSONValue) -> Bool = { _ in true }) -> [Record<P>] {
+        var order: [String] = [], byId: [String: Record<P>] = [:]
+        for record in pulled {
+            if byId[record.id] == nil { order.append(record.id) }
+            byId[record.id] = record
+        }
+        let refused = Set(state.rejected.map(\.eventId)), pending = Set(state.pending)
+        var mine: [String] = [], latest: [String: Event] = [:]
+        for event in state.events where event.record.kind == kind && !refused.contains(event.id) {
+            if latest[event.record.id] == nil { mine.append(event.record.id) }
+            latest[event.record.id] = event
+        }
+        let says = state.plan?.received != nil
+        for id in mine {
+            guard let event = latest[id] else { continue }
+            let record: Record<P>? = matches(event.payload)
+                ? event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id]) } : nil
+            if fresh(event, pending: pending) {
+                if byId[id] == nil { order.append(id) }
+                byId[id] = record
+            } else if byId[id] == nil, let record, !(says && covered(record)) {
+                order.append(id)
+                byId[id] = record
+            }
+        }
+        return order.compactMap { byId[$0] }
+    }
+
+    /// Whether the plan carries the sets and sessions of a planned session, or of a session logged against one.
+    func carries(plannedSession: String?, session: String?) -> Bool {
+        guard let plan = state.plan else { return false }
+        if let plannedSession, plan.plannedSessions.contains(where: { $0.id == plannedSession }) { return true }
+        if let session, plan.sessions.contains(where: { $0.id == session }) { return true }
+        return false
+    }
+
+    /// Sets as this phone shows them: the pulled ones with this phone's changes on top.
+    func currentEfforts(matching: (JSONValue) -> Bool = { _ in true }) -> [PerformedEffort] {
+        current("effort", state.plan?.efforts ?? [],
+                covered: { carries(plannedSession: $0.plannedSessionId, session: $0.sessionId) }, matches: matching)
     }
 
     public var activeSession: PerformedSession? {
@@ -287,12 +336,14 @@ public struct Logbook: Sendable {
         return latestSessions[id]
     }
 
-    /// The latest version of each session logged on this phone.
+    /// The latest version of each session this phone knows of.
     var latestSessions: [String: PerformedSession] {
-        Dictionary(written("session", as: SessionPayload.self).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        let sessions = current("session", state.plan?.sessions ?? [],
+                               covered: { carries(plannedSession: $0.plannedSessionId, session: nil) })
+        return Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
     }
 
-    /// Sessions logged on this phone, newest first.
+    /// Sessions this phone knows of, newest first.
     public var sessions: [PerformedSession] {
         latestSessions.values.sorted { $0.startedAt > $1.startedAt }
     }
@@ -313,44 +364,16 @@ public struct Logbook: Sendable {
         state.remoteOriginals?[id] != nil
     }
 
-    /// Ids of records of a kind this phone changed since the last pull, in the order first changed.
-    func fresh(_ kind: String) -> [String] {
-        let fetched = state.planFetchedAt.flatMap(Timestamp.date)
-        let pending = Set(state.pending)
-        var out: [String] = [], seen = Set<String>()
-        for event in state.events where event.record.kind == kind && !seen.contains(event.record.id) {
-            let isFresh = pending.contains(event.id)
-                || fetched.map { (Timestamp.date(event.ts) ?? .distantPast) > $0 } ?? true
-            if isFresh {
-                out.append(event.record.id)
-                seen.insert(event.record.id)
-            }
-        }
-        return out
-    }
-
     public func efforts(inSession id: String) -> [PerformedEffort] {
-        localEfforts.filter { $0.sessionId == id }
+        currentEfforts().filter { $0.sessionId == id }
     }
 
-    /// What has been logged against each planned effort and round, here and (from the last pull) anywhere
-    /// else. What this phone changed since that pull wins; otherwise the pulled version does.
+    /// What has been logged against each planned effort and round, here and (from the last pull) anywhere else.
     public func logged(for planned: PlannedSession) -> [String: [Int: PerformedEffort]] {
         let plannedIds = Set(planned.blocks.flatMap { $0.efforts.map(\.id) })
-        var current: [String: PerformedEffort] = [:]
-        var order: [String] = []
-        for effort in state.plan?.efforts ?? [] {
-            if current[effort.id] == nil { order.append(effort.id) }
-            current[effort.id] = effort
-        }
-        let local = Dictionary(localEfforts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        for id in fresh("effort") {
-            if current[id] == nil { order.append(id) }
-            current[id] = local[id]
-        }
         var out: [String: [Int: PerformedEffort]] = [:]
-        for id in order {
-            guard let effort = current[id], effort.plannedSessionId == planned.id, let pid = effort.plannedEffortId,
+        for effort in currentEfforts() {
+            guard effort.plannedSessionId == planned.id, let pid = effort.plannedEffortId,
                   plannedIds.contains(pid) else { continue }
             out[pid, default: [:]][effort.round ?? 1] = effort
         }
@@ -361,12 +384,24 @@ public struct Logbook: Sendable {
 
     /// Where the next session starts.
     mutating func setCurrentLocation(_ id: String?) {
-        state.locationId = id
         put("setting", SettingId.currentLocation.rawValue, SettingPayload(value: id.map(JSONValue.string) ?? .null))
     }
 
     func setting(_ id: SettingId) -> JSONValue? {
-        state.plan?.settings.first { $0.id == id.rawValue }?.value
+        current("setting", state.plan?.settings ?? []).first { $0.id == id.rawValue }?.value
+    }
+
+    /// Where the next session starts: the last place you picked, unless it was erased.
+    var pickedLocationId: String? {
+        guard case .string(let id)? = setting(.currentLocation) else { return nil }
+        let erased = state.plan?.erased ?? []
+        return erased.contains { $0.kind == "location" && $0.id == id } ? nil : id
+    }
+
+    /// Equipment you have when your location has no list of its own. Nil means everything.
+    var defaultEquipment: [String]? {
+        guard case .array(let items)? = setting(.equipment) else { return nil }
+        return items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
     }
 
     // MARK: Sync
@@ -391,9 +426,9 @@ public struct Logbook: Sendable {
         state.pending.removeAll { done.contains($0) }
     }
 
-    /// Take a pulled plan. For records the laptop now has, its versions replace what this phone kept, unless
-    /// this phone has changes to them still to send. Returns how many events go out again, because the laptop
-    /// no longer holds them (it was restored from an older backup).
+    /// Take a pulled plan. Its versions of records replace what this phone kept, unless this phone's are fresh.
+    /// Returns how many events go out again, because the laptop no longer holds them (it was restored from an
+    /// older backup).
     @discardableResult
     public mutating func applyPlan(_ window: PlanWindow) -> Int {
         if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
@@ -407,26 +442,8 @@ public struct Logbook: Sendable {
         }
         let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
         state.plan = window
-        state.planFetchedAt = Timestamp.string(clock())
-        let waiting = Set(pendingEvents.map { Self.key($0.record.kind, $0.record.id) })
-        let pulled = window.activities.map { Self.key("activity", $0.id) } + window.locations.map { Self.key("location", $0.id) }
-            + window.settings.map { Self.key("setting", $0.id) } + window.plans.map { Self.key("plan", $0.id) }
-            + window.plannedSessions.map { Self.key("planned_session", $0.id) }
-            + window.sessions.map { Self.key("session", $0.id) }
-            + window.efforts.map { Self.key("effort", $0.id) }
-        for key in pulled where !waiting.contains(key) { state.heads?[key] = nil }
         let planned = Set(window.plannedSessions.map(\.id))
         state.workouts = state.workouts?.filter { planned.contains($0.key) }
-        if !waiting.contains(Self.key("setting", SettingId.equipment.rawValue)) {
-            if case .array(let items)? = setting(.equipment) {
-                state.equipment = items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
-            } else {
-                state.equipment = nil
-            }
-        }
-        if !waiting.contains(Self.key("setting", SettingId.currentLocation.rawValue)), activeSession == nil {
-            if case .string(let id)? = setting(.currentLocation) { state.locationId = id } else { state.locationId = nil }
-        }
         return resent
     }
 
@@ -439,11 +456,6 @@ public struct Logbook: Sendable {
         guard !again.isEmpty else { return 0 }
         let queued = Set(state.pending).union(again.map(\.id))
         state.pending = state.events.map(\.id).filter { queued.contains($0) }
-        var heads = state.heads ?? [:]
-        for event in again {
-            heads[Self.key(event.record.kind, event.record.id)] = lastEvent(event.record.kind, event.record.id).map { [$0.id] }
-        }
-        state.heads = heads
         return again.count
     }
 
@@ -484,6 +496,7 @@ public struct Logbook: Sendable {
         let taken = Set(pendingEvents.lazy.filter { $0.hlc <= held }.map(\.id))
         state.pending.removeAll { taken.contains($0) }
     }
+    }
 
     /// The laptop's record of events it refused, for when its answer to a push never arrived.
     mutating func setAside(_ refused: [Rejection]) {
@@ -507,11 +520,9 @@ public struct Logbook: Sendable {
         }
         for record in records {
             let (kind, id) = (record.kind, record.id)
-            state.heads?[Self.key(kind, id)] = nil
             switch kind {
             case "effort": state.remoteOriginals?[id] = nil
             case "session" where state.activeSessionId == id: state.activeSessionId = nil
-            case "location" where state.locationId == id: state.locationId = nil
             case "planned_session": state.workouts?[id] = nil
             default: break
             }

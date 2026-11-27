@@ -179,17 +179,10 @@ extension Logbook {
 
     /// Every set of an activity this phone knows of: pulled from the laptop, with this phone's own versions on top.
     func efforts(of activityId: String) -> [PerformedEffort] {
-        var byId = Dictionary((state.plan?.efforts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let mine = written("effort", as: EffortPayload.self) {
+        currentEfforts {
             if case .object(let o) = $0, case .string(let id)? = o["activity_id"] { return id == activityId }
             return true
-        }
-        let local = Dictionary(mine.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let changed = fresh("effort")
-        for id in changed { byId[id] = local[id] }
-        let changedIds = Set(changed)
-        for (id, effort) in local where byId[id] == nil && !changedIds.contains(id) { byId[id] = effort }
-        return byId.values.filter { $0.activityId == activityId }
+        }.filter { $0.activityId == activityId }
     }
 
     /// "Done as planned" for a slot, starting from the round before and the last time you did it here.
@@ -240,7 +233,7 @@ extension Logbook {
 
     /// The equipment you have where you are: the location's, else your default; nil means everything counts.
     public var equipment: Set<String>? {
-        (location(currentLocationId)?.equipment ?? state.equipment).map(Set.init)
+        (location(currentLocationId)?.equipment ?? defaultEquipment).map(Set.init)
     }
 
     /// Sets the equipment at where you are, or your default when you haven't picked a location.
@@ -250,8 +243,7 @@ extension Logbook {
             put("location", here.id, here.payload)
             return
         }
-        state.equipment = items?.sorted()
-        let value = state.equipment.map { JSONValue.array($0.map(JSONValue.string)) } ?? .null
+        let value = items.map { JSONValue.array($0.sorted().map(JSONValue.string)) } ?? .null
         put("setting", SettingId.equipment.rawValue, SettingPayload(value: value))
     }
 

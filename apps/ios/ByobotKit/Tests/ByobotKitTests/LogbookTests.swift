@@ -178,7 +178,7 @@ final class LogbookTests: XCTestCase {
         book.applyPlan(window)
         XCTAssertEqual(book.localEfforts.map(\.id), [kept.id])
         XCTAssertFalse(book.pendingEvents.contains { $0.record.id == erased.id || $0.record.id == session.id })
-        XCTAssertNil(book.state.heads?["effort/\(erased.id)"])
+        XCTAssertEqual(book.prev("effort", erased.id), [])
         XCTAssertNil(book.activeSession)
         XCTAssertFalse(book.canUndo(erased.id))
     }
@@ -355,6 +355,38 @@ final class LogbookTests: XCTestCase {
         window.received = [:]
         XCTAssertEqual(book.applyPlan(window), 1, "back on the other store, only what it took")
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [onlyThere.id])
+    }
+
+    func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
+        let planned = try plannedSession()
+        let pullUp = planned.blocks[0].efforts[0]
+        var first = try Fixtures.window()
+        first.received = [:]
+        var book = makeLogbook(plan: first)
+        book.startSession(planned: planned)
+        let set = book.logEffort(activityId: "pull_up", metrics: ["reps": .exact(8)], plannedEffortId: pullUp.id, round: 1)
+        ack(&book)  // the push went through; the pull after it didn't
+        XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[1]?.id, set.id)
+        XCTAssertEqual(book.prev("effort", set.id), set.prev)
+
+        var later = try window(efforts: [set])
+        later.received = [book.state.deviceId: try XCTUnwrap(book.state.events.last).hlc]
+        book.applyPlan(later)
+        XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[1], set)
+        later.efforts = []
+        book.applyPlan(later)
+        XCTAssertNil(book.logged(for: planned)[pullUp.id]?[1], "the laptop holds it and took it back")
+    }
+
+    func testAnErasedLocationIsNoLongerWhereYouAre() throws {
+        var book = makeLogbook(plan: try Fixtures.window())
+        book.setLocation("hotel")
+        ack(&book)
+        var window = try Fixtures.window()
+        window.erased = [ErasedRecord(kind: "location", id: "hotel")]
+        window.settings = [Setting(id: "current_location", payload: SettingPayload(value: .string("hotel")), prev: ["e1"])]
+        book.applyPlan(window)
+        XCTAssertNil(book.currentLocationId)
     }
 
     func testCorrectingASetKeepsItsTimeAndRound() throws {
