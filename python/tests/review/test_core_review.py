@@ -70,11 +70,6 @@ def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session
 
 
 
-def _effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
-            "metrics": {"reps": {"value": reps}}}
-
-
 def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
     a = Store(tmp_path / "a.db", device_id="phone", wall=Wall())
     b = Store(tmp_path / "b.db", device_id="laptop", wall=Wall())
