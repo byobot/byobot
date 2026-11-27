@@ -278,7 +278,7 @@ class Phone:
 # -- what people do ----------------------------------------------------------------
 
 def effort(rng, at):
-    return {"activity_id": "barbell_back_squat", "modality": "self_reported",
+    return {"activity_id": "barbell_back_squat",
             "time": {"start": at.isoformat(timespec="seconds")},
             "metrics": {"reps": {"value": rng.randint(1, 12)}, "load": {"value": rng.randint(20, 140), "unit": "kg"}}}
 
@@ -294,7 +294,7 @@ def act(store: Store, rng: random.Random, now: datetime, laptop: bool):
             commands.log(store, ME, [{"kind": "effort", "payload": effort(rng, now)}])
         elif choice == "session":
             commands.log(store, ME, [{"kind": "session", "payload": {
-                "name": "Legs", "modality": "self_reported", "time": {"start": now.isoformat(timespec="seconds")}}}])
+                "name": "Legs", "time": {"start": now.isoformat(timespec="seconds")}}}])
         elif choice == "edit" and live:
             kind, rid = rng.choice(live)
             patch = {"notes": f"note {rng.randint(0, 99)}"} if kind == "session" or rng.random() < 0.5 else {

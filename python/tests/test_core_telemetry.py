@@ -13,7 +13,7 @@ def test_every_mapped_type_gives_an_observation_the_registry_accepts():
         value = spec["values"][0] if spec.get("value") == "category" else 1
         payload = telemetry.observation({"type": name, "value": value, "unit": spec.get("unit"), **AT})
         assert payload, name
-        assert c.refusals("observation", payload) == [], name
+        assert c.refusals("observation", {**payload, "modality": "sensed"}) == [], name
         assert c.canonical(payload["code"], payload) in (1, None), name
 
 

@@ -38,11 +38,11 @@ def replica_of(store: Store, path, device_id="phone", wall=None) -> Store:
 
 
 def session(start="2026-03-02T09:00:00-05:00", end="2026-03-02T10:00:00-05:00", name="lift", **more) -> dict:
-    return {"name": name, "time": {"start": start, "end": end}, "modality": "self_reported", **more}
+    return {"name": name, "time": {"start": start, "end": end}, **more}
 
 
 def effort(sid=None, reps=5, start="2026-03-02T09:10:00-05:00") -> dict:
-    p = {"activity_id": "row", "time": {"start": start}, "modality": "self_reported",
+    p = {"activity_id": "row", "time": {"start": start},
          "metrics": {"reps": {"value": reps}}}
     if sid:
         p["links"] = {"part_of": {"kind": "session", "id": sid}}

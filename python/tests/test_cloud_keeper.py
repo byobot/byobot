@@ -23,7 +23,7 @@ def event(device_id=PHONE, actor=ME, n=0, kind="effort"):
     return {"id": uuid7(), "schema_version": 1, "record": {"kind": kind, "id": uuid7()}, "op": "put",
             "kind_version": 1, "hlc": hlc.format((1795000000000 + 1000 * n, 0)), "ts": "2026-11-23T08:00:00-05:00",
             "device_id": device_id, "actor": actor, "prev": [],
-            "payload": {"activity_id": "barbell_back_squat", "modality": "self_reported",
+            "payload": {"activity_id": "barbell_back_squat",
                         "time": {"start": "2026-11-23T07:40:00-05:00"}}}
 
 

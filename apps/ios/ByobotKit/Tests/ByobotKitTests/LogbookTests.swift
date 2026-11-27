@@ -87,7 +87,7 @@ final class LogbookTests: XCTestCase {
             "answers": .object(["kind": .string("planned_session"), "id": .string("sess-upper"), "part": .string(pullUp.id)]),
         ]))
         XCTAssertEqual(payload["round"], .number(1))
-        XCTAssertEqual(payload["modality"], .string("self_reported"))
+        XCTAssertNil(payload["modality"])
         XCTAssertEqual(payload["status"], .string("completed"))
         XCTAssertEqual(payload["origin"], .object(["app": .string("byobot_ios"), "version": .string("0.1.0"),
                                                    "device": .string("Example iPhone")]))

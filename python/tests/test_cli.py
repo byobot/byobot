@@ -70,7 +70,7 @@ def test_log_list_and_query(capsys):
     assert code == 0
     event = out["event"]
     assert event["actor"] == {"kind": "human", "id": "me"} and event["record"]["kind"] == "effort"
-    assert event["payload"]["time"]["start"] and event["payload"]["modality"] == "self_reported"  # filled in for us
+    assert event["payload"]["time"]["start"]  # filled in for us
 
     code, listed, _ = cli(capsys, "list", "effort")
     assert listed["count"] == 1 and listed["items"][0]["metrics"] == {"duration": {"value": 60, "unit": "s"}}

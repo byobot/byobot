@@ -12,7 +12,7 @@ ME = {"kind": "human", "id": "me"}
 
 
 def event(kind="effort", op="put", device_id=PHONE, actor=ME, **extra):
-    payload = {"activity_id": "barbell_back_squat", "modality": "self_reported",
+    payload = {"activity_id": "barbell_back_squat",
                "time": {"start": "2026-11-23T07:40:00-05:00"}} if op == "put" else {}
     return {"id": uuid7(), "schema_version": 1, "record": {"kind": kind, "id": uuid7()}, "op": op,
             "hlc": hlc.format((1764000000000, 0)), "ts": "2026-11-23T08:00:00-05:00", "device_id": device_id,

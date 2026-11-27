@@ -349,7 +349,6 @@
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -392,7 +391,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -453,7 +451,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -512,7 +509,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -590,7 +586,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -652,7 +647,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -716,7 +710,6 @@
       "zone": "America/New_York",
       "end": "2026-11-21T08:05:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -961,7 +954,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1445,7 +1437,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1653,7 +1644,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1711,7 +1701,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1769,7 +1758,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1854,7 +1842,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1913,7 +1900,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -1974,7 +1960,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2117,7 +2102,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2174,7 +2158,6 @@
     "payload": {
      "activity_id": "barbell_back_squat",
      "round": 1,
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2233,7 +2216,6 @@
      "time": {
       "start": "2026-11-21T07:10:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2266,9 +2248,9 @@
    }
   },
   {
-   "name": "effort/no-modality",
+   "name": "effort/with-modality",
    "outcome": "rejected",
-   "description": "An effort says how its values were obtained.",
+   "description": "Only an observation says how its value was obtained.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
     "schema_version": 1,
@@ -2319,7 +2301,8 @@
        "id": "019aa000-0000-7000-8000-000000000102",
        "part": "pe1"
       }
-     }
+     },
+     "modality": "self_reported"
     }
    }
   },
@@ -2350,7 +2333,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2408,7 +2390,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2468,7 +2449,6 @@
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2517,7 +2497,6 @@
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2726,7 +2705,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2787,7 +2765,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -2843,7 +2820,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3104,7 +3080,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3215,7 +3190,9 @@
        "hrv_rmssd_milli": 31.8
       }
      },
-     "modality": "sensed"
+     "origin": {
+      "app": "whoop"
+     }
     }
    }
   },
@@ -3300,7 +3277,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3452,7 +3428,6 @@
       "zone": "America/New_York",
       "end": "2026-11-21T12:30:00Z"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3593,7 +3568,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3653,7 +3627,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3750,7 +3723,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3809,7 +3781,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -3870,7 +3841,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",
@@ -4011,7 +3981,6 @@
      "time": {
       "start": "2026-11-21T07:10:00-05:00"
      },
-     "modality": "self_reported",
      "origin": {
       "app": "byobot_ios",
       "version": "0.1.0",

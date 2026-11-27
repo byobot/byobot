@@ -129,7 +129,7 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     spec = Contract.shipped().registry["kinds"]["effort"]
     hub = Store(tmp_path / "hub.db", contract=Contract.shipped().newer(2, {"effort": {**spec, "version": 2,
                                                                                     "since": {"tempo": 2}}}))
-    payload = {"activity_id": "x.barbell_back_squat", "modality": "self_reported", "metrics": {"reps": {"value": 5}},
+    payload = {"activity_id": "x.barbell_back_squat", "metrics": {"reps": {"value": 5}},
                "time": {"start": "2026-11-23T07:40:00-05:00"}}
     [plain, fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload},
                                            {"kind": "effort", "payload": {**payload, "tempo": "fast"}}])
@@ -363,9 +363,9 @@ def test_push_events_round_trip(server, byobot_home):
     _pair(client, info)
     sid, eid = uuid7(), uuid7()
     answers = {"kind": "planned_session", "id": LOWER}
-    session = _event("session", sid, {"name": "Lower A", "modality": "self_reported", "links": {"answers": answers},
+    session = _event("session", sid, {"name": "Lower A", "links": {"answers": answers},
                                       "time": {"start": "2026-11-23T07:30:00-05:00"}})
-    effort = _event("effort", eid, {"activity_id": "x.barbell_back_squat", "round": 2, "modality": "self_reported",
+    effort = _event("effort", eid, {"activity_id": "x.barbell_back_squat", "round": 2,
                                     "time": {"start": "2026-11-23T07:40:00-05:00"},
                                     "links": {"part_of": {"kind": "session", "id": sid},
                                               "answers": {**answers, "part": f"{LOWER}.0.0"}},
@@ -457,7 +457,7 @@ def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
     _, info, client, _ = server
     _pair(client, info)
     eid = uuid7()
-    payload = {"activity_id": "x.barbell_back_squat", "modality": "self_reported",
+    payload = {"activity_id": "x.barbell_back_squat",
                "time": {"start": "2026-11-23T07:35:00-05:00"}, "metrics": {"reps": {"value": 5}}}
     original = _event("effort", eid, payload)
     fix = _event("effort", eid, {**payload, "metrics": {"reps": {"value": 4}}}, prev=[original["id"]])

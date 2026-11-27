@@ -76,7 +76,7 @@ def _timed(store: Store, kind: str, payload: Any) -> Any:
     """Times keep the offset they were written in: now, if none was given, and the local one if it was left off."""
     if kind not in TIMED or not isinstance(payload, dict):
         return payload
-    if "modality" not in payload:
+    if kind == "observation" and "modality" not in payload:
         payload = {**payload, "modality": "self_reported"}
     if payload.get("time") is None:
         return {**payload, "time": {"start": stamp(store.wall())}}

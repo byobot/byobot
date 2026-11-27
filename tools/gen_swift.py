@@ -64,7 +64,7 @@ TYPES: dict[tuple[str, str | None], str] = {
 
 # Enums and objects declared inline on a property: (file, definition, property) -> Swift name.
 INLINE = {
-    ("records", "header", "modality"): "Modality",
+    ("records", "observation", "modality"): "Modality",
     ("records", "header", "status"): "RecordStatus",
     ("records", "header", "origin"): "Origin",
     ("records", "header", "links"): "Links",

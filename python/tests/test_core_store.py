@@ -25,7 +25,7 @@ class Wall:
 
 
 def effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported",
+    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
             "metrics": {"reps": {"value": reps}}}
 
 
@@ -110,7 +110,7 @@ def test_undo_writes_the_previous_version_back_and_undo_of_a_log_removes(pair):
 
 def test_undo_takes_back_a_whole_batch(pair):
     a, _ = pair
-    session = {"time": {"start": "2026-03-02T10:00:00-05:00"}, "modality": "self_reported"}
+    session = {"time": {"start": "2026-03-02T10:00:00-05:00"}}
     written = commands.log(a, ME, [{"kind": "session", "payload": session}, {"kind": "effort", "payload": effort()}])
     undone = commands.undo(a, ME, written[-1]["id"])
     assert [u["op"] for u in undone] == ["retract", "retract"] and len({u["batch"] for u in undone}) == 1
@@ -288,8 +288,7 @@ def test_local_dates_and_offsets_come_from_the_record(pair):
     [late] = commands.log(a, ME, [{"kind": "effort", "payload": {
         **effort(), "time": {"start": "2026-11-21T00:30:00+05:00"}}}])
     [walk] = commands.log(a, ME, [{"kind": "session", "payload": {
-        "time": {"start": "2026-03-08T01:30:00-05:00", "end": "2026-03-08T03:30:00-04:00"},
-        "modality": "self_reported"}}])
+        "time": {"start": "2026-03-08T01:30:00-05:00", "end": "2026-03-08T03:30:00-04:00"}}}])
     row = a.conn.execute("SELECT local_date, offset_min FROM efforts WHERE id = ?", (late["record"]["id"],)).fetchone()
     assert tuple(row) == ("2026-11-21", 300)
     start, end = a.conn.execute("SELECT start_ms, end_ms FROM sessions WHERE id = ?",
@@ -429,14 +428,16 @@ def test_an_older_store_is_refused_with_what_to_do(tmp_path):
         Store(tmp_path / "old.db")
 
 
-def test_logged_parts_get_ids_and_timed_records_a_modality(tmp_path):
+def test_logged_parts_get_ids_and_observations_a_modality(tmp_path):
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         [e] = commands.log(s, ME, [{"kind": "planned_session", "payload": {
             "scheduled_on": "2026-03-03", "name": "Legs", "blocks": [{"efforts": [{"activity_id": "row"}]}]}}])
         block = e["payload"]["blocks"][0]
         assert block["id"] == f"{e['record']['id']}.0" and block["efforts"][0]["id"] == f"{e['record']['id']}.0.0"
         [e] = commands.log(s, ME, [{"kind": "effort", "payload": {"activity_id": "row"}}])
-        assert e["payload"]["modality"] == "self_reported" and "start" in e["payload"]["time"]
+        assert "modality" not in e["payload"] and "start" in e["payload"]["time"]
+        [o] = commands.log(s, ME, [{"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg"}}])
+        assert o["payload"]["modality"] == "self_reported"
 
 
 def test_samples_deleted_by_id_alone_are_found_by_their_source(tmp_path):

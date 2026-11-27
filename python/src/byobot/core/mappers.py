@@ -102,7 +102,7 @@ def whoop_workout(raw: dict, related: Related) -> dict:
 
 def sample(raw: dict, related: Related) -> dict:
     found = telemetry.observation(raw)
-    return {"observations": [{k: v for k, v in found.items() if k != "modality"}] if found else []}
+    return {"observations": [found] if found else []}
 
 
 # HealthKit activity types whose words alone don't read well. Others become their words: crossTraining -> cross training.

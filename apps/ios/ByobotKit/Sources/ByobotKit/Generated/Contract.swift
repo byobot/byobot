@@ -43,7 +43,7 @@ public enum EventStatus: String, Codable, CaseIterable, Hashable, Sendable {
     }
 }
 
-/// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
+/// How the value was obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
 public enum Modality: String, Codable, CaseIterable, Hashable, Sendable {
     case sensed
     case selfReported = "self_reported"
@@ -346,8 +346,6 @@ public struct PlannedSessionPayload: Codable, Equatable, Hashable, Sendable {
 /// A session that happened, or is happening (`in_progress`). Its efforts are their own records pointing at it. `links.answers` names the planned session it carries out; `links.part_of` its plan.
 public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
-    /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
-    public var modality: Modality
     /// The app and device that captured it, which may differ from the actor that wrote it.
     public var origin: Origin?
     public var status: RecordStatus?
@@ -360,9 +358,8 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, name: String? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
-        self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
@@ -375,7 +372,6 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case time
-        case modality
         case origin
         case status
         case links
@@ -390,8 +386,6 @@ public struct SessionPayload: Codable, Equatable, Hashable, Sendable {
 /// One effort done, such as one set. `time.start` is when it started. `links.part_of` names its session; without one it stands alone, as a tennis match can. `links.answers` names the planned effort it carries out, as a part of its planned session.
 public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
-    /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
-    public var modality: Modality
     /// The app and device that captured it, which may differ from the actor that wrote it.
     public var origin: Origin?
     public var status: RecordStatus?
@@ -408,9 +402,8 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
     public var metrics: Metrics?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
+    public init(time: RecordTime, origin: Origin? = nil, status: RecordStatus? = nil, links: Links? = nil, attachments: [Attachment]? = nil, activityId: String, round: Int? = nil, side: Side? = nil, locationId: String? = nil, metrics: Metrics? = nil, notes: String? = nil) {
         self.time = time
-        self.modality = modality
         self.origin = origin
         self.status = status
         self.links = links
@@ -425,7 +418,6 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case time
-        case modality
         case origin
         case status
         case links
@@ -442,27 +434,27 @@ public struct EffortPayload: Codable, Equatable, Hashable, Sendable {
 /// One measurement of one code: a weight, a blood pressure reading, a night's lowest and highest heart rate. Sources' values become observations when read; this kind is for ones a person or agent writes. `value`, `min`, `max` and `unit` are a measure, as under `metrics`: an exact value, a range, or an estimate with its bounds.
 public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     public var time: RecordTime
-    /// How the values were obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
-    public var modality: Modality
     /// The app and device that captured it, which may differ from the actor that wrote it.
     public var origin: Origin?
     public var links: Links?
     /// Files the record refers to, such as a photo of a meal. The logbook holds only these references; the files are kept beside it.
     public var attachments: [Attachment]?
     public var code: String
+    /// How the value was obtained: measured by a device, reported by a person, estimated (as from a photo), or computed from other records.
+    public var modality: Modality
     public var value: Scalar?
     public var min: Double?
     public var max: Double?
     public var unit: String?
     public var notes: String?
 
-    public init(time: RecordTime, modality: Modality, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, value: Scalar? = nil, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
+    public init(time: RecordTime, origin: Origin? = nil, links: Links? = nil, attachments: [Attachment]? = nil, code: String, modality: Modality, value: Scalar? = nil, min: Double? = nil, max: Double? = nil, unit: String? = nil, notes: String? = nil) {
         self.time = time
-        self.modality = modality
         self.origin = origin
         self.links = links
         self.attachments = attachments
         self.code = code
+        self.modality = modality
         self.value = value
         self.min = min
         self.max = max
@@ -472,11 +464,11 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case time
-        case modality
         case origin
         case links
         case attachments
         case code
+        case modality
         case value
         case min
         case max

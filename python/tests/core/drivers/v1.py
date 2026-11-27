@@ -105,7 +105,8 @@ class V1:
             start = p.pop("started_at" if kind == "session" else "performed_at", None)
             end = p.pop("ended_at", None)
             p["time"] = {"start": start, **({"end": end} if end else {})}
-            p.setdefault("modality", SELF)
+            if kind == "meal":
+                p.setdefault("modality", SELF)
         if kind in ("planned_session", "session") and "plan_id" in p:
             links["part_of"] = self.ref("plan", p.pop("plan_id"))
         if kind == "session" and "planned_session_id" in p:
@@ -138,8 +139,6 @@ class V1:
             p["started_at" if kind == "session" else "performed_at"] = t["start"]
             if "end" in t:
                 p["ended_at"] = t["end"]
-            if p.get("modality") == SELF:
-                p.pop("modality")
         if "part_of" in links:
             p[{"plan": "plan_id", "session": "session_id"}[links["part_of"]["kind"]]] = self.back(links["part_of"]["id"])
         if "answers" in links:
