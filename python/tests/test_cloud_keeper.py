@@ -109,7 +109,7 @@ def test_a_relay_s_samples_become_source_records(store, folder, keeper):
 
 
 def test_the_keeper_publishes_what_it_holds_once(store, folder, keeper):
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     assert keeper.sync()["published"] == 1
     assert keeper.sync()["published"] == 0
     keeper.publish_plan()
@@ -264,7 +264,7 @@ class Busy(MemoryFolder):
 def test_uploads_leave_the_store_free_for_other_writers(store):
     folder = Busy(store.path)
     keeper = Keeper.setup(store, folder, Clock())
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
     folder.blocked.clear()
     keeper.sync()
     keeper.compact()

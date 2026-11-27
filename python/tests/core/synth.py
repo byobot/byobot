@@ -1,7 +1,7 @@
 """A seeded synthetic persona: years of training, wearables, a scale and travel. Same seed, same bytes.
 
 Every value comes from a plausible distribution, never from anyone's data. Devices are
-`laptop`, `phone` and its replacement `phone2`; the only location is `example-gym`.
+`laptop`, `phone` and its replacement `phone2`; the only location is `example_gym`.
 
 `persona(seed, days)` returns the steps in time order and the ground truth the oracles need:
 every real workout (for single counting), every authored record's intended local date, and
@@ -118,7 +118,7 @@ class _Gen:
         for activity_id, name, _ in LIFTS:
             self.author(start, "laptop", {"intent": "define_activity", "record": {"id": activity_id, "name": name}})
         self.author(start, "laptop", {"intent": "define_location",
-                                      "record": {"id": "example-gym", "name": "Example gym"}})
+                                      "record": {"id": "example_gym", "name": "Example gym"}})
         self.author(start, "laptop", {"intent": "define_plan", "record": {
             "id": "plan1", "name": "Strength block", "starts_on": EPOCH.isoformat()}}, AGENT)
         self.add(start, "sync", "laptop", "phone")
@@ -155,7 +155,7 @@ class _Gen:
             {"id": f"{sid}.pe{i}", "activity_id": a, "metrics": {"reps": {"min": 5, "max": 8}}}]}
             for i, (a, _, _) in enumerate(lifts)]
         planned = {"id": sid, "plan_id": "plan1", "scheduled_on": (EPOCH + timedelta(days=d)).isoformat(),
-                   "name": "Strength", "location_id": "example-gym", "blocks": blocks}
+                   "name": "Strength", "location_id": "example_gym", "blocks": blocks}
         self.author(self.at(d - 1, 20), "laptop", {"intent": "plan_session", "record": planned}, AGENT)
         if rng.random() < 0.1:
             replanned = {**planned, "blocks": [{**b, "rounds": b["rounds"] + 1} for b in blocks]}
@@ -165,7 +165,7 @@ class _Gen:
         began = self.at(d, hour)
         self.author(began, phone, {"intent": "log_session", "record": {
             "id": plan_id, "planned_session_id": sid, "started_at": stamp(began, self.offset(d)),
-            "location_id": "example-gym"}})
+            "location_id": "example_gym"}})
         self.p.local_dates[f"session/{plan_id}"] = (began.astimezone(timezone(self.offset(d)))).date().isoformat()
         minute = 0
         logged = []

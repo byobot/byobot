@@ -63,10 +63,10 @@ Codes are open too. A code, unit or category value this replica's registry doesn
 
 Fixture cases that break one of these name it in `rule`, and must be rejected:
 
-- `time-order`: `time.start <= time.end`, as instants.
-- `date-order`: a plan's `starts_on <= ends_on`.
-- `range-order`: in a measure, `min <= max`, and an estimate's `value` lies within its bounds.
-- `code-value`: a known code's value has its type (a quantity carries a unit, others don't), matches its `pattern`, and lies within its bounds once converted to its unit.
-- `part-ids`: block and planned effort ids are unique within a planned session.
-- `self-reference`: an event's `prev` and `reverts` don't name the event itself.
-- `derived-id`: a source record's or overlay's record id is the one derived above.
+- `time_order`: `time.start <= time.end`, as instants.
+- `date_order`: a plan's `starts_on <= ends_on`.
+- `range_order`: in a measure, `min <= max`, and an estimate's `value` lies within its bounds.
+- `code_value`: a known code's value has its type (a quantity carries a unit, others don't), matches its `pattern`, and lies within its bounds once converted to its unit.
+- `part_ids`: block and planned effort ids are unique within a planned session.
+- `self_reference`: an event's `prev` and `reverts` don't name the event itself.
+- `derived_id`: a source record's or overlay's record id is the one derived above.

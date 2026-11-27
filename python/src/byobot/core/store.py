@@ -297,7 +297,7 @@ class Store:
             return "rejected", "clock reading past 2200"
         if event["record"]["kind"] == "source_record" and event["op"] != "erase" and "redacted_by" not in event and \
                 not later(event) and event["id"] != self._source_event_id(event):
-            return "rejected", "broken rule: derived-id"
+            return "rejected", "broken rule: derived_id"
         kind, rid = event["record"]["kind"], event["record"]["id"]
         self._insert(event)
         erase = self._erase_of(kind, rid)
