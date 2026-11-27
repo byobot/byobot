@@ -18,6 +18,8 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 from referencing import Registry, Resource
 
+from ..util import ValidationFailed
+
 SCHEMA_VERSION = 1
 SCHEMA_NAMES = ("common", "records", "event", "registry", "sync", "cloud")
 SLUG_KINDS = ("activity", "location", "setting")
@@ -39,9 +41,16 @@ def documents() -> tuple[dict[str, dict], dict]:
     return docs, json.loads((schema_dir() / "registry.json").read_text(encoding="utf-8"))
 
 
+class NotFinite(ValidationFailed, ValueError):
+    code = "invalid"
+
+
 def jcs(value: Any) -> str:
     """RFC 8785 canonical JSON for the values byobot writes: sorted keys, no whitespace, 225.0 written as 225."""
-    return json.dumps(_numbers(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    try:
+        return json.dumps(_numbers(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except ValueError:
+        raise NotFinite("numbers must be finite, not Infinity or NaN") from None
 
 
 def _numbers(value: Any) -> Any:
