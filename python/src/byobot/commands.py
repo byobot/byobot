@@ -529,7 +529,7 @@ def _disconnect(ctx: Context, source: str) -> dict:
 
 @command(
     "ingest",
-    "Add samples read from a health store, such as Apple Health or a Hume scale: weight, heart rate, sleep, "
+    "Add samples read from a health store, such as Apple Health: weight, heart rate, sleep, "
     "workouts. Sending the same samples again changes nothing.",
     Param("samples", "json", "One sample or a list, each {source, source_id, type, start, end, value, unit}, or an "
           "object {samples, deleted} where deleted lists {source, source_id} the health store removed.",

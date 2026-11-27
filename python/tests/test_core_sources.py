@@ -216,7 +216,7 @@ def test_revision_times_compare_as_instants(store):
 
 def test_without_revision_times_the_last_written_is_current(store):
     def weight(kg):
-        return {"source": "hume", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
+        return {"source": "apple_health", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
                 "start": "2026-03-02T07:00:00Z", "end": "2026-03-02T07:00:00Z", "value": kg, "unit": "kg"}
 
     for kg in (80.1, 80.2, 80.3, 80.4):

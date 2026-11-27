@@ -142,7 +142,7 @@ def test_review_takes_each_metric_from_one_source(store):
 
 
 def test_your_own_measurement_comes_first(capsys, store):
-    sources.ingest_samples(store, [sample("hume", "HKQuantityTypeIdentifierBodyMass", "2026-11-20T07:00:00",
+    sources.ingest_samples(store, [sample("apple_health", "HKQuantityTypeIdentifierBodyMass", "2026-11-20T07:00:00",
                                           "2026-11-20T07:00:00", 82.4, "kg")])
     store.close()
     assert cli(capsys, "log", "observation",

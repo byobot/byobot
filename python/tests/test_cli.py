@@ -55,7 +55,7 @@ def test_bad_profile_names_are_refused(capsys, name):
     assert code == 1 and "invalid" in err
 
 
-WEIGHT = {"source": "hume", "source_id": "w-1", "type": "HKQuantityTypeIdentifierBodyMass",
+WEIGHT = {"source": "apple_health", "source_id": "w-1", "type": "HKQuantityTypeIdentifierBodyMass",
           "start": "2026-11-20T07:00:00-05:00", "end": "2026-11-20T07:00:00-05:00", "value": 82.4, "unit": "kg",
           "device": "Example scale"}
 RESTING = {"source": "apple_health", "source_id": "r-1", "type": "HKQuantityTypeIdentifierRestingHeartRate",
@@ -195,8 +195,8 @@ def test_ingest_ndjson_file(capsys, tmp_path):
     path = tmp_path / "samples.ndjson"
     path.write_text("\n".join(json.dumps(s) for s in (WEIGHT, RESTING)) + "\n")
     code, out, _ = cli(capsys, "ingest", f"@{path}")
-    assert out == {"written": {"hume": 1, "apple_health": 1}, "unchanged": 0}
-    assert cli(capsys, "ingest", f"@{path}")[1] == {"written": {"hume": 0, "apple_health": 0}, "unchanged": 2}
+    assert out == {"written": {"apple_health": 2}, "unchanged": 0}
+    assert cli(capsys, "ingest", f"@{path}")[1] == {"written": {"apple_health": 0}, "unchanged": 2}
     code, listed, _ = cli(capsys, "list", "observation", "--type", "body_mass")
     assert listed["count"] == 1 and listed["items"][0]["value"] == 82.4
 

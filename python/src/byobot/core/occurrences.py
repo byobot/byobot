@@ -14,7 +14,7 @@ import json
 import sqlite3
 from typing import Iterable
 
-DEFAULT_PRIORITY = ("whoop", "hume", "apple_health")
+DEFAULT_PRIORITY = ("whoop", "apple_health")
 SAME = 0.5
 
 DDL = """

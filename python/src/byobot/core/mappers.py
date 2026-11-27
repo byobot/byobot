@@ -97,7 +97,7 @@ def whoop_workout(raw: dict, related: Related) -> dict:
                         "metrics": metrics}}
 
 
-# -- samples: Apple Health, Hume -------------------------------------------------
+# -- samples: Apple Health -------------------------------------------------------
 
 
 def sample(raw: dict, related: Related) -> dict:
@@ -151,7 +151,6 @@ MAPPERS: dict[tuple[str, str], tuple[Callable[[dict], str], Callable[[dict, Rela
     ("apple_health", "quantity_sample"): (_sample_revised, sample),
     ("apple_health", "category_sample"): (_sample_revised, sample),
     ("apple_health", "workout"): (_sample_revised, health_workout),
-    ("hume", "quantity_sample"): (_sample_revised, sample),
 }
 
 

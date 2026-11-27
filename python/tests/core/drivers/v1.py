@@ -291,7 +291,7 @@ class V1:
     def workouts(self, rep: Replica) -> list[dict]:
         """Occurrences with the provenance of each metric: you, or the source it came from."""
         conn, out = rep.store.conn, []
-        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health", "hume")}
+        named = {SOURCES.get(s, s): s for s in ("whoop", "apple-health")}
         for oid, start, end in conn.execute("SELECT id, started_at, ended_at FROM occurrences"):
             got, by = {}, {}
             for code, v, from_kind, from_id, overlay in conn.execute(
