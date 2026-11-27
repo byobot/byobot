@@ -2,10 +2,9 @@
 rejoins with the same device id and keys (apps/ios/Byobot/AppModel.swift, CloudSetup.forget). The keeper skips any
 device id it ever removed, so that phone is never admitted again: the code just expires."""
 
-from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
-from cloud_doubles import Relay
 
+from cloud_doubles import MemoryFolder, Relay
 from test_cloud_keeper import PHONE, Clock, event, joined
 
 

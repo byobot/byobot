@@ -6,11 +6,11 @@ import pytest
 from byobot import commands
 from byobot.cloud.drive import Drive, DriveFolder, UpstreamError
 from byobot.cloud.lock import held
-from cloud_doubles import Relay
 from byobot.commands import Context, run
 from byobot.serve import CloudPoller
 from byobot.util import ValidationFailed
 
+from cloud_doubles import Relay
 from test_cloud_commands import CLI, cloud, fake  # noqa: F401 - fixtures
 from test_cloud_keeper import PHONE, event
 

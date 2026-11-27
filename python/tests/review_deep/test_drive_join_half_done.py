@@ -7,10 +7,9 @@ device that isn't in this logbook" and deleted, and it sends it again, until the
 import pytest
 
 from _drive_helpers import PHONES, Clock, Flaky, effort
+from cloud_doubles import MemoryFolder, Relay
 from byobot.cloud import files
-from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import JOIN_TTL_S, Keeper
-from cloud_doubles import Relay
 
 
 def _cut_short(store):

@@ -2,9 +2,9 @@
 
 import pytest
 
-from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
 
+from cloud_doubles import MemoryFolder
 from test_cloud_keeper import PHONE, Clock, event, joined
 
 SAMPLES = {"samples": [{"source": "apple_health", "source_id": "S1", "start": "2026-11-23T07:00:00Z",

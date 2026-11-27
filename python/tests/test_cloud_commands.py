@@ -12,12 +12,12 @@ import pytest
 from byobot import commands, credentials
 from byobot.cloud import drive
 from byobot.cloud.drive import Drive, DriveFolder
-from cloud_doubles import Relay
 from byobot.link import pairing_link
 from byobot.commands import Context, run
 from byobot.core import commands as core
 from byobot.util import ByobotError, ValidationFailed
 
+from cloud_doubles import Relay
 from fake_drive import FakeDrive, Response
 from test_cloud_drive import signed_in
 from test_cloud_keeper import PHONE, event

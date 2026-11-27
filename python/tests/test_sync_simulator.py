@@ -11,6 +11,7 @@ A failure names its seed: BYOBOT_SIM_SEED=<seed> python -m pytest tests/test_syn
 """
 
 from __future__ import annotations
+from cloud_doubles import MemoryFolder, Relay
 
 import http.client
 import json
@@ -26,9 +27,7 @@ import pytest
 from byobot import serve
 from byobot.cloud import files, segment
 from byobot.cloud.crypto import CloudError
-from cloud_doubles import MemoryFolder
 from byobot.cloud.keeper import Keeper
-from cloud_doubles import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 from byobot.util import ByobotError

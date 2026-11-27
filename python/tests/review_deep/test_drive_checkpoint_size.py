@@ -10,8 +10,8 @@ the same."""
 import pytest
 
 from _drive_helpers import ME, Clock
-from byobot.cloud import segment
 from cloud_doubles import MemoryFolder
+from byobot.cloud import segment
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.core.store import Store

@@ -11,10 +11,10 @@ from byobot.cloud import drive as drive_module
 from byobot.cloud.drive import Drive, DriveFolder, NotConnected, UpstreamError
 from byobot.cloud.folder import Exists
 from byobot.cloud.keeper import Keeper
-from cloud_doubles import Relay
 from byobot.core import commands
 from byobot.core.store import Store
 
+from cloud_doubles import Relay
 from fake_drive import FakeDrive, Killed
 from test_cloud_epochs import SECRET, opened
 from test_cloud_keeper import ME, PHONE, Clock, event

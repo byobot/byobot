@@ -6,13 +6,12 @@ import threading
 import pytest
 
 from byobot import serve
-from cloud_doubles import LocalFolder
 from byobot.cloud.keeper import Keeper
-from cloud_doubles import Relay
 from byobot.core import hlc, relay as rules
 from byobot.core.store import Store
 from byobot.util import uuid7
 
+from cloud_doubles import LocalFolder, Relay
 from test_cloud_keeper import PHONE, Clock
 from test_serve import Client, _pair
 

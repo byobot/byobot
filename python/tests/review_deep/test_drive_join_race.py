@@ -5,9 +5,8 @@ wrote, so `cloud join` reports "expired" at once and the phone that scans the co
 import json
 
 from _drive_helpers import PHONES, Clock
-from cloud_doubles import MemoryFolder
+from cloud_doubles import MemoryFolder, Relay
 from byobot.cloud.keeper import JOIN_TTL_S, Keeper
-from cloud_doubles import Relay
 from byobot.core.store import Store
 
 
