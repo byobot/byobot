@@ -22,4 +22,4 @@ One file per activity in `activities/`, named `<id>.json`, holding its activity 
 - No muscle is both main and synergist, no two exercises share a name, and empty lists are left out.
 - Only add ratings and notes that are your own work.
 
-`pytest tests/test_library.py` (from `python/`) checks all of this.
+`pytest tests/test_library.py` (from `python/`) checks all of this. Then run `python tools/gen_swift.py` from the repository root, so the iPhone app ships the change.
