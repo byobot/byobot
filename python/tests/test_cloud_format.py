@@ -9,11 +9,11 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from byobot.cloud import files, segment
-from byobot.cloud.folder import MemoryFolder
-from byobot.cloud.relay import Relay
 from byobot.cloud.crypto import (CloudError, Identity, b64, dumps, join_proof, new_key, proof_matches, read_document,
                                  recovery_code, recovery_key)
 from byobot.core.contract import cloud_errors
+
+from cloud_doubles import MemoryFolder, Relay
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "schema" / "v1").is_dir())
 VECTORS = json.loads((ROOT / "schema" / "fixtures" / "v1" / "cloud.json").read_text(encoding="utf-8"))
