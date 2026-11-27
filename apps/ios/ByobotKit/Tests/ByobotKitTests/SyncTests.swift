@@ -60,6 +60,32 @@ final class SyncTests: XCTestCase {
         }
     }
 
+    func testLinksFromOutsideTheAppKeepOnlyLocalHosts() {
+        for host in ["laptop.local", "Laptop.LOCAL.", "10.0.0.2", "172.16.4.1", "172.31.255.255", "192.168.1.20",
+                     "169.254.3.4", "127.0.0.1", "fe80::1", "[fe80::1%en0]", "fd12:3456::1", "::1"] {
+            XCTAssertTrue(PairingLink.isLocal(host), host)
+        }
+        for host in ["example.com", "local", ".local", "laptop.local.example.com", "8.8.8.8", "172.32.0.1",
+                     "192.169.0.1", "100.64.0.1", "2001:db8::1", "fe80", "10.0.0", "10.0.0.256"] {
+            XCTAssertFalse(PairingLink.isLocal(host), host)
+        }
+        let fp = String(repeating: "ab", count: 32)
+        let mixed = PairingLink(hosts: ["hub.example.com", "laptop.local"], port: 8765, code: "123456", fingerprint: fp)
+        XCTAssertEqual(mixed.localOnly?.hosts, ["laptop.local"])
+        XCTAssertNil(PairingLink(hosts: ["hub.example.com"], port: 8765, code: "123456", fingerprint: fp).localOnly)
+    }
+
+    func testPairingSaysWhenItReplacesAnotherLaptop() {
+        let link = PairingLink(hosts: ["laptop.local"], port: 8765, code: "123456", fingerprint: String(repeating: "ab", count: 32))
+        func paired(_ fp: String) -> PairedServer {
+            PairedServer(hosts: ["laptop.local"], port: 8765, fingerprint: fp, deviceId: "dev_1", name: "Laptop",
+                         pairedAt: "2026-01-01T00:00:00Z")
+        }
+        XCTAssertFalse(link.replaces(nil))
+        XCTAssertFalse(link.replaces(paired(link.fingerprint)))
+        XCTAssertTrue(link.replaces(paired(String(repeating: "cd", count: 32))))
+    }
+
     func testShortFingerprintMatchesWhatTheLaptopPrints() {
         XCTAssertEqual(PairingLink.shortFingerprint("48e95ac971b683d1e51e66dcea164007"), "48e9 5ac9 71b6 83d1")
     }

@@ -59,6 +59,38 @@ public struct PairingLink: Equatable, Sendable {
         return data.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// The link with only its hosts on this network, or nil when it has none. A link can come from
+    /// anywhere, and a laptop elsewhere is reached through `byobot remote`, never by pairing.
+    public var localOnly: PairingLink? {
+        let local = hosts.filter(Self.isLocal)
+        return local.isEmpty ? nil : PairingLink(hosts: local, port: port, code: code, fingerprint: fingerprint)
+    }
+
+    /// Whether pairing would replace a different laptop.
+    public func replaces(_ server: PairedServer?) -> Bool {
+        guard let server else { return false }
+        return server.fingerprint != fingerprint
+    }
+
+    /// A `.local` name, or a private, link-local or loopback address.
+    public static func isLocal(_ host: String) -> Bool {
+        var h = host.lowercased()
+        if h.hasPrefix("["), h.hasSuffix("]") { h = String(h.dropFirst().dropLast()) }
+        if let zone = h.firstIndex(of: "%") { h = String(h[..<zone]) }
+        if h.hasSuffix(".") { h.removeLast() }
+        if h.hasSuffix(".local") { return h.count > 6 }
+        let quad = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        if quad.count == 4, quad.allSatisfy({ $0 != nil && (0...255).contains($0!) }) {
+            let a = quad[0]!, b = quad[1]!
+            return a == 10 || a == 127 || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168)
+                || (a == 169 && b == 254)
+        }
+        guard h.contains(":"), h.allSatisfy({ $0 == ":" || $0.isHexDigit }) else { return false }
+        if h == "::1" { return true }
+        guard !h.hasPrefix(":"), let first = UInt16(h.prefix(while: { $0 != ":" }), radix: 16) else { return false }
+        return first & 0xffc0 == 0xfe80 || first & 0xfe00 == 0xfc00
+    }
+
     /// The first 16 hex digits in groups of four, as `byobot serve` prints them for comparing by eye.
     public static func shortFingerprint(_ fingerprint: String) -> String {
         let head = Array(fingerprint.prefix(16))

@@ -51,11 +51,22 @@ struct ConfirmPairView: View {
     let link: PairingLink
     @State private var working = false
     @State private var error: String?
+    @State private var newName: String?
+    @State private var confirming = false
 
     var body: some View {
         NavigationStack {
             Form {
+                if let old = model.server, link.replaces(old) {
+                    Section {
+                        LabeledContent("Paired now", value: old.name)
+                        LabeledContent("Fingerprint", value: PairingLink.shortFingerprint(old.fingerprint)).monospaced()
+                    } footer: {
+                        Text("Pairing with this laptop replaces \(old.name). New sets and Health data go to it instead.")
+                    }
+                }
                 Section {
+                    if let newName { LabeledContent("Laptop", value: newName) }
                     LabeledContent("Address", value: link.hosts.joined(separator: ", "))
                     LabeledContent("Port", value: String(link.port))
                     LabeledContent("Fingerprint", value: PairingLink.shortFingerprint(link.fingerprint))
@@ -67,24 +78,47 @@ struct ConfirmPairView: View {
                     Section { Text(error).foregroundStyle(.red) }
                 }
                 Section {
-                    Button(working ? "Pairing…" : "Pair with this laptop") {
-                        Task {
-                            working = true
-                            defer { working = false }
-                            do {
-                                try await model.pair(hosts: link.hosts, port: link.port, code: link.code,
-                                                     fingerprint: link.fingerprint)
-                                dismiss()
-                            } catch {
-                                self.error = error.localizedDescription
-                            }
-                        }
+                    Button(buttonTitle) {
+                        if replacing { confirming = true } else { pair() }
                     }
                     .disabled(working)
                 }
             }
+            .confirmationDialog("Replace \(model.server?.name ?? "this laptop")?", isPresented: $confirming,
+                                titleVisibility: .visible) {
+                Button("Replace with \(newName ?? link.hosts.first ?? "the new laptop")", role: .destructive) { pair() }
+            } message: {
+                Text("Only do this if the fingerprint matches the one on the new laptop's screen.")
+            }
+            .task {
+                guard let host = link.hosts.first, let found = try? await model.probe(host: host, port: link.port),
+                      found.fingerprint == link.fingerprint else { return }
+                newName = found.hello.server.name
+            }
             .navigationTitle("Pair")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+}
+
+extension ConfirmPairView {
+    private var replacing: Bool { link.replaces(model.server) }
+
+    private var buttonTitle: String {
+        if working { return "Pairing…" }
+        return replacing ? "Replace \(model.server?.name ?? "laptop")" : "Pair with this laptop"
+    }
+
+    private func pair() {
+        Task {
+            working = true
+            defer { working = false }
+            do {
+                try await model.pair(hosts: link.hosts, port: link.port, code: link.code, fingerprint: link.fingerprint)
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
     }
 }
