@@ -74,21 +74,21 @@ public struct SampleBatch: Codable, Equatable, Sendable {
     var size: Int { samples.count + deleted.count }
 }
 
-public struct RefusedBatch: Codable, Equatable, Sendable {
+public struct RejectedBatch: Codable, Equatable, Sendable {
     public var reason: String
     public var samples: SampleBatch
 }
 
 /// The keeper's word on one relay's segments in this epoch.
 struct Receipt: Codable, Equatable, Sendable {
-    struct Refused: Codable, Equatable, Sendable {
+    struct Rejected: Codable, Equatable, Sendable {
         var seq: Int
         var line: Int
         var reason: String
     }
 
     var read: [Int]
-    var refused: [Refused]?
+    var rejected: [Rejected]?
 }
 
 /// One unread segment: the events and sample batches (by line) it carried.
@@ -118,8 +118,8 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     /// Sample batches not yet in a segment.
     public private(set) var samples: [SampleBatch] = []
     var sent: [String: Carried] = [:]
-    /// Sample batches the keeper refused, with why.
-    public private(set) var refused: [RefusedBatch] = []
+    /// Sample batches the keeper rejected, with why.
+    public private(set) var rejected: [RejectedBatch] = []
     /// Deletions an older app held back; they go on the next sync.
     public private(set) var held: [Deletion] = []
     /// Events the keeper read since they were last taken.
@@ -130,7 +130,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var removed = false
 
     enum CodingKeys: String, CodingKey {
-        case version, epoch, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
+        case version, epoch, seq, events, samples, sent, rejected, held, delivered, plan, receipts, removed
         case storeID = "store_id"
         case deviceID = "device_id"
         case keeperSign = "keeper_sign"
@@ -362,14 +362,14 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         let mine = receipts[deviceID]
         let read = Set(mine?.read ?? [])
         var why: [String: String] = [:]
-        for r in mine?.refused ?? [] { why["\(r.seq)/\(r.line)"] = r.reason }
+        for r in mine?.rejected ?? [] { why["\(r.seq)/\(r.line)"] = r.reason }
         for path in sent.keys.sorted() {
             guard let carried = sent[path], let seq = Cloud.parseName(path)?.seq else { continue }
             if read.contains(seq) {
                 for id in carried.events where events.removeValue(forKey: id) != nil { delivered.append(id) }
                 for line in carried.samples.keys.sorted() {
                     if let reason = why["\(seq)/\(line)"], let batch = carried.samples[line] {
-                        refused.append(RefusedBatch(reason: reason, samples: batch))
+                        rejected.append(RejectedBatch(reason: reason, samples: batch))
                     }
                 }
                 sent[path] = nil

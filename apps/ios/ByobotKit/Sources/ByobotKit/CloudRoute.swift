@@ -9,7 +9,7 @@ public actor CloudRoute {
         /// Events the Mac has read, so nothing need send them again.
         public var delivered: Set<String>
         public var plan: PlanWindow?
-        public var refused: [RefusedBatch]
+        public var rejected: [RejectedBatch]
         public var removed: Bool
         /// False until the Mac admits this phone.
         public var joined: Bool
@@ -56,9 +56,9 @@ public actor CloudRoute {
             throw error
         }
         let delivered = relay.takeDelivered()
-        let refused = relay.refused
+        let rejected = relay.rejected
         try await save(relay)
-        return Result(delivered: delivered, plan: relay.plan, refused: refused, removed: report.removed,
+        return Result(delivered: delivered, plan: relay.plan, rejected: rejected, removed: report.removed,
                       joined: relay.joined)
     }
 }

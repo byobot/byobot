@@ -440,12 +440,12 @@ class Keeper:
                                        sign_public=device["sign"])
         except CloudError as exc:
             return str(exc)
-        refused: list[tuple[int, str]] = []
+        rejected: list[tuple[int, str]] = []
         shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
-        apply(self.store, writer, device["class"], messages, shown, lambda i, why: refused.append((i, why)))
+        apply(self.store, writer, device["class"], messages, shown, lambda i, why: rejected.append((i, why)))
         with self.store._tx():
             self.store.conn.executemany("INSERT OR REPLACE INTO cloud_refused VALUES (?, ?, ?)",
-                                        [(path, i, why) for i, why in refused])
+                                        [(path, i, why) for i, why in rejected])
         erased = set(self.store.erased())
         if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
                           for m in messages for e in _events(m)) or self._erased_samples(messages):
@@ -493,7 +493,7 @@ class Keeper:
         return len(events)
 
     def plan(self) -> dict:
-        """The plan window every relay reads, with each relay's latest event held and refused events."""
+        """The plan window every relay reads, with each relay's latest event held and rejected events."""
         today = self.store.wall().date()
         start, end = today - timedelta(days=PLAN_BEHIND), today + timedelta(days=PLAN_AHEAD)
         window = rules.plan_window(self.store, start.isoformat(), end.isoformat())
@@ -504,19 +504,19 @@ class Keeper:
 
     def receipts(self) -> dict:
         """Each relay's segments still in the folder that the keeper has read, by seq (a relay's seqs never repeat
-        across epochs), and the samples it refused."""
+        across epochs), and the samples messages it rejected."""
         out: dict[str, dict] = {d["id"]: {"read": []} for d in self.devices() if d["class"] == "relay"}
-        refused: dict[str, list] = {}
+        rejected: dict[str, list] = {}
         for path, line, why in self.store.conn.execute("SELECT * FROM cloud_refused ORDER BY path, line"):
-            refused.setdefault(path, []).append((line, why))
+            rejected.setdefault(path, []).append((line, why))
         for path, outcome in self.store.conn.execute("SELECT path, outcome FROM cloud_read WHERE path LIKE "
                                                      "'segments/%' ORDER BY path"):
             where = segment.parse_name(path)
             if where and where["device_id"] in out and outcome == "read":
                 mine = out[where["device_id"]]
                 mine["read"].append(where["seq"])
-                for line, why in refused.get(path, []):
-                    mine.setdefault("refused", []).append({"seq": where["seq"], "line": line, "reason": why})
+                for line, why in rejected.get(path, []):
+                    mine.setdefault("rejected", []).append({"seq": where["seq"], "line": line, "reason": why})
         return out
 
     def publish_plan(self) -> bool:
@@ -834,9 +834,9 @@ def _events(message: dict) -> list[dict]:
 
 def apply(store: Store, writer: str, cls: str, messages: list[dict],
           shown: Callable[[list[str]], None] = lambda ids: None,
-          refused: Callable[[int, str], None] = lambda line, why: None) -> list[tuple[str, str]]:
+          rejected: Callable[[int, str], None] = lambda line, why: None) -> list[tuple[str, str]]:
     """Accept a verified segment's messages from its writer: a relay's through the hub's rules, the keeper's as
-    they are. One (outcome, reason) per event, in order; a refused samples message goes to ``refused``."""
+    they are. One (outcome, reason) per event, in order; a rejected samples message goes to ``rejected``."""
     out = []
     for line, m in enumerate(messages):
         name, body = next(iter(m.items()))
@@ -847,7 +847,7 @@ def apply(store: Store, writer: str, cls: str, messages: list[dict],
                 try:
                     rules.accept_samples(store, body)
                 except ValidationFailed as exc:
-                    refused(line, str(exc))
+                    rejected(line, str(exc))
             continue
         events = body.get("events") if isinstance(body, dict) else None
         if not isinstance(events, list):

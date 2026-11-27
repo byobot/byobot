@@ -15,14 +15,14 @@ final class CloudRelayTests: XCTestCase {
             return "byobot://cloud-join?store=\(store)&secret=\(q(joinSecret))&keeper=\(q(identity.signPublic))"
         }
 
-        /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it refused.
-        mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], refused: [(Int, Int, String)] = [],
+        /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it rejected.
+        mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], rejected: [(Int, Int, String)] = [],
                               erased: [ErasedRecord] = [], plan: JSONValue? = nil) async throws {
             seq += 1
             let window = PlanWindow(from: "2026-11-01", to: "2026-12-31", erased: erased)
             var mine: [String: JSONValue] = ["read": .array(read.map { .number(Double($0)) })]
-            if !refused.isEmpty {
-                mine["refused"] = .array(refused.map {
+            if !rejected.isEmpty {
+                mine["rejected"] = .array(rejected.map {
                     .object(["seq": .number(Double($0.0)), "line": .number(Double($0.1)), "reason": .string($0.2)])
                 })
             }
@@ -289,9 +289,9 @@ final class CloudRelayTests: XCTestCase {
         var relay = try await joined(k, folder)
         relay.send(SampleBatch(samples: [weighed("W1")]))
         _ = try await relay.sync(folder, identity: k.relay)
-        try await k.publish(folder, read: [1], refused: [(1, 0, "not a reading byobot knows")])
+        try await k.publish(folder, read: [1], rejected: [(1, 0, "not a reading byobot knows")])
         _ = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(relay.refused.map(\.reason), ["not a reading byobot knows"])
+        XCTAssertEqual(relay.rejected.map(\.reason), ["not a reading byobot knows"])
         XCTAssertEqual(relay.unread, [])
     }
 

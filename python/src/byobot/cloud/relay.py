@@ -39,7 +39,7 @@ class Relay:
     events: dict[str, dict] = field(default_factory=dict)  # every event it wrote and the keeper hasn't read yet
     samples: list[dict] = field(default_factory=list)  # sample batches not yet in a segment
     sent: dict[str, dict] = field(default_factory=dict)  # unread segments -> {"events": ids, "samples": {line: batch}}
-    refused: list[dict] = field(default_factory=list)  # sample batches the keeper refused, with why
+    rejected: list[dict] = field(default_factory=list)  # sample batches the keeper rejected, with why
     plan: dict | None = None
     receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
@@ -198,14 +198,14 @@ class Relay:
         """Drop what a read segment carried; queue again the samples of one that left the folder unread."""
         mine = self.receipts.get(self.device_id) or {}
         read = set(mine.get("read", []))
-        refused = {(r["seq"], r["line"]): r["reason"] for r in mine.get("refused", [])}
+        rejected = {(r["seq"], r["line"]): r["reason"] for r in mine.get("rejected", [])}
         for path, carried in list(self.sent.items()):
             seq = segment.parse_name(path)["seq"]
             if seq in read:
                 for eid in carried["events"]:
                     self.events.pop(eid, None)
-                self.refused += [{"reason": refused[(seq, line)], "samples": batch}
-                                 for line, batch in carried["samples"].items() if (seq, line) in refused]
+                self.rejected += [{"reason": rejected[(seq, line)], "samples": batch}
+                                  for line, batch in carried["samples"].items() if (seq, line) in rejected]
                 del self.sent[path]
             elif path not in listing:
                 self.samples[:0] = list(carried["samples"].values())
