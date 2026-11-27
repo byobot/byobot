@@ -12,7 +12,6 @@ import random
 import tempfile
 from datetime import timedelta
 
-import pytest
 from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
@@ -329,8 +328,6 @@ def test_a_sample_without_a_revision_time_imported_on_two_devices_reads_the_same
     state.teardown()
 
 
-@pytest.mark.xfail(strict=True, reason="open: first imports without a revision time are ordered by when each device "
-                                       "wrote them, so one written on two devices orders differently on each")
 def test_first_imports_without_a_revision_time_on_three_devices_read_the_same_on_all():
     state = Logbook()
     state.start()

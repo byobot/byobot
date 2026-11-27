@@ -332,7 +332,13 @@ class ModelReplica:
         if record in self.gone:
             return []
         found = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op == "revision"]
-        return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.hlc, canonical(w.content["payload"])))
+        return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.content.get("order", ""), w.hlc,
+                                            canonical(w.content["payload"])))
+
+    def stamp(self, wid: str, order: str) -> Write:
+        """Give a revision the id its store wrote it under, which orders revisions alike on every device."""
+        w = self.writes[wid] = replace(self.writes[wid], content={**self.writes[wid].content, "order": order})
+        return w
 
     def source_current(self, record: str) -> dict | None:
         """The latest revision, hidden while a deletion names it, and for good by a tombstone."""
@@ -558,7 +564,7 @@ def newer(w: Write, variant: str) -> Write:
 
 
 def _instant(at: str | None) -> tuple:
-    """A revision time as a point in time; one without a time sorts first, then by when it was written."""
+    """A revision time as a point in time; one without a time sorts first."""
     try:
         parsed = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
     except ValueError:

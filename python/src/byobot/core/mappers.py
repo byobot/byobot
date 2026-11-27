@@ -182,13 +182,14 @@ def revised(payload: dict) -> str:
 
 
 def revision_order(event: dict) -> tuple:
-    """Revisions in the order their source made them: by revision time as an instant, else as they arrived."""
+    """Revisions in the order their source made them: by revision time as an instant. Ties, and revisions without
+    one, go by id, which every device derives alike, so every device picks the same current revision."""
     try:
         at = datetime.fromisoformat(revised(event["payload"]).replace("Z", "+00:00"))
         instant = at.timestamp() if at.tzinfo else None
     except ValueError:
         instant = None
-    return (instant is not None, instant or 0.0, event["hlc"], event["id"])
+    return (instant is not None, instant or 0.0, event["id"])
 
 
 def read(payload: dict, related: Related) -> dict:
