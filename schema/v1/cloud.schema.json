@@ -93,12 +93,20 @@
     "epoch_body": {
       "description": "epochs/<epoch>.json's body. Written last when an epoch starts; the highest one a device can verify is current.",
       "type": "object",
-      "required": ["format", "store_id", "epoch", "keeper_device_id", "devices", "checkpoint", "capabilities"],
+      "required": ["format", "store_id", "epoch", "keeper_device_id", "keeper_key", "devices", "checkpoint", "capabilities"],
       "properties": {
         "format": {"const": 1},
         "store_id": {"$ref": "common.schema.json#/$defs/uuid"},
         "epoch": {"$ref": "#/$defs/epoch"},
         "keeper_device_id": {"$ref": "#/$defs/device_id"},
+        "keeper_key": {"$ref": "#/$defs/key", "description": "The Ed25519 public key that signs this epoch's files. A device that trusts another key trusts this one from this epoch on only through the handover."},
+        "handover": {
+          "description": "The key the keeper signed with before, and its Ed25519 signature over 'byobot-cloud handover 1\\n', store_id, epoch and keeper_key joined by newlines.",
+          "type": "object",
+          "required": ["from", "sig"],
+          "properties": {"from": {"$ref": "#/$defs/key"}, "sig": {"$ref": "#/$defs/base64", "minLength": 88, "maxLength": 88}},
+          "additionalProperties": false
+        },
         "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}, "description": "The devices the epoch started with."},
         "checkpoint": {"type": "integer", "minimum": 0, "description": "How many checkpoint parts hold the logbook as the epoch started."},
         "closed": {"const": true, "description": "The keeper closed the folder (`cloud off --delete yes`): every other file is deleted, and any keeper may start again past this epoch. Readers that don't know it see an epoch that lists only the keeper."},

@@ -135,27 +135,36 @@ class Relay:
         written = self._send(listing, force=moved)
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
-    def _adopt(self, listing: dict[str, str]) -> bool:
-        epochs = sorted((files.epoch_number(p) for p in listing if is_epoch_file(p)), reverse=True)
-        for n in epochs:
+    def _follow(self, listing: dict[str, str]) -> dict[int, dict]:
+        """The epoch files newer than this relay's, oldest first, each checked against the keeper key the one
+        before it trusts: a handover moves that trust to the keeper's new key."""
+        bodies, trusted = {}, self.keeper_sign
+        for n in sorted(files.epoch_number(p) for p in listing if is_epoch_file(p)):
             if self.epoch is not None and n <= self.epoch:
-                break
-            data = self.folder.read(files.epoch_path(n))
+                continue
             try:
-                body = files.read_epoch(data or b"", self.keeper_sign, self.store_id, n)
+                bodies[n] = files.read_epoch(self.folder.read(files.epoch_path(n)) or b"", trusted, self.store_id, n)
             except CloudError:
                 continue
+            trusted = bodies[n]["keeper_key"]
+        return bodies
+
+    def _adopt(self, listing: dict[str, str]) -> bool:
+        epochs = sorted((files.epoch_number(p) for p in listing if is_epoch_file(p)), reverse=True)
+        bodies = self._follow(listing)
+        for n in sorted(bodies, reverse=True):
+            body = bodies[n]
             key_data = self.folder.read(files.key_path(n, self.device_id))
             if key_data is None:
                 if self.epoch is not None and all(d["device_id"] != self.device_id for d in body["devices"]):
                     self.removed, self.key = True, None
                 return False
             try:
-                key = files.open_key(key_data, self.identity, self.device_id, self.keeper_sign, self.store_id, n)
+                key = files.open_key(key_data, self.identity, self.device_id, body["keeper_key"], self.store_id, n)
             except CloudError:
                 continue
             first = self.epoch is None
-            self.epoch, self.key = n, key
+            self.epoch, self.key, self.keeper_sign = n, key, body["keeper_key"]
             self.plan = self.plan_path = None
             self.receipts = {}
             return not first

@@ -47,7 +47,7 @@ def open_file(path, data, case=None):
 @pytest.mark.parametrize("case", VECTORS["valid"], ids=lambda c: c["name"])
 def test_each_valid_file_opens_to_what_it_should(case):
     data = unb64(case["data"])
-    assert open_file(case["path"], data) == case["expect"]
+    assert open_file(case["path"], data, case) == case["expect"]
     if case["def"] == "header":
         assert cloud_errors("header", segment.header(data)) == []
         for m in case["expect"]["messages"]:

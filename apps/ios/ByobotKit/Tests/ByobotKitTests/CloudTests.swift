@@ -68,7 +68,7 @@ final class CloudTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(v.valid.count, 7)
         for c in v.valid {
             let name = c.string("name") ?? "?"
-            XCTAssertEqual(try openFile(v, c.string("path") ?? "", bytes(c.string("data"))), c["expect"], name)
+            XCTAssertEqual(try openFile(v, c.string("path") ?? "", bytes(c.string("data")), c), c["expect"], name)
         }
     }
 
