@@ -24,7 +24,7 @@ from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, busy, ddl, query
 from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
-                         sync_folder_warning)
+                         sync_folder_warning, tilde)
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,7 @@ def _init(ctx: Context) -> dict:
 @command("status", "Show where the store is and how much it holds.")
 def _status(ctx: Context) -> dict:
     store = ctx.store()
-    return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": str(ctx.path),
+    return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": tilde(ctx.path),
             "device_id": store.device_id, "counts": store.counts(),
             **({"clock_warnings": warnings} if (warnings := store.clock_warnings()) else {}),
             **({"warning": w} if (w := sync_folder_warning(home())) else {})}
@@ -566,6 +566,12 @@ LISTS = {
     "workouts": ("occurrences", "start_ms", "start_ms DESC, id"),
 }
 LIST_KINDS = ("events", *LISTS)
+TIMED = tuple(k for k, (_, time, _) in LISTS.items() if time) + ("events",)
+# each filter, and the kinds it fits
+FILTERS = {"id": tuple(k for k in LIST_KINDS if k != "workouts"),
+           "type": ("events", "observation", "source_record"), "activity": ("effort",),
+           "source": ("activity", "observation", "source_record", "workouts"),
+           "muscle": ("activity",), "equipment": ("activity",), "since": TIMED, "until": TIMED}
 JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
 BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
                   "source")
@@ -607,6 +613,7 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
     "(events), and more.",
     Param("kind", "string", "What to list: a record kind, workouts or events.", required=True, choices=LIST_KINDS,
           positional=True),
+    Param("id", "string", "Only the record, or event, with this id."),
     Param("type", "string", "Only this record kind (events), code (observation) or source type (source_record)."),
     Param("activity", "string", "Only this activity id (effort)."),
     Param("source", "string", "Only this source, such as whoop (observation, source_record, workouts), or for "
@@ -620,11 +627,19 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50, bounds=(0, MAX_LIMIT)),
     description="Muscle, load type and equipment names are in `byobot schema vocabulary`. Dates are local dates, "
-                "as the record was written.",
+                "as the record was written. A filter that doesn't fit the kind is refused. truncated says more "
+                "records matched than the limit.",
 )
-def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
-          muscle: str | None = None, equipment: str | None = None, detail: str = "full",
+def _list(ctx: Context, kind: str, id: str | None = None, type: str | None = None, activity: str | None = None,
+          source: str | None = None, muscle: str | None = None, equipment: str | None = None, detail: str = "full",
           since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
+    given = {"id": id, "type": type, "activity": activity, "source": source, "muscle": muscle,
+             "equipment": equipment, "since": since, "until": until}
+    for name, value in given.items():
+        if value is not None and kind not in FILTERS[name]:
+            raise ValidationFailed(f"{name} doesn't apply to list {kind}; it fits {', '.join(FILTERS[name])}")
+    if detail != "full" and kind != "activity":
+        raise ValidationFailed(f"detail doesn't apply to list {kind}; it fits activity")
     store = ctx.store()
     where: list[str] = []
     params: list[Any] = []
@@ -638,6 +653,7 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
         sql, order, day = "SELECT seq, id, kind, record_id, op, hlc, ts, device_id, actor_kind, actor_id, " \
                           "actor_model, batch, reverts, payload FROM events", "seq DESC", "substr(ts, 1, 10)"
         add("kind = ?", type)
+        add("id = ?", id)
         instant = "CAST(round((julianday(ts) - 2440587.5) * 86400000) AS INTEGER)"  # ts keeps its writer's offset
         for value, op in ((since, ">="), (until, "<")):
             if value is not None:
@@ -646,6 +662,7 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     else:
         table, time, order = LISTS[kind]
         sql = f"SELECT * FROM {table}"
+        add("id = ?", id)
         add("code = ?", type if kind == "observation" else None)
         add("source_type = ?", type if kind == "source_record" else None)
         add("activity_id = ?", activity if kind == "effort" else None)
@@ -669,7 +686,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
                     add(f"{'local_date' if isinstance(bound, str) and time == 'start_ms' else time} {op} ?", bound)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, limit])
+    rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, limit + 1])
+    truncated = len(rows) > limit
+    rows = rows[:limit]
     newer = {i for _, i in store.newer(kind)} if kind not in ("events", "workouts") else set()
     for row in rows:
         if row.get("id") in newer:
@@ -691,7 +710,7 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
             _planned(store, row)
         if kind == "workouts":
             _workout(store, row)
-    return {"kind": kind, "count": len(rows), "items": rows, **untrusted("items")}
+    return {"kind": kind, "count": len(rows), "truncated": truncated, "items": rows, **untrusted("items")}
 
 
 def _planned(store: Store, row: dict) -> None:
@@ -835,30 +854,36 @@ def _schema(ctx: Context, name: str | None = None) -> Any:
     return registry if name == "registry" else schemas[name]
 
 
-VALIDATE_AS = ("event", *sorted(Contract.shipped().registry["kinds"]))
+VALIDATE_KINDS = ("event", "batch", *sorted(Contract.shipped().registry["kinds"]))
 
 
 @command(
     "validate",
-    "Check a document against the contract without writing anything.",
+    "Check what you would write without writing it: a record's payload as `log` takes it, a batch, or a whole event.",
+    Param("kind", "string", "What the document is: a record kind, batch, or event.", required=True,
+          choices=VALIDATE_KINDS, positional=True),
     Param("document", "json", "The JSON document to check.", required=True, positional=True, schema={}),
-    Param("as", "string", "What the document is: a whole event, or the payload of a record kind.",
-          choices=VALIDATE_AS, default="event"),
+    description="An invalid document is an answer, not an error: valid is false and errors says why.",
 )
-def _validate(ctx: Context, document: Any, **kwargs: Any) -> dict:
-    kind = kwargs.get("as", "event")
+def _validate(ctx: Context, kind: str, document: Any) -> dict:
     contract = Contract.shipped()
-    if kind == "event" and not isinstance(document, dict):
-        raise ValidationFailed("an event is a JSON object")
-    if kind != "event":
+    if kind == "batch":
+        if not isinstance(document, list) or not all(isinstance(r, dict) and "kind" in r for r in document):
+            errors = ["a batch is a list of {kind, id?, payload}"]
+        else:
+            errors = [f"{i}: {e}" for i, r in enumerate(document)
+                      for e in contract.payload_errors(r["kind"], r.get("payload"), r.get("id"))]
+    elif kind != "event":
         errors = contract.payload_errors(kind, document)
+    elif not isinstance(document, dict):
+        errors = ["an event is a JSON object"]
     else:
         try:
             contract.check(document)
             errors = []
         except Rejected as exc:
             errors = [exc.reason]
-    return {"valid": not errors, "as": kind, "errors": errors}
+    return {"valid": not errors, "kind": kind, "errors": errors}
 
 
 @command("devices list", "List the phones and other devices paired with `byobot serve`.")
@@ -1056,6 +1081,7 @@ JOIN_POLL_S = 5
     "Sync with Drive now: read what phones sent, and publish what the Drive copy doesn't hold yet. Running it again "
     "changes nothing new.",
     read_only=False,
+    mcp=False,
 )
 def _cloud_sync(ctx: Context) -> dict:
     return _sync(_keeper(ctx))
