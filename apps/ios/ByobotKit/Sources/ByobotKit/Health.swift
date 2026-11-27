@@ -140,7 +140,8 @@ public enum HealthMapping {
         }
         return Sample(source: source, sourceId: r.uuid.uuidString.lowercased(), type: type,
                       start: Timestamp.string(r.start), end: Timestamp.string(r.end), value: value, unit: unit,
-                      device: device(r.origin), raw: raw)
+                      device: device(r.origin), originApp: r.origin.sourceBundleId.isEmpty ? nil : r.origin.sourceBundleId,
+                      raw: raw)
     }
 
     /// A day's total keyed on its type and local date. It carries when it was read, so a later read of a day
