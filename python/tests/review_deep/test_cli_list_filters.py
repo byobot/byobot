@@ -46,7 +46,7 @@ def test_cli_events_since_a_timestamp_compares_instants_not_text(byobot_home):
     """CLI-4: an event written at 10:00-05:00 (15:00Z) is after 14:00Z and before 16:00Z, but `ts >= '…14:00:00Z'`
     compares "10:00…" with "14:00…" as text: it is left out of `--since 14:00Z` and kept by `--until 12:00Z`."""
     with Store(byobot_home / "byobot.db", wall=lambda: datetime(2026, 11, 20, 10, 0, tzinfo=EST)) as store:
-        core.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+        core.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     ctx = Context(actor=ME, path=byobot_home / "byobot.db")
     try:
         since = run("list", ctx, {"kind": "events", "type": "location", "since": "2026-11-20T14:00:00Z"})
