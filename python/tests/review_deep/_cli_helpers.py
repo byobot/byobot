@@ -127,14 +127,14 @@ class Api:
         return resp.status, data
 
     def call(self, tool: str, args: dict) -> tuple:
-        status, data = self.raw(f"/api/tools/{tool}", json.dumps(args).encode())
+        status, data = self.raw(f"/api/v1/tools/{tool}", json.dumps(args).encode())
         try:
             body = strict_loads(data)
         except ValueError as exc:
             return ("broken", f"HTTP {status}, body not JSON: {exc}")
         if status == 200:
             return ("ok", body)
-        if status == 400 and isinstance(body, dict) and "error" in body:
+        if 400 <= status < 500 and isinstance(body, dict) and "error" in body:
             return ("error", body["error"])
         return ("broken", f"HTTP {status}: {body}")
 

@@ -162,16 +162,22 @@ class Pairing:
     expires_at: float = field(default_factory=lambda: time.monotonic() + PAIRING_TTL_S)
     tries_left: int = PAIRING_TRIES
     used: bool = False
+    holder: str | None = None  # who the code was spent on: it may send it again until it expires, as after a lost answer
 
     @property
     def open(self) -> bool:
         return not self.used and self.tries_left > 0 and time.monotonic() < self.expires_at
 
-    def check(self, code: Any) -> bool:
-        if not self.open:
+    def admits(self, holder: str | None) -> bool:
+        again = holder is not None and holder == self.holder and self.tries_left > 0
+        return self.open or (again and time.monotonic() < self.expires_at)
+
+    def check(self, code: Any, holder: str | None = None) -> bool:
+        if not self.admits(holder):
             return False
-        if isinstance(code, str) and secrets.compare_digest(code.replace(" ", "").replace("-", ""), self.code):
-            self.used = True
+        typed = code.replace(" ", "").replace("-", "").encode() if isinstance(code, str) else b""
+        if secrets.compare_digest(typed, self.code.encode()):
+            self.used, self.holder = True, holder
             return True
         self.tries_left -= 1
         return False
@@ -248,6 +254,22 @@ def _query_interrupted(exc: sqlite3.OperationalError) -> NoReturn:
 
 
 # -- HTTP --------------------------------------------------------------------
+
+def printable(text: str) -> str:
+    """Text for the log, with control characters escaped, so a stranger can't drive the terminal."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode() for c in text)
+
+
+def _not_json(constant: str) -> NoReturn:
+    raise ValueError(f"{constant} is not JSON")
+
+
+def _finite(text: str) -> float:
+    value = float(text)
+    if value in (float("inf"), float("-inf")):
+        raise ValueError(f"{text} is out of range")
+    return value
+
 
 class HTTPError(Exception):
     def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None):
@@ -331,7 +353,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler's signature
         who = self.peer["name"] if self.peer else self.client_address[0]
-        self.server.log(f"{self.command} {urlsplit(self.path).path} {format % args if args else format} ({who})")
+        self.server.log(printable(f"{self.command} {urlsplit(self.path).path} {format % args if args else format} "
+                                  f"({who})"))
 
     def log_request(self, code: Any = "-", size: Any = "-") -> None:
         self.log_message("%s", code)
@@ -450,8 +473,8 @@ class Handler(BaseHTTPRequestHandler):
         self._continue_if_expected()
         raw = self._read_exact(length)
         try:
-            return json.loads(raw or b"null")
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
+            return json.loads(raw or b"null", parse_constant=_not_json, parse_float=_finite)
+        except (ValueError, RecursionError):  # not JSON or UTF-8, a number JSON can't hold, or nested too deep
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "the body is not JSON") from None
 
     def _bearer(self) -> str:
@@ -544,16 +567,16 @@ class Handler(BaseHTTPRequestHandler):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
         with self.server.pairing_lock:
             pairing = self.server.pairing
-            if pairing is None or not pairing.open:
+            if pairing is None or not pairing.admits(device_id):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "pairing_closed",
                                 "pairing is closed; run `byobot serve --pair` for a new code")
-            if not pairing.check(body.get("code")):
+            if not pairing.check(body.get("code"), device_id):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "wrong_code", "that code is not right",
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
         with Store(self.server.db, migrate=False) as store:
             self.peer = store.pair(device_id, name, token_hash(token))
-        self.server.log(f"paired {name} ({device_id})")
+        self.server.log(printable(f"paired {name} ({device_id})"))
         return {"token": token, "server": self._server_info(), "device": self.peer}
 
     def status(self) -> dict:
@@ -584,7 +607,7 @@ class Handler(BaseHTTPRequestHandler):
     def pull(self) -> dict:
         q = self._query()
         after = q.get("after", "0")
-        if not after.isdigit():
+        if not re.fullmatch(r"[0-9]{1,18}", after):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "after must be an arrival position")
         with Store(self.server.db, migrate=False) as store:
             self._guard_reads(store)

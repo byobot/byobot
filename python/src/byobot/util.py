@@ -163,6 +163,10 @@ class Conflict(ByobotError):
     code = "conflict"
 
 
+class Forbidden(ByobotError):
+    code = "forbidden"
+
+
 def plain_text(text: str, limit: int = 100) -> str:
     """Text another app wrote, on one line with no control or invisible characters, at most `limit` long."""
     shown = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Co", "Cs", "Zl", "Zp") else c for c in text)

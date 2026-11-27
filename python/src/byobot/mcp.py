@@ -17,7 +17,7 @@ from typing import IO, Any
 from byobot import __version__, prompts
 from byobot.commands import REGISTRY, Command, Context, run
 from byobot.serve import CloudPoller
-from byobot.util import ByobotError, db_path, plain_text
+from byobot.util import ByobotError, Forbidden, db_path, plain_text
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 LATEST = SUPPORTED_VERSIONS[0]
@@ -65,10 +65,10 @@ def _input_schema(cmd: Command) -> dict:
     return out
 
 
-def tools() -> list[dict]:
+def tools(read_only: bool = False) -> list[dict]:
     out = []
     for cmd in REGISTRY.values():
-        if not cmd.mcp:
+        if not cmd.mcp or (read_only and not cmd.read_only):
             continue
         description = " ".join(x for x in (cmd.summary, cmd.description) if x)
         out.append({
@@ -82,14 +82,17 @@ def tools() -> list[dict]:
 
 
 class Server:
-    def __init__(self) -> None:
+    def __init__(self, actor_id: str | None = None, read_only: bool = False) -> None:
         self.protocol = LATEST
         self.client = {"name": "mcp-client"}
+        self.actor_id = actor_id  # else the name the client gives itself
+        self.read_only = read_only  # only read-only tools
         self.ctx: Context | None = None
         self.quiet_errors = False  # over the network an exception's text stays in the log
 
     def _context(self, model: str | None) -> Context:
-        actor = {"kind": "agent", "id": plain_text(str(self.client.get("name") or ""), 200) or "mcp-client"}
+        name = plain_text(str(self.actor_id or self.client.get("name") or ""), 200)
+        actor = {"kind": "agent", "id": name or "mcp-client"}
         model = model or os.environ.get("BYOBOT_AGENT_MODEL")
         if model:
             actor["model"] = str(model)[:200]
@@ -115,7 +118,7 @@ class Server:
             if method == "ping":
                 return _result(mid, {})
             if method == "tools/list":
-                return _result(mid, {"tools": tools()})
+                return _result(mid, {"tools": tools(self.read_only)})
             if method == "tools/call":
                 return self._call(mid, params)
             if method == "prompts/list":
@@ -151,6 +154,8 @@ class Server:
         args = dict(args)
         model = args.pop("model", None) if not cmd.read_only else None
         try:
+            if self.read_only and not cmd.read_only:
+                raise Forbidden(f"this assistant may only read, so it can't use {name}; connect it again to let it write")
             result = run(cmd.name, self._context(model), args)
         except ByobotError as exc:
             body = exc.to_dict()

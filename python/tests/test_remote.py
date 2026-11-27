@@ -66,7 +66,7 @@ def test_register_refuses_unsafe_redirects(auth):
 def test_a_public_client_gets_tokens_with_pkce(auth):
     client, tokens = approved(auth)
     assert "client_secret" not in client
-    assert tokens["token_type"] == "Bearer" and tokens["scope"] == "byobot"
+    assert tokens["token_type"] == "Bearer" and tokens["scope"] == "read write"
     assert auth.client_for_token(tokens["access_token"])["client_name"] == "Example Assistant"
     assert auth.clients() == [{"client_id": client["client_id"], "client_name": "Example Assistant"}]
 
@@ -110,8 +110,8 @@ def test_refresh_tokens_rotate(auth):
     fresh = auth.refresh(client, tokens["refresh_token"])
     assert fresh["access_token"] != tokens["access_token"]
     with pytest.raises(OAuthError):
-        auth.refresh(client, tokens["refresh_token"])
-    assert auth.refresh(client, fresh["refresh_token"])
+        auth.refresh(client, tokens["refresh_token"])  # a replay, so the tokens that replaced it stop working
+    assert auth.client_for_token(fresh["access_token"]) is None
 
 
 def test_access_tokens_expire(auth, monkeypatch):
@@ -190,7 +190,7 @@ def request(server, method, path, body=None, headers=None):
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 
 
-def connect(server, name="Example Assistant"):
+def connect(server, name="Example Assistant", **approve):
     """Run the whole connector flow: register, approve with the code, exchange. Returns (client, tokens)."""
     resp, raw = request(server, "POST", "/oauth/register", {"client_name": name, "redirect_uris": [CALLBACK],
                                                             "token_endpoint_auth_method": "none"})
@@ -202,7 +202,8 @@ def connect(server, name="Example Assistant"):
               "resource": BASE + "/mcp"}
     resp, raw = request(server, "GET", "/oauth/authorize?" + urlencode(params))
     assert resp.status == 200 and name.encode() in raw and b"client.example" in raw
-    resp, _ = request(server, "POST", "/oauth/authorize", {**params, "approval_code": server.pairing.code}, FORM)
+    resp, _ = request(server, "POST", "/oauth/authorize", {**params, "approval_code": server.pairing.code, **approve},
+                      FORM)
     assert resp.status == 302
     location = urlsplit(resp.getheader("Location"))
     q = parse_qs(location.query)
@@ -249,7 +250,7 @@ def test_a_connected_assistant_uses_the_tools(running):
                                                    "clientInfo": {"name": "example-assistant", "version": "1"}})
     assert resp.status == 200 and json.loads(raw)["result"]["serverInfo"]["name"] == "byobot"
     session = resp.getheader("Mcp-Session-Id")
-    assert session
+    assert session is None
     resp, raw = rpc(running, token, "notifications/initialized", mid=None, session=session)
     assert resp.status == 202 and raw == b""
     resp, raw = rpc(running, token, "tools/list", session=session)
@@ -259,20 +260,21 @@ def test_a_connected_assistant_uses_the_tools(running):
     assert json.loads(raw)["result"]["isError"] is False
     resp, raw = rpc(running, token, "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_kind, actor_id FROM events"}}, session=session)
-    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "example-assistant"}]
+    [row] = json.loads(raw)["result"]["structuredContent"]["rows"]
+    assert row["actor_kind"] == "agent" and row["actor_id"].startswith("Example Assistant#")
 
 
-def test_sessions_belong_to_their_client(running):
-    _, one = connect(running, "One")
-    running.pairing = serve.Pairing()
-    _, two = connect(running, "Two")
-    resp, _ = rpc(running, one["access_token"], "initialize", {"protocolVersion": "2025-06-18",
-                                                               "clientInfo": {"name": "one"}})
-    session = resp.getheader("Mcp-Session-Id")
-    resp, _ = rpc(running, two["access_token"], "tools/list", session=session)
-    assert resp.status == 404
-    resp, _ = rpc(running, one["access_token"], "tools/list", session="unknown")
-    assert resp.status == 404
+def test_the_protocol_comes_from_the_header(running):
+    _, tokens = connect(running)
+    call = {"name": "query", "arguments": {"sql": "SELECT 1 AS one"}}
+    headers = {"Authorization": f"Bearer {tokens['access_token']}", "Accept": "application/json, text/event-stream"}
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": call}
+    _, raw = request(running, "POST", "/mcp", msg, {**headers, "MCP-Protocol-Version": "2025-03-26"})
+    assert "structuredContent" not in json.loads(raw)["result"]
+    _, raw = request(running, "POST", "/mcp", msg, {**headers, "MCP-Protocol-Version": "2025-06-18"})
+    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"one": 1}]
+    resp, _ = request(running, "DELETE", "/mcp", headers=headers)
+    assert resp.status == 405
 
 
 def test_without_a_session_writes_name_the_connected_app(running):
@@ -281,7 +283,8 @@ def test_without_a_session_writes_name_the_connected_app(running):
         "kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}}})
     resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_id FROM events"}})
-    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_id": "Example Assistant"}]
+    [row] = json.loads(raw)["result"]["structuredContent"]["rows"]
+    assert row["actor_id"].startswith("Example Assistant#")
 
 
 def test_a_wrong_code_does_not_approve(running):
@@ -332,7 +335,7 @@ def test_refresh_over_http_and_revoke(running):
 
 def test_get_mcp_is_not_offered(running):
     resp, _ = request(running, "GET", "/mcp")
-    assert resp.status == 405 and resp.getheader("Allow") == "POST, DELETE"
+    assert resp.status == 405 and resp.getheader("Allow") == "POST"
 
 
 def test_a_confidential_client_can_use_basic_auth(running):
@@ -392,17 +395,17 @@ def test_api_key_names_are_checked(auth):
 # -- the plain JSON API -----------------------------------------------------------
 
 def test_openapi_describes_every_tool(running):
-    resp, raw = request(running, "GET", "/api/openapi.json")
+    resp, raw = request(running, "GET", "/api/v1/openapi.json")
     spec = json.loads(raw)
     assert resp.status == 200 and spec["openapi"] == "3.1.0" and spec["servers"] == [{"url": BASE}]
     assert {p.rsplit("/", 1)[1] for p in spec["paths"]} == {t["name"] for t in remote.mcp.tools()}
-    assert spec["paths"]["/api/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
+    assert spec["paths"]["/api/v1/tools/query"]["post"]["requestBody"]["content"]["application/json"]["schema"][
         "required"] == ["sql"]
 
 
 def test_the_api_needs_a_key(running):
-    assert request(running, "GET", "/api/tools")[0].status == 401
-    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"},
+    assert request(running, "GET", "/api/v1/tools")[0].status == 401
+    assert request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT 1"},
                    {"Authorization": "Bearer byobot_wrong"})[0].status == 401
 
 
@@ -410,16 +413,29 @@ def test_the_api_needs_a_key(running):
 def test_an_api_key_calls_tools(running, header):
     key = running.auth.create_key("example_assistant")
     auth = {header: f"Bearer {key}" if header == "Authorization" else key}
-    resp, raw = request(running, "GET", "/api/tools", headers=auth)
+    resp, raw = request(running, "GET", "/api/v1/tools", headers=auth)
     assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
-    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "x.plank",
-                                                            "payload": {"name": "Plank"}}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "x.plank",
+                                                               "payload": {"name": "Plank"}}, auth)
     assert resp.status == 200, raw
-    resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
-    assert json.loads(raw)["rows"] == [{"actor_id": "example_assistant"}]
-    resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
+    [row] = json.loads(raw)["rows"]
+    assert row["actor_id"].startswith("example_assistant#key:")
+    resp, raw = request(running, "POST", "/api/v1/tools/query", {}, auth)
     assert resp.status == 400 and json.loads(raw)["error"] == "invalid"
-    assert request(running, "POST", "/api/tools/nope", {}, auth)[0].status == 404
+    assert request(running, "POST", "/api/v1/tools/nope", {}, auth)[0].status == 404
+
+
+def test_api_errors_carry_a_code_and_its_status(running):
+    auth = {"X-API-Key": running.auth.create_key("example_assistant")}
+    resp, raw = request(running, "POST", "/api/v1/tools/history", {"kind": "activity", "id": "missing"}, auth)
+    assert resp.status == 404 and json.loads(raw)["error"] == "not_found"
+    resp, raw = request(running, "POST", "/api/v1/tools/nope", {}, auth)
+    assert resp.status == 404 and json.loads(raw)["error"] == "not_found"
+    assert request(running, "POST", "/api/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 404
+    spec = json.loads(request(running, "GET", "/api/v1/openapi.json")[1])
+    assert spec["paths"]["/api/v1/tools/query"]["post"]["responses"]["404"]["content"]["application/json"][
+        "schema"] == {"$ref": "#/components/schemas/Error"}
 
 
 def test_an_api_key_also_works_for_mcp(running):
@@ -428,35 +444,55 @@ def test_an_api_key_also_works_for_mcp(running):
     assert resp.status == 200 and json.loads(raw)["result"]["tools"]
 
 
-def test_remote_api_key_prints_a_working_key(capsys, auth):
+def test_a_read_only_key_reads_but_does_not_write(running):
+    key = running.auth.create_key("example_assistant", remote.READ)
+    auth = {"X-API-Key": key}
+    names = {t["name"] for t in json.loads(request(running, "GET", "/api/v1/tools", headers=auth)[1])["tools"]}
+    assert "query" in names and "log" not in names
+    resp, raw = request(running, "POST", "/api/v1/tools/log", {"kind": "activity", "id": "x.plank",
+                                                               "payload": {"name": "Plank"}}, auth)
+    assert resp.status == 403 and json.loads(raw)["error"] == "forbidden"
+    assert request(running, "POST", "/api/v1/tools/query", {"sql": "SELECT 1"}, auth)[0].status == 200
+    assert "log" not in {t["name"] for t in json.loads(rpc(running, key, "tools/list")[1])["result"]["tools"]}
+
+
+def test_approving_for_reading_only_grants_read(running):
+    _, tokens = connect(running, read_only="1")
+    assert tokens["scope"] == "read"
+    resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
+        "kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}}})
+    assert json.loads(raw)["result"]["isError"] is True
+
+
+def test_remote_api_key_show_prints_a_working_key(capsys, auth):
     from byobot.cli import main
 
-    assert main(["remote", "--api-key", "example_assistant"]) == 0
+    assert main(["remote", "--api-key", "example_assistant", "--show"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["openapi"].endswith("/api/openapi.json")
+    assert out["openapi"].endswith("/api/v1/openapi.json")
     assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
-    assert main(["remote", "--api-key", "Bad Name"]) == 1
+    assert main(["remote", "--api-key", "Bad Name", "--show"]) == 1
 
 
-def test_remote_api_key_copy_puts_the_key_on_the_clipboard(capsys, auth, monkeypatch):
+def test_remote_api_key_goes_on_the_clipboard_by_default(capsys, auth, monkeypatch):
     from byobot import remote
     from byobot.cli import main
 
     copied = []
     monkeypatch.setattr(remote.shutil, "which", lambda name: name == "pbcopy")
     monkeypatch.setattr(remote.subprocess, "run", lambda cmd, input, check: copied.append((cmd, input)))
-    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 0
+    assert main(["remote", "--api-key", "example_assistant"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert "key" not in out and out["copied"]
     assert copied[0][0] == ["pbcopy"]
     assert auth.client_for_token(copied[0][1].decode())["client_name"] == "example_assistant"
 
 
-def test_remote_api_key_copy_fails_without_a_clipboard(capsys, auth, monkeypatch):
+def test_remote_api_key_fails_without_a_clipboard_unless_shown(capsys, auth, monkeypatch):
     from byobot import remote
     from byobot.cli import main
 
     monkeypatch.setattr(remote.shutil, "which", lambda name: None)
-    assert main(["remote", "--api-key", "example_assistant", "--copy"]) == 1
-    assert "clipboard" in capsys.readouterr().err
-    assert not auth._load()["keys"] and main(["remote", "--copy"]) == 1
+    assert main(["remote", "--api-key", "example_assistant"]) == 1
+    assert "--show" in capsys.readouterr().err
+    assert not auth._load()["keys"] and main(["remote", "--show"]) == 1

@@ -5,7 +5,7 @@ One profile per process. It listens on 127.0.0.1 and sits behind a tunnel you ru
 data stays on this computer; the tunnel only carries requests.
 
 * **MCP.** Streamable HTTP at ``/mcp``: the same tools and prompts as ``byobot mcp``,
-  answered as JSON. A session id ties later requests to the client's ``initialize``.
+  answered as JSON, without sessions: the token says who calls and the header which protocol.
 * **Sign-in.** OAuth 2.1, as the MCP authorization spec asks: protected resource
   and authorization server metadata, dynamic client registration, the
   authorization code flow with PKCE (S256), and rotating refresh tokens. A client
@@ -22,6 +22,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import tempfile
 import threading
 import sys
 import time
@@ -34,11 +35,13 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, mcp, serve, util
-from byobot.commands import Context
+from byobot.cloud.lock import held
+from byobot.commands import REGISTRY, Context
 from byobot.serve import Pairing
 from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
 
-SCOPE = "byobot"
+READ, FULL = "read", "read write"  # a client with only read may call read-only tools
+SCOPES = ("read", "write")
 ACCESS_TTL_S = 3600
 REFRESH_TTL_S = 90 * 86400
 CODE_TTL_S = 300
@@ -74,6 +77,22 @@ def _redirect_ok(uri: Any) -> bool:
     return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "::1"))
 
 
+def requested_scope(scope: Any) -> str:
+    """What a client asked for: read alone when it names read and not write, else what it could always do."""
+    words = set(scope.split()) if isinstance(scope, str) else set()
+    return READ if "read" in words and "write" not in words else FULL
+
+
+def scope_of(client: dict) -> str:
+    """A client's scope. Clients approved before scopes existed hold "byobot", which is everything."""
+    return READ if client.get("scope") == READ else FULL
+
+
+def actor_id(client: dict) -> str:
+    """The author of a client's writes: its name and its own id, so two clients that call themselves alike differ."""
+    return f"{client['client_name'][:100]}#{client['client_id']}"
+
+
 class OAuthError(Exception):
     def __init__(self, error: str, description: str, status: int = 400):
         super().__init__(description)
@@ -90,6 +109,9 @@ class Grant:
     client_id: str
     redirect_uri: str
     challenge: str
+    generation: int  # revoke_all moves oauth.json past this, and the code with it
+    named: bool = True  # whether the request named redirect_uri, so the token request must too (RFC 6749 4.1.3)
+    scope: str = FULL
     expires_at: float = field(default_factory=lambda: time.monotonic() + CODE_TTL_S)
 
 
@@ -99,6 +121,7 @@ class Auth:
     Approved clients and token hashes live in the file, read on every check, so
     ``byobot remote --revoke`` takes effect while a server runs. Clients that have
     registered but not been approved yet, and authorization codes, stay in memory.
+    A change is written only if no other process wrote the file since it was read.
     """
 
     def __init__(self, path: Path, resource: str | None = None):
@@ -110,24 +133,49 @@ class Auth:
 
     # -- the file --
 
+    def _raw(self) -> bytes:
+        try:
+            return self.path.read_bytes()
+        except FileNotFoundError:
+            return b""
+
     def _load(self) -> dict:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             data = {}
         return {"clients": data.get("clients", {}), "access": data.get("access", {}), "refresh": data.get("refresh", {}),
-                "keys": data.get("keys", {})}
+                "used": data.get("used", {}), "keys": data.get("keys", {}), "generation": data.get("generation", 0)}
 
     def _save(self, data: dict) -> None:
         now = time.time()
-        for kind in ("access", "refresh"):
+        for kind in ("access", "refresh", "used"):
             data[kind] = {h: t for h, t in data[kind].items() if t["expires_at"] > now}
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=1)
-        os.replace(tmp, self.path)
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")  # mode 0600
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=1)
+            os.replace(tmp, self.path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
+    def _change(self, fn: Callable[[dict], Any]) -> Any:
+        """Apply ``fn`` to the file's data and write it, again from a fresh read if another process wrote it meanwhile.
+        ``fn`` returns its result, or an OAuthError to raise once the change is written."""
+        with self.lock:
+            while True:
+                seen = self._raw()
+                data = self._load()
+                out = fn(data)
+                with held(self.path.with_name(self.path.name + ".lock")):
+                    if self._raw() == seen:
+                        self._save(data)
+                        break
+        if isinstance(out, OAuthError):
+            raise out
+        return out
 
     # -- clients --
 
@@ -141,13 +189,14 @@ class Auth:
         method = meta.get("token_endpoint_auth_method", "client_secret_basic")
         if method not in AUTH_METHODS:
             raise OAuthError("invalid_client_metadata", f"token_endpoint_auth_method must be one of {', '.join(AUTH_METHODS)}")
-        if not set(meta.get("grant_types", ["authorization_code"])) <= {"authorization_code", "refresh_token"}:
+        grants = meta.get("grant_types", ["authorization_code"])
+        if not isinstance(grants, list) or not set(map(str, grants)) <= {"authorization_code", "refresh_token"}:
             raise OAuthError("invalid_client_metadata", "only authorization_code and refresh_token grants are supported")
         name = meta.get("client_name")
         name = name.strip()[:100] if isinstance(name, str) and name.strip() else "MCP client"
         client = {"client_id": secrets.token_urlsafe(16), "client_name": name, "redirect_uris": uris,
                   "token_endpoint_auth_method": method, "client_id_issued_at": int(time.time()),
-                  "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": SCOPE}
+                  "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": FULL}
         out = dict(client)
         if method != "none":
             out["client_secret"] = secrets.token_urlsafe(32)
@@ -192,12 +241,13 @@ class Auth:
 
     # -- codes and tokens --
 
-    def grant(self, client_id: str, redirect_uri: str, challenge: str) -> str:
+    def grant(self, client_id: str, redirect_uri: str, challenge: str, named: bool = True, scope: str = FULL) -> str:
         code = secrets.token_urlsafe(32)
         with self.lock:
+            generation = self._load()["generation"]
             now = time.monotonic()
             self.grants = {k: g for k, g in self.grants.items() if g.expires_at > now}
-            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge)
+            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named, scope)
         return code
 
     def exchange(self, client: dict, code: Any, redirect_uri: Any, verifier: Any) -> dict:
@@ -205,36 +255,49 @@ class Auth:
             grant = self.grants.pop(_hash(code), None) if isinstance(code, str) else None
         if grant is None or grant.expires_at < time.monotonic() or grant.client_id != client["client_id"]:
             raise OAuthError("invalid_grant", "the code is unknown, used or expired")
-        if redirect_uri != grant.redirect_uri:
+        if redirect_uri != grant.redirect_uri and (grant.named or redirect_uri is not None):
             raise OAuthError("invalid_grant", "redirect_uri does not match the authorization request")
         if not isinstance(verifier, str) or not 43 <= len(verifier) <= 128:
             raise OAuthError("invalid_grant", "code_verifier is required")
         expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
         if not secrets.compare_digest(expected, grant.challenge):
             raise OAuthError("invalid_grant", "code_verifier does not match")
-        return self._issue(client)
+        return self._issue({**client, "scope": grant.scope}, grant.generation)
 
     def refresh(self, client: dict, token: Any) -> dict:
-        with self.lock:
-            data = self._load()
-            held = data["refresh"].pop(_hash(token), None) if isinstance(token, str) else None
-            if held is None or held["expires_at"] < time.time() or held["client_id"] != client["client_id"]:
+        h, cid = _hash(token) if isinstance(token, str) else None, client["client_id"]
+
+        def rotate(data: dict) -> OAuthError | None:
+            if h in data["used"] and data["used"][h]["client_id"] == cid:  # a replay, so the token was copied
+                for kind in ("access", "refresh"):
+                    data[kind] = {k: t for k, t in data[kind].items() if t["client_id"] != cid}
+                return OAuthError("invalid_grant", "the refresh token was already used; connect this assistant again")
+            held = data["refresh"].pop(h, None)
+            if held is None or held["expires_at"] < time.time() or held["client_id"] != cid:
                 raise OAuthError("invalid_grant", "the refresh token is unknown, used or expired")
-            self._save(data)
+            data["used"][h] = held
+            return None
+
+        self._change(rotate)
         return self._issue(client)
 
-    def _issue(self, client: dict) -> dict:
+    def _issue(self, client: dict, generation: int | None = None) -> dict:
+        """Tokens for an approved client, or, with the generation of its code, for one approved since the last revoke."""
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        now = time.time()
+        cid, now = client["client_id"], time.time()
+
+        def add(data: dict) -> None:
+            if (cid not in data["clients"]) if generation is None else (generation != data["generation"]):
+                raise OAuthError("invalid_grant", "this assistant was disconnected; connect it again")
+            data["clients"][cid] = dict(client)
+            data["access"][_hash(access)] = {"client_id": cid, "expires_at": now + ACCESS_TTL_S}
+            data["refresh"][_hash(refresh)] = {"client_id": cid, "expires_at": now + REFRESH_TTL_S}
+
+        self._change(add)
         with self.lock:
-            self.pending.pop(client["client_id"], None)
-            data = self._load()
-            data["clients"][client["client_id"]] = dict(client)
-            data["access"][_hash(access)] = {"client_id": client["client_id"], "expires_at": now + ACCESS_TTL_S}
-            data["refresh"][_hash(refresh)] = {"client_id": client["client_id"], "expires_at": now + REFRESH_TTL_S}
-            self._save(data)
+            self.pending.pop(cid, None)
         return {"access_token": access, "token_type": "Bearer", "expires_in": ACCESS_TTL_S,
-                "refresh_token": refresh, "scope": SCOPE}
+                "refresh_token": refresh, "scope": scope_of(client)}
 
     def client_for_token(self, token: str) -> dict | None:
         """The client an access token or API key belongs to."""
@@ -244,37 +307,45 @@ class Auth:
             data = self._load()
         h = _hash(token)
         if h in data["keys"]:
-            return {"client_id": "key:" + h[:16], "client_name": data["keys"][h]["name"]}
+            key = data["keys"][h]
+            return {"client_id": "key:" + h[:16], "client_name": key["name"], "scope": key.get("scope", FULL)}
         held = data["access"].get(h)
         if held is None or held["expires_at"] < time.time():
             return None
         return data["clients"].get(held["client_id"])
 
-    def create_key(self, name: str) -> str:
+    def create_key(self, name: str, scope: str = FULL) -> str:
         """A long-lived API key, for assistants that call an API with a fixed key instead of signing in."""
         if not PROFILE_NAME.fullmatch(name):
             raise ValidationFailed(f"API key names are lowercase letters, digits and _, not {name!r}")
         key = "byobot_" + secrets.token_urlsafe(32)
-        with self.lock:
-            data = self._load()
-            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time())}
-            self._save(data)
+
+        def add(data: dict) -> None:
+            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time()), "scope": scope}
+
+        self._change(add)
         return key
 
     def revoke_all(self) -> int:
-        with self.lock:
-            data = self._load()
+        def clear(data: dict) -> int:
             count = len(data["clients"]) + len(data["keys"])
+            data.update(clients={}, access={}, refresh={}, used={}, keys={}, generation=data["generation"] + 1)
+            return count
+
+        count = self._change(clear)
+        with self.lock:
             self.pending.clear()
             self.grants.clear()
-            self._save({"clients": {}, "access": {}, "refresh": {}, "keys": {}})
         return count
 
 
 # -- HTTP --------------------------------------------------------------------
 
 MAX_FORM = 8192
-MAX_SESSIONS = 1000
+API = "/api/v1"
+# a tool's error code and the HTTP status the API answers it with; any other code is 400
+STATUS = {"invalid": HTTPStatus.BAD_REQUEST, "forbidden": HTTPStatus.FORBIDDEN, "not_found": HTTPStatus.NOT_FOUND,
+          "conflict": HTTPStatus.CONFLICT, "not_connected": HTTPStatus.CONFLICT, "upstream": HTTPStatus.BAD_GATEWAY}
 QUERY_TIMEOUT_S = 20
 
 
@@ -286,8 +357,6 @@ class RemoteServer(ThreadingHTTPServer):
                  name: str, log: Callable[[str], None] | None = None):
         self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
         self.pairing_lock = threading.Lock()
-        self.sessions: dict[str, dict] = {}
-        self.sessions_lock = threading.Lock()
         self.log = log or (lambda line: None)
         super().__init__(address, Handler)
 
@@ -347,20 +416,20 @@ class Handler(serve.Handler):
                   "/.well-known/oauth-protected-resource/mcp": self.resource_metadata,
                   "/.well-known/oauth-authorization-server": self.server_metadata,
                   "/oauth/authorize": self.authorize_page, "/mcp": self.mcp_not_allowed,
-                  "/api/openapi.json": self.api_spec, "/api/tools": self.api_tools}
+                  f"{API}/openapi.json": self.api_spec, f"{API}/tools": self.api_tools}
         self._guard(routes.get(self._route(), self.not_found))
 
     def do_POST(self) -> None:  # noqa: N802
         routes = {"/oauth/register": self.register, "/oauth/authorize": self.approve, "/oauth/token": self.token,
                   "/mcp": self.mcp}
         route = self._route()
-        if route.startswith("/api/tools/"):
-            self._guard(lambda: self.api_call(route[len("/api/tools/"):]))
+        if route.startswith(f"{API}/tools/"):
+            self._guard(lambda: self.api_call(route[len(f"{API}/tools/"):]))
             return
         self._guard(routes.get(route, self.not_found))
 
     def do_DELETE(self) -> None:  # noqa: N802
-        self._guard(self.end_session if self._route() == "/mcp" else self.not_found)
+        self._guard(self.mcp_not_allowed if self._route() == "/mcp" else self.not_found)
 
     def not_found(self) -> None:
         raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"no such endpoint {self._route()}")
@@ -370,7 +439,7 @@ class Handler(serve.Handler):
     def resource_metadata(self) -> None:
         """RFC 9728."""
         self._send(HTTPStatus.OK, {"resource": self.server.resource, "authorization_servers": [self.server.base],
-                                   "scopes_supported": [SCOPE], "bearer_methods_supported": ["header"],
+                                   "scopes_supported": list(SCOPES), "bearer_methods_supported": ["header"],
                                    "resource_name": f"byobot ({self.server.name})"})
 
     def server_metadata(self) -> None:
@@ -378,7 +447,7 @@ class Handler(serve.Handler):
         base = self.server.base
         self._send(HTTPStatus.OK, {
             "issuer": base, "authorization_endpoint": base + "/oauth/authorize", "token_endpoint": base + "/oauth/token",
-            "registration_endpoint": base + "/oauth/register", "scopes_supported": [SCOPE],
+            "registration_endpoint": base + "/oauth/register", "scopes_supported": list(SCOPES),
             "response_types_supported": ["code"], "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": list(AUTH_METHODS),
             "authorization_response_iss_parameter_supported": True})
@@ -431,8 +500,10 @@ class Handler(serve.Handler):
                 ok = is_open and pairing.check(q.get("approval_code", ""))
                 tries = pairing.tries_left if pairing else 0
             if ok:
-                code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"])
-                self.server.log(f"approved {client['client_name']}")
+                scope = READ if q.get("read_only") else requested_scope(q.get("scope"))
+                code = self.server.auth.grant(client["client_id"], uri, q["code_challenge"],
+                                              bool(q.get("redirect_uri")), scope)
+                self.server.log(serve.printable(f"approved {client['client_name']}"))
                 self._redirect(uri, {"code": code, "state": q.get("state"), "iss": self.server.base})
                 return
             message = "That code isn't right." if is_open and tries else ""
@@ -444,13 +515,16 @@ class Handler(serve.Handler):
         keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
                        if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
                                 "code_challenge_method", "state", "scope", "resource"))
+        writes = requested_scope(q.get("scope")) == FULL
+        choice = ("<p><label><input type=checkbox name=read_only value=1> Only let it read</label></p>"
+                  if writes else "")
         self._html(HTTPStatus.FORBIDDEN if message else HTTPStatus.OK, "Connect to byobot",
-                   f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to read and write your "
-                   f"byobot ({escape(self.server.name)}). After you approve, it goes to "
-                   f"<b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
+                   f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to "
+                   f"{'read and write' if writes else 'read'} your byobot ({escape(self.server.name)}). "
+                   f"After you approve, it goes to <b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
                    f"<p>Enter the code <code>byobot remote</code> shows only if you just started connecting this "
                    f"app yourself and that address is your assistant's.</p>"
-                   f"<form method=post action='/oauth/authorize'>{keep}"
+                   f"<form method=post action='/oauth/authorize'>{keep}{choice}"
                    f"<p><input name=approval_code inputmode=numeric autocomplete=one-time-code size=8 autofocus>"
                    f" <button>Connect</button></p></form><p>{escape(message)}</p>")
 
@@ -495,16 +569,6 @@ class Handler(serve.Handler):
         self.peer = {"name": client["client_name"]}
         return client
 
-    def _session(self, client: dict) -> dict | None:
-        sid = self.headers.get("Mcp-Session-Id")
-        if sid is None:
-            return None
-        with self.server.sessions_lock:
-            session = self.server.sessions.get(sid)
-        if session is None or session["client_id"] != client["client_id"]:
-            raise serve.HTTPError(HTTPStatus.NOT_FOUND, "no_session", "unknown session; initialize again")
-        return session
-
     def mcp(self) -> None:
         try:
             client = self._client()
@@ -514,47 +578,24 @@ class Handler(serve.Handler):
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
-        initializing = isinstance(message, dict) and message.get("method") == "initialize"
-        session = None if initializing else self._session(client)
-        server = mcp.Server()
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
-        server.client = session["client"] if session else {"name": client["client_name"]}
-        if session:
-            server.protocol = session["protocol"]
+        server.protocol = version or mcp.LATEST
         server.ctx = Context(actor={}, path=self.server.db)
         try:
-            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            if not _writes(message):
+                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
             reply = server.handle(message)
         finally:
             server.close()
-        headers = {}
-        if initializing and isinstance(reply, dict) and "result" in reply:
-            sid = secrets.token_urlsafe(24)
-            with self.server.sessions_lock:
-                while len(self.server.sessions) >= MAX_SESSIONS:
-                    self.server.sessions.pop(next(iter(self.server.sessions)))
-                self.server.sessions[sid] = {"client_id": client["client_id"], "client": server.client,
-                                             "protocol": server.protocol}
-            headers["Mcp-Session-Id"] = sid
         if reply is None:
-            self._send_bytes(HTTPStatus.ACCEPTED, b"", None, headers)
+            self._send_bytes(HTTPStatus.ACCEPTED, b"", None)
         else:
             self._send_bytes(HTTPStatus.OK, json.dumps(reply, ensure_ascii=False).encode(),
-                             "application/json; charset=utf-8", headers)
+                             "application/json; charset=utf-8")
 
     def mcp_not_allowed(self) -> None:
-        self._send_bytes(HTTPStatus.METHOD_NOT_ALLOWED, b"", None, {"Allow": "POST, DELETE"})
-
-    def end_session(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
-        sid = self.headers.get("Mcp-Session-Id")
-        if self._session(client) is not None:
-            with self.server.sessions_lock:
-                self.server.sessions.pop(sid, None)
-        self._send_bytes(HTTPStatus.NO_CONTENT, b"", None)
+        self._send_bytes(HTTPStatus.METHOD_NOT_ALLOWED, b"", None, {"Allow": "POST"})
 
     # -- plain JSON API --
 
@@ -563,10 +604,10 @@ class Handler(serve.Handler):
 
     def api_tools(self) -> None:
         try:
-            self._client()
+            client = self._client()
         except _Sent:
             return
-        self._send(HTTPStatus.OK, {"tools": mcp.tools()})
+        self._send(HTTPStatus.OK, {"tools": mcp.tools(read_only=scope_of(client) == READ)})
 
     def api_call(self, name: str) -> None:
         try:
@@ -578,40 +619,66 @@ class Handler(serve.Handler):
             args = {}
         if not isinstance(args, dict):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
-        server = mcp.Server()
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
-        server.client = {"name": client["client_name"]}
         server.ctx = Context(actor={}, path=self.server.db)
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:
-            serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
-            reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                   "params": {"name": name, "arguments": args}})
+            if not _writes(call):
+                serve.limit_query_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
+            reply = server.handle(call)
         finally:
             server.close()
         if "error" in reply:
-            raise serve.HTTPError(HTTPStatus.NOT_FOUND if reply["error"]["code"] == mcp.INVALID_PARAMS
-                                  else HTTPStatus.INTERNAL_SERVER_ERROR, "tool", reply["error"]["message"])
+            if reply["error"]["code"] == mcp.INVALID_PARAMS:
+                raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", reply["error"]["message"])
+            raise serve.HTTPError(HTTPStatus.INTERNAL_SERVER_ERROR, "error", reply["error"]["message"])
         result = reply["result"]
         body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
         failed = isinstance(body, dict) and "error" in body and result["isError"]
-        self._send(HTTPStatus.BAD_REQUEST if failed else HTTPStatus.OK, body)
+        self._send(STATUS.get(body["error"], HTTPStatus.BAD_REQUEST) if failed else HTTPStatus.OK, body)
+
+
+def _writes(message: Any) -> bool:
+    """Whether a message calls a tool that writes. Those aren't under the read deadline: imports wait on the network."""
+    if isinstance(message, list):
+        return any(_writes(m) for m in message)
+    params = message.get("params") if isinstance(message, dict) and message.get("method") == "tools/call" else None
+    name = params.get("name") if isinstance(params, dict) else None
+    return any(c.tool == name and not c.read_only for c in REGISTRY.values())
+
+
+ERROR_SCHEMA = {
+    "type": "object", "required": ["error", "message"],
+    "properties": {
+        "error": {"type": "string", "description": (
+            "invalid (400: the arguments or body), unauthorized (401: no or a wrong key), forbidden (403: this "
+            "assistant may only read), not_found (404: no such tool or record), conflict (409), not_connected "
+            "(409: a source isn't signed in), upstream (502: a source's service failed), timeout (503: a read "
+            "ran too long); error for anything else. New codes may be added.")},
+        "message": {"type": "string"}, "details": {}}}
 
 
 def openapi(base: str) -> dict:
     """An OpenAPI 3.1 description of the JSON API: one POST per tool, its body the tool's arguments."""
+    error = {"description": "The body's `error` is a stable code and `message` says why.",
+             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    responses = {"200": {"description": "The result, as JSON."}, "400": error, "401": error, "403": error,
+                 "404": error, "409": error, "502": error, "503": error}
     paths = {}
     for tool in mcp.tools():
-        paths[f"/api/tools/{tool['name']}"] = {"post": {
+        paths[f"{API}/tools/{tool['name']}"] = {"post": {
             "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
             "description": tool["description"][:300],
             "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
-            "responses": {"200": {"description": "The result, as JSON."},
-                          "400": {"description": "The arguments were not valid; the body says why."}}}}
+            "responses": responses}}
     return {"openapi": "3.1.0",
             "info": {"title": "byobot", "version": __version__, "description": mcp.INSTRUCTIONS},
             "servers": [{"url": base}], "paths": paths,
-            "components": {"securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"},
-                                               "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}},
+            "components": {"schemas": {"Error": ERROR_SCHEMA},
+                           "securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"},
+                                                              "apiKey": {"type": "apiKey", "in": "header",
+                                                                         "name": "X-API-Key"}}},
             "security": [{"bearer": []}, {"apiKey": []}]}
 
 
@@ -642,20 +709,20 @@ def clipboard() -> list[str]:
     for cmd in CLIPBOARD:
         if shutil.which(cmd[0]):
             return cmd
-    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); run without --copy")
+    raise ValidationFailed("no clipboard tool found (pbcopy, wl-copy, xclip or xsel); or pass --show to print the key once")
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke: bool,
-        api_key: str | None = None, copy: bool = False) -> int:
+        api_key: str | None = None, show: bool = False, read_only: bool = False) -> int:
     """The ``byobot remote`` command."""
     saved = remote_dir() / "url"
-    if copy and api_key is None:
-        raise ValidationFailed("--copy goes with --api-key")
+    if (show or read_only) and api_key is None:
+        raise ValidationFailed("--show and --read-only go with --api-key")
     if api_key is not None:
-        cmd = clipboard() if copy else None
-        key = Auth(remote_dir() / "oauth.json").create_key(api_key)
+        cmd = None if show else clipboard()
+        key = Auth(remote_dir() / "oauth.json").create_key(api_key, READ if read_only else FULL)
         base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
-        out = {"name": api_key, "openapi": base + "/api/openapi.json", "mcp": base + "/mcp"}
+        out = {"name": api_key, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
         if cmd:
             subprocess.run(cmd, input=key.encode(), check=True)
             out["copied"] = True

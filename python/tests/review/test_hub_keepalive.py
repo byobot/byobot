@@ -27,6 +27,7 @@ def hub(byobot_home, monkeypatch):
 
 def _connect(port):
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))

@@ -40,9 +40,9 @@ def test_every_command_has_the_same_arguments_everywhere():
         params = {p.name for p in cmd.params}
         assert cli[cmd.name] == params, cmd.name
         if not cmd.mcp:
-            assert cmd.tool not in tools and f"/api/tools/{cmd.tool}" not in paths
+            assert cmd.tool not in tools and f"/api/v1/tools/{cmd.tool}" not in paths
             continue
         schema = tools[cmd.tool]["inputSchema"]
         assert set(schema["properties"]) - {"model"} == params, cmd.name
-        assert paths[f"/api/tools/{cmd.tool}"]["post"]["requestBody"]["content"]["application/json"]["schema"] == schema
+        assert paths[f"/api/v1/tools/{cmd.tool}"]["post"]["requestBody"]["content"]["application/json"]["schema"] == schema
     assert len(paths) == len(tools)
