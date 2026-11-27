@@ -191,7 +191,7 @@ def test_disconnect_revokes_and_forgets():
 def test_connect_needs_a_terminal(monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
     with pytest.raises(ValidationFailed, match="terminal"):
-        run("connect whoop", Context(actor={"kind": "human", "id": "cli"}), {})
+        run("connect", Context(actor={"kind": "human", "id": "cli"}), {"source": "whoop"})
 
 
 SLEEP_ID = "00000000-0000-4000-8000-000000000001"
@@ -245,7 +245,7 @@ def import_whoop(monkeypatch, fake, **args):
     monkeypatch.setattr(urllib.request, "urlopen", fake)
     ctx = Context(actor={"kind": "human", "id": "cli"})
     try:
-        return run("import whoop", ctx, args), ctx
+        return run("import", ctx, {"source": "whoop", **args}), ctx
     finally:
         ctx.close()
 

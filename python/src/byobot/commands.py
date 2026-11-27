@@ -426,18 +426,40 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
             **untrusted("record", "versions")}
 
 
+IMPORT_SOURCES = ("activities", "whoop")
+
+
 @command(
-    "import activities",
-    "Import your own activities, with the muscles they work and how they are loaded, so the app can "
-    "suggest swaps. Activities you already have are kept unless you say replace.",
-    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
-          required=True, positional=True, schema={"type": ["object", "array"]}),
-    Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
+    "import",
+    "Import from a source: your own activities from a file (activities), with the muscles they work and how they "
+    "are loaded, so the app can suggest swaps; or recovery, sleep, strain and workouts from WHOOP (whoop).",
+    Param("source", "string", "What to import from.", required=True, choices=IMPORT_SOURCES, positional=True),
+    Param("records", "json", "For activities: a list of activities, each with its id, or an object with an "
+          "`activities` list.", positional=True, schema={"type": ["object", "array"]}),
+    Param("existing", "string", "For activities: what to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
+    Param("days", "integer", "For whoop: import this many days back instead.", bounds=(1, 3650)),
     read_only=False,
-    description="Your own ids start with x., as in x.cable_fly; one with a library id replaces that activity for you.",
+    description="activities: your own ids start with x., as in x.cable_fly; one with a library id replaces that "
+                "activity for you, and activities you already have are kept unless you say replace. whoop: the first "
+                "import goes back 90 days; later ones pick up where the last left off, and importing again changes "
+                "nothing. Needs `byobot connect whoop` once, in a terminal. Every record WHOOP sends is kept as it "
+                "sent it, with each rescore as a new version. A workout that overlaps one you logged is read as one "
+                "workout; `correct` and `exclude` change how an import reads.",
 )
-def _import_activities(ctx: Context, activities: Any, existing: str = "keep") -> dict:
+def _import(ctx: Context, source: str, records: Any = None, existing: str = "keep", days: int | None = None) -> dict:
+    if source == "whoop":
+        if records is not None:
+            raise ValidationFailed("import whoop reads WHOOP itself; it takes no records")
+        return whoop.import_into(ctx.store(), whoop.Client(), days)
+    if days is not None:
+        raise ValidationFailed("days goes with import whoop")
+    if records is None:
+        raise ValidationFailed("import activities needs the activities, as JSON or @path")
+    return _import_activities(ctx, records, existing)
+
+
+def _import_activities(ctx: Context, activities: Any, existing: str) -> dict:
     items = activities.get("activities") if isinstance(activities, dict) else activities
     if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
         raise ValidationFailed("expected a list of activities, or an object with an `activities` list")
@@ -462,30 +484,20 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
     return {"added": added, "replaced": replaced, "kept": kept}
 
 
-@command(
-    "import whoop",
-    "Import recovery, sleep, strain and workouts from WHOOP. The first import goes back 90 days; later ones "
-    "pick up where the last left off. Importing again changes nothing.",
-    Param("days", "integer", "Import this many days back instead.", bounds=(1, 3650)),
-    read_only=False,
-    description="Needs `byobot connect whoop` once, in a terminal. Every record WHOOP sends is kept as it sent it, "
-                "with each rescore as a new version. A workout that overlaps one you logged is read as one workout; "
-                "`correct` and `exclude` change how an import reads.",
-)
-def _import_whoop(ctx: Context, days: int | None = None) -> dict:
-    return whoop.import_into(ctx.store(), whoop.Client(), days)
+CONNECTORS = ("whoop",)
 
 
 @command(
-    "connect whoop",
-    "Connect byobot to your WHOOP account, with your own WHOOP developer app. Run it once, in a terminal.",
+    "connect",
+    "Connect byobot to a source's account: WHOOP, with your own WHOOP developer app. Run it once, in a terminal.",
+    Param("source", "string", "The source to connect.", required=True, choices=CONNECTORS, positional=True),
     Param("client_id", "string", "Your WHOOP app's client id. Asked for if left out."),
     read_only=False,
     mcp=False,
     description=f"Add {whoop.REDIRECT} as a redirect URL in your WHOOP app first. The client secret is asked "
                 "for without showing it, and kept with the tokens in your Keychain.",
 )
-def _connect_whoop(ctx: Context, client_id: str | None = None) -> dict:
+def _connect(ctx: Context, source: str, client_id: str | None = None) -> dict:
     if not sys.stdin.isatty():
         raise ValidationFailed("run `byobot connect whoop` in a terminal, so it can ask for your client secret")
     if not client_id:
@@ -502,9 +514,14 @@ def _open_sign_in(url: str) -> None:
     webbrowser.open(url)
 
 
-@command("disconnect whoop", "Disconnect byobot from WHOOP and forget the tokens. Your imported data stays.",
-         read_only=False, mcp=False)
-def _disconnect_whoop(ctx: Context) -> dict:
+@command(
+    "disconnect",
+    "Disconnect byobot from a source, such as WHOOP, and forget the tokens. Your imported data stays.",
+    Param("source", "string", "The source to disconnect.", required=True, choices=CONNECTORS, positional=True),
+    read_only=False,
+    mcp=False,
+)
+def _disconnect(ctx: Context, source: str) -> dict:
     return whoop.disconnect()
 
 

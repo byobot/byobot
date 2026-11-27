@@ -16,9 +16,9 @@ def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
     API the string is refused as "expected a list of activities"."""
     path = tmp_path / "activities.json"
     path.write_text(json.dumps([{"id": "x_example_carry", "name": "Example carry"}]))
-    tool = next(t for t in mcp.tools() if t["name"] == "import_activities")
+    tool = next(t for t in mcp.tools() if t["name"] == "import")
     if "@path" in json.dumps(tool):
-        assert via_mcp("import_activities", {"activities": f"@{path}"})[0] == "ok"
+        assert via_mcp("import", {"source": "activities", "records": f"@{path}"})[0] == "ok"
 
 
 def test_cli_a_text_value_is_taken_as_the_help_says(capsys):

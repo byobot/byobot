@@ -278,6 +278,8 @@ def test_import_activities_keeps_yours_unless_told(capsys, tmp_path):
     code, out, _ = cli(capsys, "import", "activities", '[{"id": "x", "name": "X", "targets": {"primary": ["lats"]}}]')
     assert code != 0
     assert cli(capsys, "query", "SELECT count(*) AS n FROM activities")[1]["rows"] == [{"n": 2}]
+    assert cli(capsys, "import", "activities", f"@{library}", "--days", "3")[0] == 1
+    assert cli(capsys, "import", "whoop", f"@{library}")[0] == 1
 
 
 def test_log_and_list_locations(capsys):
@@ -321,8 +323,8 @@ def test_planned_session_must_name_existing_records(capsys):
 
 def test_a_group_alone_shows_its_help(capsys):
     with pytest.raises(SystemExit) as exit:
-        main(["import"])
-    assert exit.value.code == 0 and "activities" in capsys.readouterr().out
+        main(["cloud"])
+    assert exit.value.code == 0 and "setup" in capsys.readouterr().out
 
 
 def test_your_own_activity_ids_start_with_x(capsys):
