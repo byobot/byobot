@@ -1,7 +1,10 @@
 """The core store and its commands, on small hand-made histories."""
 
 import json
+import os
 import sqlite3
+import stat
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -610,3 +613,100 @@ def test_accept_never_raises_on_a_huge_number(pair):
     assert b.accept(big) == ("rejected", "a number too large to store")
     assert sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
     assert a.rows("SELECT * FROM observations WHERE code = 'respiratory_rate'") == []
+
+
+AGENT = {"kind": "agent", "id": "example-agent"}
+
+
+def session(start="2026-03-02T09:00:00-05:00", end="2026-03-02T10:00:00-05:00", name="lift"):
+    return {"name": name, "time": {"start": start, "end": end}}
+
+
+def session_effort(sid, reps=5):
+    return {"activity_id": "row", "time": {"start": "2026-03-02T09:10:00-05:00"},
+            "links": {"part_of": {"kind": "session", "id": sid}}, "metrics": {"reps": {"value": reps}}}
+
+
+@pytest.fixture
+def one(tmp_path):
+    s = Store(tmp_path / "a.db", device_id="laptop", wall=Wall())
+    yield s
+    s.close()
+
+
+def test_a_rebuild_cut_short_after_an_upgrade_is_finished_on_the_next_open(tmp_path, monkeypatch):
+    path = tmp_path / "a.db"
+    with Store(path, wall=Wall()) as s:
+        [a] = commands.log(s, ME, [{"kind": "session", "payload": session()}])
+        s._set("shape", "an-older-shape")  # as a store written by an older build looks
+
+    def killed(self):
+        raise KeyboardInterrupt  # the process stopped while rebuilding
+
+    monkeypatch.setattr(Store, "rebuild", killed)
+    with pytest.raises(KeyboardInterrupt):
+        Store(path, wall=Wall())
+    monkeypatch.undo()
+    with Store(path, wall=Wall()) as s:
+        assert s.rows("SELECT id FROM sessions") == [{"id": a["record"]["id"]}], "derived tables left empty"
+
+
+def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session(one):
+    [a] = commands.log(one, ME, [{"kind": "session", "payload": session(name="a")}])
+    [b] = commands.log(one, ME, [{"kind": "session", "payload": session(name="b")}])
+    sa, sb = a["record"]["id"], b["record"]["id"]
+    [e] = commands.log(one, ME, [{"kind": "effort", "payload": session_effort(sa)}])
+    rid = e["record"]["id"]
+    commands.edit(one, ME, "effort", rid, {"links": {"part_of": {"kind": "session", "id": sb}}})
+    commands.erase(one, ME, "session", sa, with_efforts=True)
+    assert one.get("effort", rid) is not None, "an effort now in session b was erased with session a"
+
+
+def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
+    a = Store(tmp_path / "a.db", device_id="phone", wall=Wall())
+    b = Store(tmp_path / "b.db", device_id="laptop", wall=Wall())
+    b.adopt(a.store_id, a._get("store_key"))
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    rid = e["record"]["id"]
+    b.accept_many(a.events())
+    six = commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
+    commands.edit(b, AGENT, "effort", rid, {"metrics": {"reps": {"value": 7}}})
+    a.accept_many(b.events())
+    fixed = commands.resolve(a, ME, "effort", rid, six["id"])
+    commands.undo(a, ME, fixed["id"])
+    assert a.conflicts("effort", rid), "undo of a resolve kept only one side; the other version is no longer shown"
+
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+
+
+def mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def opened(path):
+    old = os.umask(0o022)
+    try:
+        s = Store(path)
+        s.conn.execute("PRAGMA user_version")
+        s.close()
+    finally:
+        os.umask(old)
+
+
+def test_a_new_store_is_readable_only_by_its_owner(tmp_path):
+    home = tmp_path / "home"
+    opened(home / "byobot.db")
+    assert mode(home) == 0o700
+    assert {f.name: mode(f) & 0o077 for f in home.iterdir() if f.name.startswith("byobot.db")} == {
+        f.name: 0 for f in home.iterdir() if f.name.startswith("byobot.db")}
+
+
+def test_an_existing_stores_files_are_made_private_when_opened(tmp_path):
+    home = tmp_path / "home"
+    opened(home / "byobot.db")
+    home.chmod(0o755)
+    (home / "byobot.db").chmod(0o644)
+    opened(home / "byobot.db")
+    assert {f.name: mode(f) for f in home.iterdir() if f.name.startswith("byobot.db")} == {
+        f.name: 0o600 for f in home.iterdir() if f.name.startswith("byobot.db")}

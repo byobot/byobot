@@ -385,3 +385,15 @@ def test_a_workout_that_doesnt_overlap_stays_its_own(monkeypatch, store):
     log_session(time={"start": "2026-11-20T18:00:00Z", "end": "2026-11-20T19:00:00Z"})
     import_whoop(monkeypatch, whoop_api(workouts=[workout()]))
     assert sorted(w["name"] for w in workouts(store)) == ["Pull", "running"]
+
+
+def test_the_whoop_sign_in_state_has_at_least_128_bits():
+    seen = []
+
+    def wait(state):
+        seen.append(state)
+        raise RuntimeError("stop before the token request")
+
+    with pytest.raises(RuntimeError):
+        whoop.connect("example-client", "example-secret", open_browser=lambda url: None, wait=wait)
+    assert len(seen[0]) >= 22

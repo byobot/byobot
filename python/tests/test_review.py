@@ -1,9 +1,10 @@
 import json
 from datetime import datetime
 
-from test_cli import cli
+from byobot.core import commands, sources
+from byobot.review import review
 
-from byobot.core import sources
+from test_cli import cli
 
 MON, WED, NEXT, S1 = (f"01a2147e-0000-7000-8000-00000000000{i}" for i in range(1, 5))
 
@@ -183,3 +184,60 @@ def test_review_shows_activity_mobility_and_vitals(store):
     assert out["body"] == [{"date": "2026-11-20", "waist_circumference": {"value": 82, "unit": "cm"}}]
     assert [{k: v["value"] for k, v in d.items() if k != "date"} | {"date": d["date"]} for d in out["recovery"]] == [
         {"date": "2026-11-21", "skin_temperature": 33.4}, {"date": "2026-11-22", "sleeping_wrist_temperature": 35.1}]
+
+
+NIGHT = "00000000-0000-4000-8000-0000000000a1"
+
+
+NAP = "00000000-0000-4000-8000-0000000000a2"
+
+
+def whoop_scored(raw, **score):
+    return {"user_id": 1, "created_at": "2026-11-20T12:00:00.000Z", "updated_at": "2026-11-20T12:00:00.000Z",
+            "timezone_offset": "-05:00", "score_state": "SCORED", **raw, "score": score}
+
+
+def night():
+    # 22:00 on Nov 19 to 06:00 on Nov 20, local (-05:00)
+    return whoop_scored({"id": NIGHT, "cycle_id": 10, "nap": False, "start": "2026-11-20T03:00:00.000Z",
+                   "end": "2026-11-20T11:00:00.000Z"},
+                  stage_summary={"total_light_sleep_time_milli": 14_400_000,
+                                 "total_slow_wave_sleep_time_milli": 5_400_000,
+                                 "total_rem_sleep_time_milli": 7_200_000},
+                  sleep_performance_percentage=91.0, respiratory_rate=15.2)
+
+
+def recovery():
+    return whoop_scored({"cycle_id": 10, "sleep_id": NIGHT}, recovery_score=68.0, resting_heart_rate=52.0)
+
+
+def test_a_nap_does_not_replace_the_nights_sleep_performance(store):
+    nap = whoop_scored({"id": NAP, "cycle_id": 10, "nap": True, "start": "2026-11-20T19:00:00.000Z",
+                  "end": "2026-11-20T19:40:00.000Z", "updated_at": "2026-11-20T20:00:00.000Z"},
+                 stage_summary={"total_light_sleep_time_milli": 1_800_000},
+                 sleep_performance_percentage=100.0, respiratory_rate=17.0)
+    sources.ingest(store, "whoop", [("sleep", NIGHT, night()), ("recovery", "10", recovery()),
+                                    ("sleep", NAP, nap)])
+    [day] = review(store, 1, "2026-11-22")["recovery"]
+    assert day["date"] == "2026-11-20"
+    assert day["whoop_sleep_performance"]["value"] == 91, day  # the night's, as the WHOOP app shows it
+    assert day["respiratory_rate"]["value"] == 15.2, day
+
+
+ME = {"kind": "human", "id": "me"}
+
+
+def test_a_codes_override_picks_the_daily_value_too(store):
+    commands.log(store, ME, [{"kind": "setting", "id": "source_priority", "payload": {"value": {
+        "default": ["whoop", "apple_health"], "codes": {"resting_heart_rate": ["apple_health", "whoop"]}}}}])
+    stamp = {"user_id": 1, "created_at": "2026-11-20T12:00:00.000Z", "updated_at": "2026-11-20T12:00:00.000Z",
+             "timezone_offset": "+00:00", "score_state": "SCORED"}
+    sources.ingest(store, "whoop", [
+        ("sleep", NIGHT, {**stamp, "id": NIGHT, "cycle_id": 10, "nap": False, "start": "2026-11-20T03:00:00.000Z",
+                          "end": "2026-11-20T11:00:00.000Z", "score": {}}),
+        ("recovery", "10", {**stamp, "cycle_id": 10, "sleep_id": NIGHT, "score": {"resting_heart_rate": 52.0}})])
+    sources.ingest_samples(store, [{"source": "apple_health", "source_id": "rhr-1",
+                                    "type": "HKQuantityTypeIdentifierRestingHeartRate", "start": "2026-11-20T12:00:00Z",
+                                    "end": "2026-11-20T12:00:00Z", "value": 48, "unit": "/min"}])
+    [day] = review(store, 1, "2026-11-22")["recovery"]
+    assert day["resting_heart_rate"]["value"] == 48, day  # apple_health comes first for this code

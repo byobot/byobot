@@ -1,5 +1,7 @@
 """The rules every transport checks a relay device's events and samples with."""
 
+import json
+
 import pytest
 
 from byobot.core import commands, hlc, relay
@@ -147,3 +149,16 @@ def test_a_setting_is_never_erased_so_it_can_always_be_set_again(store):
     assert relay.accept_events(store, PHONE, [later])[0]["status"] == "accepted"
     assert store.get("setting", "equipment")["payload"] == {"value": ["rack"]}
     assert relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)["erased"] == []
+
+
+def sample(value):
+    return {"source": "apple_health", "source_id": "S1", "type": "HKQuantityTypeIdentifierBodyMass",
+            "start": "2026-11-23T07:00:00Z", "value": value, "unit": "kg"}
+
+
+@pytest.mark.parametrize("text", ["Infinity", "NaN", "1e999"])
+def test_a_non_finite_number_in_a_sample_is_refused(store, text):
+    body = json.loads('{"samples": [%s]}' % json.dumps(sample(0)).replace('"value": 0', f'"value": {text}'))
+    with pytest.raises(ValidationFailed):
+        relay.accept_samples(store, body)
+    assert store.position() == 0
