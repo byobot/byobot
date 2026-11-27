@@ -32,15 +32,24 @@ final class AppModel: ObservableObject {
     }
 
     let health = HealthKitReader()
-    private let file: URL
+    private let file: StateFile
 
     init() {
-        file = AppModel.stateFile()
-        let state = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(AppState.self, from: $0) }
-        book = Logbook(state: state ?? AppState(), origin: Origin(app: "byobot_ios", version: AppModel.version,
-                                                                   device: UIDevice.current.name))
+        var file = StateFile(url: AppModel.stateFile())
+        let (state, outcome) = file.load()
+        self.file = file
+        book = Logbook(state: state, origin: Origin(app: "byobot_ios", version: AppModel.version,
+                                                    device: UIDevice.current.name))
         healthEnabled = UserDefaults.standard.bool(forKey: "healthEnabled")
-        if state == nil { save() }
+        switch outcome {
+        case .loaded: break
+        case .new: save()
+        case .setAside(let aside):
+            save()
+            message = "This version couldn't read what the app kept, so it was set aside as \(aside.lastPathComponent) "
+                + "and the app started over. Pair again; a later update may read it."
+        case .cantRead: message = StateFile.Locked().errorDescription
+        }
         if let relay = CloudSetup.load(), let tokens = CloudSetup.tokens(),
            let identity = try? CloudSetup.identity(for: book.state.deviceId) {
             cloudRoute = CloudSetup.route(relay, tokens: tokens, identity: identity)
@@ -75,8 +84,9 @@ final class AppModel: ObservableObject {
 
     func save() {
         do {
-            let data = try JSONEncoder().encode(book.state)
-            try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try file.save(book.state, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch let locked as StateFile.Locked {
+            message = locked.errorDescription
         } catch {
             message = "Couldn't save on this phone: \(error.localizedDescription)"
         }
