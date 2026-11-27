@@ -186,6 +186,15 @@ class ModelReplica:
     # -- authoring: the command layer ------------------------------------------
 
     def author(self, intent: dict, at: str, actor: str) -> list[Write]:
+        """All of an intent's writes or none, as the store writes a batch."""
+        kept = (dict(self.writes), {r: list(i) for r, i in self.by_record.items()}, self.floor, self.authored, set(self.gone))
+        try:
+            return self._author(intent, at, actor)
+        except Refused:
+            self.writes, self.by_record, self.floor, self.authored, self.gone = kept
+            raise
+
+    def _author(self, intent: dict, at: str, actor: str) -> list[Write]:
         name = intent["intent"]
         if name in LOGS:
             return self._log(LOGS[name], intent["record"], at, actor)
