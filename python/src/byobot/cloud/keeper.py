@@ -140,6 +140,19 @@ class Keeper:
                 [(d["id"], d["class"], d["box"], d["sign"], n, n) for d in devices.values()])
         keeper = cls(store, folder, clock)
         keeper._read(listing)
+        outcomes = dict(store.conn.execute("SELECT path, outcome FROM cloud_read"))
+        own = {p for p in listing if (w := segment.parse_name(p)) and w["kind"] != "plan" and w["epoch"] == n
+               and w.get("device_id", top["device_id"]) == top["device_id"]}
+        lost = sorted(p for p in own | {segment.name("checkpoint", n, i) for i in range(epoch_body["checkpoint"])}
+                      if outcomes.get(p) != "read")
+        if lost:  # nothing kept here, so it can run again
+            with store._tx():
+                for table in ("cloud_meta", "cloud_keys", "cloud_devices", "cloud_read", "cloud_shown",
+                              "cloud_refused"):
+                    store.conn.execute(f"DELETE FROM {table}")
+            raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
+                              f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
+                              "from an export instead, or upgrade byobot and run `byobot cloud recover` again")
         keeper.start_epoch()
         return keeper
 

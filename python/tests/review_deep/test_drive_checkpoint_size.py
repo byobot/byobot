@@ -7,12 +7,15 @@ Real parts need about 16 KB an event to pass 32 MiB (Apple Health samples with l
 The test scales MAX_BODY down to keep it fast; the writer and the reader use the same constant, so the asymmetry is
 the same."""
 
+import pytest
+
 from _drive_helpers import ME, Clock
 from byobot.cloud import segment
 from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.core.store import Store
+from byobot.util import ByobotError
 
 
 def test_recover_gets_every_event_or_says_it_cant(store, tmp_path, monkeypatch):
@@ -28,3 +31,15 @@ def test_recover_gets_every_event_or_says_it_cant(store, tmp_path, monkeypatch):
     except Exception:
         return  # saying it can't is fine
     assert len(fresh.records("location")) == 40, "recover reported success with part of the logbook"
+
+
+def test_recover_says_so_when_a_checkpoint_part_is_missing(store, tmp_path):
+    for n in range(3):
+        commands.log(store, ME, [{"kind": "location", "id": f"example-gym-{n}", "payload": {"name": f"Gym {n}"}}])
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock, recovery=True)
+    folder.delete(segment.name("checkpoint", keeper.epoch, 0))
+    fresh = Store(tmp_path / "new-mac.db")
+    with pytest.raises(ByobotError, match="can't be read"):
+        Keeper.recover(fresh, folder, keeper.recovery_code, clock)
+    assert not fresh.conn.execute("SELECT 1 FROM cloud_meta").fetchone()  # it can run again
