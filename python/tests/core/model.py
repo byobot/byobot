@@ -292,18 +292,20 @@ class ModelReplica:
         for type_, source_id, payload, revised_at in _source_records(source, batch):
             content = {"payload": payload, "revised_at": revised_at}
             wid = "src:" + hashlib.sha256(canonical([source, type_, source_id, content]).encode()).hexdigest()[:24]
-            if wid not in self.writes:
+            if wid not in self.writes and _tombstone(f"{source}:{type_}:{source_id}") not in self.writes:
                 writes.append(self._write(at, f"connector:{source}", "source_record", f"{source}:{type_}:{source_id}",
                                           "revision", content, wid=wid))
         for type_, source_id in (batch.get("deleted", []) if isinstance(batch, dict) else []):
             rid = f"{source}:{type_}:{source_id}"
-            revs = self.revisions(key("source_record", rid))
-            if not revs:
-                continue
-            wid = "src:" + hashlib.sha256(canonical([rid, "deleted", revs[-1].id]).encode()).hexdigest()[:24]
+            record = key("source_record", rid)
+            revs = self.revisions(record)
+            if record in self.gone or (self.by_record.get(record) and self.source_current(record) is None):
+                continue  # erased, or already hidden
+            named = revs[-1].id if revs else None  # none: a tombstone, sent before the record was held
+            wid = "src:" + hashlib.sha256(canonical([rid, "deleted", named]).encode()).hexdigest()[:24] if revs \
+                else _tombstone(rid)
             if wid not in self.writes:
-                writes.append(self._write(at, f"connector:{source}", "source_record", rid, "deletion", revs[-1].id,
-                                          wid=wid))
+                writes.append(self._write(at, f"connector:{source}", "source_record", rid, "deletion", named, wid=wid))
         return writes
 
     def revisions(self, record: str) -> list[Write]:
@@ -313,9 +315,9 @@ class ModelReplica:
         return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.hlc, canonical(w.content["payload"])))
 
     def source_current(self, record: str) -> dict | None:
-        """The latest revision, hidden while a deletion names it."""
+        """The latest revision, hidden while a deletion names it, and for good by a tombstone."""
         revs = self.revisions(record)
-        if not revs or any(self.writes[i].op == "deletion" and self.writes[i].content == revs[-1].id
+        if not revs or any(self.writes[i].op == "deletion" and self.writes[i].content in (None, revs[-1].id)
                            for i in self.by_record.get(record, ())):
             return None
         return revs[-1].content["payload"]
@@ -542,3 +544,7 @@ def _instant(at: str | None) -> tuple:
     except ValueError:
         return (False, 0.0)
     return (True, parsed.timestamp()) if parsed.tzinfo else (False, 0.0)
+
+
+def _tombstone(rid: str) -> str:
+    return "src:" + hashlib.sha256(canonical([rid, "deleted"]).encode()).hexdigest()[:24]
