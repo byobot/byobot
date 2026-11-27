@@ -170,6 +170,10 @@ class Auth:
         with self.lock:
             return [{"client_id": c["client_id"], "client_name": c["client_name"]} for c in self._load()["clients"].values()]
 
+    def keys(self) -> list[dict]:
+        with self.lock:
+            return [{"name": k["name"]} for k in self._load()["keys"].values()]
+
     def authenticate(self, client_id: Any, secret: str | None) -> dict:
         client = self.client(client_id)
         if client is None:
@@ -330,6 +334,9 @@ class Handler(serve.Handler):
 
     def _guard(self, fn: Callable[[], None]) -> None:
         try:
+            origin = self.headers.get("Origin")
+            if origin is not None and origin.rstrip("/").lower() != self.server.base.lower():  # DNS rebinding
+                raise serve.HTTPError(HTTPStatus.FORBIDDEN, "forbidden", "requests from other sites' pages are refused")
             fn()
         except OAuthError as exc:
             self._oauth_fail(exc)
@@ -629,10 +636,10 @@ def choose_port(host: str) -> int:
 
 def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> RemoteServer:
-    """Build a server (not yet serving). ``pair=None`` opens approval only when no client is connected yet."""
+    """Build a server (not yet serving). ``pair=None`` opens approval only when no client or API key is connected yet."""
     auth = Auth(remote_dir() / "oauth.json", base + "/mcp")
     if pair is None:
-        pair = not auth.clients()
+        pair = not auth.clients() and not auth.keys()
     name = profile() or "default profile"
     return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
 
@@ -694,15 +701,19 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke:
     if server.pairing:
         err.write(f"When it asks for a code, enter {server.pairing.code} (good for {serve.PAIRING_TTL_S // 60} minutes).\n")
     else:
-        names = ", ".join(c["client_name"] for c in server.auth.clients())
+        names = ", ".join([c["client_name"] for c in server.auth.clients()]
+                          + [f"API key {k['name']}" for k in server.auth.keys()])
         err.write(f"Connected: {names}. Run with --pair to connect another, --revoke to disconnect all.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
+    poller = serve.CloudPoller(server.db, log)
+    poller.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        poller.stopped.set()
         server.server_close()
     return 0
 
