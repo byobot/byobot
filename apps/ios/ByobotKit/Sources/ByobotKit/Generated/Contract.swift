@@ -997,27 +997,6 @@ public struct EventsResponse: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// GET /v1/events?after=N. Events in the order this server received them, after position N (0 for all).
-public struct PullResponse: Codable, Equatable, Hashable, Sendable {
-    public var events: [JSONValue]
-    /// Pass as `after` next time.
-    public var next: Int
-    /// Pull again at once: there are more after `next`.
-    public var more: Bool
-
-    public init(events: [JSONValue], next: Int, more: Bool) {
-        self.events = events
-        self.next = next
-        self.more = more
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case events
-        case next
-        case more
-    }
-}
-
 /// One sample as the app reads it from a health store. A Mac drops a field it doesn't know, so one a newer app adds changes no revision.
 public struct Sample: Codable, Equatable, Hashable, Sendable {
     /// Where the sample was read, such as apple_health.

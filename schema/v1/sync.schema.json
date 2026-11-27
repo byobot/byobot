@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/sync.schema.json",
   "title": "byobot LAN sync protocol, v1",
-  "description": "The messages `byobot serve` and a paired app exchange, as JSON over HTTPS on the local network. The server is the hub: the app pulls the plan and events, and pushes the events it authored and the health samples it read. Responses may gain fields in later versions, so clients ignore fields they don't know; requests are strict.",
+  "description": "The messages `byobot serve` and a paired app exchange, as JSON over HTTPS on the local network. The server is the hub: the app pulls the plan and pushes the events it authored and the health samples it read. Responses may gain fields in later versions, so clients ignore fields they don't know; requests are strict.",
   "$defs": {
     "server": {
       "type": "object",
@@ -550,40 +550,6 @@
         "rejected": {
           "type": "integer",
           "minimum": 0
-        }
-      }
-    },
-    "pull_response": {
-      "description": "GET /v1/events?after=N. Events in the order this server received them, after position N (0 for all).",
-      "type": "object",
-      "required": [
-        "events",
-        "next",
-        "more"
-      ],
-      "properties": {
-        "events": {
-          "type": "array",
-          "maxItems": 5000,
-          "items": {
-            "anyOf": [
-              {
-                "$ref": "event.schema.json"
-              },
-              {
-                "$ref": "event.schema.json#/$defs/later"
-              }
-            ]
-          }
-        },
-        "next": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Pass as `after` next time."
-        },
-        "more": {
-          "type": "boolean",
-          "description": "Pull again at once: there are more after `next`."
         }
       }
     },

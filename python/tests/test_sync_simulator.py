@@ -1,7 +1,7 @@
 """A seeded network: the laptop's hub, phones over the hub and over the cloud folder, and the faults between them.
 
 Phones keep a logbook of their own and write through the same commands the laptop does. They push over the real
-HTTP handlers or the cloud relay and read back over GET /v1/events or the keeper's segments. Requests and answers
+HTTP handlers or the cloud relay and read back the laptop's logbook or the keeper's segments. Requests and answers
 get lost, deliveries arrive twice and out of order, clocks drift, phones go offline, the hub and keeper restart, and
 the laptop erases. Once the faults stop and everything syncs, every logbook must hold the same events and records,
 nothing a phone wrote may be missing unless the hub refused it and said so, and every record edited concurrently
@@ -223,15 +223,11 @@ class Phone:
         if not self.online:
             return
         if self.token:
-            while True:
-                status, body = self.hub.call("GET", f"/v1/events?after={self.cursor}", token=self.token)
-                assert status == 200, body
-                if self.net.chance(0.1):
-                    return
-                self._take(body["events"])
-                self.cursor = body["next"]
-                if not body["more"]:
-                    break
+            if self.net.chance(0.1):
+                return
+            with self.hub.store.snapshot():
+                self._take(self.hub.store.events(since=self.cursor))
+                self.cursor = self.hub.store.position()
         if self.relay:
             try:
                 self.relay.sync()
