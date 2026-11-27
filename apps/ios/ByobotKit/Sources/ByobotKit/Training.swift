@@ -181,8 +181,10 @@ extension Logbook {
     var allEfforts: [PerformedEffort] {
         var byId = Dictionary((state.plan?.efforts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
         let local = Dictionary(localEfforts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        for id in fresh("effort") { byId[id] = local[id] }
-        for (id, effort) in local where byId[id] == nil && !fresh("effort").contains(id) { byId[id] = effort }
+        let changed = fresh("effort")
+        for id in changed { byId[id] = local[id] }
+        let changedIds = Set(changed)
+        for (id, effort) in local where byId[id] == nil && !changedIds.contains(id) { byId[id] = effort }
         return Array(byId.values)
     }
 
