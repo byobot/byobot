@@ -28,15 +28,19 @@ def same(world, name: str) -> None:
     assert world.snapshot(name) == world.expected(name), diff(world.snapshot(name), world.expected(name))
 
 
+def on_disk(world) -> bool:
+    return world.driver.name in ("v1", "cloud")
+
+
 def held_bytes(world, name: str) -> bytes:
-    """Every byte a v1 replica keeps on disk, and its export."""
+    """Every byte a replica's store keeps on disk, and its export."""
     store: Store = world.state(name).store
     files = [Path(f"{store.path}{suffix}") for suffix in ("", "-wal", "-shm")]
     return b"".join(f.read_bytes() for f in files if f.exists()) + "".join(store.export()).encode()
 
 
 def gone(world, name: str, *marks: str) -> None:
-    if world.driver.name == "v1":
+    if on_disk(world):
         found = held_bytes(world, name)
         assert not [m for m in marks if m.encode() in found], name
 
@@ -120,7 +124,7 @@ def test_s20_an_erased_record_with_edits_leaves_nothing_anywhere(world):
     world.author("phone", noted("e1", MARK(1)))
     world.author("phone", renote("e1", MARK(2)))
     both_ways(world, "phone", "laptop", "old")
-    if world.driver.name == "v1":
+    if on_disk(world):
         assert MARK(1).encode() in held_bytes(world, "laptop")  # the search would find it
     world.author("phone", {"intent": "erase", "record": ["effort", "e1"]})
     world.sync("phone", "laptop")
@@ -178,7 +182,7 @@ def test_s20_two_erases_of_one_record_name_the_first_everywhere(world):
     for name in ("phone", "laptop"):
         same(world, name)
         gone(world, name, MARK(1), MARK(6))
-        if world.driver.name == "v1":  # every replica names the same erase on what it blanked
+        if on_disk(world):  # every replica names the same erase on what it blanked
             named = {e.get("redacted_by") for e in world.state(name).store.events() if e["op"] != "erase"}
             assert named == {first.events[0]["id"]}, name
 
