@@ -176,6 +176,7 @@ def test_derived_ids():
         assert s["mac"] == mac(key, p)
         assert s["put_event_id"] == derived("source_revision", [s["record_id"], s["mac"]])
         assert s["retract_event_id"] == derived("source_deletion", [s["record_id"], s["put_event_id"]])
+        assert s["tombstone_event_id"] == derived("source_deletion", [s["record_id"]])
     for o in IDS["overlays"]:
         assert o["record_id"] == derived("overlay", [o["effect"], o["target"]["kind"], o["target"]["id"]])
 
@@ -186,4 +187,5 @@ def test_fixture_source_events_use_the_derived_ids():
         e = c["data"]
         if c["outcome"] == "accepted" and e["record"]["kind"] == "source_record" and e["op"] != "erase":
             s = by_record[e["record"]["id"]]
-            assert e["id"] == (s["put_event_id"] if e["op"] == "put" else s["retract_event_id"])
+            want = s["put_event_id"] if e["op"] == "put" else s["retract_event_id"] if e["prev"] else s["tombstone_event_id"]
+            assert e["id"] == want

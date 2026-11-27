@@ -386,7 +386,6 @@
       "then": {
         "properties": {
           "prev": {
-            "minItems": 1,
             "maxItems": 1
           },
           "payload": {
