@@ -148,6 +148,11 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
     """
+    with store.snapshot():
+        return _plan_window(store, start, end, device_id)
+
+
+def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> dict:
     ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
     activities = []
     for r in store.rows("SELECT id, source FROM activities ORDER BY id"):
