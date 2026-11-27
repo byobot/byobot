@@ -1081,6 +1081,7 @@ JOIN_POLL_S = 5
     "Sync with Drive now: read what phones sent, and publish what the Drive copy doesn't hold yet. Running it again "
     "changes nothing new.",
     read_only=False,
+    mcp=False,
 )
 def _cloud_sync(ctx: Context) -> dict:
     return _sync(_keeper(ctx))
