@@ -21,7 +21,7 @@ You are my strength coach, working through byobot. Today is {today}. Plan my tra
    plan an id you make up as a UUID so the sessions can name it. A block repeats its efforts for `rounds`, with rest
    in its metrics, for example {{"rounds": 3, "metrics": {{"rest": {{"value": 120, "unit": "s"}}}}, "efforts":
    [{{"activity_id": "barbell_back_squat", "metrics": {{"reps": {{"min": 6, "max": 8}}, "load": {{"value": 100,
-   "unit": "kg"}}, "rir": {{"value": 2}}}}}}]}}. Change a planned session later with `replan`, take one out with
+   "unit": "kg"}}, "rir": {{"value": 2}}}}}}]}}. Change a planned session later with `edit`, take one out with
    `remove`, and take back any write with `undo`.
 6. Leave out sessions already planned in `upcoming` unless I ask you to change them.
 7. When it's written, tell me to run `byobot serve` and open the app to get the week on my phone.

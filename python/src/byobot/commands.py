@@ -274,24 +274,15 @@ def _check_references(store: Store, records: list[dict]) -> None:
           required=True, positional=True, schema={"type": "object"}),
     read_only=False,
     description="A logged set is corrected this way: `edit effort <id> '{\"metrics\": {\"reps\": {\"value\": 6}}}'`. "
-                "For a planned session's blocks use `replan`. To change what a source imported, use `correct`.",
+                "A list such as a planned session's blocks is replaced whole; blocks and efforts left without ids "
+                "keep the ids at their positions, so sets already logged against them stay linked. To change what a "
+                "source imported, use `correct`.",
 )
 def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
-    return {"event": core.edit(ctx.store(), ctx.actor, kind, id, _object("patch", patch))}
-
-
-@command(
-    "replan",
-    "Write a planned session's new version. Blocks and efforts left without ids keep the ids at their positions, "
-    "so sets already logged against them stay linked.",
-    Param("id", "string", "The planned session's id.", required=True, positional=True),
-    Param("payload", "json", "The whole planned session, as JSON.", required=True, positional=True,
-          schema={"type": "object"}),
-    read_only=False,
-)
-def _replan(ctx: Context, id: str, payload: Any) -> dict:
-    _check_references(ctx.store(), [{"kind": "planned_session", "id": id, "payload": _object("payload", payload)}])
-    return {"event": core.replan(ctx.store(), ctx.actor, id, payload)}
+    store, patch = ctx.store(), _object("patch", patch)
+    if kind == "planned_session" and (found := store.get(kind, id)):
+        _check_references(store, [{"kind": kind, "id": id, "payload": core.merge_patch(found["payload"], patch)}])
+    return {"event": core.edit(store, ctx.actor, kind, id, patch)}
 
 
 @command(

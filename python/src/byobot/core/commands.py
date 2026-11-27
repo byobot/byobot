@@ -192,9 +192,12 @@ def _live(store: Store, kind: str, rid: str) -> dict:
 
 
 def edit(store: Store, actor: dict, kind: str, rid: str, patch: dict) -> dict:
-    """Change a live record by a JSON merge patch over its current version."""
+    """Change a live record by a JSON merge patch over its current version. A planned session's new blocks and
+    planned efforts keep their old ids as `replan` keeps them."""
     _authored(kind)
     found = _live(store, kind, rid)
+    if kind == "planned_session":
+        return replan(store, actor, rid, merge_patch(found["payload"], patch))
     payload = _written(store, kind, merge_patch(found["payload"], patch), found["payload"])
     return store.write(actor, [{"kind": kind, "id": rid, "op": "put", "payload": payload, **_from(found)}])[0]
 

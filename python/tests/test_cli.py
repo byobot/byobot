@@ -100,6 +100,23 @@ def test_planned_session_fills_ids_and_lists_nested(capsys):
     assert planned["blocks"][0]["efforts"][0]["metrics"] == {"reps": {"min": 6, "max": 8}}
 
 
+
+def test_editing_a_planned_sessions_blocks_keeps_their_ids(capsys):
+    for id, name in (("x.pull_up", "Pull-Up"), ("x.dip", "Dip")):
+        cli(capsys, "log", "activity", json.dumps({"name": name}), "--id", id)
+    session = {"scheduled_on": "2026-11-23", "name": "Upper", "blocks": [
+        {"rounds": 3, "efforts": [{"activity_id": "x.pull_up"}, {"activity_id": "x.dip"}]}]}
+    rid = cli(capsys, "log", "planned_session", json.dumps(session))[1]["event"]["record"]["id"]
+    swapped = {"blocks": [{"rounds": 4, "efforts": [{"activity_id": "x.dip"}, {"activity_id": "x.pull_up"}]}]}
+    code, out, _ = cli(capsys, "edit", "planned_session", rid, json.dumps(swapped))
+    assert code == 0 and out["event"]["payload"]["name"] == "Upper"
+    block = out["event"]["payload"]["blocks"][0]
+    assert block["id"] == f"{rid}.0" and block["rounds"] == 4
+    assert [e["id"] for e in block["efforts"]] == [f"{rid}.0.1", f"{rid}.0.0"]
+    code, _, err = cli(capsys, "edit", "planned_session", rid, '{"blocks": [{"efforts": [{"activity_id": "x.nope"}]}]}')
+    assert code == 1 and json.loads(err)["details"][0]["id"] == "x.nope"
+
+
 S1 = "01a2147e-0000-7000-8000-000000000001"
 P1 = "01a2147e-0000-7000-8000-000000000002"
 
