@@ -117,7 +117,7 @@ def _messages(body: bytes) -> list[dict]:
         raise CloudError("cut short")
     messages = lines[:-1]
     if any(not isinstance(m, dict) or len(m) != 1 or next(iter(m)) not in MESSAGES for m in messages):
-        raise CloudError("holds a message this byobot doesn't know; upgrade byobot")
+        raise CloudError("holds a message a newer byobot wrote; upgrade byobot")
     return messages
 
 
