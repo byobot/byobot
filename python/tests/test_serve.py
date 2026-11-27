@@ -85,7 +85,7 @@ def write(store, *records, actor=AGENT):
     return commands.log(store, actor, [{"kind": k, "id": i, "payload": p} for k, i, p in records])
 
 
-def lift(day, name, location="example-gym"):
+def lift(day, name, location="example_gym"):
     return {"scheduled_on": day, "name": name, "location_id": location, "links": {"part_of": {"kind": "plan", "id": PLAN}},
             "blocks": [{"rounds": 3, "efforts": [{"activity_id": "barbell_back_squat",
                                                   "metrics": {"reps": {"value": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
@@ -94,14 +94,14 @@ def lift(day, name, location="example-gym"):
 def seed(store):
     write(store,
           ("activity", "barbell_back_squat", {"name": "Barbell back squat", "targets": {"main": ["quads"]}}),
-          ("location", "example-gym", {"name": "Example gym"}),
+          ("location", "example_gym", {"name": "Example gym"}),
           ("setting", "equipment", {"value": ["barbell", "rack"]}),
           ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
           ("planned_session", LOWER, lift("2026-11-23", "Lower A")),
           ("planned_session", UPPER, lift("2026-11-25", "Upper A")),
           ("planned_session", LATER, lift("2027-01-10", "Much later")))
     answers = {"kind": "planned_session", "id": LOWER}
-    write(store, ("session", DONE, {"name": "Lower A", "location_id": "example-gym", "links": {"answers": answers},
+    write(store, ("session", DONE, {"name": "Lower A", "location_id": "example_gym", "links": {"answers": answers},
                                     "time": {"start": "2026-11-23T07:30:00-05:00"}}),
           ("effort", None, {"activity_id": "barbell_back_squat", "round": 1, "time": {"start": "2026-11-23T07:35:00-05:00"},
                             "links": {"part_of": {"kind": "session", "id": DONE},
@@ -197,7 +197,7 @@ def test_plan_window_outside_the_dates_is_empty(store):
 
 def test_plan_window_brings_the_last_two_times_at_each_location(store):
     seed(store)
-    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel-gym")]):
+    for i, (day, location) in enumerate([("10", "home"), ("12", "home"), ("14", "home"), ("15", "hotel_gym")]):
         sid = f"0193a0b0-0000-7000-8000-0000000005{i:02d}"
         write(store, ("session", sid, {"name": "Squats", "location_id": location,
                                        "time": {"start": f"2026-11-{day}T08:00:00Z"}}),

@@ -103,7 +103,7 @@ def test_commands_before_setup_say_to_run_it(cloud):
 def test_a_new_computer_recovers_with_the_code(cloud, fake, tmp_path):
     first = Context(actor=CLI)
     code = run("cloud setup", first, {"client_file": str(cloud), "ios_client_id": ""})["recovery_code"]
-    core.log(first.store(), CLI, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
+    core.log(first.store(), CLI, [{"kind": "location", "id": "example_gym", "payload": {"name": "Gym"}}])
     run("cloud sync", first, {})
     first.close()
     second = Context(actor=CLI, path=tmp_path / "new-mac" / "byobot.db")
@@ -112,7 +112,7 @@ def test_a_new_computer_recovers_with_the_code(cloud, fake, tmp_path):
     second.close()
     second = Context(actor=CLI, path=tmp_path / "new-mac-2" / "byobot.db")
     out = run("cloud recover", second, {"code": code})
-    assert out["recovered"] and second.store().record("location", "example-gym")
+    assert out["recovered"] and second.store().record("location", "example_gym")
     second.close()
 
 

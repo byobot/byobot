@@ -1171,7 +1171,7 @@ public enum SettingId: String, CaseIterable, Sendable {
 /// The registry's codes: what each measures, its units (the first is its own) and bounds.
 /// Anything else is your own code, prefixed `x.`.
 public enum MetricRegistry {
-    public static let codePattern = "^([a-z][a-z0-9_]{0,63}|x\\.[a-z0-9][a-z0-9_.-]{0,62})$"
+    public static let codePattern = "^([a-z][a-z0-9_]{0,63}|x\\.[a-z0-9][a-z0-9_]{0,62})$"
 
     public static let all: [MetricSpec] = [
         MetricSpec(name: "reps", summary: "Repetitions.", units: [], unitRequired: false, kind: .integer, minimum: 0.0, exclusiveMinimum: false, maximum: nil, pattern: nil, values: nil, on: ["planned_session", "session", "effort"]),

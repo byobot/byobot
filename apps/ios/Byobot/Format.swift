@@ -52,14 +52,5 @@ enum Format {
     }
 
     /// An activity id from what someone typed: `Pull Up` → `pull_up`.
-    static func slug(_ text: String) -> String {
-        let lowered = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let mapped = lowered.map { ch -> Character in
-            ch.isASCII && (ch.isLetter || ch.isNumber || ch == "." || ch == "_" || ch == "-") ? ch : "_"
-        }
-        var slug = String(mapped)
-        while slug.contains("__") { slug = slug.replacingOccurrences(of: "__", with: "_") }
-        slug = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-._"))
-        return String(slug.prefix(64))
-    }
+    static func slug(_ text: String) -> String { Slug.make(text) }
 }

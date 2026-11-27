@@ -21,9 +21,9 @@ def at(text):  # local time, so dates hold in any time zone
 def test_review_summarizes_recent_training(capsys):
     log(capsys, "activity", {"name": "Barbell Row", "targets": {"main": ["lats"], "synergists": ["biceps"]}},
         "barbell_row")
-    log(capsys, "location", {"name": "Example gym"}, "example-gym")
+    log(capsys, "location", {"name": "Example gym"}, "example_gym")
     for rid, day, name in ((MON, "2026-11-16", "Pull"), (WED, "2026-11-18", "Pull again"), (NEXT, "2026-11-25", "Next")):
-        log(capsys, "planned_session", {"scheduled_on": day, "name": name, "location_id": "example-gym",
+        log(capsys, "planned_session", {"scheduled_on": day, "name": name, "location_id": "example_gym",
                                         "blocks": [{"efforts": [{"activity_id": "barbell_row"}]}]}, rid)
     sets = [{"kind": "effort", "payload": {
         "activity_id": "barbell_row", "round": r, "time": {"start": f"2026-11-16T12:0{r}:00Z"},
@@ -31,18 +31,18 @@ def test_review_summarizes_recent_training(capsys):
                   "answers": {"kind": "planned_session", "id": MON, "part": f"{MON}.0.0"}},
         "metrics": {"reps": {"value": 8}, "load": {"value": 60, "unit": "kg"}}}} for r in (1, 2)]
     session = {"kind": "session", "id": S1, "payload": {
-        "name": "Pull", "location_id": "example-gym", "links": {"answers": {"kind": "planned_session", "id": MON}},
+        "name": "Pull", "location_id": "example_gym", "links": {"answers": {"kind": "planned_session", "id": MON}},
         "time": {"start": "2026-11-16T12:00:00Z", "end": "2026-11-16T12:45:00Z"}}}
     log(capsys, "batch", [session, *sets])
 
     code, out, _ = cli(capsys, "review", "--weeks", "2", "--until", "2026-11-23")
     assert code == 0
     assert out["from"] == "2026-11-09" and out["to"] == "2026-11-23"
-    assert out["sessions"] == [{"date": "2026-11-16", "name": "Pull", "location_id": "example-gym",
+    assert out["sessions"] == [{"date": "2026-11-16", "name": "Pull", "location_id": "example_gym",
                                 "planned_session_id": MON, "sets": 2}]
     assert out["plan_adherence"] == {"planned": 2, "done": 1,
                                      "missed": [{"id": WED, "scheduled_on": "2026-11-18", "name": "Pull again"}]}
-    assert out["exercises"] == [{"activity_id": "barbell_row", "location_id": "example-gym", "days_done": 1,
+    assert out["exercises"] == [{"activity_id": "barbell_row", "location_id": "example_gym", "days_done": 1,
                                  "recent": [{"date": "2026-11-16", "sets": [{"load": "60 kg", "reps": 8}] * 2}]}]
     assert out["weekly_sets_per_muscle"] == {"2026-11-16": {"biceps": {"main": 0, "synergist": 2},
                                                             "lats": {"main": 2, "synergist": 0}}}

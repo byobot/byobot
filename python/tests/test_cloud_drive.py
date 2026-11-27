@@ -187,7 +187,7 @@ def test_a_week_of_sets_goes_both_ways_over_drive(fake, tmp_path, store):
     keeper, relay = setup(fake, tmp_path, store)
     sets = [event(n=n) for n in range(30)]
     relay.log(sets)
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Gym"}}])
     relay.sync()
     report = keeper.sync()
     assert report["published"] >= 1 and all(store.event(e["id"]) for e in sets)
@@ -201,7 +201,7 @@ def test_a_keeper_killed_mid_upload_recovers_on_its_next_run(fake, tmp_path, sto
     sets = [event(n=n) for n in range(5)]
     relay.log(sets)
     relay.sync()
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Gym"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Gym"}}])
     fake.fail("POST /upload", "pass", times=nth)
     fake.faults.append(("POST /upload", "kill"))
     with pytest.raises(Killed):
@@ -219,10 +219,10 @@ def test_a_keeper_killed_mid_upload_recovers_on_its_next_run(fake, tmp_path, sto
 @pytest.mark.parametrize("nth", range(5))
 def test_a_keeper_killed_mid_epoch_finishes_it_on_its_next_run(fake, tmp_path, store, nth):
     keeper, relay = setup(fake, tmp_path, store)
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": SECRET}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": SECRET}}])
     keeper.sync()
     old = keeper.key(1)
-    commands.erase(store, ME, "location", "example-gym")
+    commands.erase(store, ME, "location", "example_gym")
     fake.fail("POST /upload", "pass", times=nth)
     fake.faults.append(("POST /upload", "kill"))
     with pytest.raises(Killed):
@@ -273,8 +273,8 @@ def test_a_start_retried_while_drive_still_hides_its_leftovers_seals_the_same_ke
     relay = Relay.join(folder_on(fake, tmp_path, store.store_id, "phone"), keeper.join_code()["link"], PHONE)
     keeper.sync()
     relay.sync()
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
-    commands.erase(store, ME, "location", "example-gym")
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
+    commands.erase(store, ME, "location", "example_gym")
     before = set(fake.files)
     real = Keeper._segment
 
@@ -330,10 +330,10 @@ def test_a_planted_seq_doesnt_use_up_the_keepers(store):
     folder = MemoryFolder()
     keeper = Keeper.setup(store, folder, Clock())
     folder.files["plan/0001-9999999999.seg"] = b"anything"
-    commands.log(store, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "x"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
     keeper.sync()
     folder.files.pop("plan/0001-9999999999.seg", None)
-    commands.log(store, ME, [{"kind": "location", "id": "example-pool", "payload": {"name": "y"}}])
+    commands.log(store, ME, [{"kind": "location", "id": "example_pool", "payload": {"name": "y"}}])
     assert keeper.sync()["published"] == 1
 
 

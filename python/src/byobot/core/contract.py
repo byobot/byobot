@@ -23,7 +23,7 @@ from ..util import ValidationFailed
 SCHEMA_VERSION = 1
 SCHEMA_NAMES = ("common", "records", "event", "registry", "sync", "cloud")
 SLUG_KINDS = ("activity", "location", "setting")
-RULES = ("time-order", "date-order", "range-order", "code-value", "part-ids", "self-reference", "derived-id")
+RULES = ("time_order", "date_order", "range_order", "code_value", "part_ids", "self_reference", "derived_id")
 
 
 def schema_dir() -> Path:
@@ -172,33 +172,33 @@ class Contract:
     def broken_rules(self, event: dict) -> set[str]:
         broken = set()
         if event["id"] in event["prev"] or event.get("reverts") == event["id"]:
-            broken.add("self-reference")
+            broken.add("self_reference")
         if event["op"] != "put" or "redacted_by" in event:
             return broken
         kind, rid, p = event["record"]["kind"], event["record"]["id"], event["payload"]
         for t in (p.get("time"), (p.get("fields") or {}).get("time")):
             if isinstance(t, dict) and "end" in t and "start" in t and instant(t["end"]) < instant(t["start"]):
-                broken.add("time-order")
+                broken.add("time_order")
         if kind == "plan" and "ends_on" in p and p["ends_on"] < p["starts_on"]:
-            broken.add("date-order")
+            broken.add("date_order")
         for metrics in _measures(kind, p):
             for code, m in metrics.items():
                 bounds = [m.get("min"), m.get("value") if "min" in m or "max" in m else None, m.get("max")]
                 bounds = [x for x in bounds if _number(x)]
                 if bounds != sorted(bounds):
-                    broken.add("range-order")
+                    broken.add("range_order")
                 if not self.code_ok(code, m):
-                    broken.add("code-value")
+                    broken.add("code_value")
         if kind == "planned_session":
             parts = [b["id"] for b in p["blocks"]] + [e["id"] for b in p["blocks"] for e in b["efforts"]]
             if len(parts) != len(set(parts)):
-                broken.add("part-ids")
+                broken.add("part_ids")
         if kind == "source_record" and {"source", "source_type", "source_id"} <= set(p) and \
                 rid != self.derived("source_record", [p["source"], p["source_type"], p["source_id"]]):
-            broken.add("derived-id")
+            broken.add("derived_id")
         if kind == "overlay" and "effect" in p and isinstance(p.get("target"), dict) and \
                 rid != self.derived("overlay", [p["effect"], p["target"]["kind"], p["target"]["id"]]):
-            broken.add("derived-id")
+            broken.add("derived_id")
         return broken
 
     def code_ok(self, code: str, m: dict) -> bool:

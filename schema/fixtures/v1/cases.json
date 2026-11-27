@@ -66,6 +66,32 @@
     "schema_version": 1,
     "record": {
      "kind": "location",
+     "id": "example_gym"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Example Gym"
+    }
+   }
+  },
+  {
+   "name": "location/dashed-id",
+   "outcome": "rejected",
+   "description": "Ids are lowercase letters, digits and underscores only.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-00000000007f",
+    "schema_version": 1,
+    "record": {
+     "kind": "location",
      "id": "example-gym"
     },
     "op": "put",
@@ -137,7 +163,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",
@@ -201,7 +227,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -567,7 +593,7 @@
     "batch": "019aa000-0000-7000-8000-000000000900",
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York",
@@ -1154,7 +1180,7 @@
     },
     "prev": [],
     "payload": {
-     "value": "example-gym"
+     "value": "example_gym"
     }
    }
   },
@@ -2232,7 +2258,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -2281,7 +2307,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T07:02:00-05:00",
       "zone": "America/New_York"
@@ -2531,7 +2557,7 @@
   {
    "name": "rule/estimate-outside-bounds",
    "outcome": "rejected",
-   "rule": "range-order",
+   "rule": "range_order",
    "description": "An estimate's value lies within its bounds.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000031",
@@ -3038,7 +3064,7 @@
   {
    "name": "rule/time-order",
    "outcome": "rejected",
-   "rule": "time-order",
+   "rule": "time_order",
    "description": "An interval ends after it starts, compared as instants.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000004",
@@ -3059,7 +3085,7 @@
     "prev": [],
     "payload": {
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "time": {
       "start": "2026-11-21T08:00:00-05:00",
       "zone": "America/New_York",
@@ -3084,7 +3110,7 @@
   {
    "name": "rule/date-order",
    "outcome": "rejected",
-   "rule": "date-order",
+   "rule": "date_order",
    "description": "A plan ends after it starts.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000002",
@@ -3114,7 +3140,7 @@
   {
    "name": "rule/range-order",
    "outcome": "rejected",
-   "rule": "range-order",
+   "rule": "range_order",
    "description": "A range's min is at most its max.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000003",
@@ -3137,7 +3163,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",
@@ -3181,7 +3207,7 @@
   {
    "name": "rule/code-value-integer",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "Reps are whole.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3241,7 +3267,7 @@
   {
    "name": "rule/code-value-bounds",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "Heart rate is at most 300 per minute.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3305,7 +3331,7 @@
   {
    "name": "rule/code-value-converted-bounds",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "Bounds apply after converting: 2000 lb is over 700 kg.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000006",
@@ -3338,7 +3364,7 @@
   {
    "name": "rule/code-value-missing-unit",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "A quantity carries its unit.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3397,7 +3423,7 @@
   {
    "name": "rule/code-value-unit-on-number",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "RPE has no unit.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3458,7 +3484,7 @@
   {
    "name": "rule/code-value-pattern",
    "outcome": "rejected",
-   "rule": "code-value",
+   "rule": "code_value",
    "description": "Tempo is four digits or x.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3521,7 +3547,7 @@
   {
    "name": "rule/part-ids",
    "outcome": "rejected",
-   "rule": "part-ids",
+   "rule": "part_ids",
    "description": "Part ids are unique within a planned session.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000003",
@@ -3544,7 +3570,7 @@
     "payload": {
      "scheduled_on": "2026-11-21",
      "name": "Lower A",
-     "location_id": "example-gym",
+     "location_id": "example_gym",
      "links": {
       "part_of": {
        "kind": "plan",
@@ -3597,7 +3623,7 @@
   {
    "name": "rule/self-reference",
    "outcome": "rejected",
-   "rule": "self-reference",
+   "rule": "self_reference",
    "description": "An event can't have seen itself.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000005",
@@ -3659,7 +3685,7 @@
   {
    "name": "rule/derived-id-source-record",
    "outcome": "rejected",
-   "rule": "derived-id",
+   "rule": "derived_id",
    "description": "A source record's id comes from its source, type and source id.",
    "data": {
     "id": "1cefa2cd-1024-56cf-94b6-9bd77f0b595c",
@@ -3700,7 +3726,7 @@
   {
    "name": "rule/derived-id-overlay",
    "outcome": "rejected",
-   "rule": "derived-id",
+   "rule": "derived_id",
    "description": "There is one overlay per effect and target.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000029",

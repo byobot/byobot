@@ -25,7 +25,7 @@ def hub(byobot_home):
 def test_a_restore_while_serving_is_what_phones_are_told(hub, byobot_home, tmp_path):
     _, info, client = hub
     with Store(tmp_path / "old-laptop.db") as old:
-        commands.log(old, ME, [{"kind": "location", "id": "example-gym", "payload": {"name": "Example gym"}}])
+        commands.log(old, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
         backup, original = list(old.export()), old.store_id
     with Store(byobot_home / "byobot.db") as s:  # `byobot restore backup.jsonl` in another terminal
         s.restore(backup)
