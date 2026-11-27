@@ -573,5 +573,5 @@ def test_accept_never_raises_on_a_huge_number(pair):
     big = {**e, "id": "0190f000-0000-7000-8000-00000000eeee", "prev": [e["id"]],
            "payload": {**effort(), "metrics": {"reps": {"value": 5}, "x.count": {"value": 10**20}}}}
     assert b.accept(big) == ("rejected", "a number too large to store")
-    with pytest.raises(ValidationFailed):
-        sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
+    assert sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
+    assert a.rows("SELECT * FROM observations WHERE code = 'respiratory_rate'") == []
