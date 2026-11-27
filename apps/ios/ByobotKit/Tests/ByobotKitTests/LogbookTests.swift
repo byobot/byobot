@@ -759,4 +759,13 @@ final class ClockAndHealthTests: XCTestCase {
                                            "max_bpm": .number(162)]))
         XCTAssertNil(HealthMapping.sample(DailyTotal(type: stepType, start: start, end: end, value: 0), readAt: read))
     }
+
+    func testAReadingKeepsTheZoneItWasTakenIn() throws {
+        var away = reading(.quantity("HKQuantityTypeIdentifierBodyMass", 82), minutes: 1)
+        away.zone = TimeZone(identifier: "Asia/Tokyo")
+        let sample = try XCTUnwrap(HealthMapping.sample(away))
+        XCTAssertTrue(sample.start.hasSuffix("+09:00"), sample.start)
+        XCTAssertTrue(sample.end?.hasSuffix("+09:00") == true)
+        XCTAssertEqual(try XCTUnwrap(Timestamp.date(sample.start)).timeIntervalSince1970, 1_795_000_000, accuracy: 0.001)
+    }
 }

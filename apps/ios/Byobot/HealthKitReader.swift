@@ -152,7 +152,8 @@ final class HealthKitReader: @unchecked Sendable {
                                            deviceManufacturer: sample.device?.manufacturer,
                                            deviceModel: sample.device?.model,
                                            deviceIdentifier: sample.device?.localIdentifier
-                                               ?? sample.device?.udiDeviceIdentifier))
+                                               ?? sample.device?.udiDeviceIdentifier),
+                      zone: (sample.metadata?[HKMetadataKeyTimeZone] as? String).flatMap(TimeZone.init(identifier:)))
     }
 
     private static let distances: [HKQuantityTypeIdentifier] = [

@@ -61,13 +61,16 @@ public struct HealthReading: Equatable, Sendable {
     public var end: Date
     public var value: HealthValue
     public var origin: HealthOrigin
+    /// Where it was taken, when HealthKit says (Apple Watch workouts and sleep do). Else the phone's zone.
+    public var zone: TimeZone?
 
-    public init(uuid: UUID, start: Date, end: Date, value: HealthValue, origin: HealthOrigin) {
+    public init(uuid: UUID, start: Date, end: Date, value: HealthValue, origin: HealthOrigin, zone: TimeZone? = nil) {
         self.uuid = uuid
         self.start = start
         self.end = end
         self.value = value
         self.origin = origin
+        self.zone = zone
     }
 }
 
@@ -138,8 +141,10 @@ public enum HealthMapping {
             value = .string(activity)
             raw = .object(workoutTotals(totals))
         }
+        let zone = r.zone ?? .current
         return Sample(source: source, sourceId: r.uuid.uuidString.lowercased(), type: type,
-                      start: Timestamp.string(r.start), end: Timestamp.string(r.end), value: value, unit: unit,
+                      start: Timestamp.string(r.start, zone: zone), end: Timestamp.string(r.end, zone: zone),
+                      value: value, unit: unit,
                       device: device(r.origin), originApp: r.origin.sourceBundleId.isEmpty ? nil : r.origin.sourceBundleId,
                       raw: raw)
     }
@@ -157,10 +162,12 @@ public enum HealthMapping {
                 raw[name] = .number(value.rounded())
             }
         }
-        return Sample(source: source, sourceId: "daily:\(d.type):\(key)", type: d.type, start: Timestamp.string(d.start),
-                      end: Timestamp.string(d.end), value: .number((d.value * 1000).rounded() / 1000),
+        return Sample(source: source, sourceId: "daily:\(d.type):\(key)", type: d.type,
+                      start: Timestamp.string(d.start, zone: calendar.timeZone),
+                      end: Timestamp.string(d.end, zone: calendar.timeZone), value: .number((d.value * 1000).rounded() / 1000),
                       unit: spec.units.first, raw: .object(raw))
     }
+
 
     /// A sample HealthKit says was deleted.
     public static func deletion(_ uuid: UUID, type: String) -> Deletion {
