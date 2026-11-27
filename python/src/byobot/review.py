@@ -84,18 +84,19 @@ def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
 
     A source's night of sleep comes from the one device that recorded the most of it.
     """
-    order, _ = occurrences.priority(store.conn)
+    order, overrides = occurrences.priority(store.conn)
     codes = [*KEYS, *ASLEEP, "sleep_stage"]
     rows = store.rows(
         "SELECT o.code, o.std_value, o.text, o.started_at, o.ended_at, o.start_ms, o.end_ms, o.local_date, o.source,"
         " coalesce(json_extract(s.raw, '$.device'), '') AS device FROM observations o"
         " LEFT JOIN source_records s ON s.id = o.source_record_id"
         f" WHERE o.code IN ({', '.join('?' for _ in codes)}) AND o.local_date >= ? AND o.local_date < ?"
+        " AND coalesce(json_extract(s.raw, '$.nap'), 0) = 0"  # a nap isn't the night's sleep
         " ORDER BY o.start_ms, o.id", [*codes, lo, hi])
     found: dict[tuple, dict] = defaultdict(lambda: defaultdict(list))  # (day, group) -> rank -> [(key, value)]
     nights: dict[tuple, dict] = defaultdict(lambda: defaultdict(float))  # (day, rank) -> device -> seconds
     for r in rows:
-        rank = occurrences.rank(r["source"], order)
+        rank = occurrences.rank(r["source"], overrides.get(r["code"], order))
         if r["code"] == "sleep_stage":
             if r["text"] in ASLEEP_STAGES and r["end_ms"]:
                 nights[(_night(r["ended_at"]), rank)][r["device"]] += (r["end_ms"] - r["start_ms"]) / 1000
@@ -193,7 +194,7 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
                                        " UNION SELECT planned_session_id FROM efforts WHERE planned_session_id IS NOT NULL")}
     planned = store.rows("SELECT id, scheduled_on, name, plan_id, location_id, status FROM planned_sessions"
                          " WHERE scheduled_on >= ? ORDER BY scheduled_on, id", [first])
-    past = [p for p in planned if p["scheduled_on"] < last and p["status"] != "skipped"]
+    past = [p for p in planned if p["scheduled_on"] < last and p["status"] not in ("skipped", "cancelled")]
     daily = _daily(store, (start - timedelta(days=1)).isoformat(), after)
     return {
         "from": first,
