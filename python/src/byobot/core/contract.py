@@ -257,10 +257,8 @@ class Contract:
         return None if factor is None else x * factor
 
     def fingerprint(self) -> str:
-        """What decides which events this contract projects, and how."""
-        units = {k: v.get("units") for k, v in self.registry["codes"].items()}
-        return jcs([{k: v["version"] for k, v in self.registry["kinds"].items()}, sorted(self.registry["settings"]),
-                    units])
+        """What decides which events this contract projects, and how: the whole registry."""
+        return hashlib.sha256(jcs(self.registry).encode()).hexdigest()
 
     def newer(self, version: int, kinds: dict[str, dict] | None = None) -> Contract:
         """A contract as an install `version` would know it: every kind at that version, plus `kinds`.
