@@ -225,12 +225,17 @@ def test_correct_and_exclude_an_import(capsys):
 
 
 def test_validate(capsys):
-    code, out, _ = cli(capsys, "validate", "--as", "activity", json.dumps({"name": "Plank"}))
-    assert code == 0 and out["valid"]
-    code, out, _ = cli(capsys, "validate", "--as", "observation", json.dumps({"code": "body_mass"}))
-    assert code == 1 and not out["valid"] and out["errors"]
-    code, out, _ = cli(capsys, "validate", json.dumps({"id": "x"}))
-    assert code == 1 and not out["valid"]
+    code, out, _ = cli(capsys, "validate", "activity", json.dumps({"name": "Plank"}))
+    assert code == 0 and out == {"valid": True, "kind": "activity", "errors": []}
+    code, out, _ = cli(capsys, "validate", "observation", json.dumps({"code": "body_mass"}))
+    assert code == 0 and not out["valid"] and out["errors"]
+    code, out, _ = cli(capsys, "validate", "event", json.dumps({"id": "x"}))
+    assert code == 0 and not out["valid"]
+    batch = [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}},
+             {"kind": "observation", "payload": {"code": "body_mass"}}]
+    out = cli(capsys, "validate", "batch", json.dumps(batch))[1]
+    assert not out["valid"] and [e.split(":")[0] for e in out["errors"]] == ["1"]
+    assert cli(capsys, "validate", "batch", json.dumps(batch[:1]))[1]["valid"]
 
 
 def test_schema(capsys):
@@ -664,7 +669,7 @@ def test_cli_a_cancelled_session_is_not_planned_or_missed(byobot_home):
     (lambda tmp: None, ["review", "--weeks", "1000000"]),
     (lambda tmp: None, ["log", "observation",
                         '{{"code": "body_mass", "value": 80, "unit": "kg", "time": {{"start": "9999-12-31T23:30:00"}}}}']),
-    (lambda tmp: None, ["validate", "[1, 2]"]),
+    (lambda tmp: None, ["validate", "event", "[1, 2]"]),
     (lambda tmp: (tmp / "a-file").write_text("x"), ["--home", "{tmp}/a-file", "status"]),
     (lambda tmp: (tmp / "cut.jsonl").write_text('{"byobot_export": 1}\n'), ["restore", "{tmp}/cut.jsonl"]),
 ], ids=["@missing", "@folder", "@not-utf8", "export-missing-folder", "review-until-9999", "review-until-0001",
@@ -675,14 +680,12 @@ def test_cli_a_mistake_is_a_json_error_not_a_traceback(make, argv, tmp_path):
     make(tmp_path)
     answer = via_cli([a.format(tmp=tmp_path) for a in argv])
     assert answer[0] in ("error", "ok"), answer
-    if argv[0] == "validate":
-        assert answer[0] == "ok" or answer == ("error", "invalid")
 
 
 @pytest.mark.parametrize("tool,args", [
     ("review", {"until": "9999-12-31"}),
     ("review", {"weeks": 1000000}),
-    ("validate", {"document": [1, 2]}),
+    ("validate", {"kind": "event", "document": [1, 2]}),
     ("log", {"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg",
                                                 "time": {"start": "9999-12-31T23:30:00"}}}),
 ])

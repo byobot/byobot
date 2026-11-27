@@ -120,7 +120,7 @@ def test_cli_an_argument_the_command_does_not_take_is_refused_on_mcp_and_the_api
     if cmd.name == "query":
         args["sql"] = "SELECT 1 AS x"
     if cmd.name == "validate":
-        args.update({"document": {"name": "Example gym"}, "as": "location"})
+        args.update({"document": {"name": "Example gym"}, "kind": "location"})
     answers = {"mcp": via_mcp(cmd.tool, args), "api": api.call(cmd.tool, args)}
     assert answers == {"mcp": ("error", "invalid"), "api": ("error", "invalid")}
 

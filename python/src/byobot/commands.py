@@ -854,30 +854,36 @@ def _schema(ctx: Context, name: str | None = None) -> Any:
     return registry if name == "registry" else schemas[name]
 
 
-VALIDATE_AS = ("event", *sorted(Contract.shipped().registry["kinds"]))
+VALIDATE_KINDS = ("event", "batch", *sorted(Contract.shipped().registry["kinds"]))
 
 
 @command(
     "validate",
-    "Check a document against the contract without writing anything.",
+    "Check what you would write without writing it: a record's payload as `log` takes it, a batch, or a whole event.",
+    Param("kind", "string", "What the document is: a record kind, batch, or event.", required=True,
+          choices=VALIDATE_KINDS, positional=True),
     Param("document", "json", "The JSON document to check.", required=True, positional=True, schema={}),
-    Param("as", "string", "What the document is: a whole event, or the payload of a record kind.",
-          choices=VALIDATE_AS, default="event"),
+    description="An invalid document is an answer, not an error: valid is false and errors says why.",
 )
-def _validate(ctx: Context, document: Any, **kwargs: Any) -> dict:
-    kind = kwargs.get("as", "event")
+def _validate(ctx: Context, kind: str, document: Any) -> dict:
     contract = Contract.shipped()
-    if kind == "event" and not isinstance(document, dict):
-        raise ValidationFailed("an event is a JSON object")
-    if kind != "event":
+    if kind == "batch":
+        if not isinstance(document, list) or not all(isinstance(r, dict) and "kind" in r for r in document):
+            errors = ["a batch is a list of {kind, id?, payload}"]
+        else:
+            errors = [f"{i}: {e}" for i, r in enumerate(document)
+                      for e in contract.payload_errors(r["kind"], r.get("payload"), r.get("id"))]
+    elif kind != "event":
         errors = contract.payload_errors(kind, document)
+    elif not isinstance(document, dict):
+        errors = ["an event is a JSON object"]
     else:
         try:
             contract.check(document)
             errors = []
         except Rejected as exc:
             errors = [exc.reason]
-    return {"valid": not errors, "as": kind, "errors": errors}
+    return {"valid": not errors, "kind": kind, "errors": errors}
 
 
 @command("devices list", "List the phones and other devices paired with `byobot serve`.")
