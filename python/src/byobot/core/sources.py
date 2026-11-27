@@ -19,15 +19,17 @@ def record_id(store: Store, source: str, source_type: str, source_id: str) -> st
 def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
            deleted: Iterable[tuple[str, str]] = ()) -> list[dict]:
     """Write what a source gave, all or none: (source_type, source_id, raw) revisions, and the (source_type,
-    source_id) it says it deleted. A revision already held, the current one with only a newer revision time, a
-    revision of an erased record, or a deletion of a record not held, writes nothing."""
+    source_id) it says it deleted. A deletion of a record not held yet is kept, so the record never shows. A revision
+    already held, the current one with only a newer revision time, a revision of an erased or deleted record, or a
+    deletion already held, writes nothing."""
     key = store.store_key
     changes, seen = [], set()
     for source_type, source_id, raw in records:
         payload = {"source": source, "source_type": source_type, "source_id": str(source_id), "raw": raw}
         rid = record_id(store, source, source_type, source_id)
         event_id = store.contract.derived("source_revision", [rid, mac(key, payload)])
-        if event_id in seen or store.event(event_id) is not None or _erased(store, rid) or _restamped(store, rid, raw):
+        if event_id in seen or store.event(event_id) is not None or _erased(store, rid) or _restamped(store, rid, raw) \
+                or _tombstoned(store, rid):
             continue
         seen.add(event_id)
         changes.append({"kind": "source_record", "id": rid, "op": "put", "payload": payload, "prev": [],
@@ -35,11 +37,13 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
     for source_type, source_id in deleted:
         rid = record_id(store, source, source_type, source_id)
         found = store.record("source_record", rid)
-        if not found or not found["live"]:
+        prev = [found["current"]] if found and found["live"] else []
+        event_id = store.contract.derived("source_deletion", [rid, *prev])
+        if event_id in seen or store.event(event_id) is not None or (found and not prev):
             continue
-        prev = [found["current"]]
+        seen.add(event_id)
         changes.append({"kind": "source_record", "id": rid, "op": "retract", "payload": {}, "prev": prev,
-                        "event_id": store.contract.derived("source_deletion", [rid, prev[0]])})
+                        "event_id": event_id})
     if not changes:
         return []
     try:
@@ -79,6 +83,10 @@ def ingest_samples(store: Store, samples: list[dict], deleted: Iterable[dict] = 
 def _erased(store: Store, rid: str) -> bool:
     found = store.record("source_record", rid)
     return bool(found and found["erased"])
+
+
+def _tombstoned(store: Store, rid: str) -> bool:
+    return store.event(store.contract.derived("source_deletion", [rid])) is not None
 
 
 def _restamped(store: Store, rid: str, raw: dict) -> bool:

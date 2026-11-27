@@ -329,8 +329,8 @@ class Store:
         rid, prev = event["record"]["id"], event["prev"]
         if event["op"] == "put" and not prev:
             return self.contract.derived("source_revision", [rid, mac(self.store_key, event["payload"])])
-        if event["op"] == "retract" and len(prev) == 1:
-            return self.contract.derived("source_deletion", [rid, prev[0]])
+        if event["op"] == "retract":
+            return self.contract.derived("source_deletion", [rid, *prev[:1]])
         return None
 
     def _insert(self, e: dict) -> None:
@@ -794,10 +794,11 @@ def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
 
 def _source_current(versions: dict[str, dict]) -> tuple:
     """A source record's current revision: the latest by the source's own account, else the last written. A deletion
-    hides the record while the revision it names is current. Source records never conflict."""
+    hides the record while the revision it names is current; one that names none, sent before the record was held,
+    hides it for good. Source records never conflict."""
     puts = [e for e in versions.values() if e["op"] == "put"]
     current = max(puts, key=mappers.revision_order) if puts else None
-    hidden = current is not None and any(e["op"] == "retract" and e["prev"] == [current["id"]]
+    hidden = current is not None and any(e["op"] == "retract" and e["prev"] in ([], [current["id"]])
                                          for e in versions.values())
     shown = [current] if current else []
     return current, current is not None and not hidden, False, shown, shown

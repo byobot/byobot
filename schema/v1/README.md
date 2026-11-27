@@ -26,7 +26,7 @@ Derived ids are UUIDv5 over the [RFC 8785](https://www.rfc-editor.org/rfc/rfc878
 
 - `source_record` record: `["<source>", "<source_type>", "<source_id>"]` in `source_record`.
 - Its `put` event: `["<record id>", "<mac>"]` in `source_revision`, where `mac` is the lowercase hex HMAC-SHA256 of the canonical JSON of the payload, keyed by the store key.
-- Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`.
+- Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`, or `["<record id>"]` with an empty `prev` when the deletion came before any revision. That one hides the record for good.
 - `overlay` record: `["<effect>", "<target kind>", "<target id>"]` in `overlay`, so there is one overlay per effect and target.
 
 The store key is 32 random bytes created with the store. It never enters the logbook; export and restore carry it, and paired devices receive it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
