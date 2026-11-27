@@ -195,11 +195,11 @@ def test_edit_and_undo(capsys):
     assert cli(capsys, "edit", "effort", "missing", '{"notes": "x"}')[0] != 0
 
 
-def test_remove_and_history(capsys):
+def test_remove_and_versions(capsys):
     cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")
     assert cli(capsys, "remove", "activity", "x.plank", "--reason", "typo")[0] == 0
     assert cli(capsys, "list", "activity")[1]["count"] == 0
-    versions = cli(capsys, "history", "activity", "x.plank")[1]["versions"]
+    versions = cli(capsys, "versions", "activity", "x.plank")[1]["versions"]
     assert [v["op"] for v in versions] == ["put", "retract"]
 
 

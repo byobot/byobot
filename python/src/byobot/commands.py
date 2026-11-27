@@ -413,13 +413,13 @@ def _source_record(store: Store, rid: str) -> None:
 
 
 @command(
-    "history",
+    "versions",
     "Show every version of a record, oldest first, with who wrote each and when.",
     Param("kind", "string", "The record's kind.", required=True, positional=True,
           choices=(*core.AUTHORED, "source_record", "overlay")),
     Param("id", "string", "The record's id.", required=True, positional=True),
 )
-def _history(ctx: Context, kind: str, id: str) -> dict:
+def _versions(ctx: Context, kind: str, id: str) -> dict:
     store = ctx.store()
     found = sources.history(store, id) if kind == "source_record" else store.history(kind, id)
     if not found:

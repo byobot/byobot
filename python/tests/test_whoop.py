@@ -296,7 +296,7 @@ def test_a_rescore_is_a_new_version(monkeypatch, store):
     out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[rescored]), days=30)
     assert out["written"] == 1 and observations(store)["whoop_recovery_score"]["value"] == 70
     rid = store.rows("SELECT id FROM source_records")[0]["id"]
-    assert len(run("history", Context(actor=YOU), {"kind": "source_record", "id": rid})["versions"]) == 2
+    assert len(run("versions", Context(actor=YOU), {"kind": "source_record", "id": rid})["versions"]) == 2
 
 
 def test_import_follows_next_token(monkeypatch, store):
