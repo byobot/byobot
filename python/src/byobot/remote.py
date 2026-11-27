@@ -343,6 +343,9 @@ class Auth:
 
 MAX_FORM = 8192
 API = "/api/v1"
+# a tool's error code and the HTTP status the API answers it with; any other code is 400
+STATUS = {"invalid": HTTPStatus.BAD_REQUEST, "forbidden": HTTPStatus.FORBIDDEN, "not_found": HTTPStatus.NOT_FOUND,
+          "conflict": HTTPStatus.CONFLICT, "not_connected": HTTPStatus.CONFLICT, "upstream": HTTPStatus.BAD_GATEWAY}
 QUERY_TIMEOUT_S = 20
 
 
@@ -625,13 +628,13 @@ class Handler(serve.Handler):
         finally:
             server.close()
         if "error" in reply:
-            raise serve.HTTPError(HTTPStatus.NOT_FOUND if reply["error"]["code"] == mcp.INVALID_PARAMS
-                                  else HTTPStatus.INTERNAL_SERVER_ERROR, "tool", reply["error"]["message"])
+            if reply["error"]["code"] == mcp.INVALID_PARAMS:
+                raise serve.HTTPError(HTTPStatus.NOT_FOUND, "not_found", reply["error"]["message"])
+            raise serve.HTTPError(HTTPStatus.INTERNAL_SERVER_ERROR, "error", reply["error"]["message"])
         result = reply["result"]
         body = result.get("structuredContent") or json.loads(result["content"][0]["text"])
         failed = isinstance(body, dict) and "error" in body and result["isError"]
-        status = HTTPStatus.FORBIDDEN if failed and body["error"] == "forbidden" else HTTPStatus.BAD_REQUEST
-        self._send(status if failed else HTTPStatus.OK, body)
+        self._send(STATUS.get(body["error"], HTTPStatus.BAD_REQUEST) if failed else HTTPStatus.OK, body)
 
 
 def _writes(message: Any) -> bool:
@@ -643,21 +646,37 @@ def _writes(message: Any) -> bool:
     return any(c.tool == name and not c.read_only for c in REGISTRY.values())
 
 
+ERROR_SCHEMA = {
+    "type": "object", "required": ["error", "message"],
+    "properties": {
+        "error": {"type": "string", "description": (
+            "invalid (400: the arguments or body), unauthorized (401: no or a wrong key), forbidden (403: this "
+            "assistant may only read), not_found (404: no such tool or record), conflict (409), not_connected "
+            "(409: a source isn't signed in), upstream (502: a source's service failed), timeout (503: a read "
+            "ran too long); error for anything else. New codes may be added.")},
+        "message": {"type": "string"}, "details": {}}}
+
+
 def openapi(base: str) -> dict:
     """An OpenAPI 3.1 description of the JSON API: one POST per tool, its body the tool's arguments."""
+    error = {"description": "The body's `error` is a stable code and `message` says why.",
+             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    responses = {"200": {"description": "The result, as JSON."}, "400": error, "401": error, "403": error,
+                 "404": error, "409": error, "502": error, "503": error}
     paths = {}
     for tool in mcp.tools():
         paths[f"{API}/tools/{tool['name']}"] = {"post": {
             "operationId": tool["name"].replace("-", "_"), "summary": tool["title"],
             "description": tool["description"][:300],
             "requestBody": {"required": True, "content": {"application/json": {"schema": tool["inputSchema"]}}},
-            "responses": {"200": {"description": "The result, as JSON."},
-                          "400": {"description": "The arguments were not valid; the body says why."}}}}
+            "responses": responses}}
     return {"openapi": "3.1.0",
             "info": {"title": "byobot", "version": __version__, "description": mcp.INSTRUCTIONS},
             "servers": [{"url": base}], "paths": paths,
-            "components": {"securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"},
-                                               "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}},
+            "components": {"schemas": {"Error": ERROR_SCHEMA},
+                           "securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"},
+                                                              "apiKey": {"type": "apiKey", "in": "header",
+                                                                         "name": "X-API-Key"}}},
             "security": [{"bearer": []}, {"apiKey": []}]}
 
 
