@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "python" / "src"))
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey  # noqa: E402
 
 from byobot.cloud import files, segment  # noqa: E402
-from byobot.cloud.crypto import Identity, b64, join_proof, recovery_key  # noqa: E402
+from byobot.cloud.crypto import Identity, b64, join_proof, recovery_code, recovery_key  # noqa: E402
 
 OUT = ROOT / "schema" / "fixtures" / "v1" / "cloud.json"
 STORE = "0193a0b0-0000-7000-8000-00000000c001"
@@ -44,7 +44,7 @@ def build() -> dict:
     keeper_dev = {"device_id": KEEPER, "device_class": "keeper", **keeper.public()}
     relay_dev = {"device_id": RELAY, "device_class": "relay", **relay.public()}
     epoch_key, other_key, secret = fixed("epoch key"), fixed("other epoch key"), fixed("join secret", 16)
-    code = "-".join(base64.b32encode(fixed("recovery code", 20)).decode()[i:i + 4] for i in range(0, 32, 4))
+    code = recovery_code(fixed("recovery code", 20))
     rkey = recovery_key(code, STORE)
     event = {"id": "0193a0b0-0000-7000-8000-00000000e001", "schema_version": 1,
              "record": {"kind": "effort", "id": "0193a0b0-0000-7000-8000-00000000f001"}, "op": "put",
@@ -118,8 +118,8 @@ def build() -> dict:
         {"name": "epoch file signed by a relay", "path": files.epoch_path(1),
          "data": files.epoch_file(relay, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1), "error": "signed"},
         {"name": "recovery key opened with another code", "path": files.recovery_path(1),
-         "data": files.recovery_file(recovery_key("A" * 32, STORE), STORE, 1, recovery_content,
-                                     fixed("nonce 4", 12)), "error": "recovery code"},
+         "data": files.recovery_file(recovery_key(recovery_code(fixed("another code", 20)), STORE), STORE, 1,
+                                     recovery_content, fixed("nonce 4", 12)), "error": "recovery code"},
     ]
     for case in valid + invalid:
         case["data"] = b64(case["data"])

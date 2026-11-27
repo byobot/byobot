@@ -6,7 +6,7 @@ import pytest
 
 from byobot.cloud import keeper as keeper_module
 from byobot.cloud import segment
-from byobot.cloud.crypto import CloudError
+from byobot.cloud.crypto import CloudError, recovery_code
 from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
 from byobot.cloud.relay import Relay
@@ -252,7 +252,7 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
     wanted = {e["id"] for e in store.events()}
     fresh = Store(tmp_path / "new-mac.db")
     with pytest.raises(ByobotError, match="recovery code"):
-        Keeper.recover(fresh, folder, "A" * 32, clock)
+        Keeper.recover(fresh, folder, recovery_code(), clock)
     again = Keeper.recover(fresh, folder, code, clock)
     assert {e["id"] for e in fresh.events()} >= wanted and fresh.store_id == store.store_id
     assert again.device_id == keeper.device_id == store.device_id == fresh.device_id and again.epoch == 3

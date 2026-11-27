@@ -158,12 +158,19 @@ def test_a_signed_document_can_t_be_edited():
         read_document(dumps(doc), me.public()["sign"])
 
 
-def test_recovery_codes_forgive_case_spaces_and_dashes():
+def test_recovery_codes_forgive_case_spaces_dashes_and_lookalikes_and_catch_typos():
     code = recovery_code()
-    assert len(code.replace("-", "")) == 32 and code.count("-") == 7
+    assert code[0] == "A" and len(code.replace("-", "")) == 36 and code.count("-") == 8
     assert recovery_key(code.lower().replace("-", " "), STORE) == recovery_key(code, STORE)
+    assert recovery_key(code.replace("O", "0").replace("I", "1").replace("B", "8"), STORE) == recovery_key(code, STORE)
     assert recovery_key(code, STORE) != recovery_key(code, "0193a0b0-0000-7000-8000-00000000c002")
-    for bad in ("", "A" * 31, "1" * 32):
+    assert recovery_key(INPUTS["recovery_code"], STORE) == unb64(INPUTS["recovery_key"])
+    typo = code[:5] + ("Q" if code[5] != "Q" else "R") + code[6:]
+    with pytest.raises(CloudError, match="typo"):
+        recovery_key(typo, STORE)
+    with pytest.raises(CloudError, match="newer byobot"):
+        recovery_key("B" + code[1:], STORE)
+    for bad in ("", "A" * 31, "A" * 33, code[:-1]):
         with pytest.raises(CloudError, match="recovery code"):
             recovery_key(bad, STORE)
 

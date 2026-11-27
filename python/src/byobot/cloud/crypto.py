@@ -159,20 +159,36 @@ def read_document(data: bytes, sign_public: str) -> dict:
 
 # -- recovery codes ----------------------------------------------------------------
 
-def recovery_code() -> str:
-    """160 random bits as 32 base32 letters and digits, in groups of four, shown once at setup."""
-    text = base64.b32encode(os.urandom(RECOVERY_BYTES)).decode()
+RECOVERY_VERSION = "A"  # the code's first character; a newer format takes the next letter
+RECOVERY_CHECK = 3  # base32 characters of SHA-256 at the end, so a mistyped code is told apart from a wrong one
+RECOVERY_LOOKALIKES = str.maketrans("018", "OIB")
+
+
+def recovery_code(raw: bytes | None = None) -> str:
+    """160 random bits as a code shown once at setup: a version letter, 32 base32 characters and three check
+    characters, in nine groups of four."""
+    secret = base64.b32encode(raw or os.urandom(RECOVERY_BYTES)).decode()
+    text = RECOVERY_VERSION + secret + _recovery_check(RECOVERY_VERSION + secret)
     return "-".join(text[i:i + 4] for i in range(0, len(text), 4))
 
 
+def _recovery_check(text: str) -> str:
+    return base64.b32encode(hashlib.sha256(text.encode()).digest()).decode()[:RECOVERY_CHECK]
+
+
 def recovery_key(code: str, store_id: str) -> bytes:
-    text = "".join(code.split()).replace("-", "").upper()
-    try:
-        raw = base64.b32decode(text)
-    except (binascii.Error, ValueError):
-        raw = b""
-    if len(raw) != RECOVERY_BYTES:
+    """The key a recovery code opens. Case, spaces and dashes don't matter, and 0, 1 and 8 read as O, I and B."""
+    text = "".join(code.split()).replace("-", "").upper().translate(RECOVERY_LOOKALIKES)
+    if text[:1] != RECOVERY_VERSION and len(text) == 36 and text[:1].isalpha():
+        raise CloudError("that recovery code is from a newer byobot; upgrade byobot")
+    if len(text) != 1 + 32 + RECOVERY_CHECK or text[:1] != RECOVERY_VERSION:
         raise CloudError("that isn't a byobot recovery code")
+    if not hmac.compare_digest(_recovery_check(text[:33]), text[33:]):
+        raise CloudError("that recovery code has a typo; check it against where you kept it")
+    try:
+        raw = base64.b32decode(text[1:33])
+    except (binascii.Error, ValueError):
+        raise CloudError("that isn't a byobot recovery code") from None
     return HKDF(hashes.SHA256(), KEY_BYTES, salt=store_id.encode(), info=RECOVERY_INFO).derive(raw)
 
 

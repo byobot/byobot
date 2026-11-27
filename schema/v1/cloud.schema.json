@@ -120,7 +120,7 @@
       "additionalProperties": false
     },
     "recovery_file": {
-      "description": "keys/<epoch>/recovery.key, plain. The recovery code is 32 base32 characters (20 bytes); its key is HKDF-SHA256 of those bytes, salt store_id, info 'byobot-cloud recovery 1'. The ciphertext holds a JSON object: epoch_key, store_key, keeper_device_id and keeper_private (the keeper's private keys); its associated data is 'byobot-cloud recovery 1', store_id and epoch joined by newlines.",
+      "description": "keys/<epoch>/recovery.key, plain. The recovery code is a version letter ('A'), 32 base32 characters (20 bytes) and the first three base32 characters of SHA-256 over the version and those 32, shown in groups of four; readers ignore case, spaces and dashes and read 0, 1 and 8 as O, I and B. Its key is HKDF-SHA256 of the 20 bytes, salt store_id, info 'byobot-cloud recovery 1'. The ciphertext holds a JSON object: epoch_key, store_key, keeper_device_id and keeper_private (the keeper's private keys); its associated data is 'byobot-cloud recovery 1', store_id and epoch joined by newlines.",
       "type": "object",
       "required": ["format", "store_id", "epoch", "nonce", "ciphertext"],
       "properties": {
