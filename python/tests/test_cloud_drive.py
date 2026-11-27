@@ -243,7 +243,7 @@ def test_a_keeper_killed_mid_epoch_finishes_it_on_its_next_run(fake, tmp_path, s
 
 def test_a_keeper_killed_mid_cleanup_finishes_it_on_its_next_run(fake, tmp_path, store):
     keeper, relay = setup(fake, tmp_path, store)
-    keeper.compact()
+    keeper.start_epoch()
     relay.sync()
     fake.fail("DELETE /drive/v3/files/", "pass", times=2)
     fake.faults.append(("DELETE /drive/v3/files/", "kill"))
@@ -307,7 +307,7 @@ def test_a_listing_behind_another_process_starts_no_extra_epoch(fake, tmp_path, 
     b = Keeper(Store(store.path), folder_on(fake, tmp_path, store.store_id, "b"), Clock())
     b.sync()
     before = set(fake.files)
-    assert a.compact() == 2  # `cloud compact` in another process
+    assert a.start_epoch() == 2  # a new epoch from another process
     fake.lagging = set(fake.files) - before
     assert "reseeded" not in b.sync()
     fake.lagging = set()
@@ -322,7 +322,7 @@ def test_a_file_byobot_never_writes_is_left_alone(fake, tmp_path, store, name):
                              "appProperties": {"byobot_store": store.store_id}, "parents": ["appDataFolder"],
                              "data": b"{}"}
     fake.changes.append("planted")
-    keeper.compact()
+    keeper.start_epoch()
     keeper.sync()
     assert keeper.forget() > 0
 

@@ -183,7 +183,7 @@ def test_a_removal_cut_short_can_be_run_again(store, folder, keeper):
 
 def test_a_device_that_never_comes_back_holds_cleanup_until_removed(store, folder, keeper):
     gone = joined(keeper, folder)
-    keeper.compact()
+    keeper.start_epoch()
     assert keeper.sync()["cleanup_waits_on"] == [PHONE]
     keeper.remove(gone.device_id)
     assert keeper.sync()["cleaned"] > 0 and {p[:9] for p in folder.list() if p.startswith("epochs/")} == {"epochs/00"}
@@ -221,7 +221,7 @@ def test_a_wiped_folder_is_seeded_again_and_relays_send_again(store, folder, kee
 
 def test_a_late_segment_from_a_retired_epoch_is_sent_again(store, folder, keeper):
     relay = joined(keeper, folder)
-    keeper.compact()
+    keeper.start_epoch()
     relay.sync()
     keeper.sync()
     assert keeper.key(1) is None
@@ -246,7 +246,7 @@ def test_recovery_rebuilds_the_store_from_the_folder_alone(store, folder, keeper
     relay.sync()
     commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
     keeper.sync()
-    keeper.compact()
+    keeper.start_epoch()
     keeper.sync()
     wanted = {e["id"] for e in store.events()}
     fresh = Store(tmp_path / "new-mac.db")

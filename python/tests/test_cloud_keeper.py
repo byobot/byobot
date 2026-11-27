@@ -270,7 +270,7 @@ def test_uploads_leave_the_store_free_for_other_writers(store):
     commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "x"}}])
     folder.blocked.clear()
     keeper.sync()
-    keeper.compact()
+    keeper.start_epoch()
     assert folder.blocked == []
 
 
@@ -394,7 +394,7 @@ def test_an_event_read_late_from_a_retired_epoch_stays_in_the_folder(store, tmp_
     sent = event()
     relay.log([sent])
     relay.sync()  # a segment in epoch 1
-    keeper.compact()  # `cloud compact` reads nothing first: the checkpoint of epoch 2 lacks the phone's set
+    keeper.start_epoch()  # a new epoch reads nothing first: the checkpoint of epoch 2 lacks the phone's set
     keeper.sync()  # reads the epoch-1 segment late; the plan's receipt lists it
     relay.sync()  # takes key 2, sees its segment read, forgets the set, writes in epoch 2
     assert relay.epoch == 2 and relay.events == {}
@@ -457,7 +457,7 @@ def test_a_keeper_restored_from_an_older_backup_still_hears_the_phone(store, tmp
     relay = joined(keeper, folder)
     backup(store, tmp_path / "backup.db")  # last night's backup: epoch 1
     for _ in range(2):  # two compactions (or erases) since then; each time the phone moves and epoch n-1 goes
-        keeper.compact()
+        keeper.start_epoch()
         relay.sync()
         keeper.sync()
     assert keeper.epoch == relay.epoch == 3 and keeper.key(1) is None and keeper.key(2) is None
@@ -587,7 +587,7 @@ def test_a_phone_still_moves_after_a_failed_compact_is_run_again(store, monkeypa
 
     monkeypatch.setattr(Keeper, "_write", cut_short)
     with pytest.raises(Killed):
-        keeper.compact()  # `cloud compact`
+        keeper.start_epoch()
     monkeypatch.setattr(Keeper, "_write", real)
     create, calls = folder.create, []
 
@@ -599,7 +599,7 @@ def test_a_phone_still_moves_after_a_failed_compact_is_run_again(store, monkeypa
 
     folder.create = flaky
     with pytest.raises(ByobotError):
-        keeper.compact()  # run again, since it failed; Drive fails once more partway
+        keeper.start_epoch()  # run again, since it failed; Drive fails once more partway
     folder.create = create
     for _ in range(3):
         keeper.sync()
@@ -621,7 +621,7 @@ def test_a_removed_phone_cant_read_what_the_keeper_writes_next(store, monkeypatc
 
     monkeypatch.setattr(Keeper, "_write", cut_short)
     with pytest.raises(Killed):
-        keeper.compact()
+        keeper.start_epoch()
     monkeypatch.setattr(Keeper, "_write", real)
     lost.sync()
     assert lost.epoch == 2
@@ -651,7 +651,7 @@ def test_the_same_after_drive_loses_the_epoch_file_upload_s_answer(store, tmp_pa
     fake.fail("POST /upload", "lost")  # the epoch file lands, its answer is lost, and Drive stays down
     fake.fail("POST /upload", 503, times=drive_module.TRIES - 1)
     with pytest.raises(UpstreamError):
-        keeper.compact()
+        keeper.start_epoch()
     assert any(f["name"].endswith("/epochs/0000000002.json") for f in fake.files.values())
     fake.faults.clear()
     lost.sync()

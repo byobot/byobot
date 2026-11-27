@@ -619,10 +619,6 @@ class Keeper:
             return False
         return True
 
-    def compact(self) -> int:
-        """Rewrite the folder into a new epoch now; the old one is deleted once every device has moved."""
-        return self.start_epoch()
-
     def remove(self, device_id: str) -> int:
         """Retire a device: a new epoch whose key isn't sealed to it. What it already read, it keeps."""
         device = self.device(device_id)

@@ -74,7 +74,7 @@ def test_samples_not_yet_read_are_sent_again_in_a_new_epoch(store, folder, keepe
     relay.sync()
     for p in segments(folder):
         folder.delete(p)
-    keeper.compact()
+    keeper.start_epoch()
     relay.sync()  # moves to epoch 2 with the samples queued again
     keeper.sync()
     assert relay.epoch == 2 and [r["kind"] for r in store.records("source_record")] == ["source_record"]
