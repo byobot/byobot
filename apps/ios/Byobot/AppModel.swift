@@ -114,11 +114,18 @@ final class AppModel: ObservableObject {
             }
             return
         }
+        let link: PairingLink
         do {
-            pendingLink = try PairingLink(link: url.absoluteString)
+            link = try PairingLink(link: url.absoluteString)
         } catch {
             message = "That link isn't a byobot pairing link this version understands."
+            return
         }
+        guard let local = link.localOnly else {
+            message = "That pairing link points outside your network. Pair only with a laptop on your own Wi-Fi."
+            return
+        }
+        pendingLink = local
     }
 
     /// Look at a laptop before pairing by hand: whom it says it is, and the certificate it presents.
