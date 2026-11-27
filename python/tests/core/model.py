@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Any
 
 from .driver import Unsupported
-from .snapshot import canonical, empty, key, occurrence
+from .snapshot import canonical, empty, key, num, occurrence
 
 AUTHORED = ("activity", "location", "plan", "planned_session", "session", "effort")
 NEW_IN = {"meal": 2}  # kinds a newer install writes, by the version that introduced them
@@ -38,6 +38,7 @@ RANK = ("you", "whoop", "apple-health")
 SAME_OCCURRENCE = 0.5  # share of the shorter workout two items must overlap to be one occurrence
 WORKOUT_TYPES = {("whoop", "workout"), ("apple-health", "HKWorkoutTypeIdentifier")}
 UNITS = {"s": 1, "min": 60, "h": 3600, "m": 1, "km": 1000, "mi": 1609.344}
+MASS = {"kg": 1, "g": 0.001, "lb": 0.45359237}
 
 
 class Refused(Exception):
@@ -132,8 +133,18 @@ class ModelReplica:
         ids = [i for i in self.by_record.get(record, ()) if among is None or i in among]
         versions = [self.writes[i] for i in ids
                     if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
-        superseded = set().union(*(v.prior for v in versions)) if versions else set()
-        return sorted((v for v in versions if v.id not in superseded), key=Write.order)
+        return sorted((v for v in versions if v.id not in self._ancestors(versions)), key=Write.order)
+
+    def _ancestors(self, versions: list[Write]) -> set[str]:
+        """Every write the versions were made on top of, however far back, through writes not understood too."""
+        seen: set[str] = set()
+        stack = [p for v in versions for p in v.prior]
+        while stack:
+            i = stack.pop()
+            if i not in seen:
+                seen.add(i)
+                stack.extend(self.writes[i].prior if i in self.writes else ())
+        return seen
 
     def _unread(self, record: str) -> bool:
         versions = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op in ("put", "retract")]
@@ -163,6 +174,9 @@ class ModelReplica:
             w = heads[-1]
             if w.op == "put":
                 out["records"][record] = {"fields": w.content, "by": w.actor, "on": w.replica}
+        out["derived"] = {r: {"local_date": d, "metrics": _standard(self.fields(r).get("metrics", {}))}
+                          for r, d in self.local_dates().items()}
+        out["workouts"] = self.occurrences()
         return out
 
     # -- authoring: the command layer ------------------------------------------
@@ -351,6 +365,16 @@ def _body(w: Write) -> tuple:
 
 def _version(w: Write) -> dict:
     return w.content if w.op == "put" else {"_removed": True}
+
+
+def _standard(metrics: dict) -> dict:
+    """Each metric's value in its code's standard unit, as reads compare it."""
+    out = {}
+    for code, m in metrics.items():
+        if isinstance(m, dict) and isinstance(m.get("value"), (int, float)):
+            unit = m.get("unit")
+            out[code] = num(m["value"] * MASS.get(unit, UNITS.get(unit, 1)))
+    return out
 
 
 def _seconds(measure: dict | None) -> float | None:

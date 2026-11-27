@@ -124,6 +124,17 @@ def test_s1_resolving_while_a_third_edit_is_in_flight_conflicts_again(world):
     converged(world, "phone", "laptop", "tablet")
 
 
+def test_s1_undoing_a_resolve_writes_back_the_newest_version(world):
+    apart(world, "phone", "laptop")
+    world.author("phone", edit(reps=7))
+    world.author("laptop", edit(reps=8))
+    both_ways(world, "phone", "laptop")
+    fixed = world.author("phone", {"intent": "resolve", "record": ["effort", "e1"], "choice": 0})
+    world.author("phone", {"intent": "undo", "change": fixed.id})
+    both_ways(world, "phone", "laptop")
+    converged(world, "phone", "laptop")
+
+
 def test_s1_two_devices_resolving_differently_conflict_and_converge(world):
     apart(world, "phone", "laptop")
     world.author("phone", edit(reps=7))
