@@ -258,7 +258,8 @@ public struct Logbook: Sendable {
 
     /// The latest version of each record of a kind written here, in the order first written. Retracted ones
     /// are left out.
-    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type) -> [Record<P>] {
+    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type,
+                                                                 where keep: (JSONValue) -> Bool = { _ in true }) -> [Record<P>] {
         var order: [String] = []
         var latest: [String: Event] = [:]
         for event in state.events where event.record.kind == kind {
@@ -266,7 +267,8 @@ public struct Logbook: Sendable {
             latest[event.record.id] = event
         }
         return order.compactMap { id in
-            latest[id]?.decoded(P.self).map { Record(id: id, payload: $0, prev: prev(kind, id)) }
+            guard let event = latest[id], keep(event.payload) else { return nil }
+            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: prev(kind, id)) }
         }
     }
 

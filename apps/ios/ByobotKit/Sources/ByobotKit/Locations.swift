@@ -84,7 +84,7 @@ extension Logbook {
     /// marked as elsewhere.
     public func lastTime(_ activityId: String, excludingSession sessionId: String? = nil,
                          at place: String?) -> LastTime {
-        let mine = allEfforts.filter { $0.activityId == activityId && ($0.sessionId == nil || $0.sessionId != sessionId) }
+        let mine = efforts(of: activityId).filter { $0.sessionId == nil || $0.sessionId != sessionId }
         guard let here = place, mine.contains(where: { $0.metrics?["load"] != nil }) else {
             return LastTime(efforts: Self.latestOccasion(mine), locationId: nil, elsewhere: false)
         }
