@@ -112,6 +112,14 @@ def test_a_deletion_that_comes_before_its_sample_keeps_it_from_ever_showing(stor
     assert seen(store, "body_mass") == []
 
 
+def test_a_sample_keeps_its_origin_app_and_drops_fields_it_doesnt_know(store):
+    sample = {"source": "apple_health", "source_id": "h2", "type": "HKQuantityTypeIdentifierBodyMass",
+              "start": "2026-03-02T07:00:00Z", "value": 80.1, "unit": "kg", "origin_app": "com.example.scale"}
+    [put] = sources.ingest_samples(store, [sample])["apple_health"]
+    assert put["payload"]["raw"]["origin_app"] == "com.example.scale"
+    assert sources.ingest_samples(store, [{**sample, "from_a_newer_phone": 1}]) == {"apple_health": []}
+
+
 def test_sources_fill_each_others_gaps_and_the_better_one_wins(store):
     sources.ingest(store, "apple_health", [("workout", "h1", health())])
     sources.ingest(store, "whoop", [("workout", "w1", workout())])
