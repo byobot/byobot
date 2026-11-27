@@ -36,12 +36,12 @@ final class CloudRouteTests: XCTestCase {
         let folder = MemoryCloudFolder(), kept = Kept()
         let route = try await makeRoute(k, folder, kept)
         _ = try await route.sync(pending: [], samples: [CloudRelayTests.weighed("W1")])
-        var unread = await route.unread
-        XCTAssertEqual(unread, ["W1"])
+        var relay = await route.relay
+        XCTAssertEqual(relay.leftovers.samples.map(\.sourceId), ["W1"])
         try await k.publish(folder, read: [1])
         _ = try await route.sync(pending: [])
-        unread = await route.unread
-        XCTAssertEqual(unread, [])
+        relay = await route.relay
+        XCTAssertEqual(relay.leftovers.samples, [])
     }
 
     func testTheLogbookDropsWhatTheMacRead() {

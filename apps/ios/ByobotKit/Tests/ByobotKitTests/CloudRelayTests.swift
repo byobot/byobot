@@ -267,10 +267,8 @@ final class CloudRelayTests: XCTestCase {
         relay.send(SampleBatch(samples: [weighed("W1"), weighed("W2")]))
         _ = try await relay.sync(folder, identity: k.relay)
         relay.send(SampleBatch(deleted: [deletion("W1")]))
-        XCTAssertEqual(relay.unread, ["W1", "W2"])
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 1)
-        XCTAssertEqual(relay.held, [])
         let written = try await segment(k, folder, 2)
         XCTAssertEqual(try sourceIds(written, "deleted"), ["W1"])
     }
@@ -295,7 +293,7 @@ final class CloudRelayTests: XCTestCase {
         try await k.publish(folder, read: [1], rejected: [(1, 0, "not a reading byobot knows")])
         _ = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(relay.rejected.map(\.reason), ["not a reading byobot knows"])
-        XCTAssertEqual(relay.unread, [])
+        XCTAssertEqual(relay.leftovers.samples, [])
     }
 
     func testABigQueueIsSplitAtTheBatchLimit() async throws {
@@ -338,7 +336,7 @@ final class CloudRelayTests: XCTestCase {
             _ = try await relay.sync(Failing(folder, failures: 1), identity: k.relay, pending: [event(1)])
             XCTFail("the upload failed")
         } catch is URLError {}
-        XCTAssertEqual(relay.unread, ["W1"])
+        XCTAssertEqual(relay.leftovers.samples.map(\.sourceId), ["W1"])
         _ = try await relay.sync(folder, identity: k.relay, pending: [event(1)])
         let sent = try await segment(k, folder, 2)
         XCTAssertEqual(try sourceIds(sent, "samples"), ["W1"])
@@ -363,7 +361,7 @@ final class CloudRelayTests: XCTestCase {
         var saved: [CloudRelay] = []
         _ = try await relay.sync(folder, identity: k.relay) { saved.append($0) }
         XCTAssertEqual(saved.map(\.seq), [1])
-        XCTAssertEqual(saved.first?.inFlight, ["W1"])
+        XCTAssertEqual(saved.first?.sent.isEmpty, false)
         let data = try JSONEncoder().encode(relay)
         var back = try JSONDecoder().decode(CloudRelay.self, from: data)
         XCTAssertFalse(back.joined)

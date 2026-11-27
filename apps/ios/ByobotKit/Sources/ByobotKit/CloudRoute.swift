@@ -28,9 +28,6 @@ public actor CloudRoute {
         self.save = save
     }
 
-    /// Source ids of samples the Mac hasn't read yet. A deletion of one of these goes this way, never by the laptop.
-    public var unread: Set<String> { relay.unread }
-
     /// Hands the relay the Apple Health readings, syncs once with the logbook's waiting events and says what the
     /// Mac has taken.
     public func sync(pending: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws -> Result {
@@ -75,8 +72,6 @@ public final class DriveRoute: SyncRoute {
         self.route = route
         self.isCurrent = isCurrent
     }
-
-    public func unread() async -> Set<String> { await route.unread }
 
     public func sync(_ book: any SyncBook, health: SampleBatch, takePlan: Bool) async -> RouteOutcome {
         var outcome = RouteOutcome()
