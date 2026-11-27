@@ -59,7 +59,7 @@ def build() -> dict:
             "settings": [], "plans": [], "planned_sessions": [], "overlays": [], "sessions": [], "efforts": [],
             "store_id": STORE, "hlc": "1795131000000-000001", "removed": [], "erased": [],
             "kind_versions": {"effort": 1}, "received": {RELAY: "1795131000000-000000"}, "rejected": []}
-    relay_messages = [{"events": {"events": [event], "kinds": {"effort": 1}}}, {"samples": samples}]
+    relay_messages = [{"events": {"events": [event], "kind_versions": {"effort": 1}}}, {"samples": samples}]
     seg_path = segment.name("segment", 1, 1, RELAY)
     seg = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))
     plan_path = segment.name("plan", 1, 2)

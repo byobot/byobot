@@ -120,6 +120,9 @@ class Contract:
         known = self.registry["kinds"].get(kind)
         return known and known["version"]
 
+    def kind_versions(self) -> dict[str, int]:
+        return {k: v["version"] for k, v in self.registry["kinds"].items()}
+
     def namespace(self, name: str) -> uuid.UUID:
         return uuid.UUID(self.registry["namespaces"][name])
 

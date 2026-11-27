@@ -43,7 +43,7 @@ class Relay:
     plan: dict | None = None
     receipts: dict = field(default_factory=dict)
     plan_path: str | None = None
-    kinds: dict = field(default_factory=dict)
+    kind_versions: dict = field(default_factory=dict)
     removed: bool = False
 
     @classmethod
@@ -219,7 +219,7 @@ class Relay:
         written = 0
         while todo or self.samples or force:
             batch, todo = todo[:MAX_BATCH], todo[MAX_BATCH:]
-            messages = [{"events": {"events": batch, **({"kinds": self.kinds} if self.kinds else {})}}] \
+            messages = [{"events": {"events": batch, **({"kind_versions": self.kind_versions} if self.kind_versions else {})}}] \
                 if batch else []
             room = MAX_BATCH - len(batch)
             batches = []

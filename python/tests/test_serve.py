@@ -351,7 +351,7 @@ def test_hello_needs_no_token_and_names_the_store(server, byobot_home):
     assert status == 200 and body["pairing_open"] is True and body["server"]["device_id"] == info["device_id"]
     with db(byobot_home) as s:
         assert body["server"]["store_id"] == s.store_id
-    assert sync_errors("hello", body) == [] and body["kinds"]["effort"] == 1
+    assert sync_errors("hello", body) == [] and body["kind_versions"]["effort"] == 1
     assert client.call("GET", "/v0/hello")[0] == 404  # an app on the old protocol is told nothing it would misread
 
 
@@ -476,8 +476,8 @@ def test_push_rejects_bad_requests(server):
     _pair(client, info)
     assert client.call("POST", "/v1/events", {"nope": []})[0] == 400
     assert client.call("POST", "/v1/events", {"events": [1]})[1]["results"][0]["status"] == "rejected"
-    assert client.call("POST", "/v1/events", {"events": [], "kinds": {"effort": 0}})[0] == 400
-    assert client.call("POST", "/v1/events", {"events": [], "kinds": {"effort": 2}})[0] == 200
+    assert client.call("POST", "/v1/events", {"events": [], "kind_versions": {"effort": 0}})[0] == 400
+    assert client.call("POST", "/v1/events", {"events": [], "kind_versions": {"effort": 2}})[0] == 200
     assert client.call("GET", "/v1/nowhere")[0] == 404
 
 

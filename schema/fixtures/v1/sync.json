@@ -16,7 +16,7 @@
           "name": "example-laptop"
         },
         "pairing_open": true,
-        "kinds": {
+        "kind_versions": {
           "activity": 1,
           "effort": 1,
           "session": 1
@@ -37,7 +37,7 @@
           "name": "example-laptop"
         },
         "pairing_open": true,
-        "kinds": {
+        "kind_versions": {
           "effort": 0
         }
       }
@@ -958,7 +958,7 @@
             }
           }
         ],
-        "kinds": {
+        "kind_versions": {
           "effort": 1,
           "session": 1
         }

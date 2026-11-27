@@ -180,7 +180,7 @@ class Generator:
                 return "Metrics", False
             if (rfile, rdef) == ("common", "measure"):
                 return "Measure", False
-            if (rfile, rdef) == ("sync", "kinds"):
+            if (rfile, rdef) == ("sync", "kind_versions"):
                 return "[String: Int]", False
             if (rfile, rdef) not in TYPES:
                 raise ValueError(f"no Swift type for {rfile}#{rdef}")

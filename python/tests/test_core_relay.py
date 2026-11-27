@@ -44,7 +44,7 @@ def test_a_push_is_counted_and_retrying_it_is_harmless(store):
 
 
 @pytest.mark.parametrize("body", [None, {}, {"events": {}}, {"events": [event()] * (relay.MAX_BATCH + 1)},
-                                  {"events": [], "kinds": {"effort": 0}}])
+                                  {"events": [], "kind_versions": {"effort": 0}}])
 def test_a_malformed_push_writes_nothing(store, body):
     with pytest.raises(ValidationFailed):
         relay.push_events(store, PHONE, body)

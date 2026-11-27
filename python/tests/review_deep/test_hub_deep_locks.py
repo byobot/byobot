@@ -66,7 +66,7 @@ def test_a_push_while_another_process_writes_gets_an_answer(running, byobot_home
     try:
         status, body = _while_another_process_writes(
             byobot_home / "byobot.db",
-            lambda: client.call("POST", "/v1/events", {"events": events, "kinds": {}}, timeout=20))
+            lambda: client.call("POST", "/v1/events", {"events": events, "kind_versions": {}}, timeout=20))
     except ConnectionError as exc:
         pytest.fail(f"the push got no HTTP answer while another process wrote: {exc}")
     assert status in (200, 503), body

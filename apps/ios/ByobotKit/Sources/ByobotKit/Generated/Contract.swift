@@ -842,15 +842,15 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
     public var server: SyncServer
     public var pairingOpen: Bool
     /// The server's kind versions.
-    public var kinds: [String: Int]?
+    public var kindVersions: [String: Int]?
 
-    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kinds: [String: Int]? = nil) {
+    public init(byobot: String, `protocol`: Int, schemaVersion: Int, server: SyncServer, pairingOpen: Bool, kindVersions: [String: Int]? = nil) {
         self.byobot = byobot
         self.protocol = `protocol`
         self.schemaVersion = schemaVersion
         self.server = server
         self.pairingOpen = pairingOpen
-        self.kinds = kinds
+        self.kindVersions = kindVersions
     }
 
     enum CodingKeys: String, CodingKey {
@@ -859,7 +859,7 @@ public struct SyncHello: Codable, Equatable, Hashable, Sendable {
         case schemaVersion = "schema_version"
         case server
         case pairingOpen = "pairing_open"
-        case kinds
+        case kindVersions = "kind_versions"
     }
 }
 
@@ -930,16 +930,16 @@ public struct SyncStatus: Codable, Equatable, Hashable, Sendable {
 public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     public var events: [Event]
     /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.
-    public var kinds: [String: Int]?
+    public var kindVersions: [String: Int]?
 
-    public init(events: [Event], kinds: [String: Int]? = nil) {
+    public init(events: [Event], kindVersions: [String: Int]? = nil) {
         self.events = events
-        self.kinds = kinds
+        self.kindVersions = kindVersions
     }
 
     enum CodingKeys: String, CodingKey {
         case events
-        case kinds
+        case kindVersions = "kind_versions"
     }
 }
 

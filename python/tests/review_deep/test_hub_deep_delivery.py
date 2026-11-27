@@ -55,7 +55,7 @@ def test_a_refusal_before_a_failure_mid_push_is_still_reported(running, byobot_h
 
     monkeypatch.setattr(Store, "accept", accept)
     pushed = [refused, kept, cut]
-    no_answer(lambda: client.call("POST", "/v1/events", {"events": pushed, "kinds": {}}))
+    no_answer(lambda: client.call("POST", "/v1/events", {"events": pushed, "kind_versions": {}}))
     monkeypatch.setattr(Store, "accept", real)
 
     status, window = client.call("GET", "/v1/plan")
@@ -81,7 +81,7 @@ def test_a_push_that_fails_part_way_still_answers(running, monkeypatch):
 
     monkeypatch.setattr(Store, "accept", accept)
     try:
-        status, body = client.call("POST", "/v1/events", {"events": [first, second], "kinds": {}})
+        status, body = client.call("POST", "/v1/events", {"events": [first, second], "kind_versions": {}})
     except ConnectionError as exc:
         pytest.fail(f"the push got no HTTP answer: {exc}")
     assert status in (200, 503), body

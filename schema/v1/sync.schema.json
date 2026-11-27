@@ -75,7 +75,7 @@
         "details": {}
       }
     },
-    "kinds": {
+    "kind_versions": {
       "type": "object",
       "description": "The newest version of each kind a side knows, by kind.",
       "propertyNames": {
@@ -114,8 +114,8 @@
         "pairing_open": {
           "type": "boolean"
         },
-        "kinds": {
-          "$ref": "#/$defs/kinds",
+        "kind_versions": {
+          "$ref": "#/$defs/kind_versions",
           "description": "The server's kind versions."
         }
       }
@@ -325,7 +325,7 @@
       }
     },
     "plan_window": {
-      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev. A hub older than `store_id`, `hlc`, `erased`, `kind_versions`, `received` and `rejected` sends none of them, and the app then skips what they drive.",
+      "description": "GET /v1/plan?from=YYYY-MM-DD&to=YYYY-MM-DD (both optional; by default yesterday through 13 days ahead). Everything the app needs to run the sessions scheduled in the window, each record with the versions a change to it names as prev.",
       "type": "object",
       "required": [
         "from",
@@ -425,7 +425,7 @@
           "description": "Erased records, but source records. The app drops what it holds of them."
         },
         "kind_versions": {
-          "$ref": "#/$defs/kinds",
+          "$ref": "#/$defs/kind_versions",
           "description": "The hub's kind versions."
         },
         "received": {
@@ -436,14 +436,14 @@
           "additionalProperties": {
             "$ref": "common.schema.json#/$defs/hlc"
           },
-          "description": "By device id, the clock reading of the latest of its events the hub holds; the asking device's only. The app sends again what it wrote after it, so a hub restored from an older backup ends complete. It shows what was lost only until the device pushes something newer, so a device reads the plan before it pushes. A device the hub holds nothing from is absent."
+          "description": "By device id, the clock reading of the latest of its events the hub holds: on the hub, the asking device's only; through the cloud folder, every relay's. The app sends again what it wrote after it, so a hub restored from an older backup ends complete. It shows what was lost only until the device pushes something newer, so a device reads the plan before it pushes. A device the hub holds nothing from is absent."
         },
         "rejected": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/rejection"
           },
-          "description": "The asking device's events the hub refused, newest first."
+          "description": "Events the hub rejected, newest first, for the same devices as `received`."
         }
       }
     },
@@ -461,8 +461,8 @@
             "$ref": "event.schema.json"
           }
         },
-        "kinds": {
-          "$ref": "#/$defs/kinds",
+        "kind_versions": {
+          "$ref": "#/$defs/kind_versions",
           "description": "The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know."
         }
       },

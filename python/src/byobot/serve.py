@@ -556,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
         server = self._server_info() if open_ else {**self._server_info(), "name": "byobot"}  # the name is often a person's
         return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": SCHEMA_VERSION,
                 "server": server, "pairing_open": open_,
-                "kinds": {k: v["version"] for k, v in Contract.shipped().registry["kinds"].items()}}
+                "kind_versions": Contract.shipped().kind_versions()}
 
     def pair(self) -> dict:
         body = self._body(MAX_PAIR_BODY)

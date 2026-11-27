@@ -390,7 +390,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             let batch = Array(todo.prefix(Self.maxBatch))
             var messages: [JSONValue] = []
             if !batch.isEmpty {
-                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
+                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kindVersions: KindVersion.all))]))
             }
             var room = Self.maxBatch - batch.count
             var batches: [SampleBatch] = []

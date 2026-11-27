@@ -178,7 +178,7 @@ final class CloudRelayTests: XCTestCase {
         guard case .object(let body)? = try await segment(k, folder, 1)?.first?["events"],
               case .array(let events)? = body["events"] else { return XCTFail("no events message") }
         XCTAssertEqual(try events.map { try Payloads.decode(Event.self, $0).id }, [event(1).id, event(2).id])
-        XCTAssertNotNil(body["kinds"])
+        XCTAssertNotNil(body["kind_versions"])
         report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.written, 0)  // still unread, not sent again
         var delivered = relay.takeDelivered()
