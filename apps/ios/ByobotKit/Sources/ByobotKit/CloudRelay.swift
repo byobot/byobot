@@ -3,7 +3,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import CryptoKit
 import Foundation
 
@@ -475,4 +474,3 @@ public actor MemoryCloudFolder: CloudFolder {
 
     public func put(_ path: String, _ data: Data) { files[path] = data }
 }
-#endif

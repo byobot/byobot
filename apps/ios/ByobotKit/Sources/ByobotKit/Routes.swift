@@ -2,7 +2,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 
 /// Where the app keeps its logbook: a sync reads it and changes it through here, and each change is saved.
@@ -133,4 +132,3 @@ public final class HubRoute: SyncRoute {
         }
     }
 }
-#endif

@@ -2,7 +2,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 
 public actor CloudRoute {
@@ -101,4 +100,3 @@ public final class DriveRoute: SyncRoute {
         return outcome
     }
 }
-#endif

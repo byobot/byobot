@@ -4,12 +4,8 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import CryptoKit
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 public enum DriveError: Error, Equatable, LocalizedError {
     /// Signed out of Drive, or never signed in: sign in again.
@@ -484,4 +480,3 @@ public actor DriveFolder: CloudFolder {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
-#endif

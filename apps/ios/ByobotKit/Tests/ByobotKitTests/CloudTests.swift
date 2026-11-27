@@ -1,4 +1,3 @@
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 import XCTest
 @testable import ByobotKit
@@ -143,4 +142,3 @@ final class CloudTests: XCTestCase {
         XCTAssertThrowsError(try Cloud.gunzip(packed.dropLast(20)))
     }
 }
-#endif

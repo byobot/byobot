@@ -1,4 +1,3 @@
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 import XCTest
 @testable import ByobotKit
@@ -229,4 +228,3 @@ final class RouteTests: XCTestCase {
         XCTAssertEqual(book.changes, 0)
     }
 }
-#endif

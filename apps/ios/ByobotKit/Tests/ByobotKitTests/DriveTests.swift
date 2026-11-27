@@ -1,4 +1,3 @@
-#if canImport(CryptoKit) && canImport(Compression)
 import CryptoKit
 import Foundation
 import XCTest
@@ -431,4 +430,3 @@ final class DriveTests: XCTestCase {
         } catch DriveError.upstream {}
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 import XCTest
 @testable import ByobotKit
@@ -377,4 +376,3 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertEqual(back.epochKey, relay.epochKey)
     }
 }
-#endif
