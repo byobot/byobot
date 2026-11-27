@@ -334,6 +334,9 @@ class Handler(serve.Handler):
 
     def _guard(self, fn: Callable[[], None]) -> None:
         try:
+            origin = self.headers.get("Origin")
+            if origin is not None and origin.rstrip("/").lower() != self.server.base.lower():  # DNS rebinding
+                raise serve.HTTPError(HTTPStatus.FORBIDDEN, "forbidden", "requests from other sites' pages are refused")
             fn()
         except OAuthError as exc:
             self._oauth_fail(exc)
