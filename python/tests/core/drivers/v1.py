@@ -173,8 +173,12 @@ class V1:
                 return [commands.edit(store, actor, kind, rid, {})]  # raises NotFound
             current = self.from_v1(kind, rid, found["payload"])
             wanted = {k: v for k, v in {**current, **intent["fields"]}.items() if v is not None}
-            if kind == "planned_session":
+            if kind == "planned_session":  # parts keep the ids the store gave them
                 wanted["_id"] = rid
+                stored = {_unmint(x["id"], f"{rid}.", intent_id): x["id"] for b in found["payload"]["blocks"]
+                          for x in (b, *b["efforts"])}
+                wanted["blocks"] = [{**b, "id": stored.get(b["id"], b["id"]), "efforts": [
+                    {**e, "id": stored.get(e["id"], e["id"])} for e in b["efforts"]]} for b in wanted["blocks"]]
             return [commands.edit(store, actor, kind, rid, _diff(found["payload"], self.to_v1(kind, wanted)))]
         if name == "remove":
             kind, intent_id = intent["record"]
@@ -331,7 +335,7 @@ class V1:
         rep.store.restore(log)
         prefix = name.encode().ljust(10, b"\0")
         ours = [uuid.UUID(e["id"]).bytes for e in rep.store.events() if uuid.UUID(e["id"]).bytes[:10] == prefix]
-        rep.counter[0] = max((int.from_bytes(b[10:], "big") for b in ours), default=0)  # the same device, restored
+        rep.counter[0] = max((int.from_bytes(b[10:], "big") for b in ours if not b[10] & 0x80), default=0)  # the same device, restored
         return rep
 
     def upgrade(self, rep: Replica, version: int) -> None:
@@ -342,7 +346,9 @@ class V1:
     def newer(self, events: list[dict], variant: str) -> list[dict]:
         out = []
         for e in events:
-            e = {**e, "id": str(uuid.uuid5(NAMESPACE, f"{variant}:{e['id']}"))}
+            b = uuid.UUID(e["id"]).bytes  # same device, sorting after the original as the model's copy does
+            mark = (1 << 47) | (("unknown_kind", "newer_version", "extra_field").index(variant) << 44)
+            e = {**e, "id": str(uuid.UUID(bytes=b[:10] + (mark | int.from_bytes(b[10:], "big")).to_bytes(6, "big")))}
             if e["op"] == "put":
                 e["kind_version"] = 2
             if variant == "unknown_kind":
