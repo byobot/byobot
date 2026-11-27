@@ -168,6 +168,40 @@ public enum HealthMapping {
                       unit: spec.units.first, raw: .object(raw))
     }
 
+    /// What to send from a read of each day's totals since `since`. `sent` holds each day sent before, by source
+    /// id, with the offset its day started at; the map that comes back is the one to keep once these are delivered.
+    /// A day sent in another offset (you were away) is left as it was, since this read puts other hours on it. A
+    /// day sent in this offset that has no total now is deleted.
+    public static func days(_ totals: [DailyTotal], since: Date, sent: [String: Int], readAt: Date,
+                            calendar: Calendar = .contract) -> (samples: [Sample], deleted: [Deletion], sent: [String: Int]) {
+        let first = LocalDate.string(since, calendar: calendar)
+        var kept = sent.filter { (dayOf($0.key) ?? "") >= first }
+        var samples: [Sample] = [], read = Set<String>()
+        for total in totals {
+            guard let day = Self.sample(total, readAt: readAt, calendar: calendar) else { continue }
+            read.insert(day.sourceId)
+            let offset = calendar.timeZone.secondsFromGMT(for: total.start)
+            if let was = kept[day.sourceId], was != offset { continue }
+            kept[day.sourceId] = offset
+            samples.append(day)
+        }
+        var deleted: [Deletion] = []
+        for (key, offset) in kept.sorted(by: { $0.key < $1.key }) where !read.contains(key) {
+            guard let day = dayOf(key), let noon = LocalDate.date(day, calendar: calendar),
+                  calendar.timeZone.secondsFromGMT(for: calendar.startOfDay(for: noon)) == offset else { continue }
+            let type = String(key.dropFirst("daily:".count).dropLast(day.count + 1))
+            deleted.append(Deletion(source: source, sourceId: key, type: type))
+            kept[key] = nil
+        }
+        return (samples, deleted, kept)
+    }
+
+    /// The date in a daily total's source id.
+    static func dayOf(_ key: String) -> String? {
+        guard key.hasPrefix("daily:"), let colon = key.lastIndex(of: ":") else { return nil }
+        let day = String(key[key.index(after: colon)...])
+        return day.count == 10 ? day : nil
+    }
 
     /// A sample HealthKit says was deleted.
     public static func deletion(_ uuid: UUID, type: String) -> Deletion {

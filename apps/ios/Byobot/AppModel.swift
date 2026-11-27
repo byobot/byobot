@@ -330,6 +330,7 @@ final class AppModel: ObservableObject, SyncBook {
             if carrying { CloudSetup.keepCarry(SampleBatch()) }
             if let read {
                 UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
+                UserDefaults.standard.set(read.days, forKey: "healthDays")
                 UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
                 change { $0.state.lastHealthSyncAt = Timestamp.now() }
             }
@@ -346,6 +347,8 @@ final class AppModel: ObservableObject, SyncBook {
         var samples: [Sample]
         var deleted: [Deletion]
         var anchors: [String: Data]
+        /// Each daily total sent, with the offset its day started at.
+        var days: [String: Int]
     }
 
     private func readHealth() async throws -> HealthRead? {
@@ -361,10 +364,12 @@ final class AppModel: ObservableObject, SyncBook {
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0, readAt: now) }
-        return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days,
-                          deleted: changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) },
-                          anchors: changes.anchors)
+        let sent = current ? (UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]) : [:]
+        let totals = try await health.dailyTotals(since: from)
+        let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
+        return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
+                          deleted: changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) } + days.deleted,
+                          anchors: changes.anchors, days: days.sent)
     }
 
     func enableHealth() async {

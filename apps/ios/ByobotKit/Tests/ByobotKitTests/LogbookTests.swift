@@ -768,4 +768,37 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertTrue(sample.end?.hasSuffix("+09:00") == true)
         XCTAssertEqual(try XCTUnwrap(Timestamp.date(sample.start)).timeIntervalSince1970, 1_795_000_000, accuracy: 0.001)
     }
+
+    func testATripsDailyTotalsStayAsSentAndADayThatFallsAwayIsDeleted() throws {
+        var home = Calendar(identifier: .gregorian), away = Calendar(identifier: .gregorian)
+        home.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        away.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let steps = "HKQuantityTypeIdentifierStepCount", cycling = "HKQuantityTypeIdentifierDistanceCycling"
+        func total(_ type: String, _ day: Int, _ calendar: Calendar, _ value: Double) throws -> DailyTotal {
+            let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: day)))
+            return DailyTotal(type: type, start: start, end: try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start)),
+                              value: value)
+        }
+        let since = try total(steps, 10, away, 1).start
+        var read = HealthMapping.days([try total(steps, 10, away, 9000), try total(cycling, 11, away, 20_000)],
+                                      since: since, sent: [:], readAt: since + 2 * 86_400, calendar: away)
+        XCTAssertEqual(read.samples.map(\.sourceId), ["daily:\(steps):2026-11-10", "daily:\(cycling):2026-11-11"])
+        XCTAssertEqual(read.deleted, [])
+
+        // Home again: the trip's days, read with home midnights, stay as they were sent.
+        read = HealthMapping.days([try total(steps, 10, home, 7000), try total(steps, 12, home, 5000)],
+                                  since: since, sent: read.sent, readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.samples.map(\.sourceId), ["daily:\(steps):2026-11-12"])
+        XCTAssertEqual(read.deleted, [], "nor is a trip day with nothing now deleted")
+
+        // A day sent at home whose total fell away is deleted, once.
+        read = HealthMapping.days([try total(steps, 12, home, 0)], since: since, sent: read.sent,
+                                  readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.samples, [])
+        XCTAssertEqual(read.deleted, [Deletion(source: "apple_health", sourceId: "daily:\(steps):2026-11-12", type: steps)])
+        XCTAssertNil(read.sent["daily:\(steps):2026-11-12"])
+        XCTAssertNotNil(read.sent["daily:\(steps):2026-11-10"])
+        read = HealthMapping.days([], since: since, sent: read.sent, readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.deleted, [])
+    }
 }
