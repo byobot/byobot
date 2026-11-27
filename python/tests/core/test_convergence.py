@@ -15,17 +15,22 @@ from .snapshot import diff, equal
 REPLICAS = ("laptop", "phone", "tablet")
 IDS = ("e1", "e2")
 
+edit = st.tuples(st.just("edit"), st.integers(0, 2), st.sampled_from(IDS), st.integers(1, 9))
+sync = st.tuples(st.just("sync"), st.integers(0, 2), st.integers(0, 2))
 step = st.one_of(
     st.tuples(st.just("log"), st.integers(0, 2), st.sampled_from(IDS), st.integers(1, 9)),
-    st.tuples(st.just("edit"), st.integers(0, 2), st.sampled_from(IDS), st.integers(1, 9)),
+    edit, edit, edit,
     st.tuples(st.just("undo"), st.integers(0, 2), st.integers(0, 50)),
     st.tuples(st.just("remove"), st.integers(0, 2), st.sampled_from(IDS)),
-    st.tuples(st.just("sync"), st.integers(0, 2), st.integers(0, 2)),
+    sync, sync,
     st.tuples(st.just("skew"), st.integers(0, 2), st.integers(-48, 48)),
 )
 programs = st.lists(step, min_size=1, max_size=14)
-resolve = st.tuples(st.just("resolve"), st.integers(0, 2), st.sampled_from(IDS), st.integers(0, 3))
-with_resolves = st.lists(st.one_of(step, resolve, resolve), min_size=1, max_size=16)
+# Resolve whatever the replica shows in conflict; undo its own last change, a resolve included; erase.
+resolve = st.tuples(st.just("resolve"), st.integers(0, 2), st.integers(0, 9), st.integers(0, 3))
+undo_last = st.tuples(st.just("undo_last"), st.integers(0, 2))
+erase = st.tuples(st.just("erase"), st.integers(0, 2), st.sampled_from(IDS))
+with_resolves = st.lists(st.one_of(step, resolve, resolve, undo_last, erase), min_size=1, max_size=20)
 
 # An undo synced before the event it undoes.
 UNDO_FIRST = [("log", 0, "e1", 5), ("sync", 0, 1), ("edit", 1, "e1", 9), ("undo", 1, 1), ("sync", 1, 2)]
@@ -45,10 +50,13 @@ def effort(rid: str, reps: int) -> dict:
             "metrics": {"reps": {"value": reps}}}
 
 
-def run(world: World, program: list) -> None:
+def run(world: World, program: list, seeded: bool = False) -> None:
     for name in REPLICAS:
         world.replica(name)
     world.author("laptop", {"intent": "define_activity", "record": {"id": "x.row", "name": "Row"}})
+    if seeded:  # every set already logged and synced, so edits race from the start
+        for rid in IDS:
+            world.author("laptop", {"intent": "log_effort", "record": effort(rid, 5)})
     for name in REPLICAS[1:]:
         world.sync("laptop", name)
     for op, r, *args in program:
@@ -69,16 +77,26 @@ def run(world: World, program: list) -> None:
         elif op == "sync":
             world.sync(name, REPLICAS[args[0]])
         elif op == "resolve":
-            versions = world.expected(name)["conflicts"].get(f"effort/{args[0]}", [])
+            shown = world.expected(name)["conflicts"]
+            target = args[0] if args[0] in IDS else sorted(shown)[args[0] % len(shown)].split("/")[1] if shown else None
+            versions = shown.get(f"effort/{target}", [])
             if versions:
                 choice = "remove" if args[1] == len(versions) or args[1] > 2 else args[1] % len(versions)
-                world.author(name, {"intent": "resolve", "record": ["effort", args[0]], "choice": choice})
+                world.author(name, {"intent": "resolve", "record": ["effort", target], "choice": choice})
+        elif op == "undo_last":
+            own = [c for c in world.ordered(world.replicas[name].held) if c.replica == name and c.events
+                   and c.writes and all(w.kind == "effort" for w in c.writes)]
+            if own:
+                world.author(name, {"intent": "undo", "change": own[-1].id})
+        elif op == "erase":
+            world.author(name, {"intent": "erase", "record": ["effort", args[0]]})
         elif op == "skew":
             world.clock(name).skew = timedelta(hours=args[0])
 
 
-def settle(world: World, seed: int) -> list:
-    """Deliver everything everywhere, each replica in its own random order and batches."""
+def settle(world: World, seed: int, check: bool = False) -> list:
+    """Deliver everything everywhere, each replica in its own random order and batches; `check` compares each
+    replica with the model after every batch."""
     rng = random.Random(seed)
     every = world.ordered(set(world.changes))
     outcomes = []
@@ -89,16 +107,19 @@ def settle(world: World, seed: int) -> list:
             n = rng.randint(1, len(todo))
             outcomes += world.deliver(name, todo[:n])
             todo = todo[n:]
+            if check:
+                got, want = world.snapshot(name), world.expected(name)
+                assert equal(got, want), diff(got, want)
     return outcomes
 
 
 @contextmanager
-def history(driver: str, program: list, seed: int):
+def history(driver: str, program: list, seed: int, seeded: bool = False, check: bool = False):
     with tempfile.TemporaryDirectory() as directory:
         world = World(DRIVERS[driver](), directory)
         try:
-            run(world, program)
-            yield world, settle(world, seed)
+            run(world, program, seeded)
+            yield world, settle(world, seed, check)
         finally:
             world.close()
 
@@ -152,7 +173,7 @@ def test_i5_delivery_is_total_and_idempotent(driver, program, seed):
 @given(program=with_resolves, seed=st.integers(0, 2**16))
 @example(program=APART + [("sync", 0, 1), ("sync", 1, 0), ("resolve", 0, "e1", 1), ("resolve", 1, "e1", 0)], seed=1)
 def test_i17_resolutions_converge_and_match_the_reference_model(driver, program, seed):
-    with history(driver, program, seed) as (world, outcomes):
+    with history(driver, program, seed, seeded=True, check=True) as (world, outcomes):
         assert [o for o in outcomes if o[0] == "rejected"] == []
         for name in REPLICAS:
             got, want = world.snapshot(name), world.expected(name)
