@@ -26,7 +26,8 @@ def test_an_impossible_date_is_refused_not_kept_out_of_every_read(tmp_path, kind
                 p["time"] = {"start": start}
                 [e] = commands.log(s, ME, [{"kind": "session", "payload": p}])
             else:
-                e = commands.observe(s, ME, "body_mass", 80, "kg", start=start)
+                payload = {"code": "body_mass", "value": 80, "unit": "kg", "time": {"start": start}}
+                [e] = commands.log(s, ME, [{"kind": "observation", "payload": payload}])
         except ValidationFailed:
             return
         table = {"session": "sessions", "observation": "observations"}[kind]

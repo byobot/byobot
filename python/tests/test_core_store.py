@@ -30,6 +30,11 @@ def effort(reps=5):
             "metrics": {"reps": {"value": reps}}}
 
 
+def observation(code, value, start, unit=None):
+    payload = {"code": code, "value": value, "unit": unit, "time": {"start": start}, "modality": "self_reported"}
+    return {"kind": "observation", "payload": {k: v for k, v in payload.items() if v is not None}}
+
+
 @pytest.fixture
 def pair(tmp_path):
     a = Store(tmp_path / "a.db", device_id="phone", wall=Wall())
@@ -351,7 +356,7 @@ def test_commands_hold_writes_to_the_registry(pair):
             with pytest.raises(ValidationFailed, match=refusal):
                 commands.log(a, ME, [record])
     with pytest.raises(ValidationFailed, match="sleep_stage has no value napping"):
-        commands.observe(a, ME, "sleep_stage", "napping", start="2026-03-02T01:00:00-05:00")
+        commands.log(a, ME, [observation("sleep_stage", "napping", "2026-03-02T01:00:00-05:00")])
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
     with pytest.raises(ValidationFailed, match="unknown code tempo_typo"):
         commands.edit(a, ME, "effort", e["record"]["id"], {"metrics": {"tempo_typo": {"value": 1}}})
@@ -365,14 +370,14 @@ def test_measures_are_kept_in_each_codes_own_unit_too(pair):
         "SELECT code, std_value, std_min, std_max, std_unit FROM metrics WHERE owner_id = ?", (lb["record"]["id"],))}
     assert rows["load"] == (pytest.approx(45.359237), None, None, "kg")
     assert rows["rest"] == (None, 60, 120, "s")
-    weight = commands.observe(a, ME, "body_mass", 180, "[lb_av]", start="2026-03-02T07:00:00-05:00")
+    weight = commands.log(a, ME, [observation("body_mass", 180, "2026-03-02T07:00:00-05:00", "[lb_av]")])[0]
     row = a.conn.execute("SELECT std_value, std_unit, modality FROM observations WHERE id = ?", (weight["record"]["id"],))
     assert tuple(row.fetchone()) == (pytest.approx(81.6466266), "kg", "self_reported")
 
 
 def test_derived_tables_rebuild_when_their_shape_changes(tmp_path):
     with Store(tmp_path / "s.db", wall=Wall()) as s:
-        commands.observe(s, ME, "body_mass", 80, "kg", start="2026-03-02T07:00:00-05:00")
+        commands.log(s, ME, [observation("body_mass", 80, "2026-03-02T07:00:00-05:00", "kg")])
         s.conn.execute("ALTER TABLE observations DROP COLUMN std_value")
         s._set("shape", "older")
         s.conn.commit()

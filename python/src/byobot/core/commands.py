@@ -123,15 +123,6 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
     return store.write(actor, changes)
 
 
-def observe(store: Store, actor: dict, code: str, value: Any, unit: str | None = None, start: str | None = None,
-            end: str | None = None, modality: str = "self_reported", notes: str | None = None) -> dict:
-    """Log one observation, such as a weight: `start` defaults to now, and a time without an offset is local."""
-    time = {k: v for k, v in (("start", start), ("end", end)) if v is not None} or None
-    payload = {"code": code, "value": value, "unit": unit, "time": time, "modality": modality, "notes": notes}
-    payload = {k: v for k, v in payload.items() if v is not None}
-    return log(store, actor, [{"kind": "observation", "payload": payload}])[0]
-
-
 def _overlay(store: Store, actor: dict, effect: str, target: str, body: dict, read: dict | None = None) -> dict:
     rid = store.contract.derived("overlay", [effect, "source_record", target])
     payload = {"effect": effect, "target": {"kind": "source_record", "id": target}, **body}
