@@ -161,6 +161,26 @@ def test_a_removed_device_gets_no_new_key_and_its_writes_are_ignored(store, fold
     assert not any(p.startswith(f"segments/{PHONE}/") for p in folder.list())
 
 
+def test_a_removal_cut_short_can_be_run_again(store, folder, keeper):
+    relay = joined(keeper, folder)
+    create = folder.create
+
+    def down(path, data):
+        if path.startswith("epochs/"):
+            raise ByobotError("can't reach Google Drive")
+        create(path, data)
+
+    folder.create = down
+    with pytest.raises(ByobotError):
+        keeper.remove(PHONE)
+    folder.create = create
+    assert keeper.remove(PHONE) == 2
+    with pytest.raises(ByobotError):
+        keeper.remove(PHONE)
+    relay.sync()
+    assert relay.removed and relay.key is None
+
+
 def test_a_device_that_never_comes_back_holds_cleanup_until_removed(store, folder, keeper):
     gone = joined(keeper, folder)
     keeper.compact()

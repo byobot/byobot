@@ -257,6 +257,7 @@ class Keeper:
                                                           len(parts)))
         with self.store._tx():
             self._unset("starting")
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
         return n
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
@@ -551,12 +552,13 @@ class Keeper:
     def remove(self, device_id: str) -> int:
         """Retire a device: a new epoch whose key isn't sealed to it. What it already read, it keeps."""
         device = self.device(device_id)
-        if device is None or device["removed"]:
+        if device is None or device["removed"] and not self._get(f"removing:{device_id}"):
             raise ByobotError(f"no device {device_id} in this cloud logbook")
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
-        with self.store._tx():
+        with self.store._tx():  # until an epoch without it commits, running this again finishes the removal
             self.store.conn.execute("UPDATE cloud_devices SET removed = 1 WHERE id = ?", (device_id,))
+            self._set(f"removing:{device_id}", 1)
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
@@ -590,7 +592,8 @@ class Keeper:
                 self.store.conn.execute(f"DELETE FROM {table}")
             self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
-                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error')")
+                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error') "
+                                    "OR key LIKE 'removing:%'")
             self._set("epoch", n)
             self._set("checkpoint_position", 0)
             self._set("closed", 1)
