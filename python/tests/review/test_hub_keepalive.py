@@ -16,7 +16,7 @@ from test_serve import Client, _pair
 
 @pytest.fixture
 def hub(byobot_home, monkeypatch):
-    monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 2)  # 30 s in production; scaled down to keep the test short
+    monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 5)  # 30 s in production; scaled down, with room for slow CI
     srv, info = serve.make_server("127.0.0.1", 0, pair=True)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
@@ -70,7 +70,7 @@ def test_each_request_on_a_kept_alive_connection_gets_its_own_deadline(hub):
         statuses.append(status)
         if status != 200:
             break
-        time.sleep(0.1)  # each request is quick, and well inside the idle timeout
+        time.sleep(0.2)  # each request is quick; together they outlast one deadline
     sock.close()
     assert statuses == [200] * 30, statuses
 
