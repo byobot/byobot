@@ -177,13 +177,19 @@ extension Logbook {
     /// The activities your laptop sent, with their muscles and equipment.
     public var library: [Activity] { state.plan?.activities ?? [] }
 
-    /// Every set this phone knows of: pulled from the laptop, with this phone's own versions on top.
-    var allEfforts: [PerformedEffort] {
+    /// Every set of an activity this phone knows of: pulled from the laptop, with this phone's own versions on top.
+    func efforts(of activityId: String) -> [PerformedEffort] {
         var byId = Dictionary((state.plan?.efforts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let local = Dictionary(localEfforts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        for id in fresh("effort") { byId[id] = local[id] }
-        for (id, effort) in local where byId[id] == nil && !fresh("effort").contains(id) { byId[id] = effort }
-        return Array(byId.values)
+        let mine = written("effort", as: EffortPayload.self) {
+            if case .object(let o) = $0, case .string(let id)? = o["activity_id"] { return id == activityId }
+            return true
+        }
+        let local = Dictionary(mine.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        let changed = fresh("effort")
+        for id in changed { byId[id] = local[id] }
+        let changedIds = Set(changed)
+        for (id, effort) in local where byId[id] == nil && !changedIds.contains(id) { byId[id] = effort }
+        return byId.values.filter { $0.activityId == activityId }
     }
 
     /// "Done as planned" for a slot, starting from the round before and the last time you did it here.
