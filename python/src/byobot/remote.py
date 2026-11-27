@@ -698,11 +698,14 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None, revoke:
         err.write(f"Connected: {names}. Run with --pair to connect another, --revoke to disconnect all.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
+    poller = serve.CloudPoller(server.db, log)
+    poller.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        poller.stopped.set()
         server.server_close()
     return 0
 
