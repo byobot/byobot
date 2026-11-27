@@ -221,17 +221,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         queue(batch)
     }
 
-    /// The source ids of samples in segments the keeper hasn't read yet.
-    public var inFlight: Set<String> {
-        Set(sent.values.flatMap { $0.samples.values.flatMap { $0.samples.map(\.sourceId) } })
-    }
-
-    /// The source ids of samples the keeper hasn't read yet, queued or sent. A phone with another route sends a
-    /// deletion of one of these here, not there.
-    public var unread: Set<String> {
-        inFlight.union(samples.flatMap { $0.samples.map(\.sourceId) })
-    }
-
     mutating func drop(_ gone: Set<String>) {
         guard !gone.isEmpty else { return }
         for i in samples.indices { samples[i].samples.removeAll { gone.contains($0.sourceId) } }

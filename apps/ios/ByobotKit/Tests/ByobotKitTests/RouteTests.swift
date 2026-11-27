@@ -52,17 +52,14 @@ actor FakeHub: SyncTransport {
 /// A route that takes Apple Health readings or doesn't, and brings a plan or doesn't.
 @MainActor
 final class FakeRoute: SyncRoute {
-    let held: Set<String>, takes: Bool, plans: Bool
+    let takes: Bool, plans: Bool
     var got: [SampleBatch] = []
     var takePlan: [Bool] = []
 
-    init(held: Set<String> = [], takes: Bool = true, plans: Bool = true) {
-        self.held = held
+    init(takes: Bool = true, plans: Bool = true) {
         self.takes = takes
         self.plans = plans
     }
-
-    func unread() async -> Set<String> { held }
 
     func sync(_ book: any SyncBook, health: SampleBatch, takePlan: Bool) async -> RouteOutcome {
         got.append(health)
@@ -161,18 +158,18 @@ final class RouteTests: XCTestCase {
     }
 
     @MainActor
-    func testReadingsGoByTheFirstRouteThatTakesThem() async throws {
-        let hub = FakeRoute(), drive = FakeRoute(held: ["D2"])
+    func testReadingsAndDeletionsGoByTheFirstRouteThatTakesThem() async throws {
+        let hub = FakeRoute(), drive = FakeRoute()
         let report = await Syncer.run([hub, drive], book: FakeBook(),
                                       health: Self.health(samples: ["W1"], deleted: ["D1", "D2"]))
         XCTAssertTrue(report.healthDone)
-        XCTAssertEqual(hub.got, [Self.health(samples: ["W1"], deleted: ["D1"])])
-        XCTAssertEqual(drive.got, [Self.health(samples: [], deleted: ["D2"])])
+        XCTAssertEqual(hub.got, [Self.health(samples: ["W1"], deleted: ["D1", "D2"])])
+        XCTAssertEqual(drive.got, [SampleBatch()])
     }
 
     @MainActor
     func testWhenTheHubFailsDriveTakesEverything() async throws {
-        let hub = FakeRoute(takes: false, plans: false), drive = FakeRoute(held: ["D2"])
+        let hub = FakeRoute(takes: false, plans: false), drive = FakeRoute()
         let report = await Syncer.run([hub, drive], book: FakeBook(),
                                       health: Self.health(samples: ["W1"], deleted: ["D1", "D2"]))
         XCTAssertTrue(report.healthDone)
@@ -181,12 +178,12 @@ final class RouteTests: XCTestCase {
     }
 
     @MainActor
-    func testADeletionDriveHoldsIsUndoneUntilDriveTakesIt() async throws {
-        let hub = FakeRoute(), drive = FakeRoute(held: ["D2"], takes: false)
+    func testReadingsNoRouteTookAreNotDone() async throws {
+        let hub = FakeRoute(takes: false), drive = FakeRoute(takes: false)
         let report = await Syncer.run([hub, drive], book: FakeBook(),
                                       health: Self.health(samples: ["W1"], deleted: ["D2"]))
         XCTAssertFalse(report.healthDone)
-        XCTAssertEqual(hub.got, [Self.health(samples: ["W1"], deleted: [])])
+        XCTAssertEqual(drive.got, [Self.health(samples: ["W1"], deleted: ["D2"])])
     }
 
     @MainActor
@@ -225,8 +222,8 @@ final class RouteTests: XCTestCase {
         let book = FakeBook(Self.pending(1)), drive = DriveRoute(route, isCurrent: { false })
         let outcome = await drive.sync(book, health: Self.health(samples: ["W1"], deleted: []), takePlan: true)
         XCTAssertFalse(outcome.tookHealth)
-        let unread = await route.unread
-        XCTAssertEqual(unread, [])
+        let relay = await route.relay
+        XCTAssertEqual(relay.leftovers, SampleBatch())
         XCTAssertEqual(book.changes, 0)
     }
 }
