@@ -26,7 +26,7 @@ from . import hlc, mappers, occurrences, reducers
 from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
 
 EXPORT_VERSION = 1
-STORE_VERSION = 5  # above every v0 store, so v0 refuses to open a v1 file
+STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 MAX_REJECTIONS = 1000  # per device, newest kept
 TOO_BIG = "a number too large to store"
@@ -128,6 +128,9 @@ class Store:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
             self.conn.close()
+            if version == 5:
+                raise ByobotError(f"{self.path} was written before ids and codes were settled; rewrite it once with "
+                                  "tools/rewrite_store.py from byobot's source")
             if version < STORE_VERSION:
                 raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
                                   "aside to start a new store, and import your sources again")
