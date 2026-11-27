@@ -162,17 +162,22 @@ class Pairing:
     expires_at: float = field(default_factory=lambda: time.monotonic() + PAIRING_TTL_S)
     tries_left: int = PAIRING_TRIES
     used: bool = False
+    holder: str | None = None  # who the code was spent on: it may send it again until it expires, as after a lost answer
 
     @property
     def open(self) -> bool:
         return not self.used and self.tries_left > 0 and time.monotonic() < self.expires_at
 
-    def check(self, code: Any) -> bool:
-        if not self.open:
+    def admits(self, holder: str | None) -> bool:
+        again = holder is not None and holder == self.holder and self.tries_left > 0
+        return self.open or (again and time.monotonic() < self.expires_at)
+
+    def check(self, code: Any, holder: str | None = None) -> bool:
+        if not self.admits(holder):
             return False
         typed = code.replace(" ", "").replace("-", "").encode() if isinstance(code, str) else b""
         if secrets.compare_digest(typed, self.code.encode()):
-            self.used = True
+            self.used, self.holder = True, holder
             return True
         self.tries_left -= 1
         return False
@@ -535,10 +540,10 @@ class Handler(BaseHTTPRequestHandler):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
         with self.server.pairing_lock:
             pairing = self.server.pairing
-            if pairing is None or not pairing.open:
+            if pairing is None or not pairing.admits(device_id):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "pairing_closed",
                                 "pairing is closed; run `byobot serve --pair` for a new code")
-            if not pairing.check(body.get("code")):
+            if not pairing.check(body.get("code"), device_id):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "wrong_code", "that code is not right",
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
