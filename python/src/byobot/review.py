@@ -91,6 +91,7 @@ def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
         " coalesce(json_extract(s.raw, '$.device'), '') AS device FROM observations o"
         " LEFT JOIN source_records s ON s.id = o.source_record_id"
         f" WHERE o.code IN ({', '.join('?' for _ in codes)}) AND o.local_date >= ? AND o.local_date < ?"
+        " AND coalesce(json_extract(s.raw, '$.nap'), 0) = 0"  # a nap isn't the night's sleep
         " ORDER BY o.start_ms, o.id", [*codes, lo, hi])
     found: dict[tuple, dict] = defaultdict(lambda: defaultdict(list))  # (day, group) -> rank -> [(key, value)]
     nights: dict[tuple, dict] = defaultdict(lambda: defaultdict(float))  # (day, rank) -> device -> seconds
