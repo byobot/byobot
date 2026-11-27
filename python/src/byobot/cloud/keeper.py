@@ -664,8 +664,14 @@ class Keeper:
             self._set("closing", n)
         path = files.epoch_path(n)
         keeper = [{"id": self.device_id, "class": "keeper", **self.identity.public()}]
-        self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
-                                           closed=True))
+        try:
+            self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
+                                               closed=True))
+        except ByobotError:  # an older byobot began this close, without the mark
+            body = files.read_epoch(self.folder.read(path) or b"", self.identity.public()["sign"],
+                                    self.store.store_id, n)
+            if [d["id"] for d in body["devices"]] != [self.device_id] or body["checkpoint"]:
+                raise
         listing = [p for p in self.folder.list() if p != path]
         for p in listing:
             self.folder.delete(p)

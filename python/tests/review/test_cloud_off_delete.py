@@ -2,7 +2,7 @@
 
 import time
 
-from byobot.cloud import drive
+from byobot.cloud import drive, files
 from byobot.cloud.drive import Drive, DriveFolder
 from byobot.cloud.folder import MemoryFolder
 from byobot.cloud.keeper import Keeper
@@ -73,3 +73,15 @@ def test_a_closed_folder_is_no_logbook_to_recover(store, tmp_path):
     assert drive.stores(folder.drive) == {store.store_id}
     keeper.forget()
     assert drive.stores(folder.drive) == set()  # a new empty store here isn't sent to `cloud recover`
+
+
+def test_a_close_an_older_byobot_began_still_finishes(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    n = keeper.epoch + 1
+    with store._tx():
+        keeper._set("closing", n)
+    me = [{"id": keeper.device_id, "class": "keeper", **keeper.identity.public()}]
+    folder.create(files.epoch_path(n), files.epoch_file(keeper.identity, store.store_id, n, keeper.device_id, me, 0))
+    keeper.forget()
+    assert list(folder.list()) == [files.epoch_path(n)] and keeper.epoch == n
