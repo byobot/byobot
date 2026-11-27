@@ -5,13 +5,13 @@ import sqlite3
 
 import pytest
 
-from byobot.cloud import files, segment
+from byobot.cloud import files, keeper as keeper_module, segment
 from byobot.cloud.crypto import CloudError
 from byobot.cloud.folder import Exists
 from byobot.cloud.keeper import Keeper
-from byobot.link import pairing_link
 from byobot.core import commands, hlc
 from byobot.core.store import Store
+from byobot.link import pairing_link
 from byobot.util import ByobotError, uuid7
 
 from cloud_doubles import LocalFolder, MemoryFolder, Relay, parse_join
@@ -382,3 +382,93 @@ def test_a_phone_on_the_hub_and_in_drive_is_one_device(store, folder, keeper):
     keeper.forget()
     assert store.peer(PHONE)["revoked_at"] and keeper.device(PHONE) is None
     assert [d["id"] for d in keeper.devices()] == [store.device_id]
+
+
+def test_an_event_read_late_from_a_retired_epoch_stays_in_the_folder(store, tmp_path):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock, recovery=True)
+    code = keeper.recovery_code
+    relay = joined(keeper, folder)
+    sent = event()
+    relay.log([sent])
+    relay.sync()  # a segment in epoch 1
+    keeper.compact()  # `cloud compact` reads nothing first: the checkpoint of epoch 2 lacks the phone's set
+    keeper.sync()  # reads the epoch-1 segment late; the plan's receipt lists it
+    relay.sync()  # takes key 2, sees its segment read, forgets the set, writes in epoch 2
+    assert relay.epoch == 2 and relay.events == {}
+    keeper.sync()  # every device moved: epoch 1's files, the set's segment among them, are deleted
+    assert store.event(sent["id"])
+    assert not any(p.startswith("segments/") and "/0000000001-" in p for p in folder.list())
+
+    fresh = Store(tmp_path / "new-mac.db")
+    Keeper.recover(fresh, folder, code, clock)
+    assert fresh.event(sent["id"]), "the phone's set is in no file of the folder, so recovery lost it"
+
+
+def write_newer(relay, messages):
+    relay.seq += 1
+    path = segment.name("segment", relay.epoch, relay.seq, PHONE)
+    relay.folder.create(path, segment.write("segment", relay.store_id, PHONE, relay.epoch, relay.seq, messages,
+                                            relay.key, relay.identity))
+    return path
+
+
+def test_an_older_keeper_keeps_a_segment_with_a_newer_message_until_it_is_upgraded(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = joined(keeper, folder)
+    sent = event()
+    path = write_newer(relay, [{"events": {"events": [sent]}}, {"notes": {"text": "a message a later byobot adds"}}])
+    report = keeper.sync()
+    assert report["skipped"][0]["path"] == path and "upgrade" in report["skipped"][0]["reason"]
+    assert path in folder.list(), "a newer phone's segment was deleted, so it is sent and deleted again forever"
+    assert "upgrade" in keeper.local_status()
+
+
+def test_a_removed_phone_can_join_again_with_a_new_code(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = joined(keeper, folder)
+    keeper.remove(PHONE)
+    relay.sync()
+    assert relay.removed  # the app leaves Drive sync and says to show the join code again
+    again = Relay.join(folder, keeper.join_code()["link"], PHONE, identity=relay.identity)  # same id, same keys
+    report = keeper.sync()
+    assert report.get("join") == "admitted", "the phone's answer to a fresh code is ignored, so it can't rejoin"
+    again.sync()
+    sent = event()
+    again.log([sent])
+    again.sync()
+    keeper.sync()
+    assert store.event(sent["id"])
+
+
+def backup(store, path):
+    target = sqlite3.connect(path)
+    store.conn.backup(target)
+    target.close()
+
+
+def test_a_keeper_restored_from_an_older_backup_still_hears_the_phone(store, tmp_path):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    relay = joined(keeper, folder)
+    backup(store, tmp_path / "backup.db")  # last night's backup: epoch 1
+    for _ in range(2):  # two compactions (or erases) since then; each time the phone moves and epoch n-1 goes
+        keeper.compact()
+        relay.sync()
+        keeper.sync()
+    assert keeper.epoch == relay.epoch == 3 and keeper.key(1) is None and keeper.key(2) is None
+    store.close()
+
+    restored = Keeper(Store(tmp_path / "backup.db"), folder, clock)  # the Mac comes back from the backup
+    restored.sync()
+    clock.now += keeper_module.MISSING_S
+    restored.sync()  # its epoch file is gone from the folder, so it seeds the folder again
+    sent = event()
+    relay.log([sent])
+    for _ in range(4):
+        relay.sync()
+        restored.sync()
+    assert restored.store.event(sent["id"]), "the phone's set never reaches the restored Mac through Drive"
+    assert relay.events == {}

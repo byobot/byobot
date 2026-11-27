@@ -7,14 +7,15 @@ from collections import Counter
 import pytest
 
 from byobot import oauth
-from byobot.cloud import drive as drive_module
+from byobot.cloud import drive as drive_module, drive, files
 from byobot.cloud.drive import Drive, DriveFolder, NotConnected, UpstreamError
 from byobot.cloud.folder import Exists
 from byobot.cloud.keeper import Keeper
 from byobot.core import commands
 from byobot.core.store import Store
+from byobot.util import ByobotError
 
-from cloud_doubles import Relay
+from cloud_doubles import MemoryFolder, Relay
 from fake_drive import FakeDrive, Killed
 from test_cloud_epochs import SECRET, opened
 from test_cloud_keeper import ME, PHONE, Clock, event
@@ -351,3 +352,100 @@ def test_a_long_lived_client_never_writes_back_an_older_sign_in(fake):
     with pytest.raises(UpstreamError, match="sign-in changed"):
         serve.call("GET", "https://www.googleapis.com/drive/v3/changes/startPageToken")
     assert credentials.load("google")["client_id"] == "new-client"
+
+
+WEIGHT = "HKQuantityTypeIdentifierBodyMass"
+
+
+def sample(source_id):
+    return {"source": "apple_health", "source_id": source_id, "type": WEIGHT,
+            "start": "2026-11-23T06:30:00-05:00", "end": "2026-11-23T06:30:00-05:00", "value": 80.0, "unit": "kg"}
+
+
+def test_a_health_reading_deleted_after_a_lost_upload_stays_deleted(store, tmp_path):
+    fake = FakeDrive()
+    keeper, relay = setup(fake, tmp_path, store)
+    relay.send_samples({"samples": [sample("W1")]})
+    fake.fail("POST /upload", "lost")  # the segment lands, its answer is lost, and Drive stays down
+    fake.fail("POST /upload", 503, times=drive_module.TRIES - 1)
+    with pytest.raises(UpstreamError):
+        relay.sync()
+    first = [i for i, f in fake.files.items() if f"/segments/{PHONE}/" in f["name"]]
+    assert len(first) == 1
+    relay.send_samples({"samples": [], "deleted": [{"source": "apple_health", "source_id": "W1", "type": WEIGHT}]})
+    relay.sync()
+    mac = Mac(fake, tmp_path, store.path)
+    fake.lagging = set(first)  # a fresh listing that doesn't show the older segment yet
+    mac.run(lambda s, k: k.sync())
+    fake.lagging = set()
+    for _ in range(3):
+        relay.sync()
+        mac.run(lambda s, k: k.sync())
+    assert "W1" not in {r["payload"]["source_id"] for r in store.records("source_record")}, \
+        "a reading deleted in Health came back"
+
+
+def test_a_phone_segment_drive_still_hides_stays_in_drive_after_delete(store, tmp_path):
+    """A phone uploads seconds before `cloud off --delete yes`; Drive's listing doesn't show it yet, so it is never
+    deleted. The keeper is off from then on and the phone stops once it sees the closed epoch, so nothing ever deletes
+    that file: the person's sets stay in Drive."""
+    fake = FakeDrive()
+    keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id, "mac"), Clock())
+    relay = Relay.join(folder_on(fake, tmp_path, store.store_id, "phone"), keeper.join_code()["link"], PHONE)
+    keeper.sync()
+    relay.sync()
+    before = set(fake.files)
+    relay.log([event()])
+    relay.sync()  # uploads a segment
+    fake.lagging = set(fake.files) - before  # Drive's listings don't show it yet
+    off = Keeper(store, folder_on(fake, tmp_path, store.store_id, "off"), Clock())  # `cloud off --delete yes`
+    off.forget()
+    fake.lagging = set()
+    relay.sync()
+    assert relay.removed
+    left = [n for n in fake.names() if "/epochs/" not in n]
+    assert left == [], f"still in Drive after cloud off --delete yes: {left}"
+
+
+def test_a_restored_store_can_turn_drive_sync_on_again_after_off_delete(store, tmp_path):
+    """After `cloud off --delete yes`, the folder keeps only the closed epoch file. A new computer restored from an
+    export of this store (same store id) can then neither set up (the folder 'already has a keeper') nor recover
+    (no recovery key is left), so Drive sync can never be turned on for this store again from there."""
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock(), recovery=True)
+    code = keeper.recovery_code
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+    keeper.sync()
+    keeper.forget()
+    fresh = Store(tmp_path / "new-mac.db")
+    fresh.restore(store.export())
+    errors = []
+    for attempt in (lambda: Keeper.setup(fresh, folder, Clock(), recovery=True),
+                    lambda: Keeper.recover(fresh, folder, code, Clock())):
+        try:
+            attempt()
+            return
+        except ByobotError as exc:
+            errors.append(exc.message)
+    raise AssertionError(f"neither cloud setup nor cloud recover works: {errors}")
+
+
+def test_a_closed_folder_is_no_logbook_to_recover(store, tmp_path):
+    fake = FakeDrive()
+    folder = folder_on(fake, tmp_path, store.store_id, "mac")
+    keeper = Keeper.setup(store, folder, Clock())
+    assert drive.stores(folder.drive) == {store.store_id}
+    keeper.forget()
+    assert drive.stores(folder.drive) == set()  # a new empty store here isn't sent to `cloud recover`
+
+
+def test_a_close_an_older_byobot_began_still_finishes(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    n = keeper.epoch + 1
+    with store._tx():
+        keeper._set("closing", n)
+    me = [{"device_id": keeper.device_id, "device_class": "keeper", **keeper.identity.public()}]
+    folder.create(files.epoch_path(n), files.epoch_file(keeper.identity, store.store_id, n, keeper.device_id, me, 0))
+    keeper.forget()
+    assert list(folder.list()) == [files.epoch_path(n)] and keeper.epoch == n
