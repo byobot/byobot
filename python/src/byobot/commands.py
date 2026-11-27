@@ -100,8 +100,6 @@ def run(name: str, ctx: Context, args: dict) -> Any:
             raise ValidationFailed(f"{p.name} must be an integer")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
-    if cmd.read_only and ctx.path.exists():
-        autosync(ctx.store())  # so an answer includes what phones sent through Drive
     return cmd.handler(ctx, **clean)
 
 
@@ -820,8 +818,8 @@ def _sync(keeper: Any) -> dict:
 
 
 def autosync(store: Store, folder: Any = None, every: float = CLOUD_EVERY_S) -> dict | None:
-    """Sync with Drive when it's due. Never waits on another process's sync and never raises: a read, or `serve`,
-    goes on with what the store holds, and `cloud status` shows the error."""
+    """Sync with Drive when it's due, for the poller in `serve`, `remote` and `mcp`. Never waits on another process's
+    sync and never raises: serving goes on with what the store holds, and `cloud status` shows the error."""
     from byobot.cloud.keeper import Keeper, due, tried
 
     if not due(store, every):

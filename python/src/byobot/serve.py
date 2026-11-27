@@ -599,7 +599,8 @@ class Handler(BaseHTTPRequestHandler):
 # -- running it --------------------------------------------------------------
 
 class CloudPoller(threading.Thread):
-    """While `serve` runs, sync with Drive once a minute if Drive sync is on for this store."""
+    """While `serve`, `remote` or `mcp` runs, sync with Drive once a minute if Drive sync is on for this store. Reads
+    never sync themselves."""
 
     def __init__(self, db: Path, log: Callable[[str], None], every: float = 60):
         super().__init__(name="byobot-cloud", daemon=True)
@@ -616,9 +617,11 @@ class CloudPoller(threading.Thread):
     def poll(self) -> dict | None:
         from byobot.commands import autosync
 
+        if not self.db.exists():
+            return None
         try:
             with Store(self.db) as store:
-                report = autosync(store, every=self.every / 2)  # a read in the last half minute already synced
+                report = autosync(store, every=self.every / 2)  # another process synced in the last half minute
         except Exception as exc:  # noqa: BLE001 - serving goes on
             report = {"error": f"{type(exc).__name__}: {exc}"}
         if report is not None:
