@@ -2,16 +2,9 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-import Foundation
-#if canImport(CryptoKit)
 import CryptoKit
-#endif
-#if canImport(Security)
+import Foundation
 import Security
-#endif
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 public enum SyncClientError: Error, Equatable, LocalizedError {
     /// None of the laptop's addresses answered (it may be asleep, off the network, or not running `byobot serve`).
@@ -204,7 +197,6 @@ final class Pinner: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        #if canImport(Security) && canImport(CryptoKit)
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust,
               let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
@@ -225,16 +217,9 @@ final class Pinner: NSObject, URLSessionDelegate, @unchecked Sendable {
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
-        #else
-        completionHandler(.cancelAuthenticationChallenge, nil)
-        #endif
     }
 
     static func fingerprint(_ der: Data) -> String {
-        #if canImport(CryptoKit)
-        return SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
-        #else
-        return ""
-        #endif
+        SHA256.hash(data: der).hex
     }
 }

@@ -3,7 +3,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import CryptoKit
 import Foundation
 
@@ -49,6 +48,19 @@ public struct CloudJoin: Equatable, Sendable {
     }
 }
 
+/// A relay's epoch key as the phone keeps it in the keychain.
+public struct EpochKey: Codable, Equatable, Sendable {
+    public static let currentVersion = 1
+    public var version = EpochKey.currentVersion
+    public var epoch: Int
+    public var key: Data
+
+    public init(epoch: Int, key: Data) {
+        self.epoch = epoch
+        self.key = key
+    }
+}
+
 /// Samples and deletions sent together, as in POST /v1/samples.
 public struct SampleBatch: Codable, Equatable, Sendable {
     public var samples: [Sample]
@@ -91,10 +103,14 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     /// Paths taken by a file this relay didn't know it wrote, skipped in a row before giving up.
     static let maxSkips = 3
 
+    /// The file's format.
+    public static let currentVersion = 1
+    public private(set) var version = CloudRelay.currentVersion
     public let storeID: String
     public let deviceID: String
     public let keeperSign: String
     public private(set) var epoch: Int?
+    /// The epoch's key. It is kept in the keychain, not with the rest: see `epochKey`.
     var key: Data?
     var seq = 0
     /// Every event it was given and the keeper hasn't read yet.
@@ -112,6 +128,27 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     var receipts: [String: Receipt] = [:]
     var planPath: String?
     public private(set) var removed = false
+
+    enum CodingKeys: String, CodingKey {
+        case version, epoch, seq, events, samples, sent, refused, held, delivered, plan, receipts, removed
+        case storeID = "store_id"
+        case deviceID = "device_id"
+        case keeperSign = "keeper_sign"
+        case planPath = "plan_path"
+    }
+
+    /// The epoch's key, to keep in the keychain.
+    public var epochKey: EpochKey? {
+        guard let epoch, let key else { return nil }
+        return EpochKey(epoch: epoch, key: key)
+    }
+
+    /// Puts back the key kept for this relay's epoch. One for another epoch is left out; the relay reads its
+    /// key file again.
+    public mutating func restore(_ kept: EpochKey?) {
+        guard let kept, kept.version <= EpochKey.currentVersion, kept.epoch == epoch else { return }
+        key = kept.key
+    }
 
     public struct Report: Equatable, Sendable {
         public var epoch: Int?
@@ -254,7 +291,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     mutating func adopt(_ folder: some CloudFolder, _ listing: [String: String], _ me: CloudIdentity) async throws -> Bool {
         let epochs = listing.keys.compactMap(Self.epochNumber).sorted(by: >)
         for n in epochs {
-            if let epoch, n <= epoch { break }
+            if let epoch, n < epoch || (n == epoch && key != nil) { break }
             let body: [String: JSONValue]
             do {
                 body = try Cloud.readEpoch(try await folder.read(Cloud.epochPath(n)) ?? Data(), keeperSign: keeperSign,
@@ -271,13 +308,15 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             }
             guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: keeperSign,
                                                   storeID: storeID, epoch: n) else { continue }
-            let first = epoch == nil
+            let moved = epoch != nil && epoch != n
+            if epoch != n {
+                plan = nil
+                planPath = nil
+                receipts = [:]
+            }
             epoch = n
             key = opened
-            plan = nil
-            planPath = nil
-            receipts = [:]
-            return !first
+            return moved
         }
         if epoch == nil {  // admitted mid-epoch: no epoch file lists it yet, its key file does
             for n in epochs {
@@ -301,11 +340,11 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                   let found = try? Cloud.readSegment(data, path: path, storeID: storeID, key: key,
                                                      signPublic: keeperSign),
                   let value = found.messages.first(where: { $0["plan"] != nil })?["plan"],
-                  let window = try? Self.decode(PlanWindow.self, value) else { continue }
+                  let window = try? Payloads.decode(PlanWindow.self, value) else { continue }
             plan = window
             planPath = path
             receipts = found.messages.first(where: { $0["receipts"] != nil })?["receipts"]
-                .flatMap { try? Self.decode([String: Receipt].self, $0) } ?? [:]
+                .flatMap { try? Payloads.decode([String: Receipt].self, $0) } ?? [:]
             return
         }
     }
@@ -349,7 +388,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             let batch = Array(todo.prefix(Self.maxBatch))
             var messages: [JSONValue] = []
             if !batch.isEmpty {
-                messages.append(.object(["events": try Self.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
+                messages.append(.object(["events": try Payloads.encode(EventsRequest(events: batch, kinds: KindVersion.all))]))
             }
             var room = Self.maxBatch - batch.count
             var batches: [SampleBatch] = []
@@ -360,7 +399,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             var lines: [Int: SampleBatch] = [:]
             for b in batches {
                 lines[messages.count] = b
-                messages.append(.object(["samples": try Self.encode(b)]))
+                messages.append(.object(["samples": try Payloads.encode(b)]))
             }
             if messages.isEmpty && !force { break }
             seq += 1
@@ -405,13 +444,6 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         return devices.contains { if case .object(let d) = $0 { return d["id"] == .string(deviceID) } else { return false } }
     }
 
-    static func encode<T: Encodable>(_ value: T) throws -> JSONValue {
-        try JSONValue.parse(try JSONEncoder().encode(value))
-    }
-
-    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(type, from: try JSONEncoder().encode(value))
-    }
 }
 
 /// A folder in memory, for tests.
@@ -421,7 +453,7 @@ public actor MemoryCloudFolder: CloudFolder {
     public init() {}
 
     public func list() -> [String: String] {
-        files.mapValues { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        files.mapValues { SHA256.hash(data: $0).hex }
     }
 
     public func read(_ path: String) -> Data? { files[path] }
@@ -435,4 +467,3 @@ public actor MemoryCloudFolder: CloudFolder {
 
     public func put(_ path: String, _ data: Data) { files[path] = data }
 }
-#endif

@@ -40,10 +40,7 @@ public enum UUID7 {
         bytes[6] = 0x70 | UInt8((counter >> 8) & 0x0F)
         bytes[7] = UInt8(counter & 0xFF)
         bytes[8] = 0x80 | (bytes[8] & 0x3F)
-        let hex = bytes.map { String(format: "%02x", $0) }.joined()
-        let parts = [hex.prefix(8), hex.dropFirst(8).prefix(4), hex.dropFirst(12).prefix(4),
-                     hex.dropFirst(16).prefix(4), hex.dropFirst(20)]
-        return parts.joined(separator: "-")
+        return bytes.uuid
     }
 }
 

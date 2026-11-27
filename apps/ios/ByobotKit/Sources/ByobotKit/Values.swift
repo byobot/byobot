@@ -58,6 +58,18 @@ func encodeNumber(_ n: Double, into c: inout SingleValueEncodingContainer) throw
     }
 }
 
+extension Sequence where Element == UInt8 {
+    /// Lowercase hex, two digits a byte.
+    var hex: String { map { String(format: "%02x", $0) }.joined() }
+
+    /// Sixteen bytes written as a UUID.
+    var uuid: String {
+        let h = hex
+        return [h.prefix(8), h.dropFirst(8).prefix(4), h.dropFirst(12).prefix(4), h.dropFirst(16).prefix(4),
+                h.dropFirst(20)].joined(separator: "-")
+    }
+}
+
 /// A number, text or true/false: a measure's value, or a sample's.
 public enum Scalar: Codable, Equatable, Hashable, Sendable {
     case number(Double)
@@ -176,6 +188,8 @@ public struct MetricSpec: Equatable, Hashable, Sendable {
     public var summary: String
     /// Accepted UCUM units, the code's own first. Empty for unitless codes.
     public var units: [String]
+    /// Each unit's factor to the code's own, which the bounds are in. A unit with none isn't checked against them.
+    public var factors: [String: Double]
     public var unitRequired: Bool
     public var kind: Kind
     public var minimum: Double?
@@ -188,12 +202,13 @@ public struct MetricSpec: Equatable, Hashable, Sendable {
     /// The kinds it may be written on.
     public var on: [String]
 
-    public init(name: String, summary: String, units: [String], unitRequired: Bool, kind: Kind, minimum: Double?,
-                exclusiveMinimum: Bool = false, maximum: Double?, pattern: String?, values: [String]? = nil,
-                on: [String] = []) {
+    public init(name: String, summary: String, units: [String], factors: [String: Double] = [:], unitRequired: Bool,
+                kind: Kind, minimum: Double?, exclusiveMinimum: Bool = false, maximum: Double?, pattern: String?,
+                values: [String]? = nil, on: [String] = []) {
         self.name = name
         self.summary = summary
         self.units = units
+        self.factors = factors
         self.unitRequired = unitRequired
         self.kind = kind
         self.minimum = minimum
@@ -202,6 +217,16 @@ public struct MetricSpec: Equatable, Hashable, Sendable {
         self.pattern = pattern
         self.values = values
         self.on = on
+    }
+
+    /// Whether `n` in `unit` is within the bounds, converted to the code's own unit as the laptop checks them.
+    public func inBounds(_ n: Double, unit: String?) -> Bool {
+        let factor: Double? = units.isEmpty ? 1 : unit.flatMap { factors[$0] }
+        guard let factor else { return true }
+        let x = n * factor
+        if let lo = minimum, x < lo || (exclusiveMinimum && x == lo) { return false }
+        if let hi = maximum, x > hi { return false }
+        return true
     }
 
     /// A readable label: `heart_rate` → `Heart rate`, `x.grade` → `Grade`.

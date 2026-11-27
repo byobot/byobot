@@ -2,7 +2,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import Foundation
 
 public actor CloudRoute {
@@ -34,9 +33,19 @@ public actor CloudRoute {
 
     /// Hands the relay what's waiting, syncs once and says what the Mac has taken.
     public func sync(events: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws -> Result {
+        try await queue(events: events, samples: samples, deleted: deleted)
+        return try await sync()
+    }
+
+    /// Hands the relay what's waiting and saves it, so it goes on a later sync even if this one fails.
+    public func queue(events: [Event], samples: [Sample] = [], deleted: [Deletion] = []) async throws {
         relay.log(events)
         if !samples.isEmpty || !deleted.isEmpty { relay.send(SampleBatch(samples: samples, deleted: deleted)) }
         try await save(relay)
+    }
+
+    /// Syncs once and says what the Mac has taken.
+    public func sync() async throws -> Result {
         var working = relay
         let report: CloudRelay.Report
         do {
@@ -53,4 +62,41 @@ public actor CloudRoute {
                       joined: relay.joined)
     }
 }
-#endif
+
+/// The phone's route through Drive. It only reads a plan when no earlier route brought one, since it may lag.
+@MainActor
+public final class DriveRoute: SyncRoute {
+    public let route: CloudRoute
+    /// False once the phone left this relay, so a sync that started before then leaves it alone.
+    let isCurrent: @MainActor () -> Bool
+
+    public init(_ route: CloudRoute, isCurrent: @escaping @MainActor () -> Bool = { true }) {
+        self.route = route
+        self.isCurrent = isCurrent
+    }
+
+    public func unread() async -> Set<String> { await route.unread }
+
+    public func sync(_ book: any SyncBook, health: SampleBatch, takePlan: Bool) async -> RouteOutcome {
+        var outcome = RouteOutcome()
+        guard isCurrent() else { return outcome }
+        do {
+            try await route.queue(events: book.book.pendingEvents, samples: health.samples, deleted: health.deleted)
+            outcome.tookHealth = true
+            let result = try await route.sync()
+            book.change {
+                $0.delivered(result.delivered)
+                if takePlan, let plan = result.plan {
+                    $0.applyPlan(plan)
+                    $0.state.lastSyncAt = Timestamp.now()
+                }
+            }
+            outcome.planned = takePlan && result.plan != nil
+            outcome.waiting = !result.joined && !result.removed
+            outcome.removed = result.removed
+        } catch {
+            outcome.error = error
+        }
+        return outcome
+    }
+}

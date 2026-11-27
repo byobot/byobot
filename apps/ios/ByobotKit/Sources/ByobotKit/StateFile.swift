@@ -4,8 +4,8 @@
 
 import Foundation
 
-/// The app's state file. One that exists but doesn't decode is moved aside, never overwritten, so a build that
-/// reads it can still bring back unsynced sets, the pairing and the device id.
+/// The app's state file. One that exists but doesn't decode, or is from a newer app, is moved aside, never
+/// overwritten, so a build that reads it can still bring back unsynced sets, the pairing and the device id.
 public struct StateFile: Sendable {
     public enum Outcome: Equatable, Sendable {
         case loaded
@@ -40,7 +40,9 @@ public struct StateFile: Sendable {
             locked = true  // for example still locked before the first unlock: not unreadable, just not yet
             return (AppState(), .cantRead)
         }
-        if let state = try? JSONDecoder().decode(AppState.self, from: data) { return (state, .loaded) }
+        if let state = try? JSONDecoder().decode(AppState.self, from: data), state.version <= AppState.currentVersion {
+            return (state, .loaded)
+        }
         let aside = Self.unused(url)
         do {
             try fm.moveItem(at: url, to: aside)

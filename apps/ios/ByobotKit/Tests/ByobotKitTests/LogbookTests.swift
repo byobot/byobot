@@ -178,7 +178,7 @@ final class LogbookTests: XCTestCase {
         book.applyPlan(window)
         XCTAssertEqual(book.localEfforts.map(\.id), [kept.id])
         XCTAssertFalse(book.pendingEvents.contains { $0.record.id == erased.id || $0.record.id == session.id })
-        XCTAssertNil(book.state.heads?["effort/\(erased.id)"])
+        XCTAssertEqual(book.prev("effort", erased.id), [])
         XCTAssertNil(book.activeSession)
         XCTAssertFalse(book.canUndo(erased.id))
     }
@@ -357,6 +357,65 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [onlyThere.id])
     }
 
+    func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
+        let planned = try plannedSession()
+        let pullUp = planned.blocks[0].efforts[0]
+        var first = try Fixtures.window()
+        first.received = [:]
+        var book = makeLogbook(plan: first)
+        book.startSession(planned: planned)
+        let set = book.logEffort(activityId: "pull_up", metrics: ["reps": .exact(8)], plannedEffortId: pullUp.id, round: 1)
+        ack(&book)  // the push went through; the pull after it didn't
+        XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[1]?.id, set.id)
+        XCTAssertEqual(book.prev("effort", set.id), set.prev)
+
+        var later = try window(efforts: [set])
+        later.received = [book.state.deviceId: try XCTUnwrap(book.state.events.last).hlc]
+        book.applyPlan(later)
+        XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[1], set)
+        later.efforts = []
+        book.applyPlan(later)
+        XCTAssertNil(book.logged(for: planned)[pullUp.id]?[1], "the laptop holds it and took it back")
+    }
+
+    func testThePhoneKeepsWhatIsWaitingAndAMonthOfWhatWasSent() throws {
+        let clock = TickingClock()
+        var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"), clock: { clock.read() })
+        book.logEffort(activityId: "run", metrics: [:])
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        XCTAssertEqual(book.state.events.count, 2, "a month isn't up")
+        clock.now += 60 * 86_400
+        let sent = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let waiting = book.logEffort(activityId: "run", metrics: [:])
+        book.delivered([])
+        XCTAssertEqual(book.state.events.map(\.record.id), [sent.id, waiting.id], "the newest sent marks how far it sent")
+
+        let session = book.startSession(name: "Long one")
+        let set = book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        clock.now += 60 * 86_400
+        book.delivered([])
+        XCTAssertEqual(Set(book.state.events.map(\.record.id)), [session.id, set.id], "the active session's stay")
+
+        book.state.rejected = (0..<250).map { RejectedEvent(eventId: "refused-\($0)", reason: nil, at: "2026-11-23T08:00:00Z") }
+        book.delivered([])
+        XCTAssertEqual(book.state.rejected.count, Logbook.keptRejected)
+        XCTAssertEqual(book.state.rejected.first?.eventId, "refused-50")
+    }
+
+    func testAnErasedLocationIsNoLongerWhereYouAre() throws {
+        var book = makeLogbook(plan: try Fixtures.window())
+        book.setLocation("hotel")
+        ack(&book)
+        var window = try Fixtures.window()
+        window.erased = [ErasedRecord(kind: "location", id: "hotel")]
+        window.settings = [Setting(id: "current_location", payload: SettingPayload(value: .string("hotel")), prev: ["e1"])]
+        book.applyPlan(window)
+        XCTAssertNil(book.currentLocationId)
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()
@@ -382,6 +441,26 @@ final class LogbookTests: XCTestCase {
                                     performedAt: "2026-11-26T07:05:00-05:00")
         XCTAssertEqual(moved.performedAt, "2026-11-26T07:05:00-05:00")
         XCTAssertNil(moved.notes)
+    }
+
+    func testMovingASetComparesInstantsNotText() throws {
+        var book = makeLogbook()
+        var set = book.logEffort(activityId: "run", metrics: [:])
+        set.payload.time = RecordTime(start: "2026-11-26T06:30:00-05:00", end: "2026-11-26T12:00:00Z")
+        let moved = book.editEffort(set, metrics: [:], side: nil, notes: nil, performedAt: "2026-11-26T07:05:00-05:00")
+        XCTAssertNil(moved.payload.time.end, "it ended at 07:00 there, before the new start")
+        let kept = book.editEffort(set, metrics: [:], side: nil, notes: nil, performedAt: "2026-11-26T11:30:00Z")
+        XCTAssertEqual(kept.payload.time.end, "2026-11-26T12:00:00Z")
+    }
+
+    func testSessionsSortByWhenTheyHappened() {
+        var book = makeLogbook()
+        let times = ["2026-11-26T08:00:00-05:00", "2026-11-26T12:30:00Z", "2026-11-26T21:00:00+09:00"]
+        for (i, start) in times.enumerated() {
+            book.put("session", "0193a0b0-0000-7000-8000-00000000500\(i)",
+                     SessionPayload(time: RecordTime(start: start), name: "Example \(i)"))
+        }
+        XCTAssertEqual(book.sessions.map(\.name), ["Example 0", "Example 1", "Example 2"], "13:00, 12:30 and 12:00 UTC")
     }
 
     func testCorrectingASetFromAnotherDeviceAndUndoingIt() throws {
@@ -553,6 +632,24 @@ final class EffortFormTests: XCTestCase {
         load.text = "heavy"
         XCTAssertThrowsError(try EffortForm.metrics(from: [load])) { XCTAssertEqual($0 as? EffortFormError, .notANumber("load")) }
     }
+
+    func testThousandsAndDecimalMarksBothRead() {
+        let cases: [(String, Double?)] = [("82.5", 82.5), ("82,5", 82.5), ("1,000", 1000), ("12,345,678", 12_345_678),
+                                          ("1,000.5", 1000.5), ("1.000,5", 1000.5), ("-1,000", -1000), ("1,00", 1),
+                                          ("1,23,456", nil), ("1,000,5", nil), ("1.000.000", nil), ("heavy", nil)]
+        for (text, number) in cases { XCTAssertEqual(EffortForm.parseNumber(text), number, text) }
+    }
+
+    func testBoundsAreCheckedInTheCodesOwnUnit() throws {
+        var energy = EffortForm.field(name: "active_energy", target: nil)
+        energy.text = "60000"
+        energy.unit = "kJ"
+        XCTAssertEqual(try EffortForm.metrics(from: [energy]), ["active_energy": .exact(60000, unit: "kJ")], "about 14,000 kcal")
+        energy.unit = "kcal"
+        XCTAssertThrowsError(try EffortForm.metrics(from: [energy])) {
+            XCTAssertEqual($0 as? EffortFormError, .outOfRange("active_energy"))
+        }
+    }
 }
 
 final class ClockAndHealthTests: XCTestCase {
@@ -699,5 +796,47 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertEqual(heart.raw, .object(["modified_at": .string(Timestamp.string(read)), "min_bpm": .number(48),
                                            "max_bpm": .number(162)]))
         XCTAssertNil(HealthMapping.sample(DailyTotal(type: stepType, start: start, end: end, value: 0), readAt: read))
+    }
+
+    func testAReadingKeepsTheZoneItWasTakenIn() throws {
+        var away = reading(.quantity("HKQuantityTypeIdentifierBodyMass", 82), minutes: 1)
+        away.zone = TimeZone(identifier: "Asia/Tokyo")
+        let sample = try XCTUnwrap(HealthMapping.sample(away))
+        XCTAssertTrue(sample.start.hasSuffix("+09:00"), sample.start)
+        XCTAssertTrue(sample.end?.hasSuffix("+09:00") == true)
+        XCTAssertEqual(try XCTUnwrap(Timestamp.date(sample.start)).timeIntervalSince1970, 1_795_000_000, accuracy: 0.001)
+    }
+
+    func testATripsDailyTotalsStayAsSentAndADayThatFallsAwayIsDeleted() throws {
+        var home = Calendar(identifier: .gregorian), away = Calendar(identifier: .gregorian)
+        home.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        away.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let steps = "HKQuantityTypeIdentifierStepCount", cycling = "HKQuantityTypeIdentifierDistanceCycling"
+        func total(_ type: String, _ day: Int, _ calendar: Calendar, _ value: Double) throws -> DailyTotal {
+            let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: day)))
+            return DailyTotal(type: type, start: start, end: try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start)),
+                              value: value)
+        }
+        let since = try total(steps, 10, away, 1).start
+        var read = HealthMapping.days([try total(steps, 10, away, 9000), try total(cycling, 11, away, 20_000)],
+                                      since: since, sent: [:], readAt: since + 2 * 86_400, calendar: away)
+        XCTAssertEqual(read.samples.map(\.sourceId), ["daily:\(steps):2026-11-10", "daily:\(cycling):2026-11-11"])
+        XCTAssertEqual(read.deleted, [])
+
+        // Home again: the trip's days, read with home midnights, stay as they were sent.
+        read = HealthMapping.days([try total(steps, 10, home, 7000), try total(steps, 12, home, 5000)],
+                                  since: since, sent: read.sent, readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.samples.map(\.sourceId), ["daily:\(steps):2026-11-12"])
+        XCTAssertEqual(read.deleted, [], "nor is a trip day with nothing now deleted")
+
+        // A day sent at home whose total fell away is deleted, once.
+        read = HealthMapping.days([try total(steps, 12, home, 0)], since: since, sent: read.sent,
+                                  readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.samples, [])
+        XCTAssertEqual(read.deleted, [Deletion(source: "apple_health", sourceId: "daily:\(steps):2026-11-12", type: steps)])
+        XCTAssertNil(read.sent["daily:\(steps):2026-11-12"])
+        XCTAssertNotNil(read.sent["daily:\(steps):2026-11-10"])
+        read = HealthMapping.days([], since: since, sent: read.sent, readAt: since + 3 * 86_400, calendar: home)
+        XCTAssertEqual(read.deleted, [])
     }
 }

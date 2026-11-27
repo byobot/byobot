@@ -299,11 +299,13 @@ class Generator:
             value = spec["value"]
             kind = {"quantity": "number", "category": "text"}.get(value, value)
             units = ", ".join(swift_string(u) for u in spec.get("units", {}))
+            factors = {u: f for u, f in spec.get("units", {}).items() if f is not None}
+            factors = "[" + (", ".join(f"{swift_string(u)}: {number(f)}" for u, f in factors.items()) or ":") + "]"
             values = "nil" if "values" not in spec else "[" + ", ".join(swift_string(v) for v in spec["values"]) + "]"
             minimum = spec.get("minimum", spec.get("exclusive_minimum"))
             lines.append(
                 f"        MetricSpec(name: {json.dumps(name)}, summary: {swift_string(spec.get('description', ''))}, "
-                f"units: [{units}], unitRequired: {'true' if value == 'quantity' else 'false'}, kind: .{kind}, "
+                f"units: [{units}], factors: {factors}, unitRequired: {'true' if value == 'quantity' else 'false'}, kind: .{kind}, "
                 f"minimum: {number(minimum)}, exclusiveMinimum: {'true' if 'exclusive_minimum' in spec else 'false'}, "
                 f"maximum: {number(spec.get('maximum'))}, "
                 f"pattern: {'nil' if 'pattern' not in spec else swift_string(spec['pattern'])}, values: {values}, "

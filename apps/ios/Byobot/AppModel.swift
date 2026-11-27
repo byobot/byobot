@@ -8,7 +8,7 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class AppModel: ObservableObject {
+final class AppModel: ObservableObject, SyncBook {
     @Published private(set) var book: Logbook
     @Published private(set) var syncing = false
     @Published var message: String?
@@ -92,7 +92,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func change(_ body: (inout Logbook) -> Void) {
+    func change(_ body: (inout Logbook) -> Void) {
         body(&book)
         save()
         keepAwake()
@@ -178,7 +178,6 @@ final class AppModel: ObservableObject {
         change {
             $0.state.server = nil
             $0.state.plan = nil
-            $0.state.planFetchedAt = nil
         }
     }
 
@@ -228,11 +227,7 @@ final class AppModel: ObservableObject {
 
     /// Let a sync still talking to the old laptop land its answer first, or its pushes would go to the next one too.
     private func finishSyncing() async {
-        var waited = 0
-        while syncing, waited < 200 {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            waited += 1
-        }
+        await running?.value
     }
 
     /// Before leaving a laptop: what it took of what's waiting, for when its answer to a push was lost, so the
@@ -255,18 +250,35 @@ final class AppModel: ObservableObject {
 
     // MARK: Sync
 
+    private var running: Task<Void, Never>?
+    private var syncAgain = false
+
     /// Sync by every route this phone has: the paired laptop first, then Drive. Each takes what's still waiting.
-    /// A deletion of an Apple Health reading the Mac hasn't read from Drive yet goes by Drive too, so it never
-    /// arrives before its reading. When the laptop answered, its plan wins over Drive's, which may be older.
     func sync() async {
         guard leaving == 0 else { return }
-        guard !syncing else {
+        if let running {
             syncAgain = true
+            await running.value
             return
         }
         guard server != nil || cloudRoute != nil else { return }
+        let task = Task { await self.syncLoop() }
+        running = task
+        await task.value
+    }
+
+    private func syncLoop() async {
         syncing = true
-        var healthError: String?, laptopError: String?, cloudError: String?, cloudOK = false, reached = false
+        repeat {
+            syncAgain = false
+            await syncOnce()
+        } while syncAgain && leaving == 0
+        syncing = false
+        running = nil
+    }
+
+    private func syncOnce() async {
+        var healthError: String?, laptopError: String?, cloudError: String?, cloudOK = false
         var read: HealthRead?
         if healthEnabled {
             do {
@@ -275,125 +287,57 @@ final class AppModel: ObservableObject {
                 healthError = error.localizedDescription
             }
         }
-        let anchors = read?.anchors
         let carried = CloudSetup.carry()  // what a Drive relay held when this phone left it
         let carrying = !carried.samples.isEmpty || !carried.deleted.isEmpty
-        if carrying {
-            read = HealthRead(samples: carried.samples + (read?.samples ?? []),
-                              deleted: carried.deleted + (read?.deleted ?? []), anchors: anchors ?? [:])
+        var health: SampleBatch?
+        if read != nil || carrying {
+            health = SampleBatch(samples: carried.samples + (read?.samples ?? []),
+                                 deleted: carried.deleted + (read?.deleted ?? []))
         }
-        let route = cloudRoute
-        let unread = await route?.unread ?? []
-        var healthSent = false
+        var routes: [any SyncRoute] = []
+        var hub: HubRoute?, drive: DriveRoute?
         if let server {
-            do {
-                try await syncLaptop(server, health: read, skipping: unread)
-                healthSent = read != nil
-                if carrying { CloudSetup.keepCarry(SampleBatch()) }
-                reached = true
-            } catch is SyncStopped {
-                syncAgain = true
-            } catch {
-                laptopError = error.localizedDescription
+            if let token = Keychain.token(for: server.deviceId) {
+                hub = HubRoute(SyncClient(server: server, token: token))
+            } else {
+                laptopError = SyncClientError.unauthorized.localizedDescription
             }
         }
-        if let route, route === cloudRoute {
-            do {
-                let samples = healthSent ? [] : read?.samples ?? []
-                let deleted = (read?.deleted ?? []).filter { !healthSent || unread.contains($0.sourceId) }
-                let result = try await route.sync(events: book.pendingEvents, samples: samples, deleted: deleted)
-                if carrying && !healthSent { CloudSetup.keepCarry(SampleBatch()) }
-                healthSent = healthSent || read != nil
-                let laptop = reached
-                change {
-                    $0.delivered(result.delivered)
-                    if !laptop, let plan = result.plan {
-                        $0.applyPlan(plan)
-                        $0.state.lastSyncAt = Timestamp.now()
-                    }
-                }
-                if result.joined {
-                    cloudSyncedAt = Timestamp.now()
-                    cloudOK = true
-                } else if !result.removed {
+        if let cloudRoute {
+            drive = DriveRoute(cloudRoute) { [weak self] in self?.cloudRoute === cloudRoute }
+        }
+        if let hub { routes.append(hub) }
+        if let drive { routes.append(drive) }
+        let report = await Syncer.run(routes, book: self, health: health)
+        for (route, outcome) in zip(routes, report.outcomes) {
+            if route === hub {
+                if let error = outcome.error { laptopError = error.localizedDescription }
+            } else if let drive, route === drive {
+                if let error = outcome.error {
+                    cloudError = error.localizedDescription
+                } else if outcome.removed {
+                    if cloudRoute === drive.route { leaveCloud() }
+                    cloudError = "Your Mac took this phone off Drive sync. Show its join code again to rejoin."
+                } else if outcome.waiting {
                     cloudError = "Waiting for your Mac to let this phone in. Keep `byobot cloud join` or `byobot serve` "
                         + "running on it."
+                } else if outcome.tookHealth {
+                    cloudSyncedAt = Timestamp.now()
+                    cloudOK = true
                 }
-                if result.removed {
-                    leaveCloud()
-                    cloudError = "Your Mac took this phone off Drive sync. Show its join code again to rejoin."
-                }
-            } catch {
-                cloudError = error.localizedDescription
             }
         }
-        if healthSent, let anchors {
-            UserDefaults.standard.set(anchors, forKey: "healthAnchors")
-            UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
-            change { $0.state.lastHealthSyncAt = Timestamp.now() }
+        if report.healthDone {
+            if carrying { CloudSetup.keepCarry(SampleBatch()) }
+            if let read {
+                UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
+                UserDefaults.standard.set(read.days, forKey: "healthDays")
+                UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
+                change { $0.state.lastHealthSyncAt = Timestamp.now() }
+            }
         }
         // Away from the laptop, Drive reaching the Mac is enough: no need to say the laptop is out of reach.
         message = healthError ?? cloudError ?? (cloudOK ? nil : laptopError)
-        syncing = false
-        if syncAgain {
-            syncAgain = false
-            await sync()
-        }
-    }
-
-    /// The paired laptop changed while a sync was talking to the old one.
-    private struct SyncStopped: Error {}
-    private var syncAgain = false
-
-    /// Pull the plan, push what this phone logged, pull again if it pushed, then send Apple Health readings.
-    /// The plan comes first: what the laptop says it holds shows what it lost (it was restored) only until
-    /// this phone pushes something newer.
-    private func syncLaptop(_ server: PairedServer, health: HealthRead?, skipping unread: Set<String>) async throws {
-        guard let token = Keychain.token(for: server.deviceId) else { throw SyncClientError.unauthorized }
-        let transport: any SyncTransport = SyncClient(server: server, token: token)
-        if book.state.storeId == nil {  // paired before the app kept it
-            let storeId = try await transport.storeId()
-            guard self.server == server else { throw SyncStopped() }
-            change { $0.paired(storeId: storeId) }
-        }
-        try await pullPlan(transport, from: server)
-        if !book.pendingEvents.isEmpty {
-            try await pushPending(transport, to: server)
-            try await pullPlan(transport, from: server)
-        }
-        guard let health else { return }
-        let samples = health.samples, deleted = health.deleted.filter { !unread.contains($0.sourceId) }
-        for start in stride(from: 0, to: samples.count, by: 1000) {
-            guard self.server == server else { throw SyncStopped() }
-            _ = try await transport.push(samples: Array(samples[start..<min(start + 1000, samples.count)]), deleted: [])
-        }
-        for start in stride(from: 0, to: deleted.count, by: 1000) {
-            guard self.server == server else { throw SyncStopped() }
-            _ = try await transport.push(samples: [], deleted: Array(deleted[start..<min(start + 1000, deleted.count)]))
-        }
-        guard self.server == server else { throw SyncStopped() }
-    }
-
-    private func pullPlan(_ transport: any SyncTransport, from server: PairedServer) async throws {
-        let window = try await transport.plan()
-        guard self.server == server else { throw SyncStopped() }
-        change {
-            $0.applyPlan(window)
-            $0.state.lastSyncAt = Timestamp.now()
-        }
-    }
-
-    private func pushPending(_ transport: any SyncTransport, to server: PairedServer) async throws {
-        while true {
-            let batch = Array(book.pendingEvents.prefix(500))
-            if batch.isEmpty { break }
-            guard self.server == server else { throw SyncStopped() }
-            let before = book.state.pending.count
-            let response = try await transport.push(events: batch)
-            guard self.server == server else { throw SyncStopped() }
-            change { $0.applyPush(response, sent: batch) }
-            if book.state.pending.count >= before { break }  // no progress; try again next sync
-        }
     }
 
     /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
@@ -404,6 +348,8 @@ final class AppModel: ObservableObject {
         var samples: [Sample]
         var deleted: [Deletion]
         var anchors: [String: Data]
+        /// Each daily total sent, with the offset its day started at.
+        var days: [String: Int]
     }
 
     private func readHealth() async throws -> HealthRead? {
@@ -419,10 +365,12 @@ final class AppModel: ObservableObject {
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let days = try await health.dailyTotals(since: from).compactMap { HealthMapping.sample($0, readAt: now) }
-        return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days,
-                          deleted: changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) },
-                          anchors: changes.anchors)
+        let sent = current ? (UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]) : [:]
+        let totals = try await health.dailyTotals(since: from)
+        let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
+        return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
+                          deleted: changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) } + days.deleted,
+                          anchors: changes.anchors, days: days.sent)
     }
 
     func enableHealth() async {

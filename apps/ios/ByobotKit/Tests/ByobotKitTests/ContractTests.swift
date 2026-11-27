@@ -131,6 +131,24 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(MetricRegistry.isCustom("x.Grade"))
     }
 
+    func testThePlanWindowHasTheContractsFields() throws {
+        guard case .object(let doc) = try Fixtures.json("schema/v1/sync.schema.json"),
+              case .object(let defs)? = doc["$defs"], case .object(let window)? = defs["plan_window"],
+              case .object(let properties)? = window["properties"],
+              case .array(let required)? = window["required"] else { return XCTFail("plan_window not found") }
+        let full = PlanWindow(from: "2026-11-01", to: "2026-11-30", storeId: "0193a0b0-0000-7000-8000-00000000c001",
+                              hlc: "0000000000001-000000", erased: [], kindVersions: [:], received: [:], rejected: [])
+        guard case .object(let written) = try Payloads.encode(full) else { return XCTFail("not an object") }
+        XCTAssertEqual(Set(written.keys), Set(properties.keys))
+        guard case .object(let bare) = try Payloads.encode(PlanWindow(from: "2026-11-01", to: "2026-11-30")) else {
+            return XCTFail("not an object")
+        }
+        let names = required.compactMap { (item: JSONValue) -> String? in
+            if case .string(let s) = item { return s } else { return nil }
+        }
+        XCTAssertEqual(Set(bare.keys), Set(names))
+    }
+
     func testTheSettingsTheAppWritesAreInTheRegistry() throws {
         guard case .object(let doc) = try Fixtures.json("schema/v1/registry.json"),
               case .object(let settings)? = doc["settings"] else { return XCTFail("registry not found") }

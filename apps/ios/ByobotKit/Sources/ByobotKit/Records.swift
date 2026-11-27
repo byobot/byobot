@@ -3,6 +3,7 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
+import CryptoKit
 import Foundation
 
 /// A live record: its id, its current payload, and the events a change to it names as `prev`.
@@ -141,19 +142,22 @@ extension Record where Payload == PlannedSessionPayload {
 enum Payloads {
     static func json<T: Encodable>(_ value: T) -> JSONValue {
         // Every payload type here encodes; a failure would be a bug in the generated types.
-        (try? JSONValue.parse(JSONEncoder().encode(value))) ?? .object([:])
+        (try? encode(value)) ?? .object([:])
     }
 
-    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) -> T? {
-        guard let data = try? JSONEncoder().encode(value) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+    static func encode<T: Encodable>(_ value: T) throws -> JSONValue {
+        try JSONValue.parse(JSONEncoder().encode(value))
+    }
+
+    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
+        try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
     }
 }
 
 extension Event {
     /// The payload as a kind's type, when it is one.
     public func decoded<T: Decodable>(_ type: T.Type) -> T? {
-        op == .put ? Payloads.decode(T.self, payload) : nil
+        op == .put ? (try? Payloads.decode(T.self, payload)) : nil
     }
 }
 
@@ -223,51 +227,9 @@ public enum DerivedId {
             ns.append(UInt8(hex[i..<j], radix: 16) ?? 0)
             i = j
         }
-        var bytes = Array(SHA1.digest(ns + name).prefix(16))
+        var bytes = Array(Insecure.SHA1.hash(data: Data(ns + name)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
-        let h = bytes.map { String(format: "%02x", $0) }.joined()
-        return [h.prefix(8), h.dropFirst(8).prefix(4), h.dropFirst(12).prefix(4), h.dropFirst(16).prefix(4),
-                h.dropFirst(20)].joined(separator: "-")
+        return bytes.uuid
     }
-}
-
-/// SHA-1, for UUIDv5 only.
-enum SHA1 {
-    static func digest(_ message: [UInt8]) -> [UInt8] {
-        var h: [UInt32] = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0]
-        var m = message
-        let bits = UInt64(message.count) * 8
-        m.append(0x80)
-        while m.count % 64 != 56 { m.append(0) }
-        for i in (0..<8).reversed() { m.append(UInt8((bits >> UInt64(8 * i)) & 0xFF)) }
-        for chunk in stride(from: 0, to: m.count, by: 64) {
-            var w = [UInt32](repeating: 0, count: 80)
-            for t in 0..<16 {
-                let b = chunk + 4 * t
-                w[t] = UInt32(m[b]) << 24 | UInt32(m[b + 1]) << 16 | UInt32(m[b + 2]) << 8 | UInt32(m[b + 3])
-            }
-            for t in 16..<80 { w[t] = rotl(w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16], 1) }
-            var (a, b, c, d, e) = (h[0], h[1], h[2], h[3], h[4])
-            for t in 0..<80 {
-                let (f, k): (UInt32, UInt32)
-                switch t {
-                case 0..<20: (f, k) = ((b & c) | (~b & d), 0x5A82_7999)
-                case 20..<40: (f, k) = (b ^ c ^ d, 0x6ED9_EBA1)
-                case 40..<60: (f, k) = ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC)
-                default: (f, k) = (b ^ c ^ d, 0xCA62_C1D6)
-                }
-                let temp = rotl(a, 5) &+ f &+ e &+ k &+ w[t]
-                (e, d, c, b, a) = (d, c, rotl(b, 30), a, temp)
-            }
-            h[0] = h[0] &+ a
-            h[1] = h[1] &+ b
-            h[2] = h[2] &+ c
-            h[3] = h[3] &+ d
-            h[4] = h[4] &+ e
-        }
-        return h.flatMap { v in (0..<4).map { UInt8((v >> UInt32(24 - 8 * $0)) & 0xFF) } }
-    }
-
-    static func rotl(_ x: UInt32, _ n: UInt32) -> UInt32 { (x << n) | (x >> (32 - n)) }
 }

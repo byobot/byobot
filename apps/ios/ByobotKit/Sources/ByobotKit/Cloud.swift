@@ -3,7 +3,6 @@
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-#if canImport(CryptoKit) && canImport(Compression)
 import Compression
 import CryptoKit
 import Foundation
@@ -460,4 +459,3 @@ public enum Cloud {
         Data([UInt8(n & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n >> 16 & 0xFF), UInt8(n >> 24 & 0xFF)])
     }
 }
-#endif
