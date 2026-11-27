@@ -186,12 +186,18 @@ final class WorkoutTests: XCTestCase {
 
         let workout = book.workout(try session("sess-lower-a"))
         let squat = workout.slots[1]
+        // Against one full decode of the phone's state, so a slow runner doesn't fail it.
+        let state = try JSONEncoder().encode(book.state)
+        let decodeBegan = Date()
+        _ = try JSONDecoder().decode(AppState.self, from: state)
+        let decode = Date().timeIntervalSince(decodeBegan)
         let began = Date()
         for _ in 0..<2 {  // the focus card's reads, twice
             _ = book.asPlanned(squat, in: workout)
             _ = book.lastTime(squat.activityId, at: book.currentLocationId)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(began), 3)
+        let reads = Date().timeIntervalSince(began)
+        XCTAssertLessThan(reads, 25 * decode, "reads \(reads)s, one decode \(decode)s")
         let last = book.lastTime("barbell_back_squat", at: nil)
         XCTAssertEqual(last.efforts.count, 5)
         XCTAssertEqual(last.efforts.first?.metrics?["load"], .exact(151, unit: "kg"))

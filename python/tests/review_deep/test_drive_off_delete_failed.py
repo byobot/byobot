@@ -31,6 +31,15 @@ def _off_delete_fails_partway(store):
     return keeper, relay
 
 
+def test_a_failed_off_delete_leaves_keeper_and_phone_agreeing(store):
+    keeper, relay = _off_delete_fails_partway(store)
+    for _ in range(2):  # the person runs `cloud sync`, or `serve` syncs on its own
+        keeper.sync()
+        relay.sync()
+    assert keeper.is_off or (not relay.removed and relay.epoch == keeper.epoch), \
+        "the phone was told it was taken off Drive sync while the keeper still counts on it"
+
+
 def test_after_a_failed_off_delete_the_next_epoch_still_starts(store):
     keeper, relay = _off_delete_fails_partway(store)
     keeper.sync()
