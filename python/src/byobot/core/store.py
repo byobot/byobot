@@ -564,6 +564,8 @@ class Store:
             raise ValidationFailed("not a byobot export") from None
         if not isinstance(header, dict) or header.get("byobot_export") != EXPORT_VERSION:
             raise ValidationFailed("not a byobot export this version can read")
+        if not all(isinstance(header.get(k), str) for k in ("store_id", "store_key")):
+            raise ValidationFailed("not a byobot export: the header has no store_id or store_key")
         outcomes: dict[str, int] = {}
         with self._tx():  # all or nothing
             self.adopt(header["store_id"], header["store_key"])

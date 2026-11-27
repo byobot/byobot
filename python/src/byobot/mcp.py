@@ -50,6 +50,8 @@ def _input_schema(cmd: Command) -> dict:
             prop["enum"] = list(p.choices)
         if p.default is not None:
             prop["default"] = p.default
+        if p.bounds:
+            prop["minimum"], prop["maximum"] = p.bounds
         props[p.name] = prop
         if p.required:
             required.append(p.name)
