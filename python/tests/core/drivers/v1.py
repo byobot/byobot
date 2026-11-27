@@ -342,7 +342,7 @@ class V1:
     def newer(self, events: list[dict], variant: str) -> list[dict]:
         out = []
         for e in events:
-            e = {**e, "id": e["id"][:-4] + {"unknown_kind": "aaaa", "newer_version": "bbbb"}.get(variant, "cccc")}
+            e = {**e, "id": str(uuid.uuid5(NAMESPACE, f"{variant}:{e['id']}"))}
             if e["op"] == "put":
                 e["kind_version"] = 2
             if variant == "unknown_kind":
