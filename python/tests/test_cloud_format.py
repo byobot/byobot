@@ -9,6 +9,8 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from byobot.cloud import files, segment
+from byobot.cloud.folder import MemoryFolder
+from byobot.cloud.relay import Relay
 from byobot.cloud.crypto import (CloudError, Identity, b64, dumps, join_proof, new_key, proof_matches, read_document,
                                  recovery_code, recovery_key)
 from byobot.core.contract import cloud_errors
@@ -194,3 +196,16 @@ def test_capabilities_a_reader_doesn_t_know_are_read_and_bad_ones_refused():
     assert files.read_epoch(epoch, me.public()["sign"], STORE, 1)["capabilities"] == ["something_newer"]
     with pytest.raises(CloudError, match="capability"):
         files.read_device(data.replace(b'"handover"', b'"Hand Over"'), STORE, "dev_1")
+
+
+@pytest.mark.parametrize("case", VECTORS["follow"], ids=lambda c: c["name"])
+def test_a_relay_follows_each_folder_to_what_it_should(case):
+    relay = Relay(MemoryFolder(), STORE, RELAY["id"], KEEPER["sign"], identity=Identity.from_private(RELAY["private"]))
+    for folder in filter(None, (case["first"], case["folder"])):
+        relay.folder = MemoryFolder()
+        for path, data in folder.items():
+            relay.folder.create(path, unb64(data))
+        relay._adopt(relay.folder.list())
+    got = {"epoch": relay.epoch, "keeper_key": relay.keeper_sign, "key": relay.key and b64(relay.key),
+           "removed": relay.removed}
+    assert got == case["expect"]

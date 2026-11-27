@@ -142,17 +142,66 @@ def build() -> dict:
     ]
     for case in valid + invalid:
         case["data"] = b64(case["data"])
+    follow = following(keeper, rotated, keeper_dev, relay_dev, rotated_dev, epoch_key)
     return {
         "description": "Conformance files for cloud.schema.json, made from fixed keys. Every implementation opens "
                        "the valid ones to `expect` and refuses the invalid ones with an error containing `error`. "
-                       "A case's own `store_id`, `key` or `signer` replaces the inputs'.",
+                       "A case's own `store_id`, `key` or `signer` replaces the inputs'. In `follow`, a relay that just "
+                       "joined, trusting the keeper key, reads `first` if there is one, then `folder`, and holds "
+                       "`expect`.",
         "schema_version": 1,
         "inputs": {"store_id": STORE, "keeper": {"id": KEEPER, "private": keeper.private(), **keeper.public()},
                    "relay": {"id": RELAY, "private": relay.private(), **relay.public()}, "epoch_key": b64(epoch_key),
                    "join_secret": b64(secret), "seal_ephemeral": b64(fixed("ephemeral")), "recovery_code": code, "recovery_key": b64(rkey)},
         "valid": valid,
         "invalid": invalid,
+        "follow": follow,
     }
+
+
+def following(keeper: Identity, rotated: Identity, keeper_dev: dict, relay_dev: dict, rotated_dev: dict,
+              epoch_key: bytes) -> list[dict]:
+    """Folders a relay reads: which epoch, key and keeper key it takes from each, or that it was removed."""
+    again, stranger = identity("keeper rotated again"), identity("stranger")
+    again_dev = {"device_id": KEEPER, "device_class": "keeper", **again.public()}
+    keys = {n: fixed(f"follow epoch key {n}") for n in (2, 3)}
+    keys[1] = epoch_key
+
+    def epoch(n, signer, devices, previous=None):
+        return files.epoch_path(n), files.epoch_file(signer, STORE, n, KEEPER, devices, 1, previous=previous)
+
+    def key(n, signer):
+        return files.key_path(n, RELAY), files.key_file(signer, STORE, n, relay_dev, keys[n],
+                                                        X25519PrivateKey.from_private_bytes(fixed(f"follow seal {n}")))
+
+    one = [epoch(1, keeper, [keeper_dev, relay_dev]), key(1, keeper)]
+    two = one + [epoch(2, rotated, [rotated_dev, relay_dev], keeper), key(2, rotated)]
+    at_one = {"epoch": 1, "keeper_key": keeper.public()["sign"], "key": b64(keys[1])}
+    at_two = {"epoch": 2, "keeper_key": rotated.public()["sign"], "key": b64(keys[2])}
+    first = {"at_one": one, "at_two": two}
+    cases = [
+        ("a new relay takes the epoch its key file is in", None, one, {**at_one, "removed": False}),
+        ("admitted mid-epoch: no epoch file lists it yet, its key file does", None,
+         [epoch(1, keeper, [keeper_dev]), key(1, keeper)], {**at_one, "removed": False}),
+        ("a handover moves trust to the keeper's new key", "at_one", two, {**at_two, "removed": False}),
+        ("two handovers in a row are followed in order", "at_one",
+         two + [epoch(3, again, [again_dev, relay_dev], rotated), key(3, again)],
+         {"epoch": 3, "keeper_key": again.public()["sign"], "key": b64(keys[3]), "removed": False}),
+        ("an epoch file from a key with no handover is skipped", "at_one",
+         one + [epoch(2, stranger, [relay_dev]), key(2, stranger)], {**at_one, "removed": False}),
+        ("the old keys can't take trust back", "at_two",
+         two + [epoch(3, keeper, [keeper_dev, relay_dev]), key(3, keeper)], {**at_two, "removed": False}),
+        ("a newer epoch with no key file yet is waited for", "at_one",
+         one + [epoch(2, keeper, [keeper_dev, relay_dev])], {**at_one, "removed": False}),
+        ("a newer epoch that leaves the relay out removes it", "at_one",
+         one + [epoch(2, keeper, [keeper_dev])], {"epoch": 1, "keeper_key": keeper.public()["sign"], "key": None,
+                                                  "removed": True}),
+    ]
+    def listed(files_: list) -> dict:
+        return {path: b64(data) for path, data in files_}
+
+    return [{"name": name, "first": listed(first[start]) if start else None, "folder": listed(folder),
+             "expect": expect} for name, start, folder, expect in cases]
 
 
 def main() -> int:
