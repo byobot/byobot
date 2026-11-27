@@ -68,11 +68,12 @@ final class AppModel: ObservableObject, SyncBook {
 
     // MARK: Saving
 
-    /// The state lives in Application Support, excluded from device backups: health data stays on
-    /// the phone and your laptop, never in iCloud.
+    /// The state lives in Application Support, the App Group's when the build names one, excluded from device
+    /// backups: health data stays on the phone and your laptop, never in iCloud.
     nonisolated static func stateFile() -> URL {
         let fm = FileManager.default
-        var dir = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+        var dir = groupDirectory()
+            ?? (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
             ?? fm.temporaryDirectory
         dir.appendPathComponent("byobot", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -96,6 +97,15 @@ final class AppModel: ObservableObject, SyncBook {
         body(&book)
         save()
         keepAwake()
+    }
+
+    /// Application Support in the App Group set by `BYOBOT_APP_GROUP`, so a widget or watch app can read it.
+    nonisolated static func groupDirectory() -> URL? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ByobotAppGroup") as? String, !group.isEmpty,
+              let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            return nil
+        }
+        return container.appendingPathComponent("Library/Application Support", isDirectory: true)
     }
 
     /// The screen stays on while a session runs, so the timers and the next set stay in view.
