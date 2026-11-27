@@ -527,28 +527,6 @@ def _disconnect(ctx: Context, source: str) -> dict:
     return whoop.disconnect()
 
 
-@command(
-    "ingest",
-    "Add samples read from a health store, such as Apple Health: weight, heart rate, sleep, "
-    "workouts. Sending the same samples again changes nothing.",
-    Param("samples", "json", "One sample or a list, each {source, source_id, type, start, end, value, unit}, or an "
-          "object {samples, deleted} where deleted lists {source, source_id} the health store removed.",
-          required=True, positional=True, schema={"type": ["object", "array"]}),
-    read_only=False,
-    mcp=False,  # it writes as any source, so only the person runs it
-)
-def _ingest(ctx: Context, samples: Any) -> dict:
-    deleted: list = []
-    if isinstance(samples, dict) and ("samples" in samples or "deleted" in samples):
-        samples, deleted = samples.get("samples") or [], samples.get("deleted") or []
-    batch = samples if isinstance(samples, list) else [samples]
-    if not isinstance(deleted, list):
-        raise ValidationFailed("deleted must be a list")
-    written = sources.ingest_samples(ctx.store(), batch, deleted)
-    return {"written": {s: len(e) for s, e in written.items()}, "unchanged": len(batch) - sum(
-        e["op"] == "put" for es in written.values() for e in es)}
-
-
 # -- reading --------------------------------------------------------------------
 
 # kind -> (table, time column for since/until, order); a record kind, or workouts across you and your sources

@@ -159,16 +159,6 @@ def test_weekly_plan_prompt():
     server.close()
 
 
-def test_agents_cannot_write_source_data(byobot_home):
-    """An agent writing samples would sign them as any connector; `ingest` is the person's alone."""
-    server = initialized()
-    assert "ingest" not in {t["name"] for t in call(server, 2, "tools/list")["result"]["tools"]}
-    got = call(server, 3, "tools/call", {"name": "ingest", "arguments": {"samples": {
-        "source": "whoop", "source_id": "w1", "type": "HKQuantityTypeIdentifierBodyMass",
-        "start": "2026-11-20T07:12:00Z", "end": "2026-11-20T07:12:00Z", "value": 82.4, "unit": "kg"}}})
-    assert got["error"]["code"] == -32602
-
-
 YOU = {"kind": "human", "id": "cli"}
 
 

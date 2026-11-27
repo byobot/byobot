@@ -17,6 +17,7 @@ from byobot import __version__, mcp, remote, serve
 from byobot.cli import build_parser, main
 from byobot.commands import REGISTRY, Command, Context, run
 from byobot.core import commands as core
+from byobot.core import sources
 from byobot.core.store import Store
 from byobot.review import review
 from byobot.util import Conflict, ValidationFailed
@@ -212,18 +213,17 @@ def test_erase_a_session_with_its_efforts(capsys):
     assert cli(capsys, "list", "effort")[1]["count"] == 0
 
 
-def test_ingest_ndjson_file(capsys, tmp_path):
-    path = tmp_path / "samples.ndjson"
-    path.write_text("\n".join(json.dumps(s) for s in (WEIGHT, RESTING)) + "\n")
-    code, out, _ = cli(capsys, "ingest", f"@{path}")
-    assert out == {"written": {"apple_health": 2}, "unchanged": 0}
-    assert cli(capsys, "ingest", f"@{path}")[1] == {"written": {"apple_health": 0}, "unchanged": 2}
-    code, listed, _ = cli(capsys, "list", "observation", "--type", "body_mass")
-    assert listed["count"] == 1 and listed["items"][0]["value"] == 82.4
+def test_json_lines_file(capsys, tmp_path):
+    path = tmp_path / "locations.ndjson"
+    path.write_text("\n".join(json.dumps({"kind": "location", "id": f"gym_{i}", "payload": {"name": f"Gym {i}"}})
+                              for i in range(2)) + "\n")
+    assert cli(capsys, "log", "batch", f"@{path}")[0] == 0
+    assert cli(capsys, "list", "location")[1]["count"] == 2
 
 
-def test_correct_and_exclude_an_import(capsys):
-    cli(capsys, "ingest", json.dumps(WEIGHT))
+def test_correct_and_exclude_an_import(capsys, byobot_home):
+    with Store(byobot_home / "byobot.db") as store:
+        sources.ingest_samples(store, [WEIGHT], [])
     rid = cli(capsys, "list", "source_record")[1]["items"][0]["id"]
     code, out, _ = cli(capsys, "correct", rid, '{"value": 81.9, "unit": "kg"}')
     assert code == 0, out
