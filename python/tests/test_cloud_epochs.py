@@ -409,3 +409,12 @@ def test_a_new_code_cut_short_is_kept_and_shown_by_the_retry(store, folder, keep
     moved(keeper, relay)
     Keeper.recover(Store(tmp_path / "a.db"), folder, made, clock)
 
+
+def test_a_code_a_newer_one_replaced_is_refused_while_its_files_remain(store, folder, keeper, tmp_path, clock,
+                                                                      monkeypatch):
+    old = keeper.recovery_code
+    monkeypatch.setattr(folder, "delete", lambda path: None)  # the old code's recovery keys stay
+    keeper.rotate(recovery=True)
+    with pytest.raises(ByobotError, match="newer recovery code"):
+        Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
+

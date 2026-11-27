@@ -102,6 +102,9 @@ class Keeper:
                 continue
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
+        if any(e > n and files.epoch_path(e) in listing for e in _recovery_epochs(listing)):
+            raise ByobotError("a newer recovery code replaced that one; use the code `byobot cloud rotate --recovery` "
+                              "showed last")
         top = opened[n]
         devices = {d["device_id"]: d for d in epoch_body["devices"]}
         for path in listing:  # admitted since the epoch file was written: only a key file names them
