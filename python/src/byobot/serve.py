@@ -614,9 +614,10 @@ class Handler(BaseHTTPRequestHandler):
         with Store(self.server.db, migrate=False) as store:
             self._guard_reads(store)
             try:
-                found = store.events(int(after), MAX_PULL + 1)
-                last = store.conn.execute("SELECT max(seq) FROM (SELECT seq FROM events WHERE seq > ? ORDER BY seq "
-                                          "LIMIT ?)", (int(after), MAX_PULL)).fetchone()[0]
+                with store.snapshot():
+                    found = store.events(int(after), MAX_PULL + 1)
+                    last = store.conn.execute("SELECT max(seq) FROM (SELECT seq FROM events WHERE seq > ? ORDER BY "
+                                              "seq LIMIT ?)", (int(after), MAX_PULL)).fetchone()[0]
             except sqlite3.OperationalError as exc:
                 _query_interrupted(exc)
             return {"events": found[:MAX_PULL], "next": last or int(after), "more": len(found) > MAX_PULL}
