@@ -691,11 +691,13 @@ def _tables(store: Store) -> None:
 
 def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:
     """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
-    last ``every`` seconds. Reads only, so a store without Drive sync is left as it is."""
+    last ``every`` seconds. A try stamped in the future (the clock ran ahead) counts as due. Reads only, so a store
+    without Drive sync is left as it is."""
     if not store.conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cloud_meta'").fetchone():
         return False
     meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('device_id', 'off', 'tried_at')"))
-    return "device_id" in meta and "off" not in meta and clock() - float(meta.get("tried_at", 0)) >= every
+    since = clock() - float(meta.get("tried_at", 0))
+    return "device_id" in meta and "off" not in meta and (since >= every or since < 0)
 
 
 def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
