@@ -1214,8 +1214,8 @@
   },
   {
    "name": "overlay/rearrange",
-   "outcome": "accepted",
-   "description": "Your exercise order and a swap on an agent's planned session.",
+   "outcome": "rejected",
+   "description": "Order and swaps stay on the phone; what you did is in the logged sets.",
    "data": {
     "id": "019aa000-0000-7000-8000-00000000001b",
     "schema_version": 1,
