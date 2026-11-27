@@ -255,7 +255,7 @@ def test_a_connected_assistant_uses_the_tools(running):
     resp, raw = rpc(running, token, "tools/list", session=session)
     assert "query" in {t["name"] for t in json.loads(raw)["result"]["tools"]}
     resp, raw = rpc(running, token, "tools/call", {"name": "log", "arguments": {
-        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}}, session=session)
+        "kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}}}, session=session)
     assert json.loads(raw)["result"]["isError"] is False
     resp, raw = rpc(running, token, "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_kind, actor_id FROM events"}}, session=session)
@@ -278,7 +278,7 @@ def test_sessions_belong_to_their_client(running):
 def test_without_a_session_writes_name_the_connected_app(running):
     _, tokens = connect(running)
     rpc(running, tokens["access_token"], "tools/call", {"name": "log", "arguments": {
-        "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}})
+        "kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}}})
     resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_id FROM events"}})
     assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_id": "Example Assistant"}]
@@ -412,7 +412,7 @@ def test_an_api_key_calls_tools(running, header):
     auth = {header: f"Bearer {key}" if header == "Authorization" else key}
     resp, raw = request(running, "GET", "/api/tools", headers=auth)
     assert resp.status == 200 and "log" in {t["name"] for t in json.loads(raw)["tools"]}
-    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "plank",
+    resp, raw = request(running, "POST", "/api/tools/log", {"kind": "activity", "id": "x.plank",
                                                             "payload": {"name": "Plank"}}, auth)
     assert resp.status == 200, raw
     resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)

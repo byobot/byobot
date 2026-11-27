@@ -174,8 +174,8 @@ def test_s9_an_agent_reusing_an_id_is_refused(world):
 def test_s9_two_devices_defining_one_activity_apart_conflict(world):
     world.replica("phone")
     world.replica("laptop")
-    world.author("phone", {"intent": "define_activity", "record": {"id": "row", "name": "Row"}})
-    world.author("laptop", {"intent": "define_activity", "record": {"id": "row", "name": "Rowing machine"}})
+    world.author("phone", {"intent": "define_activity", "record": {"id": "x.row", "name": "Row"}})
+    world.author("laptop", {"intent": "define_activity", "record": {"id": "x.row", "name": "Rowing machine"}})
     both_ways(world, "phone", "laptop")
     assert list(world.snapshot("laptop")["conflicts"]) == ["activity/row"]
     for name in ("phone", "laptop"):

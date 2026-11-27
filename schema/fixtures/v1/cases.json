@@ -58,6 +58,116 @@
    }
   },
   {
+   "name": "activity/yours",
+   "outcome": "accepted",
+   "description": "Your own activities are `x.` and a slug.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable_fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "activity/dotted-id",
+   "outcome": "rejected",
+   "description": "Only the `x.` prefix has a dot.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000001",
+    "schema_version": 1,
+    "record": {
+     "kind": "activity",
+     "id": "x.cable.fly"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795100000000-000000",
+    "ts": "2026-11-20T18:00:00-05:00",
+    "device_id": "example-laptop",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "name": "Barbell back squat",
+     "tags": [
+      "strength",
+      "legs"
+     ],
+     "default_metrics": [
+      "reps",
+      "load",
+      "rpe"
+     ],
+     "targets": {
+      "main": [
+       "quads",
+       "glutes"
+      ],
+      "synergists": [
+       "adductors"
+      ]
+     },
+     "equipment": [
+      "barbell",
+      "squat_rack"
+     ],
+     "movement_type": "compound",
+     "fatigue": 4,
+     "resistance_curve": {
+      "stretch": 3,
+      "middle": 2,
+      "contract": 1
+     }
+    }
+   }
+  },
+  {
    "name": "location/put",
    "outcome": "accepted",
    "description": "A place to train, named by a slug.",

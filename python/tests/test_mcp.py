@@ -49,7 +49,7 @@ def test_initialize_negotiates_version():
 
 def test_writes_are_attributed_to_the_agent():
     server = initialized(client="claude-code")
-    result = tool(server, "log", kind="activity", id="plank", payload={"name": "Plank"}, model="example-model-1")
+    result = tool(server, "log", kind="activity", id="x.plank", payload={"name": "Plank"}, model="example-model-1")
     assert result["isError"] is False
     assert result["structuredContent"]["event"]["actor"] == {"kind": "agent", "id": "claude-code",
                                                              "model": "example-model-1"}
@@ -61,7 +61,7 @@ def test_writes_are_attributed_to_the_agent():
 
 def test_tool_errors_are_results_not_protocol_errors():
     server = initialized()
-    result = tool(server, "log", kind="effort", payload={"activity_id": "plank", "metrics": {"x.Bad": {"value": 1}}})
+    result = tool(server, "log", kind="effort", payload={"activity_id": "x.plank", "metrics": {"x.Bad": {"value": 1}}})
     assert result["isError"] is True
     assert json.loads(result["content"][0]["text"])["error"] == "invalid"
     result = tool(server, "query", sql="DELETE FROM events")
@@ -71,14 +71,14 @@ def test_tool_errors_are_results_not_protocol_errors():
 
 def test_agent_can_log_open_metrics_and_read_views():
     server = initialized(client="claude-code")
-    tool(server, "log", kind="activity", id="squat", payload={"name": "Squat"})
+    tool(server, "log", kind="activity", id="x.squat", payload={"name": "Squat"})
     plan = {"scheduled_on": "2026-11-23", "name": "Lift", "blocks": [
-        {"rounds": 3, "efforts": [{"activity_id": "squat",
+        {"rounds": 3, "efforts": [{"activity_id": "x.squat",
                                    "metrics": {"reps": {"min": 3, "max": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
     planned = tool(server, "log", kind="planned_session", payload=plan)
     assert planned["isError"] is False
     pid = planned["structuredContent"]["event"]["record"]["id"]
-    done = {"activity_id": "squat", "round": 1, "links": {"answers": {"kind": "planned_session", "id": pid,
+    done = {"activity_id": "x.squat", "round": 1, "links": {"answers": {"kind": "planned_session", "id": pid,
                                                                       "part": f"{pid}.0.0"}},
             "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "[lb_av]"}, "x.tempo": {"value": "3010"}}}
     assert tool(server, "log", kind="effort", payload=done)["isError"] is False

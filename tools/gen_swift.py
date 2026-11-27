@@ -83,7 +83,7 @@ INLINE = {
 # Types whose `id` is not an identity (a reference's id names another record).
 NOT_IDENTIFIABLE = {"Actor", "Ref", "RecordRef", "ErasedRecord"}
 
-STRING_DEFS = {"id", "slug", "uuid", "kind", "timestamp", "date", "zone", "hlc", "text", "name", "code", "unit"}
+STRING_DEFS = {"id", "slug", "activity_id", "uuid", "kind", "timestamp", "date", "zone", "hlc", "text", "name", "code", "unit"}
 
 KEYWORDS = {
     "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "init", "inout",
