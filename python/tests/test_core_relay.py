@@ -56,10 +56,11 @@ def logged(n, start=1764000000000):
     return [{**event(), "hlc": hlc.format((start + 1000 * i, 0))} for i in range(n)]
 
 
-def test_the_plan_carries_the_hub_clock_and_kind_versions(store):
+def test_the_plan_carries_the_store_id_hub_clock_and_kind_versions(store):
     relay.accept_events(store, PHONE, logged(1, start=1795000000000))
     window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
     assert sync_errors("plan_window", window) == []
+    assert window["store_id"] == store.store_id
     assert window["hlc"] == store.hlc == hlc.format((1795000000000, 0))
     assert window["kind_versions"]["effort"] == store.contract.version("effort")
 

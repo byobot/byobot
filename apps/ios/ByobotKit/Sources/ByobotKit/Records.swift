@@ -80,6 +80,8 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     /// Efforts logged against them, and the last two times each planned activity was done at each location.
     public var efforts: [PerformedEffort]
     // Older laptops send none of these.
+    /// The laptop's store as of this read; it changes when the laptop is restored from another store's backup.
+    public var storeId: String?
     /// The laptop's clock.
     public var hlc: String?
     /// Records a person writes that were erased, so the phone drops what it holds of them.
@@ -93,8 +95,8 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
                 overlays: [Overlay] = [], sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [],
-                hlc: String? = nil, erased: [ErasedRecord]? = nil, kindVersions: [String: Int]? = nil,
-                received: [String: String]? = nil, rejected: [Rejection]? = nil) {
+                storeId: String? = nil, hlc: String? = nil, erased: [ErasedRecord]? = nil,
+                kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
         self.from = from
         self.to = to
         self.activities = activities
@@ -105,6 +107,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.overlays = overlays
         self.sessions = sessions
         self.efforts = efforts
+        self.storeId = storeId
         self.hlc = hlc
         self.erased = erased
         self.kindVersions = kindVersions
@@ -117,6 +120,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
              rejected
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
+        case storeId = "store_id"
     }
 }
 
