@@ -70,7 +70,7 @@ def test_effort_history_compares_loads_only_at_one_location(ctx):
     log(ctx, "location", {"name": "Example gym"}, "example_gym")
     log(ctx, "location", {"name": "Home"}, "home")
     session = log(ctx, "session", {"location_id": "example_gym", "time": {"start": "2026-11-18T18:00:00Z"}})
-    sid = session["event"]["record"]["id"]
+    sid = session["events"][0]["record"]["id"]
     squat(ctx, "2026-11-18T18:00:00Z", session=sid)
     squat(ctx, "2026-11-18T18:05:00Z", session=sid, load=105)
     squat(ctx, "2026-11-20T18:00:00Z", location="home", load=60)

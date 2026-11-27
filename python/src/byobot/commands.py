@@ -234,7 +234,7 @@ def _log(ctx: Context, kind: str, payload: Any, id: str | None = None) -> dict:
     record = {"kind": kind, "id": id, "payload": _object("payload", payload)}
     _check_references(ctx.store(), [record])
     [event] = core.log(ctx.store(), ctx.actor, [record])
-    return {"event": event}
+    return {"events": [event]}
 
 
 def _check_references(store: Store, records: list[dict]) -> None:
@@ -284,7 +284,7 @@ def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
     store, patch = ctx.store(), _object("patch", patch)
     if kind == "planned_session" and (found := store.get(kind, id)):
         _check_references(store, [{"kind": kind, "id": id, "payload": core.merge_patch(found["payload"], patch)}])
-    return {"event": core.edit(store, ctx.actor, kind, id, patch)}
+    return {"events": [core.edit(store, ctx.actor, kind, id, patch)]}
 
 
 @command(
@@ -296,7 +296,7 @@ def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
     read_only=False, destructive=True,
 )
 def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict:
-    return {"event": core.remove(ctx.store(), ctx.actor, kind, id, reason)}
+    return {"events": [core.remove(ctx.store(), ctx.actor, kind, id, reason)]}
 
 
 @command(
@@ -358,7 +358,7 @@ def _conflicts(ctx: Context, kind: str | None = None, id: str | None = None) -> 
 def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) -> dict:
     if not isinstance(choice, (str, dict)):
         raise ValidationFailed("choice must be an event id, \"remove\" or a payload object")
-    return {"event": core.resolve(ctx.store(), ctx.actor, kind, id, choice, seen)}
+    return {"events": [core.resolve(ctx.store(), ctx.actor, kind, id, choice, seen)]}
 
 
 # -- what sources imported --------------------------------------------------------
@@ -375,7 +375,7 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 )
 def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
     _source_record(ctx.store(), record_id)
-    return {"event": core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))}
+    return {"events": [core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))]}
 
 
 @command(
@@ -387,7 +387,7 @@ def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
 )
 def _exclude(ctx: Context, record_id: str, reason: str | None = None) -> dict:
     _source_record(ctx.store(), record_id)
-    return {"event": core.exclude(ctx.store(), ctx.actor, record_id, reason)}
+    return {"events": [core.exclude(ctx.store(), ctx.actor, record_id, reason)]}
 
 
 @command(
@@ -404,7 +404,7 @@ def _same_as(ctx: Context, record_id: str, other_id: str, other_kind: str = "ses
     _source_record(store, record_id)
     if store.get(other_kind, other_id) is None:
         raise NotFound(f"no {other_kind} {other_id}")
-    return {"event": core.same_as(store, ctx.actor, record_id, other_kind, other_id)}
+    return {"events": [core.same_as(store, ctx.actor, record_id, other_kind, other_id)]}
 
 
 def _source_record(store: Store, rid: str) -> None:

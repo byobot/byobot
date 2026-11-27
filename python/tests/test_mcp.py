@@ -57,7 +57,7 @@ def test_writes_are_attributed_to_the_agent():
     server = initialized(client="claude-code")
     result = tool(server, "log", kind="activity", id="x.plank", payload={"name": "Plank"}, model="example-model-1")
     assert result["isError"] is False
-    assert result["structuredContent"]["event"]["actor"] == {"kind": "agent", "id": "claude-code",
+    assert result["structuredContent"]["events"][0]["actor"] == {"kind": "agent", "id": "claude-code",
                                                              "model": "example-model-1"}
     rows = tool(server, "query", sql="SELECT actor_kind, actor_id, actor_model FROM events")
     assert rows["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "claude-code",
@@ -83,7 +83,7 @@ def test_agent_can_log_open_metrics_and_read_views():
                                    "metrics": {"reps": {"min": 3, "max": 5}, "load": {"value": 100, "unit": "kg"}}}]}]}
     planned = tool(server, "log", kind="planned_session", payload=plan)
     assert planned["isError"] is False
-    pid = planned["structuredContent"]["event"]["record"]["id"]
+    pid = planned["structuredContent"]["events"][0]["record"]["id"]
     done = {"activity_id": "x.squat", "round": 1, "links": {"answers": {"kind": "planned_session", "id": pid,
                                                                       "part": f"{pid}.0.0"}},
             "metrics": {"reps": {"value": 5}, "load": {"value": 225, "unit": "[lb_av]"}, "x.tempo": {"value": "3010"}}}
@@ -143,7 +143,7 @@ def test_byobot_mcp_subprocess(byobot_home):
     proc = subprocess.run([sys.executable, "-m", "byobot", "mcp"], input="\n".join(json.dumps(m) for m in messages) + "\n",
                           capture_output=True, text=True, timeout=60, check=True)
     replies = {r["id"]: r for r in map(json.loads, proc.stdout.splitlines())}
-    assert replies[2]["result"]["structuredContent"]["event"]["record"]["kind"] == "observation"
+    assert replies[2]["result"]["structuredContent"]["events"][0]["record"]["kind"] == "observation"
     assert replies[3]["result"]["structuredContent"]["items"][0]["value"] == 82.4
     assert (byobot_home / "byobot.db").exists()
 
