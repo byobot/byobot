@@ -1,5 +1,4 @@
 {
-  "id": "hammer_lat_pulldown",
   "name": "Hammer Lat Pulldown",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

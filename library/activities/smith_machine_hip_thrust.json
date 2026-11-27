@@ -1,5 +1,4 @@
 {
-  "id": "smith_machine_hip_thrust",
   "name": "Smith Machine Hip Thrust",
   "load_type": "plate_loaded_machine",
   "equipment": [
@@ -16,7 +15,6 @@
   "targets": {
     "main": [
       "glutes"
-    ],
-    "synergists": []
+    ]
   }
 }

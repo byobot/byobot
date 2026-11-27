@@ -1,5 +1,4 @@
 {
-  "id": "machine_lateral_raise",
   "name": "Machine Lateral Raise",
   "load_type": "machine",
   "movement_type": "isolation",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "side_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

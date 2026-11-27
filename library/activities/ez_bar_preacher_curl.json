@@ -1,5 +1,4 @@
 {
-  "id": "ez_bar_preacher_curl",
   "name": "EZ Barbell Preacher Curl",
   "load_type": "barbell",
   "equipment": [
@@ -16,7 +15,6 @@
   "targets": {
     "main": [
       "biceps"
-    ],
-    "synergists": []
+    ]
   }
 }

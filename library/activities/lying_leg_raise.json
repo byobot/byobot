@@ -1,5 +1,4 @@
 {
-  "id": "lying_leg_raise",
   "name": "Lying Leg Raise",
   "load_type": "bodyweight",
   "movement_type": "isolation",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "abs"
-    ],
-    "synergists": []
+    ]
   }
 }

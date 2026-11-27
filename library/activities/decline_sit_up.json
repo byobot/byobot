@@ -1,5 +1,4 @@
 {
-  "id": "decline_sit_up",
   "name": "Decline Sit-Up",
   "load_type": "bodyweight",
   "movement_type": "compound",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "abs"
-    ],
-    "synergists": []
+    ]
   }
 }

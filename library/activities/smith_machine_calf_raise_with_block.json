@@ -1,5 +1,4 @@
 {
-  "id": "smith_machine_calf_raise_with_block",
   "name": "Smith Machine Calf Raise (With Block)",
   "load_type": "plate_loaded_machine",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "calves"
-    ],
-    "synergists": []
+    ]
   }
 }

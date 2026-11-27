@@ -293,13 +293,13 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
     (lib / "vocabulary.json").write_text("{}")
-    (lib / "activities" / "dip.json").write_text(json.dumps({"id": "x.dip", "name": "Dip", "targets": {"main": ["triceps"]}}))
+    (lib / "activities" / "dip.json").write_text(json.dumps({"name": "Dip", "targets": {"main": ["triceps"]}}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     cli(capsys, "log", "activity", '{"name": "Plank"}', "--id", "x.plank")
     items = cli(capsys, "list", "activity")[1]["items"]
-    assert [(i["id"], i["source"]) for i in items] == [("x.dip", "library"), ("x.plank", "store")]
+    assert [(i["id"], i["source"]) for i in items] == [("dip", "library"), ("x.plank", "store")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
-    assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["x.dip"]
+    assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["dip"]
 
 
 def test_planned_session_must_name_existing_records(capsys):

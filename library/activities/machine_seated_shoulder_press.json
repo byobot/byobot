@@ -1,5 +1,4 @@
 {
-  "id": "machine_seated_shoulder_press",
   "name": "Machine Seated Shoulder Press",
   "load_type": "machine",
   "movement_type": "compound",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "front_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

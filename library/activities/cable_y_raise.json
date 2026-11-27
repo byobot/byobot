@@ -1,5 +1,4 @@
 {
-  "id": "cable_y_raise",
   "name": "Cable Y-Raise",
   "load_type": "cable",
   "movement_type": "isolation",

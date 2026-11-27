@@ -1,5 +1,4 @@
 {
-  "id": "smith_machine_shrug",
   "name": "Smith Machine Shrug",
   "load_type": "plate_loaded_machine",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "traps"
-    ],
-    "synergists": []
+    ]
   }
 }

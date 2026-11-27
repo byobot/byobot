@@ -1,5 +1,4 @@
 {
-  "id": "plate_loaded_incline_chest_press",
   "name": "Plate Loaded Incline Chest Press",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

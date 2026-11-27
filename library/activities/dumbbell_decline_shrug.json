@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_decline_shrug",
   "name": "Dumbbell Decline Shrug",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "traps"
-    ],
-    "synergists": []
+    ]
   }
 }

@@ -1,5 +1,4 @@
 {
-  "id": "barbell_reverse_lunge",
   "name": "Barbell Reverse Lunge",
   "load_type": "barbell",
   "movement_type": "compound",
@@ -13,7 +12,6 @@
     "main": [
       "glutes",
       "quads"
-    ],
-    "synergists": []
+    ]
   }
 }

@@ -1,5 +1,4 @@
 {
-  "id": "walking_lunge",
   "name": "Walking Lunge",
   "load_type": "dumbbell",
   "movement_type": "compound",
@@ -13,7 +12,6 @@
     "main": [
       "glutes",
       "quads"
-    ],
-    "synergists": []
+    ]
   }
 }

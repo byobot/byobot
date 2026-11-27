@@ -1,5 +1,4 @@
 {
-  "id": "dumbbell_incline_curl",
   "name": "Seated Dumbbell Incline Curl",
   "load_type": "dumbbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "biceps"
-    ],
-    "synergists": []
+    ]
   }
 }

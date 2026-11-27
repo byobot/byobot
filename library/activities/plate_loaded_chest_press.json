@@ -1,5 +1,4 @@
 {
-  "id": "plate_loaded_chest_press",
   "name": "Plate-Loaded Chest Press",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",

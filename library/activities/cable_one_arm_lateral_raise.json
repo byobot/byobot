@@ -1,5 +1,4 @@
 {
-  "id": "cable_one_arm_lateral_raise",
   "name": "Cable One Arm Lateral Raise",
   "load_type": "cable",
   "movement_type": "isolation",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "side_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

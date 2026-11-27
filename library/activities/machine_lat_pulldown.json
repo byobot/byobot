@@ -1,5 +1,4 @@
 {
-  "id": "machine_lat_pulldown",
   "name": "Machine Lat Pulldown",
   "load_type": "machine",
   "movement_type": "compound",

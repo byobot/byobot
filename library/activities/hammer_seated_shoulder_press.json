@@ -1,5 +1,4 @@
 {
-  "id": "hammer_seated_shoulder_press",
   "name": "Hammer Seated Shoulder Press",
   "load_type": "plate_loaded_machine",
   "movement_type": "compound",
@@ -12,7 +11,6 @@
   "targets": {
     "main": [
       "front_delts"
-    ],
-    "synergists": []
+    ]
   }
 }

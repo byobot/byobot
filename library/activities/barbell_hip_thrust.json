@@ -1,5 +1,4 @@
 {
-  "id": "barbell_hip_thrust",
   "name": "Barbell Hip Thrust",
   "load_type": "barbell",
   "equipment": [
@@ -15,7 +14,6 @@
   "targets": {
     "main": [
       "glutes"
-    ],
-    "synergists": []
+    ]
   }
 }
