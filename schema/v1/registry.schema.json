@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/registry.schema.json",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/registry.schema.json",
   "title": "byobot registry, v1",
   "description": "The format of registry.json: the record kinds a replica understands, the namespaces for derived ids, the settings, and the codes for everything measured. Entries are only ever added; a code, kind or setting never changes meaning or goes away.",
   "type": "object",

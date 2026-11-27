@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/records.schema.json",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/records.schema.json",
   "title": "byobot records, v1",
   "description": "The payload a `put` carries for each record kind, at kind version 1. Every payload may carry the header fields (`time`, `origin`, `status`, `links`, `attachments`); each kind says which it needs. The record's id is in the event, never in the payload.",
   "$defs": {

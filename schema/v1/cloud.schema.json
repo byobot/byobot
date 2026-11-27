@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/byobot/byobot/main/schema/v1/cloud.schema.json",
+  "$id": "https://raw.githubusercontent.com/byobot/byobot/v0.1.0/schema/v1/cloud.schema.json",
   "title": "byobot cloud protocol, v1",
   "description": "The byobot logbook through a folder in the person's own cloud storage. Under <folder>/<store_id>/: epochs/<epoch>.json, devices/<device_id>.json, keys/<epoch>/<device_id or recovery>.key, segments/<device_id>/<epoch>-<seq>.seg, checkpoints/<epoch>/<part>.seg and plan/<epoch>-<seq>.seg. Epochs are four digits, seqs and parts ten. No file is changed after it is written. Keys and signatures are base64. Segment messages are the same messages as sync.schema.json.",
   "$defs": {

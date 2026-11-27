@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "byobot"
-version = "0.1.0.dev0"
+dynamic = ["version"]
 description = "Bring your own bot: one local database for your health data, and a CLI and MCP server so the agent of your choice can coach you."
 readme = "README.md"
 license = "Apache-2.0"
@@ -32,6 +32,9 @@ Issues = "https://github.com/byobot/byobot/issues"
 
 [project.scripts]
 byobot = "byobot.cli:main"
+
+[tool.hatch.version]
+path = "src/byobot/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/byobot"]
