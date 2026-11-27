@@ -288,7 +288,10 @@ class Keeper:
         """A one-time code a phone scans to join: valid ten minutes, for one device. It holds no key."""
         secret = secrets.token_bytes(16)
         expires = self.clock() + JOIN_TTL_S
+        sealed = self._sealed(self.folder.list()) if self.folder is not None and self._get("join") else None
         with self.store._tx():
+            if sealed:  # the code this one replaces let that phone in
+                self._take(sealed)
             self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
             self._unset("last_join")
         code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper": self.identity.public()["sign"],
@@ -340,13 +343,14 @@ class Keeper:
         return self._joined({"join": "admitted", "device": device["id"]}, listing, device)
 
     def _joined(self, outcome: dict, listing: dict[str, str], device: dict | None = None) -> dict:
-        """End the join: enrol the device if one was admitted, keep the outcome for `cloud join`, and delete the
-        device files no one admitted, so those phones can answer a new code."""
+        """End ``join``: enrol the device if one was admitted, or one whose key file a sync cut short already
+        wrote, keep the outcome for `cloud join`, and delete the device files no one admitted, so those phones can
+        answer a new code."""
+        if device is None and (device := self._sealed(listing)):
+            outcome = {"join": "admitted", "device": device["id"]}
         with self.store._tx():
-            if device and self.device(device["id"]):
-                self._rejoin(device)
-            elif device:
-                self._enrol(device, self.epoch)
+            if device:
+                self._take(device)
             self._unset("join")
             self._set("last_join", json.dumps(outcome))
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
@@ -354,6 +358,34 @@ class Keeper:
             if path.startswith("devices/") and path.endswith(".json") and path[8:-5] not in known:
                 self.folder.delete(path)
         return outcome
+
+    def _sealed(self, listing: dict[str, str]) -> dict | None:
+        """A device this epoch's key was sealed to that isn't in yet, if its device file still matches; any other
+        such key file is deleted."""
+        active = {d["id"] for d in self.devices()}
+        prefix = f"keys/{self.epoch:04d}/"
+        for path in listing:
+            device_id = path[len(prefix):-len(".key")]
+            if not path.startswith(prefix) or not path.endswith(".key") or path == files.recovery_path(self.epoch) \
+                    or device_id in active:
+                continue
+            try:
+                sealed = files.key_device(self.folder.read(path) or b"", self.identity.public()["sign"],
+                                          self.store.store_id, self.epoch)
+                found = files.read_device(self.folder.read(files.device_path(device_id)) or b"",
+                                          self.store.store_id, device_id)
+            except CloudError:
+                found = None
+            if found and sealed == {k: found[k] for k in ("id", "class", "box", "sign")}:
+                return sealed
+            self.folder.delete(path)
+        return None
+
+    def _take(self, device: dict) -> None:
+        if self.device(device["id"]):
+            self._rejoin(device)
+        else:
+            self._enrol(device, self.epoch)
 
     def last_join(self) -> dict | None:
         """How the last join ended, once it has."""
