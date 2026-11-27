@@ -980,17 +980,21 @@ public struct Attachment: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String
     public var mediaType: String
     public var bytes: Int
+    /// The file's SHA-256, lowercase hex.
+    public var sha256: String
 
-    public init(id: String, mediaType: String, bytes: Int) {
+    public init(id: String, mediaType: String, bytes: Int, sha256: String) {
         self.id = id
         self.mediaType = mediaType
         self.bytes = bytes
+        self.sha256 = sha256
     }
 
     enum CodingKeys: String, CodingKey {
         case id
         case mediaType = "media_type"
         case bytes
+        case sha256
     }
 }
 

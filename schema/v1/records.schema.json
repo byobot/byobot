@@ -50,11 +50,12 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "media_type", "bytes"],
+            "required": ["id", "media_type", "bytes", "sha256"],
             "properties": {
               "id": { "$ref": "common.schema.json#/$defs/id" },
               "media_type": { "type": "string", "pattern": "^[a-z]+/[a-z0-9][a-z0-9.+-]{0,126}$" },
-              "bytes": { "type": "integer", "minimum": 0 }
+              "bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "description": "The file's SHA-256, lowercase hex.", "type": "string", "pattern": "^[0-9a-f]{64}$" }
             }
           }
         }

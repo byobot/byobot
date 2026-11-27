@@ -264,7 +264,8 @@ def test_an_erase_from_a_later_schema_version_is_honored(pair):
 
 def test_an_estimate_keeps_its_bounds_and_attachments(pair):
     a, _ = pair
-    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113}]
+    photo = [{"id": "019aa000-0000-7000-8000-00000000020a", "media_type": "image/jpeg", "bytes": 482113,
+              "sha256": "0c9a0bd1b7a2d5a9e6a8d1b4f3e2c1a09f8e7d6c5b4a39281706f5e4d3c2b1a0"}]
     [o] = commands.log(a, ME, [{"kind": "observation", "payload": {
         "code": "body_mass", "value": 180, "min": 176, "max": 184, "unit": "[lb_av]", "modality": "estimated",
         "time": {"start": "2026-03-02T10:00:00-05:00"}, "attachments": photo}}])

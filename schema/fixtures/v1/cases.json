@@ -2692,7 +2692,8 @@
       {
        "id": "019aa000-0000-7000-8000-00000000020a",
        "media_type": "image/jpeg",
-       "bytes": 482113
+       "bytes": 482113,
+       "sha256": "0c9a0bd1b7a2d5a9e6a8d1b4f3e2c1a09f8e7d6c5b4a39281706f5e4d3c2b1a0"
       }
      ]
     }
@@ -2907,7 +2908,8 @@
       {
        "id": "019aa000-0000-7000-8000-00000000020a",
        "media_type": "image/jpeg",
-       "bytes": 482113
+       "bytes": 482113,
+       "sha256": "0c9a0bd1b7a2d5a9e6a8d1b4f3e2c1a09f8e7d6c5b4a39281706f5e4d3c2b1a0"
       }
      ]
     }
@@ -2947,7 +2949,8 @@
       {
        "id": "019aa000-0000-7000-8000-00000000020a",
        "media_type": "image/jpeg",
-       "bytes": 482113
+       "bytes": 482113,
+       "sha256": "0c9a0bd1b7a2d5a9e6a8d1b4f3e2c1a09f8e7d6c5b4a39281706f5e4d3c2b1a0"
       }
      ]
     }
@@ -2988,6 +2991,47 @@
       {
        "id": "photo",
        "media_type": "image/jpeg"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "header/attachment-without-hash",
+   "outcome": "rejected",
+   "description": "An attachment says its SHA-256.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000031",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-00000000010d"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "body_fat_percentage",
+     "value": 18,
+     "min": 16,
+     "max": 21,
+     "unit": "%",
+     "time": {
+      "start": "2026-11-21T06:45:00-05:00"
+     },
+     "modality": "estimated",
+     "attachments": [
+      {
+       "id": "019aa000-0000-7000-8000-00000000020a",
+       "media_type": "image/jpeg",
+       "bytes": 482113
       }
      ]
     }
