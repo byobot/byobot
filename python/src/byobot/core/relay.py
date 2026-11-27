@@ -125,7 +125,7 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
     efforts of the last two times each planned activity was done at each location.
 
-    Beside them: this store's clock, the records a person writes that were erased, its kind versions, and for
+    Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
     """
     ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
@@ -162,7 +162,7 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
 
 def _device_state(store: Store, device_id: str | None) -> dict:
     received = store.received(device_id) if device_id else None
-    return {"hlc": store.hlc, "erased": [{"kind": k, "id": i} for k, i in store.erased() if k in KINDS],
+    return {"store_id": store.store_id, "hlc": store.hlc, "erased": [{"kind": k, "id": i} for k, i in store.erased() if k in KINDS],
             "kind_versions": {k: v["version"] for k, v in store.contract.registry["kinds"].items()},
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}
