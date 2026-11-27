@@ -74,6 +74,12 @@ SYNC_FOLDERS = (("Library", "CloudStorage"), ("Library", "Mobile Documents"), ("
                 ("My Drive",), ("OneDrive",), ("iCloud Drive",), ("iCloudDrive",))
 
 
+def tilde(path: Path | str) -> str:
+    """A path with the home folder as ~, so an answer doesn't carry the account name."""
+    text, mine = str(path), str(Path.home())
+    return "~" + text[len(mine):] if text == mine or text.startswith(mine + os.sep) else text
+
+
 def sync_folder_warning(path: Path) -> str | None:
     """A warning when ``path`` sits inside a folder another app syncs, where a SQLite database can be corrupted."""
     given = Path(path).expanduser().absolute()
@@ -84,8 +90,8 @@ def sync_folder_warning(path: Path) -> str | None:
     for match in SYNC_FOLDERS:
         n, want = len(match), tuple(m.lower() for m in match)
         if any(tuple(x.lower() for x in p.parts[i:i + n]) == want for p in seen for i in range(len(p.parts) - n + 1)):
-            return (f"{path} is inside a folder another app syncs ({'/'.join(match)}); move byobot's home out of it "
-                    "(set BYOBOT_HOME), since syncing the database can corrupt it")
+            return (f"{tilde(path)} is inside a folder another app syncs ({'/'.join(match)}); move byobot's home out "
+                    "of it (set BYOBOT_HOME), since syncing the database can corrupt it")
     return None
 
 

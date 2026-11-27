@@ -24,7 +24,7 @@ from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, busy, ddl, query
 from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
-                         sync_folder_warning)
+                         sync_folder_warning, tilde)
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,7 @@ def _init(ctx: Context) -> dict:
 @command("status", "Show where the store is and how much it holds.")
 def _status(ctx: Context) -> dict:
     store = ctx.store()
-    return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": str(ctx.path),
+    return {"version": __version__, "schema_version": SCHEMA_VERSION, "db": tilde(ctx.path),
             "device_id": store.device_id, "counts": store.counts(),
             **({"clock_warnings": warnings} if (warnings := store.clock_warnings()) else {}),
             **({"warning": w} if (w := sync_folder_warning(home())) else {})}
