@@ -1,9 +1,7 @@
 {
   "id": "cable_middle_fly",
   "name": "Cable Middle Fly",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

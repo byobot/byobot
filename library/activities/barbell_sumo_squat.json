@@ -1,8 +1,9 @@
 {
   "id": "barbell_sumo_squat",
   "name": "Barbell Sumo Squat",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "rack"
   ],
   "movement_type": "compound",
   "fatigue": 4,

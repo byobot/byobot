@@ -1,9 +1,7 @@
 {
   "id": "kettlebell_swing",
   "name": "Kettlebell Swing",
-  "equipment": [
-    "kettlebell"
-  ],
+  "load_type": "kettlebell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

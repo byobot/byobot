@@ -1,9 +1,7 @@
 {
   "id": "reverse_incline_crunch",
   "name": "Reverse Incline Crunch",
-  "equipment": [
-    "weighted_bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

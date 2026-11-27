@@ -95,7 +95,8 @@
             "synergists": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }
           }
         },
-        "equipment": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
+        "load_type": { "$ref": "common.schema.json#/$defs/slug", "description": "How it's loaded, one of library/vocabulary.json's `load_types`: `barbell`, `dumbbell`, `kettlebell`, `cable`, `machine` (a weight stack on a fixed path), `plate_loaded_machine`, `bodyweight` (held or worn weight is its `load`) or `band`." },
+        "equipment": { "description": "Kit it needs besides its load, such as `bench` or `smith_machine`.", "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
         "movement_type": { "$ref": "common.schema.json#/$defs/slug", "description": "`compound` or `isolation` in the library." },
         "fatigue": { "type": "integer", "minimum": 1, "maximum": 4 },
         "resistance_curve": {
@@ -120,6 +121,7 @@
       "required": ["name"],
       "properties": {
         "name": { "$ref": "common.schema.json#/$defs/name" },
+        "equipment": { "description": "Load types and kit you have here. Without it, the `equipment` setting counts.", "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true },
         "notes": { "$ref": "common.schema.json#/$defs/text" }
       },
       "unevaluatedProperties": false
@@ -264,13 +266,13 @@
       }
     },
     "overlay": {
-      "description": "Your intent about a record that isn't yours: correct a source's values, exclude one, say it is the same as another record, or rearrange a planned session (exercise order and swaps). It survives re-imports and re-plans and never conflicts with its target.",
+      "description": "Your intent about a record that isn't yours: correct a source's values, exclude one, or say it is the same as another record. It survives re-imports and re-plans and never conflicts with its target.",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/no_header" }],
       "additionalProperties": false,
       "required": ["effect", "target"],
       "properties": {
-        "effect": { "enum": ["correct", "exclude", "same_as", "rearrange"] },
+        "effect": { "enum": ["correct", "exclude", "same_as"] },
         "target": { "$ref": "common.schema.json#/$defs/ref" },
         "fields": {
           "description": "For `correct`: the values to use instead of the source's.",
@@ -289,38 +291,17 @@
           }
         },
         "with": { "$ref": "common.schema.json#/$defs/ref", "description": "For `same_as`: the record the target is the same as." },
-        "order": {
-          "description": "For `rearrange`: planned effort ids in the order you want them.",
-          "type": "array",
-          "maxItems": 2000,
-          "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/id" }
-        },
-        "swaps": {
-          "description": "For `rearrange`: planned effort id to the activity done instead.",
-          "type": "object",
-          "propertyNames": { "$ref": "common.schema.json#/$defs/id" },
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["activity_id"],
-            "properties": {
-              "activity_id": { "$ref": "common.schema.json#/$defs/activity_id" },
-              "reason": { "$ref": "common.schema.json#/$defs/text" }
-            }
-          }
-        },
         "notes": { "$ref": "common.schema.json#/$defs/text" }
       },
       "oneOf": [
         {
           "properties": { "effect": { "const": "correct" }, "target": { "properties": { "kind": { "const": "source_record" } } } },
           "required": ["fields"],
-          "not": { "anyOf": [{ "required": ["with"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
+          "not": { "required": ["with"] }
         },
         {
           "properties": { "effect": { "const": "exclude" }, "target": { "properties": { "kind": { "const": "source_record" } } } },
-          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["with"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
+          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["with"] }] }
         },
         {
           "properties": {
@@ -329,12 +310,7 @@
             "with": { "properties": { "kind": { "enum": ["session", "observation", "source_record"] } } }
           },
           "required": ["with"],
-          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["order"] }, { "required": ["swaps"] }] }
-        },
-        {
-          "properties": { "effect": { "const": "rearrange" }, "target": { "properties": { "kind": { "const": "planned_session" } } } },
-          "anyOf": [{ "required": ["order"] }, { "required": ["swaps"] }],
-          "not": { "anyOf": [{ "required": ["fields"] }, { "required": ["with"] }] }
+          "not": { "required": ["fields"] }
         }
       ]
     },
@@ -367,7 +343,7 @@
       "description": "The zone for anything that has no offset of its own."
     },
     "equipment": {
-      "description": "Equipment you have, for ranking swaps. Null means everything.",
+      "description": "Load types and kit you have where a location doesn't say, for ranking swaps. Null means everything.",
       "oneOf": [
         { "type": "null" },
         { "type": "array", "items": { "$ref": "common.schema.json#/$defs/slug" }, "uniqueItems": true }

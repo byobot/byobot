@@ -1,9 +1,7 @@
 {
   "id": "barbell_curl",
   "name": "Barbell Curl",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

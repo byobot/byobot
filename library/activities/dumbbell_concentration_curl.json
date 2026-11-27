@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_concentration_curl",
   "name": "Dumbbell Concentration Curl",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

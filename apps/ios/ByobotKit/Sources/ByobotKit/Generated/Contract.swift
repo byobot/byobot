@@ -78,11 +78,10 @@ public enum OverlayEffect: String, Codable, CaseIterable, Hashable, Sendable {
     case correct
     case exclude
     case sameAs = "same_as"
-    case rearrange
     /// A value from a newer byobot, so one new value doesn't stop a whole read.
     case unknown
 
-    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs, .rearrange]
+    public static let allCases: [OverlayEffect] = [.correct, .exclude, .sameAs]
 
     public init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
@@ -165,6 +164,9 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var defaultMetrics: [String]?
     /// Muscles it works, named as in library/vocabulary.json where they fit.
     public var targets: Targets?
+    /// How it's loaded, one of library/vocabulary.json's `load_types`: `barbell`, `dumbbell`, `kettlebell`, `cable`, `machine` (a weight stack on a fixed path), `plate_loaded_machine`, `bodyweight` (held or worn weight is its `load`) or `band`.
+    public var loadType: String?
+    /// Kit it needs besides its load, such as `bench` or `smith_machine`.
     public var equipment: [String]?
     /// `compound` or `isolation` in the library.
     public var movementType: String?
@@ -173,11 +175,12 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var resistanceCurve: ResistanceCurve?
     public var notes: String?
 
-    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
+    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, loadType: String? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
         self.name = name
         self.tags = tags
         self.defaultMetrics = defaultMetrics
         self.targets = targets
+        self.loadType = loadType
         self.equipment = equipment
         self.movementType = movementType
         self.fatigue = fatigue
@@ -190,6 +193,7 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
         case tags
         case defaultMetrics = "default_metrics"
         case targets
+        case loadType = "load_type"
         case equipment
         case movementType = "movement_type"
         case fatigue
@@ -201,15 +205,19 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
 /// Where you train. Loads compare within one location.
 public struct LocationPayload: Codable, Equatable, Hashable, Sendable {
     public var name: String
+    /// Load types and kit you have here. Without it, the `equipment` setting counts.
+    public var equipment: [String]?
     public var notes: String?
 
-    public init(name: String, notes: String? = nil) {
+    public init(name: String, equipment: [String]? = nil, notes: String? = nil) {
         self.name = name
+        self.equipment = equipment
         self.notes = notes
     }
 
     enum CodingKeys: String, CodingKey {
         case name
+        case equipment
         case notes
     }
 }
@@ -477,7 +485,7 @@ public struct ObservationPayload: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Your intent about a record that isn't yours: correct a source's values, exclude one, say it is the same as another record, or rearrange a planned session (exercise order and swaps). It survives re-imports and re-plans and never conflicts with its target.
+/// Your intent about a record that isn't yours: correct a source's values, exclude one, or say it is the same as another record. It survives re-imports and re-plans and never conflicts with its target.
 public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
     public var effect: OverlayEffect
     public var target: Ref
@@ -485,19 +493,13 @@ public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
     public var fields: CorrectedFields?
     /// For `same_as`: the record the target is the same as.
     public var with: Ref?
-    /// For `rearrange`: planned effort ids in the order you want them.
-    public var order: [String]?
-    /// For `rearrange`: planned effort id to the activity done instead.
-    public var swaps: [String: Swap]?
     public var notes: String?
 
-    public init(effect: OverlayEffect, target: Ref, fields: CorrectedFields? = nil, with: Ref? = nil, order: [String]? = nil, swaps: [String: Swap]? = nil, notes: String? = nil) {
+    public init(effect: OverlayEffect, target: Ref, fields: CorrectedFields? = nil, with: Ref? = nil, notes: String? = nil) {
         self.effect = effect
         self.target = target
         self.fields = fields
         self.with = with
-        self.order = order
-        self.swaps = swaps
         self.notes = notes
     }
 
@@ -506,8 +508,6 @@ public struct OverlayPayload: Codable, Equatable, Hashable, Sendable {
         case target
         case fields
         case with
-        case order
-        case swaps
         case notes
     }
 }
@@ -1096,21 +1096,6 @@ public struct ResistanceCurve: Codable, Equatable, Hashable, Sendable {
         case stretch
         case middle
         case contract
-    }
-}
-
-public struct Swap: Codable, Equatable, Hashable, Sendable {
-    public var activityId: String
-    public var reason: String?
-
-    public init(activityId: String, reason: String? = nil) {
-        self.activityId = activityId
-        self.reason = reason
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case activityId = "activity_id"
-        case reason
     }
 }
 

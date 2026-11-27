@@ -1,9 +1,7 @@
 {
   "id": "cable_hip_abduction",
   "name": "Cable Hip Abduction",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 2,
   "resistance_curve": {

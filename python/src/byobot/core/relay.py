@@ -142,8 +142,8 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
     Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions and their rearrangements, the sessions and efforts already logged against them, and the
-    efforts of the last two times each planned activity was done at each location.
+    planned sessions, the sessions and efforts already logged against them, and the efforts of the last two times
+    each planned activity was done at each location.
 
     Beside them: this store's id and clock, the records a person writes that were erased, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
@@ -170,13 +170,11 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
                   "OR session_id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id", window,
                   json.dumps(sessions))
     efforts += [e for e in _recent_efforts(store, planned) if e not in efforts]
-    overlays = ids("SELECT id FROM overlays WHERE effect = 'rearrange' AND target_kind = 'planned_session' "
-                   "AND target_id IN (SELECT value FROM json_each(?)) ORDER BY id", window)
     return {"from": start, "to": end, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
-            "overlays": _entries(store, "overlay", overlays), "sessions": _entries(store, "session", sessions),
+            "sessions": _entries(store, "session", sessions),
             "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
 
 
@@ -188,7 +186,7 @@ def _device_state(store: Store, device_id: str | None) -> dict:
             "rejected": store.rejections(device_id) if device_id else []}
 
 
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "equipment", "targets", "default_metrics",
+_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment", "targets", "default_metrics",
              "resistance_curve")
 _JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 

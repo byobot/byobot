@@ -1,9 +1,7 @@
 {
   "id": "standing_calf_raise_with_block",
   "name": "Standing Calf Raise (With Block)",
-  "equipment": [
-    "bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

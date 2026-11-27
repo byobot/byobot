@@ -1,9 +1,7 @@
 {
   "id": "cable_rope_pushdown",
   "name": "Cable Pushdown (With Rope)",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

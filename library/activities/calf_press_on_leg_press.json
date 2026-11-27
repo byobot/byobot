@@ -1,9 +1,7 @@
 {
   "id": "calf_press_on_leg_press",
   "name": "Calf Press on Leg Press",
-  "equipment": [
-    "plates"
-  ],
+  "load_type": "plate_loaded_machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

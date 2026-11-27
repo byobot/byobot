@@ -275,7 +275,6 @@
         "settings",
         "plans",
         "planned_sessions",
-        "overlays",
         "sessions",
         "efforts"
       ],
@@ -316,13 +315,6 @@
           "items": {
             "$ref": "#/$defs/entry"
           }
-        },
-        "overlays": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/entry"
-          },
-          "description": "Rearrangements of the planned sessions in the window."
         },
         "sessions": {
           "type": "array",

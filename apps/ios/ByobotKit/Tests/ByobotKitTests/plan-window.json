@@ -25,8 +25,8 @@
       "erector_spinae"
      ]
     },
+    "load_type": "barbell",
     "equipment": [
-     "barbell",
      "rack"
     ]
    },
@@ -57,9 +57,7 @@
       "abs"
      ]
     },
-    "equipment": [
-     "dumbbell"
-    ]
+    "load_type": "dumbbell"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000002"
@@ -88,8 +86,8 @@
       "adductors"
      ]
     },
+    "load_type": "dumbbell",
     "equipment": [
-     "dumbbell",
      "bench"
     ]
    },
@@ -121,9 +119,7 @@
       "hamstrings"
      ]
     },
-    "equipment": [
-     "dumbbell"
-    ]
+    "load_type": "dumbbell"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000004"
@@ -151,9 +147,7 @@
       "adductors"
      ]
     },
-    "equipment": [
-     "machine"
-    ]
+    "load_type": "plate_loaded_machine"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000005"
@@ -178,7 +172,8 @@
       "obliques",
       "glutes"
      ]
-    }
+    },
+    "load_type": "bodyweight"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000006"
@@ -207,6 +202,7 @@
       "forearms"
      ]
     },
+    "load_type": "bodyweight",
     "equipment": [
      "pull_up_bar"
     ]
@@ -237,9 +233,7 @@
       "traps"
      ]
     },
-    "equipment": [
-     "cable"
-    ]
+    "load_type": "cable"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000008"
@@ -268,9 +262,7 @@
       "rear_delts"
      ]
     },
-    "equipment": [
-     "cable"
-    ]
+    "load_type": "cable"
    },
    "prev": [
     "0193a0b0-0000-7000-8000-000000000009"
@@ -735,7 +727,6 @@
    ]
   }
  ],
- "overlays": [],
  "sessions": [],
  "efforts": [
   {

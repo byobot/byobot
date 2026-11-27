@@ -447,7 +447,7 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
 
 @command(
     "import activities",
-    "Import your own activities, with the muscles they work and the equipment they need, so the app can "
+    "Import your own activities, with the muscles they work and how they are loaded, so the app can "
     "suggest swaps. Activities you already have are kept unless you say replace.",
     Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
           required=True, positional=True, schema={"type": ["object", "array"]}),
@@ -567,9 +567,9 @@ LISTS = {
     "sources": ("source_records", None, "revised_at DESC, id", "source_record"),
     "overlays": ("overlays", None, "id", "overlay"),
 }
-JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields",
-                "arrangement")
-BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
+JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
+BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
+                  "source")
 
 
 def _bound(at: str) -> str | int:
@@ -611,14 +611,15 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
     Param("source", "string", "Only this source, such as whoop (observations, sources, workouts), or for "
           "activities `library` (shipped with byobot) or `store` (yours)."),
     Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
-    Param("equipment", "string", "Only activities that use this equipment (activities)."),
+    Param("equipment", "string", "Only activities loaded this way, such as dumbbell, or needing this kit, such as "
+          "bench (activities)."),
     Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
           choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records on or after this date, or at or after this timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
     Param("limit", "integer", "At most this many records.", default=50, bounds=(0, MAX_LIMIT)),
-    description="Muscle and equipment names are in `byobot schema vocabulary`. Dates are local dates, as the "
-                "record was written.",
+    description="Muscle, load type and equipment names are in `byobot schema vocabulary`. Dates are local dates, "
+                "as the record was written.",
 )
 def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None = None, source: str | None = None,
           muscle: str | None = None, equipment: str | None = None, detail: str = "full",
@@ -657,7 +658,9 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
                 where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
                              " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
                 params.extend([muscle, muscle])
-            add("EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?)", equipment)
+            if equipment is not None:
+                where.append("(load_type = ? OR EXISTS (SELECT 1 FROM json_each(equipment) WHERE value = ?))")
+                params.extend([equipment, equipment])
         if time is not None:
             for value, op in ((since, ">="), (until, "<")):
                 if value is not None:
@@ -735,8 +738,8 @@ SCHEMA_CHOICES = (*SCHEMA_NAMES, "sql", "vocabulary")
 
 @command(
     "schema",
-    "Show the byobot contract (JSON Schema and the code registry), the store's SQL tables, or the muscle and "
-    "equipment names (vocabulary).",
+    "Show the byobot contract (JSON Schema and the code registry), the store's SQL tables, or the muscle, load "
+    "type and equipment names (vocabulary).",
     Param("name", "string", "Which one. Leave out to list them.", choices=SCHEMA_CHOICES, positional=True),
 )
 def _schema(ctx: Context, name: str | None = None) -> Any:

@@ -1,9 +1,7 @@
 {
   "id": "plate_loaded_leg_extension",
   "name": "Plate Loaded Leg Extension",
-  "equipment": [
-    "plates"
-  ],
+  "load_type": "plate_loaded_machine",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

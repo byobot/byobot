@@ -1,9 +1,7 @@
 {
   "id": "crunch_on_bench",
   "name": "Crunch (On Bench)",
-  "equipment": [
-    "bodyweight"
-  ],
+  "load_type": "bodyweight",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

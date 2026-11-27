@@ -1,8 +1,10 @@
 {
   "id": "ez_bar_spider_curl",
   "name": "EZ Barbell Spider Curl",
+  "load_type": "barbell",
   "equipment": [
-    "ez_barbell"
+    "bench",
+    "ez_bar"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

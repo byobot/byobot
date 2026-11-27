@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_seated_front_raise",
   "name": "Dumbbell Seated Front Raise",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

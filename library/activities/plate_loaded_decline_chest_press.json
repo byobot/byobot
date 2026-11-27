@@ -1,9 +1,7 @@
 {
   "id": "plate_loaded_decline_chest_press",
   "name": "Plate-Loaded Decline Chest Press",
-  "equipment": [
-    "plates"
-  ],
+  "load_type": "plate_loaded_machine",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

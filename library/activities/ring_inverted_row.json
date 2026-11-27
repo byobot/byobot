@@ -1,8 +1,9 @@
 {
   "id": "ring_inverted_row",
   "name": "Ring Inverted Row",
+  "load_type": "bodyweight",
   "equipment": [
-    "weighted_bodyweight"
+    "rings"
   ],
   "movement_type": "compound",
   "fatigue": 2,

@@ -5,9 +5,16 @@
 import Foundation
 
 public enum ActivityLibrary {
-    /// Every piece of equipment the activities mention, sorted.
+    /// Every load type and piece of kit the activities need, sorted.
     public static func equipment(in library: [Activity]) -> [String] {
-        Set(library.flatMap { $0.equipment ?? [] }).sorted()
+        Set(library.flatMap(\.needs)).sorted()
+    }
+}
+
+extension Record where Payload == ActivityPayload {
+    /// Its load type and the kit it needs; your own body you always have.
+    public var needs: [String] {
+        (payload.loadType.map { [$0] } ?? []).filter { $0 != "bodyweight" } + (payload.equipment ?? [])
     }
 }
 
@@ -40,7 +47,7 @@ public enum Swaps {
             let penalty: Double = 1.5 * Double(cp.subtracting(p).count) + Double(p.subtracting(cp).count)
             let score: Double = shared + support - penalty
             guard score > 0 else { continue }
-            let missing = equipment.map { have in (candidate.equipment ?? []).filter { !have.contains($0) } } ?? []
+            let missing = equipment.map { have in candidate.needs.filter { !have.contains($0) } } ?? []
             out.append(Alternative(activity: candidate, score: score, missingEquipment: missing))
         }
         out.sort { a, b in

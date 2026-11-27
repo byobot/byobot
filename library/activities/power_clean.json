@@ -1,9 +1,7 @@
 {
   "id": "power_clean",
   "name": "Power Clean",
-  "equipment": [
-    "barbell"
-  ],
+  "load_type": "barbell",
   "movement_type": "compound",
   "fatigue": 4,
   "resistance_curve": {

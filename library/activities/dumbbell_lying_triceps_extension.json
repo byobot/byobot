@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_lying_triceps_extension",
   "name": "Dumbbell Lying Triceps Extension",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "isolation",
   "fatigue": 1,

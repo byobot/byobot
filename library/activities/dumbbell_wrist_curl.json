@@ -1,9 +1,7 @@
 {
   "id": "dumbbell_wrist_curl",
   "name": "Dumbbell Wrist Curl",
-  "equipment": [
-    "dumbbell"
-  ],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

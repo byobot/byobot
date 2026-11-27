@@ -1,9 +1,7 @@
 {
   "id": "face_pull",
   "name": "Face Pull",
-  "equipment": [
-    "cable"
-  ],
+  "load_type": "cable",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": {

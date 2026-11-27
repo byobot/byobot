@@ -20,22 +20,25 @@
     "traps",
     "triceps"
   ],
-  "equipment": [
+  "load_types": [
     "band",
     "barbell",
-    "bench",
     "bodyweight",
     "cable",
     "dumbbell",
-    "ez_barbell",
     "kettlebell",
     "machine",
-    "plates",
+    "plate_loaded_machine"
+  ],
+  "equipment": [
+    "bench",
+    "dip_bars",
+    "ez_bar",
     "pull_up_bar",
     "rack",
     "rings",
     "smith_machine",
-    "weighted_bodyweight"
+    "trap_bar"
   ],
   "movement_types": [
     "compound",

@@ -1,9 +1,7 @@
 {
   "id": "machine_chest_press",
   "name": "Machine Chest Press",
-  "equipment": [
-    "machine"
-  ],
+  "load_type": "machine",
   "movement_type": "compound",
   "fatigue": 2,
   "resistance_curve": {

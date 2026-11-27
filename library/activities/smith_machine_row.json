@@ -1,8 +1,9 @@
 {
   "id": "smith_machine_row",
   "name": "Smith Machine Row",
+  "load_type": "plate_loaded_machine",
   "equipment": [
-    "plates"
+    "smith_machine"
   ],
   "movement_type": "compound",
   "fatigue": 3,

@@ -1,8 +1,10 @@
 {
   "id": "barbell_bench_press",
   "name": "Barbell Bench Press",
+  "load_type": "barbell",
   "equipment": [
-    "barbell"
+    "bench",
+    "rack"
   ],
   "movement_type": "compound",
   "fatigue": 3,

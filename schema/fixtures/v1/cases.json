@@ -5,7 +5,7 @@
   {
    "name": "activity/put",
    "outcome": "accepted",
-   "description": "An activity with the muscles it works, its equipment and how it trains.",
+   "description": "An activity with the muscles it works, how it's loaded, the kit it needs and how it trains.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000001",
     "schema_version": 1,
@@ -43,9 +43,9 @@
        "adductors"
       ]
      },
+     "load_type": "barbell",
      "equipment": [
-      "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -100,7 +100,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -155,7 +155,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -170,7 +170,7 @@
   {
    "name": "location/put",
    "outcome": "accepted",
-   "description": "A place to train, named by a slug.",
+   "description": "A place to train, named by a slug, with what you have there.",
    "data": {
     "id": "019aa000-0000-7000-8000-000000000008",
     "schema_version": 1,
@@ -189,7 +189,14 @@
     },
     "prev": [],
     "payload": {
-     "name": "Example Gym"
+     "name": "Example Gym",
+     "equipment": [
+      "barbell",
+      "dumbbell",
+      "cable",
+      "bench",
+      "rack"
+     ]
     }
    }
   },
@@ -1207,8 +1214,8 @@
   },
   {
    "name": "overlay/rearrange",
-   "outcome": "accepted",
-   "description": "Your exercise order and a swap on an agent's planned session.",
+   "outcome": "rejected",
+   "description": "Order and swaps stay on the phone; what you did is in the logged sets.",
    "data": {
     "id": "019aa000-0000-7000-8000-00000000001b",
     "schema_version": 1,
@@ -2048,7 +2055,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,
@@ -2546,7 +2553,7 @@
      },
      "equipment": [
       "barbell",
-      "squat_rack"
+      "rack"
      ],
      "movement_type": "compound",
      "fatigue": 4,

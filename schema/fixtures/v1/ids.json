@@ -74,14 +74,6 @@
     "id": "19b72b33-6dd0-5622-9580-9a410a1132f0"
    },
    "record_id": "a2518174-ec83-5d08-be4d-f8d3dc76cb85"
-  },
-  {
-   "effect": "rearrange",
-   "target": {
-    "kind": "planned_session",
-    "id": "019aa000-0000-7000-8000-000000000102"
-   },
-   "record_id": "453d5c74-1e10-505f-8f8d-c8a44148345a"
   }
  ]
 }

@@ -1,8 +1,9 @@
 {
   "id": "dumbbell_seated_press",
   "name": "Dumbbell Seated Press",
+  "load_type": "dumbbell",
   "equipment": [
-    "dumbbell"
+    "bench"
   ],
   "movement_type": "compound",
   "fatigue": 3,
