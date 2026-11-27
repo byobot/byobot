@@ -63,6 +63,8 @@ For an assistant that calls an API instead, run `byobot remote key NAME` for a k
 
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
 
+The app and byobot work together when they share a release line (app 0.1 with byobot 0.1.x), which speaks sync protocol 1 and schema version 1; `byobot status` shows the version and schema version.
+
 ## Sync through Google Drive (optional)
 
 When the phone can't reach your computer, it can sync through a hidden folder in your own Google Drive instead. Everything there is encrypted with keys only your devices hold. Your computer stays the one copy that counts; the folder is only a mailbox.
