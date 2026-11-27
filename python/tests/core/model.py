@@ -133,8 +133,18 @@ class ModelReplica:
         ids = [i for i in self.by_record.get(record, ()) if among is None or i in among]
         versions = [self.writes[i] for i in ids
                     if self.writes[i].op in ("put", "retract") and self.understands(self.writes[i])]
-        superseded = set().union(*(v.prior for v in versions)) if versions else set()
-        return sorted((v for v in versions if v.id not in superseded), key=Write.order)
+        return sorted((v for v in versions if v.id not in self._ancestors(versions)), key=Write.order)
+
+    def _ancestors(self, versions: list[Write]) -> set[str]:
+        """Every write the versions were made on top of, however far back, through writes not understood too."""
+        seen: set[str] = set()
+        stack = [p for v in versions for p in v.prior]
+        while stack:
+            i = stack.pop()
+            if i not in seen:
+                seen.add(i)
+                stack.extend(self.writes[i].prior if i in self.writes else ())
+        return seen
 
     def _unread(self, record: str) -> bool:
         versions = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op in ("put", "retract")]
