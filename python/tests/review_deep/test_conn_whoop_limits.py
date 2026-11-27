@@ -53,3 +53,28 @@ def test_conn_one_busy_answer_mid_import_is_tried_again(monkeypatch, store, stat
     out = h.import_whoop(monkeypatch, fake, days=90)
     total = sum(len(v) for v in records.values())
     assert out["fetched"] == total and _held(store) == total
+
+
+class _NoRotation(h.FakeWhoop):
+    """A token endpoint that renews the access token without sending a new refresh token, as RFC 6749 section
+    6 allows; the refresh token sent stays good."""
+
+    def __call__(self, req):
+        if req.get_method() == "POST":
+            self.refreshed = True
+            return io.BytesIO(json.dumps({"access_token": "access-2", "expires_in": 3600,
+                                          "token_type": "bearer"}).encode())
+        return super().__call__(req)
+
+
+def test_conn_a_refresh_without_a_new_refresh_token_keeps_the_old_one(monkeypatch, store):
+    h.connect(expires_in=-10)  # the access token has run out
+    records = h.history(3, UNTIL)
+    fake = _NoRotation(records)
+    try:
+        out = h.import_whoop(monkeypatch, fake, days=30)
+    except KeyError as exc:  # on main: a bare KeyError from whoop._tokens, not an answer
+        pytest.fail(f"import crashed with KeyError {exc}")
+    assert out["fetched"] == sum(len(v) for v in records.values())
+    kept = credentials.load(whoop.NAME)
+    assert kept["access_token"] == "access-2" and kept["refresh_token"] == "refresh-1"

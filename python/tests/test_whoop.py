@@ -10,7 +10,7 @@ import urllib.request
 
 import pytest
 
-from byobot import credentials, whoop
+from byobot import credentials, oauth, whoop
 from byobot.commands import Context, run
 from byobot.util import ValidationFailed
 
@@ -63,6 +63,8 @@ def test_connect_signs_in_and_keeps_the_tokens():
     form = fake.requests[0][3]
     assert form["grant_type"] == ["authorization_code"] and form["code"] == ["example-code"]
     assert form["client_secret"] == ["example-secret"] and form["redirect_uri"] == [whoop.REDIRECT]
+    assert query["code_challenge_method"] == "S256" and query["code_challenge"] == oauth.pkce_challenge(
+        form["code_verifier"][0])
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-1"
     assert fake.requests[0][4]["User-agent"].startswith("byobot/")
 
@@ -112,6 +114,36 @@ def test_an_expired_token_is_refreshed_and_the_new_one_kept():
     assert fake.requests[1][4]["Authorization"] == "Bearer access-2"
     assert fake.requests[1][4]["User-agent"].startswith("byobot/")
     assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-2"
+
+
+def test_a_refresh_another_process_already_made_is_used_not_repeated():
+    connected(expires_at=time.time() - 1)
+    import_ = whoop.Client(Fake({}))  # loaded before another process refreshed
+    connected(access_token="access-2", refresh_token="refresh-2")
+    fake = Fake({("GET", "/developer/v2/cycle"): [{"records": []}]})  # no token answer: a post would fail
+    import_.opener = fake
+    import_.request("GET", "/v2/cycle")
+    assert fake.requests[0][4]["Authorization"] == "Bearer access-2"
+    assert credentials.load(whoop.NAME)["refresh_token"] == "refresh-2"
+
+
+def test_two_refreshing_at_once_spend_the_refresh_token_once():
+    connected(expires_at=time.time() - 1)
+    posts = []
+
+    def opener(req):
+        if req.get_method() == "POST":
+            posts.append(urllib.parse.parse_qs(req.data.decode())["refresh_token"])
+            time.sleep(0.2)  # the other one tries meanwhile
+            return io.BytesIO(json.dumps(tokens(len(posts) + 1)).encode())
+        return io.BytesIO(b'{"records": []}')
+    clients = [whoop.Client(opener) for _ in range(2)]
+    threads = [threading.Thread(target=c.request, args=("GET", "/v2/cycle")) for c in clients]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert posts == [["refresh-1"]] and credentials.load(whoop.NAME)["refresh_token"] == "refresh-2"
 
 
 def test_a_refused_token_is_refreshed_once():

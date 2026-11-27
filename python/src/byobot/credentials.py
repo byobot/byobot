@@ -12,8 +12,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
+from byobot.cloud import lock
 from byobot.util import ByobotError, base, home, profile
 
 SERVICE = "byobot"
@@ -67,6 +70,13 @@ def save(name: str, secret: dict) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+@contextmanager
+def locked(name: str) -> Iterator[None]:
+    """One process at a time, for a read-then-save such as a token refresh."""
+    with lock.held(home() / "credentials" / f"{name}.lock"):
+        yield
 
 
 def delete(name: str) -> bool:
