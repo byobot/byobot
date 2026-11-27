@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .driver import Unsupported
@@ -302,6 +302,14 @@ class ModelReplica:
     def ingest(self, source: str, batch: Any, at: str) -> list[Write]:
         writes = []
         for type_, source_id, payload, revised_at in _source_records(source, batch):
+            record = key("source_record", f"{source}:{type_}:{source_id}")
+            current = self.source_current(record)
+            if not revised_at and current is not None:  # a changed sample without a time is stamped after the current
+                if _unstamped(current) == _unstamped(payload):
+                    continue
+                last = _instant(self.revisions(record)[-1].content["revised_at"])
+                revised_at = at if not last[0] or _instant(at)[1] > last[1] else \
+                    (datetime.fromtimestamp(last[1], timezone.utc) + timedelta(milliseconds=1)).isoformat()
             content = {"payload": payload, "revised_at": revised_at}
             wid = "src:" + hashlib.sha256(canonical([source, type_, source_id, content]).encode()).hexdigest()[:24]
             if wid not in self.writes and _tombstone(f"{source}:{type_}:{source_id}") not in self.writes:
@@ -324,7 +332,13 @@ class ModelReplica:
         if record in self.gone:
             return []
         found = [self.writes[i] for i in self.by_record.get(record, ()) if self.writes[i].op == "revision"]
-        return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.hlc, canonical(w.content["payload"])))
+        return sorted(found, key=lambda w: (*_instant(w.content["revised_at"]), w.content.get("order", ""), w.hlc,
+                                            canonical(w.content["payload"])))
+
+    def stamp(self, wid: str, order: str) -> Write:
+        """Give a revision the id its store wrote it under, which orders revisions alike on every device."""
+        w = self.writes[wid] = replace(self.writes[wid], content={**self.writes[wid].content, "order": order})
+        return w
 
     def source_current(self, record: str) -> dict | None:
         """The latest revision, hidden while a deletion names it, and for good by a tombstone."""
@@ -550,12 +564,19 @@ def newer(w: Write, variant: str) -> Write:
 
 
 def _instant(at: str | None) -> tuple:
-    """A revision time as a point in time; one without a time sorts first, then by when it was written."""
+    """A revision time as a point in time; one without a time sorts first."""
     try:
         parsed = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
     except ValueError:
         return (False, 0.0)
     return (True, parsed.timestamp()) if parsed.tzinfo else (False, 0.0)
+
+
+def _unstamped(sample: dict) -> dict:
+    out = {k: v for k, v in sample.items() if k != "modified_at"}
+    if isinstance(out.get("raw"), dict):
+        out["raw"] = {k: v for k, v in out["raw"].items() if k != "modified_at"}
+    return out
 
 
 def _tombstone(rid: str) -> str:

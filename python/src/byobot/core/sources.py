@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from ..util import ValidationFailed, plain_text
 from . import mappers
 from .contract import documents, mac
-from .store import Store
+from .store import Store, stamp
 
 ACTOR_KIND = "connector"
 
@@ -21,12 +22,14 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
     """Write what a source gave, all or none: (source_type, source_id, raw) revisions, and the (source_type,
     source_id) it says it deleted. A deletion of a record not held yet is kept, so the record never shows. A revision
     already held, the current one with only a newer revision time, a revision of an erased or deleted record, or a
-    deletion already held, writes nothing."""
+    deletion already held, writes nothing. A changed health sample without a revision time is stamped with when it
+    was imported, so it is current."""
     key = store.store_key
     changes, seen = [], set()
     for source_type, source_id, raw in records:
         payload = {"source": source, "source_type": source_type, "source_id": str(source_id), "raw": raw}
         rid = record_id(store, source, source_type, source_id)
+        payload = _stamped(store, rid, payload)
         event_id = store.contract.derived("source_revision", [rid, mac(key, payload)])
         if event_id in seen or store.event(event_id) is not None or _erased(store, rid) or _restamped(store, rid, raw) \
                 or _tombstoned(store, rid):
@@ -95,6 +98,18 @@ def _erased(store: Store, rid: str) -> bool:
 
 def _tombstoned(store: Store, rid: str) -> bool:
     return store.event(store.contract.derived("source_deletion", [rid])) is not None
+
+
+def _stamped(store: Store, rid: str, payload: dict) -> dict:
+    """A changed revision without a time of its own, stamped after the current one, so it is current."""
+    found = store.get("source_record", rid)
+    if mappers.revised(payload) or found is None or _restamped(store, rid, payload["raw"]):
+        return payload
+    at = store.wall().astimezone(timezone.utc)
+    current = mappers.revision_order(found["event"])
+    if current[0] and at.timestamp() <= current[1]:
+        at = datetime.fromtimestamp(current[1], timezone.utc) + timedelta(milliseconds=1)
+    return mappers.stamped(payload, stamp(at))
 
 
 def _restamped(store: Store, rid: str, raw: dict) -> bool:

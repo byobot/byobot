@@ -111,6 +111,10 @@ class World:
         self.tick(1)
         writes = self.shadows[name].ingest(source, batch, at)
         events = self.driver.ingest(rep.state, source, batch, at)
+        puts = [e["id"] for e in events if isinstance(e, dict) and e["op"] == "put"]
+        if puts and len(puts) == len([w for w in writes if w.op == "revision"]):  # a store's ids order revisions
+            order = iter(puts)
+            writes = [self.shadows[name].stamp(w.id, next(order)) if w.op == "revision" else w for w in writes]
         return self._change(name, events, writes)
 
     def newer(self, cid: str, variant: str) -> Change:

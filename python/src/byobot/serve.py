@@ -103,7 +103,7 @@ def _make_certificate(device_id: str, cert_path: Path, key_path: Path) -> None:
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.x509.oid import NameOID
 
-    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    cert_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"byobot {device_id}"[:64])])
     start = datetime.now(timezone.utc) - timedelta(days=1)
@@ -552,8 +552,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def hello(self) -> dict:
         pairing = self.server.pairing
+        open_ = bool(pairing and pairing.open)
+        server = self._server_info() if open_ else {**self._server_info(), "name": "byobot"}  # the name is often a person's
         return {"byobot": __version__, "protocol": PROTOCOL, "schema_version": SCHEMA_VERSION,
-                "server": self._server_info(), "pairing_open": bool(pairing and pairing.open),
+                "server": server, "pairing_open": open_,
                 "kinds": {k: v["version"] for k, v in Contract.shipped().registry["kinds"].items()}}
 
     def pair(self) -> dict:
