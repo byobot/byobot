@@ -8,6 +8,7 @@ Accepting an event re-derives only that record, so cost doesn't grow with histor
 
 from __future__ import annotations
 
+import functools
 import json
 import secrets
 import sqlite3
@@ -736,8 +737,25 @@ _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNC
 _UNREADABLE = {("meta", None), ("peers", "token_sha256")}
 
 
-def _authorize(action: int, table: Any, column: Any, *_: Any) -> int:
-    if action == sqlite3.SQLITE_READ and ((table, None) in _UNREADABLE or (table, column) in _UNREADABLE):
+@functools.cache
+def _readable() -> dict[str, frozenset[str]]:
+    """The tables, views and columns `ddl()` documents; anything else in the file, such as Drive keys, stays out."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(ddl())
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type IN ('table', 'view')")]
+        found = {t: frozenset(c[1].lower() for c in conn.execute(f"PRAGMA table_info({t})")
+                              if (t, c[1]) not in _UNREADABLE) | {"rowid"}
+                 for t in tables if (t, None) not in _UNREADABLE}
+    finally:
+        conn.close()
+    schema = frozenset({"type", "name", "tbl_name", "rootpage", "sql"})
+    return {**found, "sqlite_master": schema, "sqlite_schema": schema}
+
+
+def _authorize(action: int, table: Any, column: Any, database: Any, *_: Any) -> int:
+    # A read with no database is a row count or a CTE: it carries no column of a stored table.
+    if action == sqlite3.SQLITE_READ and database is not None and column.lower() not in _readable().get(table, ()):
         return sqlite3.SQLITE_DENY
     return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
 
