@@ -165,6 +165,9 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var defaultMetrics: [String]?
     /// Muscles it works, named as in library/vocabulary.json where they fit.
     public var targets: Targets?
+    /// How it's loaded, one of library/vocabulary.json's `load_types`: `barbell`, `dumbbell`, `kettlebell`, `cable`, `machine` (a weight stack on a fixed path), `plate_loaded_machine`, `bodyweight` (held or worn weight is its `load`) or `band`.
+    public var loadType: String?
+    /// Kit it needs besides its load, such as `bench` or `smith_machine`.
     public var equipment: [String]?
     /// `compound` or `isolation` in the library.
     public var movementType: String?
@@ -173,11 +176,12 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
     public var resistanceCurve: ResistanceCurve?
     public var notes: String?
 
-    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
+    public init(name: String, tags: [String]? = nil, defaultMetrics: [String]? = nil, targets: Targets? = nil, loadType: String? = nil, equipment: [String]? = nil, movementType: String? = nil, fatigue: Int? = nil, resistanceCurve: ResistanceCurve? = nil, notes: String? = nil) {
         self.name = name
         self.tags = tags
         self.defaultMetrics = defaultMetrics
         self.targets = targets
+        self.loadType = loadType
         self.equipment = equipment
         self.movementType = movementType
         self.fatigue = fatigue
@@ -190,6 +194,7 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
         case tags
         case defaultMetrics = "default_metrics"
         case targets
+        case loadType = "load_type"
         case equipment
         case movementType = "movement_type"
         case fatigue
@@ -201,15 +206,19 @@ public struct ActivityPayload: Codable, Equatable, Hashable, Sendable {
 /// Where you train. Loads compare within one location.
 public struct LocationPayload: Codable, Equatable, Hashable, Sendable {
     public var name: String
+    /// Load types and kit you have here. Without it, the `equipment` setting counts.
+    public var equipment: [String]?
     public var notes: String?
 
-    public init(name: String, notes: String? = nil) {
+    public init(name: String, equipment: [String]? = nil, notes: String? = nil) {
         self.name = name
+        self.equipment = equipment
         self.notes = notes
     }
 
     enum CodingKeys: String, CodingKey {
         case name
+        case equipment
         case notes
     }
 }

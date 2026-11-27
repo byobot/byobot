@@ -14,8 +14,8 @@ from .contract import Contract, instant
 
 DDL = """
 CREATE TABLE IF NOT EXISTS activities (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, movement_type TEXT, fatigue INTEGER, tags TEXT, equipment TEXT,
-  targets TEXT, default_metrics TEXT, resistance_curve TEXT, source TEXT NOT NULL);
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, movement_type TEXT, fatigue INTEGER, tags TEXT, load_type TEXT,
+  equipment TEXT, targets TEXT, default_metrics TEXT, resistance_curve TEXT, source TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS plans (
@@ -101,7 +101,7 @@ LEFT JOIN metrics l ON l.owner_kind = 'planned_session' AND l.owner_id = e.plann
 WHERE e.planned_effort_id IS NOT NULL;""",
 }
 DDL += "".join(VIEWS.values()) + "\n"
-RULES = 4  # raise when records are derived differently, so stores rebuild on open
+RULES = 5  # raise when records are derived differently, so stores rebuild on open
 SHAPE = hashlib.sha256(f"{DDL}{RULES}".encode()).hexdigest()[:16]
 Reducer = Callable[[sqlite3.Connection, Contract, str, dict], None]
 TABLES = {
@@ -213,8 +213,9 @@ def _metrics(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, metrics
 
 
 def _activity_row(conn, rid, p, source):
-    conn.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-        rid, p["name"], p.get("movement_type"), p.get("fatigue"), _json(p.get("tags")), _json(p.get("equipment")),
+    conn.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+        rid, p["name"], p.get("movement_type"), p.get("fatigue"), _json(p.get("tags")), p.get("load_type"),
+        _json(p.get("equipment")),
         _json(p.get("targets")), _json(p.get("default_metrics")), _json(p.get("resistance_curve")), source))
 
 
