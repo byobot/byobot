@@ -263,16 +263,22 @@ class Generator:
 
     def enum(self, name: str, values: list[str], description: str | None) -> list[str]:
         lines = doc(description)
-        lines.append(f"public enum {name}: String, Codable, CaseIterable, Hashable, Sendable {{")
-        for raw in values:
-            case = ident(camel(raw))
-            lines.append(f"    case {case}" + (f' = "{raw}"' if case.strip("`") != raw else ""))
-        cases = ", ".join(f".{ident(camel(raw))}" for raw in values)
-        lines += ["    /// A value from a newer byobot, so one new value doesn't stop a whole read.", "    case unknown", "",
-                  f"    public static let allCases: [{name}] = [{cases}]", "",
+        lines.append(f"public enum {name}: Codable, CaseIterable, Hashable, Sendable {{")
+        cases = [(ident(camel(raw)), raw) for raw in values]
+        lines += [f"    case {case}" for case, _ in cases]
+        lines += ["    /// A value from a newer byobot, kept as written so it goes back unchanged.", "    case other(String)", "",
+                  f"    public static let allCases: [{name}] = [{', '.join(f'.{c}' for c, _ in cases)}]", "",
+                  "    public init(rawValue: String) {", "        switch rawValue {"]
+        lines += [f"        case {swift_string(raw)}: self = .{case}" for case, raw in cases]
+        lines += ["        default: self = .other(rawValue)", "        }", "    }", "",
+                  "    public var rawValue: String {", "        switch self {"]
+        lines += [f"        case .{case}: return {swift_string(raw)}" for case, raw in cases]
+        lines += ["        case .other(let value): return value", "        }", "    }", "",
                   "    public init(from decoder: any Decoder) throws {",
-                  "        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown",
-                  "    }", "}"]
+                  "        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))", "    }", "",
+                  "    public func encode(to encoder: any Encoder) throws {",
+                  "        var container = encoder.singleValueContainer()",
+                  "        try container.encode(rawValue)", "    }", "}"]
         return lines
 
     def registry(self) -> list[str]:

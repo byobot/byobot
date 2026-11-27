@@ -542,8 +542,10 @@ final class LogbookTests: XCTestCase {
     }
 
     func testValuesFromANewerByobotStillRead() throws {
-        XCTAssertEqual(try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8)), [.left, .unknown])
-        XCTAssertFalse(Side.allCases.contains(.unknown))
+        let sides = try JSONDecoder().decode([Side].self, from: Data(#"["left", "diagonal"]"#.utf8))
+        XCTAssertEqual(sides, [.left, .other("diagonal")])
+        XCTAssertFalse(Side.allCases.contains(.other("diagonal")))
+        XCTAssertEqual(String(decoding: try JSONEncoder().encode(sides), as: UTF8.self), #"["left","diagonal"]"#)
         XCTAssertEqual(KindVersion.lowest("effort", .object(["round": .number(1)])), 1)
     }
 
