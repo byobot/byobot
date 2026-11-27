@@ -125,6 +125,8 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var storeId: String?
     /// The laptop's clock.
     public var hlc: String?
+    /// Locations and settings removed, not erased: a new one takes another id, a change names their `prev`.
+    public var removed: [RemovedRecord]?
     /// Records a person writes that were erased, so the phone drops what it holds of them.
     public var erased: [ErasedRecord]?
     public var kindVersions: [String: Int]?
@@ -138,7 +140,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
                 sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [], since: String? = nil,
-                storeId: String? = nil, hlc: String? = nil, erased: [ErasedRecord]? = nil,
+                storeId: String? = nil, hlc: String? = nil, removed: [RemovedRecord]? = nil, erased: [ErasedRecord]? = nil,
                 kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
         self.from = from
         self.to = to
@@ -152,6 +154,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.since = since
         self.storeId = storeId
         self.hlc = hlc
+        self.removed = removed
         self.erased = erased
         self.kindVersions = kindVersions
         self.received = received
@@ -159,7 +162,8 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case from, to, since, activities, locations, settings, plans, sessions, efforts, hlc, erased, received, rejected
+        case from, to, since, activities, locations, settings, plans, sessions, efforts, hlc, removed, erased, received
+        case rejected
         case plannedSessions = "planned_sessions"
         case kindVersions = "kind_versions"
         case storeId = "store_id"
@@ -186,6 +190,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         since = try c.decodeIfPresent(String.self, forKey: .since)
         storeId = try c.decodeIfPresent(String.self, forKey: .storeId)
         hlc = try c.decodeIfPresent(String.self, forKey: .hlc)
+        removed = try c.decodeIfPresent([RemovedRecord].self, forKey: .removed)
         erased = try c.decodeIfPresent([ErasedRecord].self, forKey: .erased)
         kindVersions = try c.decodeIfPresent([String: Int].self, forKey: .kindVersions)
         received = try c.decodeIfPresent([String: String].self, forKey: .received)
@@ -211,6 +216,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         try c.encodeIfPresent(since, forKey: .since)
         try c.encodeIfPresent(storeId, forKey: .storeId)
         try c.encodeIfPresent(hlc, forKey: .hlc)
+        try c.encodeIfPresent(removed, forKey: .removed)
         try c.encodeIfPresent(erased, forKey: .erased)
         try c.encodeIfPresent(kindVersions, forKey: .kindVersions)
         try c.encodeIfPresent(received, forKey: .received)

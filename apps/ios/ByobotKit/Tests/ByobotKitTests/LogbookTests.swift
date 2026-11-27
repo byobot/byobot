@@ -468,6 +468,19 @@ final class LogbookTests: XCTestCase {
         XCTAssertNil(book.currentLocationId)
     }
 
+    func testANewLocationTakesAnIdNoLongerInUse() throws {
+        var window = try Fixtures.window()
+        window.removed = [RemovedRecord(kind: "location", id: "example_gym", prev: ["e-removed"]),
+                          RemovedRecord(kind: "setting", id: "equipment", prev: ["e-cleared"])]
+        window.erased = [ErasedRecord(kind: "location", id: "example_gym_2")]
+        window.unread["locations"] = [.object(["id": .string("example_gym_3"), "payload": .string("newer")])]
+        var book = makeLogbook(plan: window)
+        book.setEquipment(["barbell"])
+        XCTAssertEqual(book.pendingEvents.last?.prev, ["e-cleared"], "a change names the removal")
+        XCTAssertEqual(book.addLocation(name: "Example gym").id, "example_gym_4")
+        XCTAssertEqual(book.prev("location", "example_gym"), ["e-removed"])
+    }
+
     func testCorrectingASetKeepsItsTimeAndRound() throws {
         var book = makeLogbook(plan: try Fixtures.window())
         let planned = try plannedSession()

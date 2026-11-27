@@ -16,6 +16,7 @@ from .store import Store, busy
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
+NAMED_KINDS = ("location", "setting")  # kinds a phone writes under an id it picks, not a fresh UUID
 CONNECTOR_KINDS = ("source_record",)  # a phone writes any other kind; one this byobot doesn't know is stored for later
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
 EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -88,6 +89,9 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kinds: dict) 
         reason = "a phone writes only what a person writes"
     elif _too_new(store, event, kinds):
         reason = "a newer byobot wrote this record; update the app to change it"
+    elif event.get("op") == "put" and store.event(event.get("id")) is None and \
+            store._erase_of(record.get("kind"), record.get("id")):
+        reason = "this id was erased; choose another"
     else:
         outcome, reason = store.accept(event)
         return {**result, "status": outcome, **({"reason": reason} if reason else {})}
@@ -157,7 +161,8 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
     before ``start`` through ``end``, and those holding the last two times each activity was done at each
     location, all with their efforts, and efforts logged outside a session in those days.
 
-    Beside them: this store's id and clock, the erased records a phone may hold, its kind versions, and for
+    Beside them: the removed records a phone would name by an id it picks, so it picks another or names the removal
+    as prev; this store's id and clock, the erased records a phone may hold, its kind versions, and for
     ``device_id`` the latest of its events held and the ones refused.
     """
     with store.snapshot():
@@ -196,7 +201,15 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),
             "planned_sessions": _entries(store, "planned_session", planned),
             "sessions": _entries(store, "session", sessions),
-            "efforts": _entries(store, "effort", efforts), **_device_state(store, device_id)}
+            "efforts": _entries(store, "effort", efforts), "removed": _removed(store),
+            **_device_state(store, device_id)}
+
+
+def _removed(store: Store) -> list[dict]:
+    rows = store.conn.execute("SELECT kind, id, heads FROM records WHERE live = 0 AND erased = 0 AND heads != '[]' "
+                              "AND kind IN (SELECT value FROM json_each(?)) ORDER BY kind, id",
+                              (json.dumps(NAMED_KINDS),))
+    return [{"kind": r["kind"], "id": r["id"], "prev": json.loads(r["heads"])} for r in rows]
 
 
 def _since(start: str) -> str:

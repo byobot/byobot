@@ -154,6 +154,7 @@ public struct Logbook: Sendable {
         if let mine, fresh(mine, pending: Set(state.pending)) { return [mine.id] }
         if let known { return known }
         if let entry = entry(kind, id) { return entry.prev }
+        if let removed = state.plan?.removed?.first(where: { $0.kind == kind && $0.id == id }) { return removed.prev }
         return mine.map { [$0.id] } ?? []
     }
 

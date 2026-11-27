@@ -59,6 +59,7 @@ TYPES: dict[tuple[str, str | None], str] = {
     ("sync", "samples_request"): "SamplesRequest",
     ("sync", "samples_response"): "SamplesResponse",
     ("sync", "erased_record"): "ErasedRecord",
+    ("sync", "removed_record"): "RemovedRecord",
     ("sync", "rejection"): "Rejection",
     ("sync", "version"): "ConflictVersion",
 }

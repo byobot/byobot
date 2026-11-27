@@ -75,6 +75,25 @@ def test_the_plan_carries_the_store_id_hub_clock_and_kind_versions(store):
     assert window["kind_versions"]["effort"] == store.contract.version("effort")
 
 
+def test_the_plan_names_a_removed_location_so_a_phone_doesnt_reuse_its_id(store):
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}},
+                             {"kind": "location", "id": "example_park", "payload": {"name": "Example park"}}])
+    removed = commands.remove(store, ME, "location", "example_gym")
+    commands.erase(store, ME, "location", "example_park")
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05", PHONE)
+    assert sync_errors("plan_window", window) == []
+    assert window["removed"] == [{"kind": "location", "id": "example_gym", "prev": [removed["id"]]}]
+
+    again = {**event(kind="location", payload={"name": "Example gym"}), "prev": [removed["id"]]}
+    again["record"]["id"] = "example_gym"
+    erased = {**event(kind="location", payload={"name": "Example park"})}
+    erased["record"]["id"] = "example_park"
+    results = relay.accept_events(store, PHONE, [again, erased])
+    assert [r["status"] for r in results] == ["accepted", "rejected"]
+    assert results[1]["reason"] == "this id was erased; choose another"
+    assert not store.record("location", "example_gym")["conflict"]
+
+
 def test_the_plan_names_what_was_erased(store):
     [sent] = logged(1)
     relay.accept_events(store, PHONE, [sent])

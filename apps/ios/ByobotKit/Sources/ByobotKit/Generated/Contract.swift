@@ -1121,6 +1121,25 @@ public struct ErasedRecord: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct RemovedRecord: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var kind: String
+    public var id: String
+    /// The events that removed it.
+    public var prev: [String]
+
+    public init(kind: String, id: String, prev: [String]) {
+        self.kind = kind
+        self.id = id
+        self.prev = prev
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+        case prev
+    }
+}
+
 /// An event the hub refused. Sending it again won't change that.
 public struct Rejection: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var id: String

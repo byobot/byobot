@@ -282,6 +282,32 @@
         }
       }
     },
+    "removed_record": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "prev"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "prev": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/uuid"
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "description": "The events that removed it."
+        }
+      },
+      "additionalProperties": false
+    },
     "rejection": {
       "description": "An event the hub refused. Sending it again won't change that.",
       "type": "object",
@@ -375,6 +401,13 @@
         "hlc": {
           "$ref": "common.schema.json#/$defs/hlc",
           "description": "The hub's clock. The app writes its next events after it."
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/removed_record"
+          },
+          "description": "Locations and settings that were removed, not erased. A new one takes another id; a change to one names `prev`."
         },
         "erased": {
           "type": "array",

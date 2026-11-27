@@ -373,7 +373,7 @@
       "name": "sync/plan-window-device-state",
       "def": "plan_window",
       "valid": true,
-      "description": "The first day of history, the store's id, the hub's clock, what was erased, its kind versions, and the asking phone's latest event held and refused events.",
+      "description": "The first day of history, the store's id, the hub's clock, what was removed and what was erased, its kind versions, and the asking phone's latest event held and refused events.",
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
@@ -424,6 +424,15 @@
         "efforts": [],
         "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
         "hlc": "1764001200000-000003",
+        "removed": [
+          {
+            "kind": "location",
+            "id": "example_gym",
+            "prev": [
+              "0193a0b0-0000-7000-8000-00000000e100"
+            ]
+          }
+        ],
         "erased": [
           {
             "kind": "effort",
