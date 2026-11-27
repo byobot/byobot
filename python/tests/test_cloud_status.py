@@ -84,6 +84,6 @@ def test_status_shows_a_background_sync_failure_without_asking_drive(phone, monk
 
 def test_status_shows_the_home_folder_as_a_tilde():
     home = Path.home() / "Dropbox" / "byobot"
-    assert tilde(home / "byobot.db") == "~/Dropbox/byobot/byobot.db"
-    assert sync_folder_warning(home).startswith("~/Dropbox/byobot is inside")
+    assert tilde(home / "byobot.db") == str(Path("~", "Dropbox", "byobot", "byobot.db"))
+    assert sync_folder_warning(home).startswith(f"{Path('~', 'Dropbox', 'byobot')} is inside")
     assert tilde("/elsewhere/byobot.db") == "/elsewhere/byobot.db"
