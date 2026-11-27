@@ -689,6 +689,71 @@
    }
   },
   {
+   "name": "observation/range",
+   "outcome": "accepted",
+   "description": "A range needs no invented value, as under `metrics`.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "min": 48,
+     "max": 71,
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T00:30:00-05:00",
+      "end": "2026-11-21T06:40:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
+   "name": "observation/no-measure",
+   "outcome": "rejected",
+   "description": "An observation holds a value, a range or both.",
+   "data": {
+    "id": "019aa000-0000-7000-8000-000000000006",
+    "schema_version": 1,
+    "record": {
+     "kind": "observation",
+     "id": "019aa000-0000-7000-8000-000000000105"
+    },
+    "op": "put",
+    "kind_version": 1,
+    "hlc": "1795129900000-000000",
+    "ts": "2026-11-21T06:45:10-05:00",
+    "device_id": "example-iphone",
+    "actor": {
+     "kind": "human",
+     "id": "me"
+    },
+    "prev": [],
+    "payload": {
+     "code": "heart_rate",
+     "unit": "/min",
+     "time": {
+      "start": "2026-11-21T06:40:00-05:00"
+     },
+     "modality": "sensed"
+    }
+   }
+  },
+  {
    "name": "observation/custom-code",
    "outcome": "accepted",
    "description": "Your own `x.` code.",
