@@ -131,7 +131,7 @@ def wait_for_code(state: str, timeout: float = 300) -> str:
 
 def connect(client_id: str, client_secret: str, opener: Callable = urllib.request.urlopen,
             open_browser: Callable[[str], Any] = webbrowser.open, wait: Callable[[str], str] = wait_for_code) -> dict:
-    state = secrets.token_hex(4)
+    state = secrets.token_urlsafe(32)
     url = authorize_url(client_id, state)
     open_browser(url)
     code = wait(state)
