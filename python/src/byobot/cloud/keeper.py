@@ -177,6 +177,16 @@ class Keeper:
                                 "VALUES (?, ?, ?, ?, ?, ?)", (device["id"], device["class"], device["box"],
                                                               device["sign"], epoch, epoch))
 
+    def _rejoin(self, device: dict) -> None:
+        """Take back a removed device. Its relay counts seqs from the start again, so its older files go unread."""
+        self.store.conn.execute("UPDATE cloud_devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
+                                "last_seq = NULL, removed = 0 WHERE id = ?",
+                                (device["box"], device["sign"], self.epoch, self.epoch, device["id"]))
+        like = f"segments/{device['id']}/%"
+        self.store.conn.execute("DELETE FROM cloud_read WHERE path LIKE ?", (like,))
+        self.store.conn.execute("DELETE FROM cloud_refused WHERE path LIKE ?", (like,))
+        self._set(f"rejoined:{device['id']}", self.epoch)
+
     def _seq_floor(self, listing: dict[str, str]) -> None:
         """A run cut short after an upload leaves that file's seq behind; never write another file under it."""
         top = _top_seq(listing, self.device_id)
@@ -293,13 +303,13 @@ class Keeper:
         if self.clock() > join["expires"]:
             return self._joined({"join": "expired"}, listing)
         secret = unb64(join["secret"])
-        known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
+        active = {d["id"] for d in self.devices()}  # a removed phone may answer a new code with the same id
         valid = []
         for path in listing:
             if not path.startswith("devices/") or not path.endswith(".json"):
                 continue
             device_id = path[len("devices/"):-len(".json")]
-            if device_id in known:
+            if device_id in active:
                 continue
             data = self.folder.read(path)
             try:
@@ -333,7 +343,9 @@ class Keeper:
         """End the join: enrol the device if one was admitted, keep the outcome for `cloud join`, and delete the
         device files no one admitted, so those phones can answer a new code."""
         with self.store._tx():
-            if device:
+            if device and self.device(device["id"]):
+                self._rejoin(device)
+            elif device:
                 self._enrol(device, self.epoch)
             self._unset("join")
             self._set("last_join", json.dumps(outcome))
@@ -376,6 +388,8 @@ class Keeper:
         device = self.device(writer)
         if device is None or device["removed"]:
             return "from a device that isn't in this logbook"
+        if where["epoch"] < int(self._get(f"rejoined:{writer}") or 0):
+            return "from before this device joined again"
         key = self.key(where["epoch"])
         if key is None:
             return "from an epoch whose key this keeper no longer holds"
@@ -606,7 +620,7 @@ class Keeper:
             self.store.conn.execute("DELETE FROM cloud_devices WHERE class != 'keeper'")
             self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'heard:%' OR key IN ('join', 'last_join', "
                                     "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing') "
-                                    "OR key LIKE 'removing:%'")
+                                    "OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
             self._set("epoch", n)
             self._set("checkpoint_position", 0)
             self._set("closed", 1)
@@ -650,6 +664,7 @@ class Keeper:
             self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch < ?", (current,))
             self.store.conn.executemany("DELETE FROM cloud_read WHERE path = ?", [(p,) for p in old])
             self.store.conn.executemany("DELETE FROM cloud_refused WHERE path = ?", [(p,) for p in old])
+            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'rejoined:%'")
         return {"cleaned": len(old)}
 
     def local_status(self) -> dict:

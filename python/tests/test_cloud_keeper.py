@@ -343,3 +343,23 @@ def test_an_older_keeper_keeps_a_newer_phone_s_segment_until_it_is_upgraded(stor
     monkeypatch.setattr(keeper_module, "__version__", "next")
     keeper.sync()
     assert store.event(sent["id"]) and "upgrade" not in keeper.local_status()
+
+
+def test_a_rejoined_phone_starts_with_no_receipts_from_before(store, folder, keeper):
+    relay = joined(keeper, folder)
+    joined(keeper, folder, OTHER)  # it hasn't moved, so the first epoch's files stay
+    relay.log([event()])
+    relay.sync()
+    keeper.sync()
+    keeper.remove(PHONE)
+    again = Relay.join(folder, keeper.join_code()["link"], PHONE, identity=relay.identity)
+    assert keeper.sync()["join"] == "admitted"
+    assert keeper.receipts()[PHONE]["read"] == []  # its new relay counts seqs from 1 again
+    assert not [p for p in folder.list() if p.startswith(f"segments/{PHONE}/0001-")]
+    sent = event(n=1)
+    again.sync()
+    again.log([sent])
+    again.sync()
+    keeper.sync()
+    again.sync()
+    assert store.event(sent["id"]) and not again.events
