@@ -22,7 +22,6 @@ from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
-from .relay import is_epoch_file
 
 JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
@@ -236,7 +235,7 @@ class Keeper:
         """Start the next epoch: a new key sealed to every active device, a checkpoint of the whole logbook, a
         plan, then the epoch file, which commits it."""
         listing = self.folder.list()
-        top = max([files.epoch_number(p) for p in listing if is_epoch_file(p)] + [self.epoch])
+        top = max([files.epoch_number(p) for p in listing if files.is_epoch_file(p)] + [self.epoch])
         n = int(self._get("starting") or 0)
         if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
             n = max(n, top) + 1
@@ -696,7 +695,7 @@ class Keeper:
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
         n = int(self._get("closing") or 0) or max(
-            [files.epoch_number(p) for p in self.folder.list() if is_epoch_file(p)] + [self.epoch]) + 1
+            [files.epoch_number(p) for p in self.folder.list() if files.is_epoch_file(p)] + [self.epoch]) + 1
         with self.store._tx():  # sync finishes a close that failed partway, so phones and this Mac agree
             self._set("closing", n)
         path = files.epoch_path(n)
@@ -857,7 +856,7 @@ def _parts(events: list[dict]) -> list[list[dict]]:
 
 def _closed(folder: Folder, listing: dict[str, str]) -> bool:
     """Whether `cloud off --delete` left this folder: nothing in it but epoch files, the newest marked closed."""
-    epochs = sorted(p for p in listing if is_epoch_file(p))
+    epochs = sorted(p for p in listing if files.is_epoch_file(p))
     return bool(epochs) and len(epochs) == len(listing) and files.is_closed(folder.read(epochs[-1]))
 
 

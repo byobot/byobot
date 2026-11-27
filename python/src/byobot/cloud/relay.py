@@ -70,7 +70,7 @@ class Relay:
 
     def _keeper_here(self, listing: dict[str, str]) -> bool:
         """Whether this folder holds an epoch file the code's keeper signed."""
-        for p in sorted((p for p in listing if is_epoch_file(p)), reverse=True):
+        for p in sorted((p for p in listing if files.is_epoch_file(p)), reverse=True):
             try:
                 files.read_epoch(self.folder.read(p) or b"", self.keeper_sign, self.store_id, files.epoch_number(p))
                 return True
@@ -139,7 +139,7 @@ class Relay:
         """The epoch files newer than this relay's, oldest first, each checked against the keeper key the one
         before it trusts: a handover moves that trust to the keeper's new key."""
         bodies, trusted = {}, self.keeper_sign
-        for n in sorted(files.epoch_number(p) for p in listing if is_epoch_file(p)):
+        for n in sorted(files.epoch_number(p) for p in listing if files.is_epoch_file(p)):
             if self.epoch is not None and n <= self.epoch:
                 continue
             try:
@@ -150,7 +150,7 @@ class Relay:
         return bodies
 
     def _adopt(self, listing: dict[str, str]) -> bool:
-        epochs = sorted((files.epoch_number(p) for p in listing if is_epoch_file(p)), reverse=True)
+        epochs = sorted((files.epoch_number(p) for p in listing if files.is_epoch_file(p)), reverse=True)
         bodies = self._follow(listing)
         for n in sorted(bodies, reverse=True):
             body = bodies[n]
@@ -252,7 +252,3 @@ class Relay:
             self.sent[path] = {"events": [e["id"] for e in batch], "samples": lines}
             written, force = written + 1, False
         return written
-
-
-def is_epoch_file(path: str) -> bool:
-    return files.epoch_number(path) is not None
