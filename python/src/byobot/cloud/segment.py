@@ -1,14 +1,13 @@
 """Segment files: a plain header line, the encrypted body, and the writer's signature.
 
-The body is gzip of JSON lines, each one message (``events``, ``samples`` or ``plan``, exactly as the hub's
-``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer, or the keeper's ``receipts``), then
-``{"end": {"lines": n}}``. The header
-is the associated data, so a file can't be renamed, moved or replayed into another store.
+The body is raw DEFLATE of JSON lines, each one message (``events``, ``samples`` or ``plan``, exactly as the
+hub's ``/v1/events`` and ``/v1/samples`` requests and ``/v1/plan`` answer, or the keeper's ``receipts``). The AEAD
+and the signature cover the whole body, so it needs no checksum or count of its own. The header is the associated
+data, so a file can't be renamed, moved or replayed into another store.
 """
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
 import re
@@ -68,8 +67,8 @@ def write(kind: str, store_id: str, device_id: str, epoch: int, seq: int, messag
     nonce = nonce or os.urandom(12)
     header = dumps({"magic": MAGIC, "format": FORMAT, "kind": kind, "store_id": store_id, "device_id": device_id,
                     "epoch": epoch, counter(kind): seq, "nonce": b64(nonce)}) + b"\n"
-    lines = [*messages, {"end": {"lines": len(messages)}}]
-    body = gzip.compress(b"".join(dumps(m) + b"\n" for m in lines), mtime=0)
+    packer = zlib.compressobj(wbits=-15)
+    body = packer.compress(b"".join(dumps(m) + b"\n" for m in messages)) + packer.flush()
     ciphertext = unb64(encrypt(key, body, header, nonce)["ciphertext"])
     return header + ciphertext + signer.signature(DOMAIN, header + ciphertext)
 
@@ -113,17 +112,15 @@ def read(data: bytes, *, path: str, store_id: str, key: bytes, sign_public: str,
 
 def _messages(body: bytes, skip_unknown: bool = False) -> list[dict]:
     try:
-        d = zlib.decompressobj(wbits=31)
+        d = zlib.decompressobj(wbits=-15)
         text = d.decompress(body, MAX_BODY)
         if d.unconsumed_tail or d.unused_data or not d.eof:
             raise CloudError("cut short, or too large")
-        lines = [json.loads(line) for line in text.decode().split("\n")[:-1]]
+        if text and not text.endswith(b"\n"):
+            raise CloudError("cut short")
+        messages = [json.loads(line) for line in text.decode().split("\n")[:-1]]
     except (zlib.error, ValueError, UnicodeDecodeError):
         raise CloudError("not a readable segment body") from None
-    if not lines or not isinstance(lines[-1], dict) or set(lines[-1]) != {"end"} \
-            or lines[-1]["end"] != {"lines": len(lines) - 1}:
-        raise CloudError("cut short")
-    messages = lines[:-1]
     if any(not isinstance(m, dict) or len(m) != 1 for m in messages):
         raise CloudError("not a readable segment body")
     if skip_unknown:

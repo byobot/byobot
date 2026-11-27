@@ -143,10 +143,11 @@ final class CloudTests: XCTestCase {
         XCTAssertEqual(found.messages.map { JSONValue.object($0) }, [plan])
     }
 
-    func testGzipRoundTripsAndRefusesOneCutShort() throws {
-        let text = Data(String(repeating: "{\"end\":{\"lines\":0}}\n", count: 500).utf8)
-        let packed = try Cloud.gzip(text)
-        XCTAssertEqual(try Cloud.gunzip(packed), text)
-        XCTAssertThrowsError(try Cloud.gunzip(packed.dropLast(20)))
+    func testDeflateRoundTripsAndRefusesOneCutShort() throws {
+        let text = Data(String(repeating: "{\"events\":{\"events\":[]}}\n", count: 500).utf8)
+        let packed = try Cloud.deflate(text)
+        XCTAssertEqual(try Cloud.inflate(packed), text)
+        XCTAssertThrowsError(try Cloud.inflate(packed.dropLast(20)))
+        XCTAssertThrowsError(try Cloud.inflate(packed + Data("more".utf8)))
     }
 }

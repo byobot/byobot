@@ -1,8 +1,8 @@
 """Cloud protocol 1's files: the golden vectors in schema/fixtures/v1/cloud.json, and what a reader refuses."""
 
 import base64
-import gzip
 import json
+import zlib
 from pathlib import Path
 
 import pytest
@@ -72,7 +72,8 @@ def test_the_inputs_match_their_public_keys_and_code():
 
 
 def test_the_deterministic_files_match_byte_for_byte():
-    """Sealing, signing and the recovery file don't involve gzip, so every implementation writes the same bytes."""
+    """Sealing, signing and the recovery file don't involve compression, so every implementation writes the same
+    bytes."""
     keeper = Identity.from_private(KEEPER["private"])
     epoch = next(c for c in VECTORS["valid"] if c["name"] == "epoch file")
     devices = epoch["expect"]["devices"]
@@ -113,13 +114,18 @@ def _forge(body: bytes, me: Identity, key: bytes, path="segments/dev-1/000000000
                         sign_public=me.public()["sign"])
 
 
+def _deflate(data: bytes) -> bytes:
+    packer = zlib.compressobj(wbits=-15)
+    return packer.compress(data) + packer.flush()
+
+
 @pytest.mark.parametrize("body, error", [
-    (gzip.compress(b'{"events":{"events":[]}}\n'), "cut short"),
-    (gzip.compress(b'{"events":{"events":[]}}\n{"end":{"lines":2}}\n'), "cut short"),
-    (gzip.compress(b'{"meal":{}}\n{"end":{"lines":1}}\n'), "upgrade byobot"),
-    (gzip.compress(b'{"end":{"lines":0}}\n') + gzip.compress(b'{"end":{"lines":0}}\n'), "cut short"),
-    (gzip.compress(b"\0" * (segment.MAX_BODY + 1)), "too large"),
-    (b"not gzip", "readable"),
+    (_deflate(b'{"events":{"events":[]}}'), "cut short"),
+    (_deflate(b'{"events":{"events":[]}}\n')[:-2], "cut short"),
+    (_deflate(b'{"meal":{}}\n'), "upgrade byobot"),
+    (_deflate(b'{"events":{"events":[]}}\n') + b"more", "cut short"),
+    (_deflate(b"\0" * (segment.MAX_BODY + 1)), "too large"),
+    (b"\xff not deflate", "readable"),
 ])
 def test_a_signed_segment_with_a_bad_body_is_still_refused(body, error):
     me, key = Identity.generate(), new_key()

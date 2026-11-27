@@ -9,7 +9,7 @@
     "epoch": {"type": "integer", "minimum": 0, "maximum": 9999999999},
     "device_id": {"$ref": "common.schema.json#/$defs/id"},
     "header": {
-      "description": "A segment's first line, JSON and plain; the associated data of its ciphertext. Then the ChaCha20-Poly1305 ciphertext of the gzipped body under the epoch key, then the writer's Ed25519 signature (64 bytes) over 'byobot-cloud segment 1\\n', the header line and the ciphertext.",
+      "description": "A segment's first line, JSON and plain; the associated data of its ciphertext. Then the ChaCha20-Poly1305 ciphertext of the body (raw DEFLATE of one JSON message per line, each ending in a newline) under the epoch key, then the writer's Ed25519 signature (64 bytes) over 'byobot-cloud segment 1\\n', the header line and the ciphertext.",
       "type": "object",
       "required": ["magic", "format", "kind", "store_id", "device_id", "epoch", "nonce"],
       "properties": {
@@ -51,12 +51,6 @@
         },
         "additionalProperties": false
       }
-    },
-    "end": {
-      "description": "A segment body's last line: how many lines came before it, so a cut file is found.",
-      "type": "object", "required": ["end"],
-      "properties": {"end": {"type": "object", "required": ["lines"], "properties": {"lines": {"type": "integer", "minimum": 0}}, "additionalProperties": false}},
-      "additionalProperties": false
     },
     "device": {
       "type": "object",

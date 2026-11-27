@@ -159,18 +159,18 @@ public enum Cloud {
             "store_id": .string(storeID), "device_id": .string(deviceID), "epoch": .number(Double(epoch)),
             counter(kind): .number(Double(seq)), "nonce": .string(nonce.base64EncodedString()),
         ])) + Data("\n".utf8)
-        let end: JSONValue = .object(["end": .object(["lines": .number(Double(messages.count))])])
         var plain = Data()
-        for line in messages + [end] { plain += try dumps(line) + Data("\n".utf8) }
-        let ciphertext = try seal(key, nonce: nonce, plain: try gzip(plain), aad: head)
+        for line in messages { plain += try dumps(line) + Data("\n".utf8) }
+        let ciphertext = try seal(key, nonce: nonce, plain: try deflate(plain), aad: head)
         let signature = try signer.sign.signature(for: segmentDomain + head + ciphertext)
         return head + ciphertext + signature
     }
 
     static func lines(_ body: Data) throws -> [[String: JSONValue]] {
-        guard let text = String(data: try gunzip(body), encoding: .utf8) else {
+        guard let text = String(data: try inflate(body), encoding: .utf8) else {
             throw CloudError("not a readable segment body")
         }
+        guard text.isEmpty || text.hasSuffix("\n") else { throw CloudError("cut short") }
         var values: [JSONValue] = []
         for line in text.components(separatedBy: "\n").dropLast() {
             guard let value = try? JSONValue.parse(Data(line.utf8)) else {
@@ -178,11 +178,7 @@ public enum Cloud {
             }
             values.append(value)
         }
-        guard case .object(let last)? = values.last, last.count == 1,
-              last["end"] == .object(["lines": .number(Double(values.count - 1))]) else {
-            throw CloudError("cut short")
-        }
-        return try values.dropLast().compactMap { value -> [String: JSONValue]? in
+        return try values.compactMap { value -> [String: JSONValue]? in
             guard case .object(let message) = value, message.count == 1, let name = message.keys.first else {
                 throw CloudError("not a readable segment body")
             }
@@ -401,35 +397,16 @@ public enum Cloud {
         return bytes.dropFirst().allSatisfy { ok($0) || [0x2E, 0x5F, 0x3A, 0x2D].contains($0) }
     }
 
-    // MARK: gzip
+    // MARK: compression
 
-    static func gzip(_ data: Data) throws -> Data {
-        let deflated = try stream(Array(data), operation: COMPRESSION_STREAM_ENCODE).output
-        var out = Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF])
-        out += deflated
-        out += le32(crc32(Array(data))) + le32(UInt32(truncatingIfNeeded: data.count))
-        return out
+    /// Raw DEFLATE: the AEAD and the signature already cover the body, so it carries no checksum of its own.
+    static func deflate(_ data: Data) throws -> Data {
+        try stream(Array(data), operation: COMPRESSION_STREAM_ENCODE).output
     }
 
-    static func gunzip(_ data: Data) throws -> Data {
-        let b = [UInt8](data)
-        let unreadable = CloudError("not a readable segment body")
-        guard b.count >= 18, b[0] == 0x1F, b[1] == 0x8B, b[2] == 8 else { throw unreadable }
-        let flags = b[3]
-        var i = 10
-        if flags & 4 != 0 { i += 2 + (Int(b[i]) | Int(b[i + 1]) << 8) }
-        for flag in [UInt8(8), 16] where flags & flag != 0 {
-            while i < b.count, b[i] != 0 { i += 1 }
-            i += 1
-        }
-        if flags & 2 != 0 { i += 2 }
-        guard i + 8 <= b.count else { throw unreadable }
-        let (output, left) = try stream(Array(b[i..<(b.count - 8)]), operation: COMPRESSION_STREAM_DECODE)
+    static func inflate(_ data: Data) throws -> Data {
+        let (output, left) = try stream(Array(data), operation: COMPRESSION_STREAM_DECODE)
         guard left == 0 else { throw CloudError("cut short, or too large") }
-        let tail = b.count - 8
-        let crc = UInt32(b[tail]) | UInt32(b[tail + 1]) << 8 | UInt32(b[tail + 2]) << 16 | UInt32(b[tail + 3]) << 24
-        let size = UInt32(b[tail + 4]) | UInt32(b[tail + 5]) << 8 | UInt32(b[tail + 6]) << 16 | UInt32(b[tail + 7]) << 24
-        guard crc32(Array(output)) == crc, UInt32(truncatingIfNeeded: output.count) == size else { throw unreadable }
         return output
     }
 
@@ -466,21 +443,5 @@ public enum Cloud {
                 }
             }
         }
-    }
-
-    static let crcTable: [UInt32] = (0..<256).map { i -> UInt32 in
-        var c = UInt32(i)
-        for _ in 0..<8 { c = c & 1 != 0 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
-        return c
-    }
-
-    static func crc32(_ bytes: [UInt8]) -> UInt32 {
-        var c: UInt32 = 0xFFFF_FFFF
-        for b in bytes { c = crcTable[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8) }
-        return c ^ 0xFFFF_FFFF
-    }
-
-    static func le32(_ n: UInt32) -> Data {
-        Data([UInt8(n & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n >> 16 & 0xFF), UInt8(n >> 24 & 0xFF)])
     }
 }
