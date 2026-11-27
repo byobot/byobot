@@ -458,7 +458,7 @@ final class LogbookTests: XCTestCase {
         let times = ["2026-11-26T08:00:00-05:00", "2026-11-26T12:30:00Z", "2026-11-26T21:00:00+09:00"]
         for (i, start) in times.enumerated() {
             book.put("session", "0193a0b0-0000-7000-8000-00000000500\(i)",
-                     SessionPayload(time: RecordTime(start: start), modality: .selfReported, name: "Example \(i)"))
+                     SessionPayload(time: RecordTime(start: start), name: "Example \(i)"))
         }
         XCTAssertEqual(book.sessions.map(\.name), ["Example 0", "Example 1", "Example 2"], "13:00, 12:30 and 12:00 UTC")
     }
