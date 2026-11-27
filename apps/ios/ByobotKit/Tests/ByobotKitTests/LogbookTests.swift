@@ -632,6 +632,13 @@ final class EffortFormTests: XCTestCase {
         load.text = "heavy"
         XCTAssertThrowsError(try EffortForm.metrics(from: [load])) { XCTAssertEqual($0 as? EffortFormError, .notANumber("load")) }
     }
+
+    func testThousandsAndDecimalMarksBothRead() {
+        let cases: [(String, Double?)] = [("82.5", 82.5), ("82,5", 82.5), ("1,000", 1000), ("12,345,678", 12_345_678),
+                                          ("1,000.5", 1000.5), ("1.000,5", 1000.5), ("-1,000", -1000), ("1,00", 1),
+                                          ("1,23,456", nil), ("1,000,5", nil), ("1.000.000", nil), ("heavy", nil)]
+        for (text, number) in cases { XCTAssertEqual(EffortForm.parseNumber(text), number, text) }
+    }
 }
 
 final class ClockAndHealthTests: XCTestCase {

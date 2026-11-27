@@ -124,9 +124,36 @@ public enum EffortForm {
         }
     }
 
-    /// Accepts `82.5` and `82,5`.
+    /// Accepts `82.5`, `82,5`, `1,000` and `1.000,5`. With a comma and a point, the last is the decimal mark; a
+    /// lone comma is one unless exactly three digits follow it. The other mark groups thousands, in threes.
     static func parseNumber(_ text: String) -> Double? {
-        guard let n = Double(text.replacingOccurrences(of: ",", with: ".")), n.isFinite else { return nil }
+        var mark: Character = "."
+        if let comma = text.lastIndex(of: ",") {
+            if let point = text.lastIndex(of: ".") {
+                if comma > point { mark = "," }
+            } else {
+                let after = text[text.index(after: comma)...]
+                let thousands = after.count == 3 && after.allSatisfy { $0.isASCII && $0.isNumber }
+                if text.filter({ $0 == "," }).count == 1 && !thousands { mark = "," }
+            }
+        }
+        let group: Character = mark == "," ? "." : ","
+        var whole = Substring(text), fraction: Substring?
+        if let i = text.lastIndex(of: mark) {
+            whole = text[..<i]
+            fraction = text[text.index(after: i)...]
+        }
+        if fraction?.contains(group) == true || whole.contains(mark) { return nil }
+        if whole.contains(group) {
+            let groups = whole.split(separator: group, omittingEmptySubsequences: false)
+            let lead = groups[0].drop { $0 == "-" || $0 == "+" }
+            guard (1...3).contains(lead.count),
+                  groups.dropFirst().allSatisfy({ $0.count == 3 && $0.allSatisfy { $0.isASCII && $0.isNumber } }) else {
+                return nil
+            }
+            whole = Substring(groups.joined())
+        }
+        guard let n = Double(fraction.map { "\(whole).\($0)" } ?? String(whole)), n.isFinite else { return nil }
         return n
     }
 }
