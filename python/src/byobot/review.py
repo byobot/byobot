@@ -84,7 +84,7 @@ def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
 
     A source's night of sleep comes from the one device that recorded the most of it.
     """
-    order, _ = occurrences.priority(store.conn)
+    order, overrides = occurrences.priority(store.conn)
     codes = [*KEYS, *ASLEEP, "sleep_stage"]
     rows = store.rows(
         "SELECT o.code, o.std_value, o.text, o.started_at, o.ended_at, o.start_ms, o.end_ms, o.local_date, o.source,"
@@ -95,7 +95,7 @@ def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:
     found: dict[tuple, dict] = defaultdict(lambda: defaultdict(list))  # (day, group) -> rank -> [(key, value)]
     nights: dict[tuple, dict] = defaultdict(lambda: defaultdict(float))  # (day, rank) -> device -> seconds
     for r in rows:
-        rank = occurrences.rank(r["source"], order)
+        rank = occurrences.rank(r["source"], overrides.get(r["code"], order))
         if r["code"] == "sleep_stage":
             if r["text"] in ASLEEP_STAGES and r["end_ms"]:
                 nights[(_night(r["ended_at"]), rank)][r["device"]] += (r["end_ms"] - r["start_ms"]) / 1000
