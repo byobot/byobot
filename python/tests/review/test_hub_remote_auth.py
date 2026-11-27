@@ -1,4 +1,4 @@
-"""Review: `byobot remote --revoke` and `--api-key` run in another process from the server, which keeps codes and
+"""Review: `byobot remote revoke` and `remote key` run in another process from the server, which keeps codes and
 registered clients in memory and rewrites oauth.json from what it read earlier."""
 
 import pytest
@@ -19,7 +19,7 @@ def test_revoke_also_voids_a_code_the_running_server_already_handed_out(server_a
     verifier, challenge = pkce()
     code = server_auth.grant(client["client_id"], CALLBACK, challenge)  # approved; the code is on its way back
 
-    assert Auth(server_auth.path).revoke_all() == 0  # `byobot remote --revoke`, from another process
+    assert Auth(server_auth.path).revoke_all() == 0  # `byobot remote revoke`, from another process
 
     with pytest.raises(OAuthError):
         server_auth.exchange(server_auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
@@ -58,7 +58,7 @@ def test_an_api_key_made_while_the_server_issues_tokens_is_kept(server_auth):
     code = server_auth.grant(client["client_id"], CALLBACK, challenge)
 
     authed = server_auth.authenticate(client["client_id"], None)
-    cli = Auth(server_auth.path)  # `byobot remote --api-key example_key`, from another process
+    cli = Auth(server_auth.path)  # `byobot remote key example_key`, from another process
     original = server_auth._load
     made = []
 

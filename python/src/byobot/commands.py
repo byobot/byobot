@@ -1131,3 +1131,83 @@ def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
         return review(ctx.store(), weeks, until)
     except (ValueError, OverflowError) as exc:
         raise ValidationFailed(f"until must be a date such as 2026-11-23: {exc}") from None
+
+
+# -- serving ----------------------------------------------------------------------------------------------------------
+
+PORT = (0, 65535)
+
+
+@command(
+    "mcp",
+    "Serve these commands to an agent over MCP (stdio).",
+    read_only=False,
+    mcp=False,
+    description="Run an MCP server on stdin/stdout. Point your agent's MCP config at `byobot mcp`.",
+)
+def _mcp(ctx: Context) -> None:
+    from byobot.mcp import serve
+
+    serve()
+
+
+@command(
+    "serve",
+    "Sync with the byobot app on your phone over your own network.",
+    Param("host", "string", "Address to listen on. Default: all interfaces.", default="0.0.0.0"),
+    Param("port", "integer", "Port to listen on. Default: the one this profile used last, else 8765 for the "
+          "default profile.", bounds=PORT),
+    Param("pair", "boolean", "Show a pairing code even if a device is paired, or never with --no-pair."),
+    read_only=False,
+    mcp=False,
+    description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
+                "Shows a QR code to pair a phone when none is paired yet (or with --pair).",
+)
+def _serve(ctx: Context, host: str = "0.0.0.0", port: int | None = None, pair: bool | None = None) -> None:
+    from byobot import serve
+
+    serve.run(host, port, pair)
+
+
+@command(
+    "remote serve",
+    "Serve these commands over the internet, for assistants on your phone.",
+    Param("url", "string", "The https address your tunnel gives this profile. Saved after the first run."),
+    Param("host", "string", "Address to listen on. Default: this computer only.", default="127.0.0.1"),
+    Param("port", "integer", "Port to listen on. Default: the one this profile used last, else 8780 for the "
+          "default profile.", bounds=PORT),
+    Param("pair", "boolean", "Show a code to connect an assistant even if one is connected, or never with "
+          "--no-pair."),
+    read_only=False,
+    mcp=False,
+    description="Serve the MCP tools at /mcp, with sign-in, for assistants that run elsewhere. Listens on this "
+                "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.",
+)
+def _remote_serve(ctx: Context, url: str | None = None, host: str = "127.0.0.1", port: int | None = None,
+                  pair: bool | None = None) -> None:
+    from byobot import remote
+
+    remote.run(url, host, port, pair)
+
+
+@command(
+    "remote key",
+    "Make an API key for an assistant that calls an API, and copy it to the clipboard.",
+    Param("name", "string", "The assistant's name, such as my_assistant.", required=True, positional=True),
+    Param("show", "boolean", "Print the key once instead of copying it.", default=False),
+    Param("read_only", "boolean", "A key that can only read.", default=False),
+    read_only=False,
+    mcp=False,
+)
+def _remote_key(ctx: Context, name: str, show: bool = False, read_only: bool = False) -> dict:
+    from byobot import remote
+
+    return remote.make_key(name, show, read_only)
+
+
+@command("remote revoke", "Disconnect every assistant and API key from this profile.", read_only=False,
+         destructive=True, mcp=False)
+def _remote_revoke(ctx: Context) -> dict:
+    from byobot import remote
+
+    return remote.revoke()

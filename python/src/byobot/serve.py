@@ -722,8 +722,7 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
     try:
         server, info = make_server(host, port, pair=pair, log=log)
     except OSError as exc:
-        sys.stderr.write(json.dumps({"error": "serve", "message": f"could not listen on {host}:{port}: {exc}"}) + "\n")
-        return 1
+        raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (serve_dir() / "port").write_text(f"{info['port']}\n")
     err = sys.stderr
     err.write(f"byobot serve · {info['name']} · port {info['port']} · store {db_path()}\n")

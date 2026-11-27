@@ -132,7 +132,7 @@ def test_resource_must_be_this_server(auth):
 
 def test_revoke_all_is_seen_by_a_running_server(auth, byobot_home):
     _, tokens = approved(auth)
-    other = Auth(auth.path)  # as `byobot remote --revoke` would, from another process
+    other = Auth(auth.path)  # as `byobot remote revoke` would, from another process
     assert other.revoke_all() == 1
     assert auth.client_for_token(tokens["access_token"]) is None
     assert auth.clients() == []
@@ -356,16 +356,16 @@ def test_a_confidential_client_can_use_basic_auth(running):
 def test_remote_needs_a_url_the_first_time(capsys):
     from byobot.cli import main
 
-    assert main(["remote"]) == 1
+    assert main(["remote", "serve"]) == 1
     assert "--url" in json.loads(capsys.readouterr().err)["message"]
-    assert main(["remote", "--url", "http://example.test"]) == 1
+    assert main(["remote", "serve", "--url", "http://example.test"]) == 1
 
 
 def test_remote_revoke_disconnects_everyone(capsys, auth):
     from byobot.cli import main
 
     approved(auth)
-    assert main(["remote", "--revoke"]) == 0
+    assert main(["remote", "revoke"]) == 0
     assert json.loads(capsys.readouterr().out) == {"disconnected": 1}
     assert auth.clients() == []
 
@@ -467,11 +467,11 @@ def test_approving_for_reading_only_grants_read(running):
 def test_remote_api_key_show_prints_a_working_key(capsys, auth):
     from byobot.cli import main
 
-    assert main(["remote", "--api-key", "example_assistant", "--show"]) == 0
+    assert main(["remote", "key", "example_assistant", "--show"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["openapi"].endswith("/api/v1/openapi.json")
     assert auth.client_for_token(out["key"])["client_name"] == "example_assistant"
-    assert main(["remote", "--api-key", "Bad Name", "--show"]) == 1
+    assert main(["remote", "key", "Bad Name", "--show"]) == 1
 
 
 def test_remote_api_key_goes_on_the_clipboard_by_default(capsys, auth, monkeypatch):
@@ -481,7 +481,7 @@ def test_remote_api_key_goes_on_the_clipboard_by_default(capsys, auth, monkeypat
     copied = []
     monkeypatch.setattr(remote.shutil, "which", lambda name: name == "pbcopy")
     monkeypatch.setattr(remote.subprocess, "run", lambda cmd, input, check: copied.append((cmd, input)))
-    assert main(["remote", "--api-key", "example_assistant"]) == 0
+    assert main(["remote", "key", "example_assistant"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert "key" not in out and out["copied"]
     assert copied[0][0] == ["pbcopy"]
@@ -493,6 +493,6 @@ def test_remote_api_key_fails_without_a_clipboard_unless_shown(capsys, auth, mon
     from byobot.cli import main
 
     monkeypatch.setattr(remote.shutil, "which", lambda name: None)
-    assert main(["remote", "--api-key", "example_assistant"]) == 1
+    assert main(["remote", "key", "example_assistant"]) == 1
     assert "--show" in capsys.readouterr().err
-    assert not auth._load()["keys"] and main(["remote", "--show"]) == 1
+    assert not auth._load()["keys"] and main(["remote", "key", "--show"]) == 1
