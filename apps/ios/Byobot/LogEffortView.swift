@@ -106,7 +106,7 @@ struct LogEffortView: View {
     }
 
     private func save() {
-        let activityId = planned?.activityId ?? ActivityId.make(activityText, known: model.plan?.activities ?? [])
+        let activityId = planned?.activityId ?? ActivityId.make(activityText, known: model.book.library)
         guard !activityId.isEmpty else {
             error = "Name the activity."
             return

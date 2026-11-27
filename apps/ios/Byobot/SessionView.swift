@@ -67,7 +67,7 @@ struct SessionView: View {
     }
 
     private func activityName(_ id: String) -> String {
-        model.plan?.activity(id)?.name ?? id
+        model.book.activity(id)?.name ?? id
     }
 }
 

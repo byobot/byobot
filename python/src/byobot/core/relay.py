@@ -151,10 +151,11 @@ def _entries(store: Store, kind: str, ids) -> list[dict]:
 def plan_window(store: Store, start: str, end: str, device_id: str | None = None) -> dict:
     """Everything the phone needs to run the sessions scheduled from ``start`` to ``end`` (inclusive).
 
-    Activities (yours, and the library's with an empty prev), locations, the settings a workout reads, plans,
-    planned sessions, and what was logged: the sessions against the planned ones, those of the ``HISTORY_DAYS``
-    before ``start`` through ``end``, and those holding the last two times each activity was done at each
-    location, all with their efforts, and efforts logged outside a session in those days.
+    Activities (yours, and the library's that the rest names, with an empty prev; the app ships the library),
+    locations, the settings a workout reads, plans, planned sessions, and what was logged: the sessions against the
+    planned ones, those of the ``HISTORY_DAYS`` before ``start`` through ``end``, and those holding the last two
+    times each activity was done at each location, all with their efforts, and efforts logged outside a session in
+    those days.
 
     Beside them: the removed records a phone would name by an id it picks, so it picks another or names the removal
     as prev; this store's id and clock, the erased records a phone may hold, its kind versions, and for
@@ -166,15 +167,6 @@ def plan_window(store: Store, start: str, end: str, device_id: str | None = None
 
 def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> dict:
     ids = lambda sql, *p: [r[0] for r in store.conn.execute(sql, p)]
-    activities = []
-    for r in store.rows("SELECT id, source FROM activities ORDER BY id"):
-        if r["source"] == "store":
-            activities += _entries(store, "activity", [r["id"]])
-        else:
-            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
-            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
-            activities.append({"id": r["id"], "payload": payload, "prev": [],
-                               "kind_version": store.contract.version("activity"), "library": True})
     planned = ids("SELECT id FROM planned_sessions WHERE scheduled_on >= ? AND scheduled_on <= ? "
                   "ORDER BY scheduled_on, name, id", start, end)
     plans = ids("SELECT id FROM plans WHERE id IN (SELECT plan_id FROM planned_sessions WHERE id IN "
@@ -191,6 +183,18 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
                   "OR (session_id IS NULL AND local_date >= ? AND local_date <= ?) "
                   "OR id IN (SELECT value FROM json_each(?)) ORDER BY start_ms, id",
                   window, json.dumps(sessions), since, end, recent)
+    activities = []
+    for r in store.rows("SELECT id, source FROM activities WHERE source = 'store' OR id IN (SELECT activity_id FROM "
+                        "planned_efforts WHERE planned_session_id IN (SELECT value FROM json_each(?)) UNION SELECT "
+                        "activity_id FROM efforts WHERE id IN (SELECT value FROM json_each(?))) ORDER BY id",
+                        (window, json.dumps(efforts))):
+        if r["source"] == "store":
+            activities += _entries(store, "activity", [r["id"]])
+        else:
+            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
+            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
+            activities.append({"id": r["id"], "payload": payload, "prev": [],
+                               "kind_version": store.contract.version("activity"), "library": True})
     return {"from": start, "to": end, "since": since, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
             "settings": _entries(store, "setting", PLAN_SETTINGS), "plans": _entries(store, "plan", plans),

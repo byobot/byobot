@@ -6,7 +6,7 @@ import Foundation
 
 public enum Demo {
     /// A plan window around `today` (`YYYY-MM-DD`): a plan with a session today and one in two days, and a
-    /// session three days ago at `example_gym` for history and last time.
+    /// session three days ago at `example_gym` for history and last time. Its activities are the shipped library's.
     public static func window(today: String, calendar: Calendar = .contract) -> PlanWindow {
         let noon = LocalDate.date(today, calendar: calendar) ?? Date()
         func day(_ offset: Int) -> String { LocalDate.adding(days: offset, to: noon, calendar: calendar) }
@@ -15,12 +15,9 @@ public enum Demo {
             return Timestamp.string(date.addingTimeInterval(Double(minutes * 60)))
         }
         var count = 0
-        func entry(_ id: String, _ payload: [String: Any], library: Bool = false) -> [String: Any] {
+        func entry(_ id: String, _ payload: [String: Any]) -> [String: Any] {
             count += 1
-            var entry: [String: Any] = ["id": id, "payload": payload,
-                                        "prev": [String(format: "0193a0b0-0000-7000-8000-%012d", count)]]
-            if library { entry["library"] = true }
-            return entry
+            return ["id": id, "payload": payload, "prev": [String(format: "0193a0b0-0000-7000-8000-%012d", count)]]
         }
         func measure(_ value: Double, _ unit: String? = nil) -> [String: Any] {
             var measure: [String: Any] = ["value": value]
@@ -35,24 +32,12 @@ public enum Demo {
         func block(_ id: String, rounds: Int, _ efforts: [[String: Any]]) -> [String: Any] {
             ["id": id, "rounds": rounds, "metrics": ["rest": measure(2, "min")], "efforts": efforts]
         }
-        let activities: [(String, String, String, [String])] = [
-            ("barbell_back_squat", "Barbell Back Squat", "barbell", ["glutes", "quads"]),
-            ("goblet_squat", "Goblet Squat", "dumbbell", ["glutes", "quads"]),
-            ("barbell_romanian_deadlift", "Barbell Romanian Deadlift", "barbell", ["glutes", "hamstrings"]),
-            ("walking_lunge", "Walking Lunge", "dumbbell", ["glutes", "quads"]),
-            ("dumbbell_bench_press", "Dumbbell Bench Press", "dumbbell", ["pecs"]),
-            ("pull_up_overhand_grip", "Pull-Up (Overhand Grip)", "bodyweight", ["lats"]),
-        ]
         let plan = "demo_plan"
         let partOfPlan: [String: Any] = ["part_of": ["kind": "plan", "id": plan]]
         let past = "demo_done_lower"
         let partOfPast: [String: Any] = ["part_of": ["kind": "session", "id": past]]
         let lifts: [(String, Double, Double)] = [("barbell_back_squat", 5, 77.5), ("barbell_back_squat", 5, 77.5),
                                                  ("barbell_romanian_deadlift", 8, 57.5)]
-        let library: [[String: Any]] = activities.map { id, name, load, main in
-            entry(id, ["name": name, "load_type": load, "movement_type": "compound", "targets": ["main": main]],
-                  library: true)
-        }
         let lower: [[String: Any]] = [
             block("demo_lower_warmup", rounds: 1, [target("demo_lower_goblet", "goblet_squat", reps: 10, load: 16)]),
             block("demo_lower_main", rounds: 3, [target("demo_lower_squat", "barbell_back_squat", reps: 5, load: 80)]),
@@ -88,13 +73,12 @@ public enum Demo {
         }
         var window: [String: Any] = ["from": day(-7), "to": day(14), "since": day(-7),
                                      "store_id": "0193a0b0-0000-7000-8000-000000000000", "hlc": "0000000000000-000000"]
-        window["activities"] = library
         window["locations"] = [entry("example_gym", ["name": "Example Gym"])]
         window["plans"] = [entry(plan, ["name": "Example strength block", "starts_on": day(-7), "ends_on": day(49)])]
         window["planned_sessions"] = planned
         window["sessions"] = sessions
         window["efforts"] = efforts
-        for key in ["settings", "removed", "erased", "rejected"] { window[key] = [Any]() }
+        for key in ["activities", "settings", "removed", "erased", "rejected"] { window[key] = [Any]() }
         window["received"] = [String: String]()
         window["kind_versions"] = KindVersion.all
         guard let data = try? JSONSerialization.data(withJSONObject: window),

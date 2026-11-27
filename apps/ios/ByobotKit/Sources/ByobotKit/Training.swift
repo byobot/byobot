@@ -174,8 +174,17 @@ extension Workout {
 }
 
 extension Logbook {
-    /// The activities your laptop sent, with their muscles and equipment.
-    public var library: [Activity] { state.plan?.activities ?? [] }
+    /// The activities your laptop sent, and the library this app shipped for the rest, with their muscles and
+    /// equipment.
+    public var library: [Activity] {
+        let sent = state.plan?.activities ?? []
+        let ids = Set(sent.map(\.id))
+        return sent + shipped.filter { !ids.contains($0.id) }
+    }
+
+    public func activity(_ id: String) -> Activity? {
+        state.plan?.activity(id) ?? shipped.first { $0.id == id }
+    }
 
     /// Every set of an activity this phone knows of: pulled from the laptop, with this phone's own versions on top.
     func efforts(of activityId: String) -> [PerformedEffort] {

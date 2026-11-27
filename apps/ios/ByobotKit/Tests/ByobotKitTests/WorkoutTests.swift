@@ -28,6 +28,16 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(ActivityLibrary.equipment(in: book.library).first, "barbell")
     }
 
+    func testTheAppShipsTheLibraryAndThePlanSendsWhatItNames() throws {
+        var book = try makeBook()
+        book.shipped = ActivityLibrary.bundled
+        XCTAssertTrue(ActivityLibrary.bundled.allSatisfy { $0.library == true && $0.prev.isEmpty })
+        XCTAssertEqual(book.activity("barbell_romanian_deadlift")?.name, "Barbell Romanian Deadlift")
+        XCTAssertEqual(book.activity("barbell_back_squat")?.name, "Barbell back squat", "the plan's version wins")
+        XCTAssertEqual(book.library.filter { $0.id == "barbell_back_squat" }.count, 1)
+        XCTAssertNotNil(book.alternatives(for: PlannedEffort(id: "e", activityId: "barbell_romanian_deadlift")).first)
+    }
+
     func testSwapsWorkTheSameMusclesWithWhatYouHave() throws {
         let library = try fixtureLibrary()
         let squat = try XCTUnwrap(library.first { $0.id == "barbell_back_squat" })

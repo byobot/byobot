@@ -9,6 +9,10 @@ public enum ActivityLibrary {
     public static func equipment(in library: [Activity]) -> [String] {
         Set(library.flatMap(\.needs)).sorted()
     }
+
+    static func decode(_ json: String) -> [Activity] {
+        (try? JSONDecoder().decode([Activity].self, from: Data(json.utf8))) ?? []
+    }
 }
 
 extension Record where Payload == ActivityPayload {

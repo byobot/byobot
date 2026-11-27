@@ -16,6 +16,7 @@ func makeLogbook(plan: PlanWindow? = nil) -> Logbook {
     var book = Logbook(state: AppState(deviceId: "0193a0b0-0000-7000-8000-00000000ab01"),
                        origin: Origin(app: "byobot_ios", version: "0.1.0", device: "Example iPhone"),
                        clock: { clock.read() })
+    book.shipped = []  // the fixture plan carries the library its tests use
     if let plan { book.applyPlan(plan) }
     return book
 }

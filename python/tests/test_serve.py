@@ -142,18 +142,21 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     assert serve.accept_events(hub, PHONE, edits[1:], ME, {"effort": 2})[0]["status"] == "accepted"
 
 
-def test_plan_window_sends_the_library(byobot_home, tmp_path, monkeypatch):
+def test_plan_window_sends_the_library_activities_it_names(byobot_home, tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "activities").mkdir(parents=True)
     (lib / "vocabulary.json").write_text("{}")
-    dip = {"id": "dip", "name": "Dip", "targets": {"main": ["triceps"]},
-           "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
+    dip = {"name": "Dip", "targets": {"main": ["triceps"]}, "resistance_curve": {"stretch": 3, "middle": 2, "contract": 1}}
     (lib / "activities" / "dip.json").write_text(json.dumps(dip))
+    (lib / "activities" / "push_up.json").write_text(json.dumps({"name": "Push-up"}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     with Store(byobot_home / "lib.db") as s:
+        assert serve.plan_window(s, "2026-11-22", "2026-11-28")["activities"] == []  # the app ships the library
+        write(s, ("location", "example_gym", {"name": "Example gym"}),
+              ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
+              ("planned_session", LOWER, {**lift("2026-11-23", "Lower A"), "blocks": [{"efforts": [{"activity_id": "dip"}]}]}))
         window = serve.plan_window(s, "2026-11-22", "2026-11-28")
-    assert window["activities"] == [{"id": "dip", "payload": {k: v for k, v in dip.items() if k != "id"}, "prev": [],
-                                     "kind_version": 1, "library": True}]
+    assert window["activities"] == [{"id": "dip", "payload": dip, "prev": [], "kind_version": 1, "library": True}]
     assert sync_errors("plan_window", window) == []
 
 

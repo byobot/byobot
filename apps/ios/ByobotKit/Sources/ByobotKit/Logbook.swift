@@ -98,6 +98,8 @@ public struct Logbook: Sendable {
     /// The app and device that capture what you log.
     public var origin: Origin?
     public var clock: @Sendable () -> Date
+    /// The library this app shipped, for activities the plan doesn't send.
+    public var shipped = ActivityLibrary.bundled
 
     public init(state: AppState, actor: Actor = Actor(kind: .human, id: "me"), origin: Origin? = nil,
                 clock: @escaping @Sendable () -> Date = { Date() }) {
