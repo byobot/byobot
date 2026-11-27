@@ -352,7 +352,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     }
 
     mutating func applyPlan(_ plan: PlanWindow) {
-        let erased = Set((plan.erased ?? []).map { RecordRef(kind: $0.kind, id: $0.id) })
+        let erased = Set(plan.erased.map { RecordRef(kind: $0.kind, id: $0.id) })
         guard !erased.isEmpty else { return }
         events = events.filter { !erased.contains($0.value.record) }
     }

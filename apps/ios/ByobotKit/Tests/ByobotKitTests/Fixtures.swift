@@ -30,7 +30,8 @@ enum Fixtures {
         try JSONEncoder().encode(value)
     }
 
-    /// A plan window with a library, a plan and planned sessions of every shape, for the app's own tests.
+    /// A plan window with a library, a plan and planned sessions of every shape, for the app's own tests. Its laptop
+    /// holds everything the test phone sends.
     static func window() throws -> PlanWindow {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("plan-window.json")
         return try JSONDecoder().decode(PlanWindow.self, from: Data(contentsOf: url))

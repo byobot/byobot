@@ -157,6 +157,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -200,7 +201,18 @@
           }
         ],
         "sessions": [],
-        "efforts": []
+        "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+        "hlc": "1764001200000-000003",
+        "removed": [],
+        "erased": [],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {},
+        "rejected": []
       }
     },
     {
@@ -210,6 +222,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -286,7 +299,18 @@
           }
         ],
         "sessions": [],
-        "efforts": []
+        "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+        "hlc": "1764001200000-000003",
+        "removed": [],
+        "erased": [],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {},
+        "rejected": []
       },
       "description": "Each current version of a record in conflict; one removed it."
     },
@@ -297,6 +321,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -365,7 +390,18 @@
           }
         ],
         "sessions": [],
-        "efforts": []
+        "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+        "hlc": "1764001200000-000003",
+        "removed": [],
+        "erased": [],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {},
+        "rejected": []
       },
       "description": "A conflict has at least two versions."
     },
@@ -462,6 +498,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -506,7 +543,9 @@
         ],
         "sessions": [],
         "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
         "hlc": "2026-11-24T12:00:00Z",
+        "removed": [],
         "erased": [
           {
             "kind": "effort",
@@ -536,6 +575,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -580,7 +620,9 @@
         ],
         "sessions": [],
         "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
         "hlc": "1764001200000-000003",
+        "removed": [],
         "erased": [
           {
             "kind": "effort",
@@ -609,6 +651,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -653,7 +696,9 @@
         ],
         "sessions": [],
         "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
         "hlc": "1764001200000-000003",
+        "removed": [],
         "erased": [
           {
             "id": "0193a0b0-0000-7000-8000-00000000ef09"
@@ -682,6 +727,7 @@
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
+        "since": "2026-09-23",
         "activities": [
           {
             "id": "barbell_back_squat",
@@ -723,7 +769,18 @@
             ]
           }
         ],
-        "efforts": []
+        "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+        "hlc": "1764001200000-000003",
+        "removed": [],
+        "erased": [],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {},
+        "rejected": []
       }
     },
     {
@@ -731,6 +788,67 @@
       "def": "plan_window",
       "valid": false,
       "description": "A change names what it saw, so every entry carries its prev.",
+      "data": {
+        "from": "2026-11-22",
+        "to": "2026-12-05",
+        "since": "2026-09-23",
+        "activities": [
+          {
+            "id": "barbell_back_squat",
+            "payload": {
+              "name": "Barbell back squat",
+              "targets": {
+                "main": [
+                  "quads"
+                ]
+              }
+            },
+            "prev": [],
+            "library": true
+          }
+        ],
+        "locations": [],
+        "settings": [],
+        "plans": [],
+        "planned_sessions": [
+          {
+            "id": "0193a0b0-0000-7000-8000-0000000000a1",
+            "payload": {
+              "scheduled_on": "2026-11-23",
+              "name": "Lower A",
+              "blocks": [
+                {
+                  "id": "b1",
+                  "efforts": [
+                    {
+                      "id": "e1",
+                      "activity_id": "barbell_back_squat"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "sessions": [],
+        "efforts": [],
+        "store_id": "0193a0b0-0000-7000-8000-00000000ac01",
+        "hlc": "1764001200000-000003",
+        "removed": [],
+        "erased": [],
+        "kind_versions": {
+          "activity": 1,
+          "effort": 1,
+          "session": 1
+        },
+        "received": {},
+        "rejected": []
+      }
+    },
+    {
+      "name": "sync/plan-window-without-device-state",
+      "def": "plan_window",
+      "valid": false,
       "data": {
         "from": "2026-11-22",
         "to": "2026-12-05",
@@ -769,7 +887,11 @@
                   ]
                 }
               ]
-            }
+            },
+            "prev": [
+              "0193a0b0-0000-7000-8000-0000000000e1"
+            ],
+            "kind_version": 1
           }
         ],
         "sessions": [],

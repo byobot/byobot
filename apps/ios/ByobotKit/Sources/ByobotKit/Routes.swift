@@ -87,10 +87,6 @@ public final class HubRoute: SyncRoute {
     public func sync(_ book: any SyncBook, health: SampleBatch, takePlan: Bool) async -> RouteOutcome {
         var outcome = RouteOutcome()
         do {
-            if book.book.state.storeId == nil {  // paired before the app kept it
-                let storeId = try await transport.storeId()
-                book.change { $0.paired(storeId: storeId) }
-            }
             try await pull(book)
             outcome.planned = true
             if !book.book.pendingEvents.isEmpty {

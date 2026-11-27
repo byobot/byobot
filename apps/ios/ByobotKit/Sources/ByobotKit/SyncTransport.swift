@@ -5,8 +5,6 @@
 import Foundation
 
 public protocol SyncTransport: Sendable {
-    /// The store this phone's events go to.
-    func storeId() async throws -> String
     func push(events: [Event]) async throws -> EventsResponse
     func plan(from: String?, to: String?) async throws -> PlanWindow
     func push(samples: [Sample], deleted: [Deletion]) async throws -> SamplesResponse
@@ -19,8 +17,4 @@ extension SyncTransport {
 }
 
 /// The paired laptop, through `byobot serve`.
-extension SyncClient: SyncTransport {
-    public func storeId() async throws -> String {
-        try await hello().server.storeId
-    }
-}
+extension SyncClient: SyncTransport {}

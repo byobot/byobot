@@ -22,25 +22,24 @@ actor FakeHub: SyncTransport {
     var calls: [String] = []
     var keeps = true
     var fails = false
+    var received: [String: String] = [:]
 
     func setKeeps(_ keeps: Bool) { self.keeps = keeps }
     func setFails(_ fails: Bool) { self.fails = fails }
-
-    func storeId() async throws -> String {
-        calls.append("store")
-        return "0193a0b0-0000-7000-8000-00000000c001"
-    }
 
     func push(events: [Event]) async throws -> EventsResponse {
         calls.append("events \(events.count)")
         if fails { throw SyncClientError.unauthorized }
         let results = keeps ? events.indices.map { EventResult(index: $0, status: .accepted) } : []
+        for event in events where keeps && event.hlc > (received[event.deviceId] ?? "") {
+            received[event.deviceId] = event.hlc
+        }
         return EventsResponse(results: results, accepted: results.count, duplicate: 0, storedUnprojected: 0, rejected: 0)
     }
 
     func plan(from: String?, to: String?) async throws -> PlanWindow {
         calls.append("plan")
-        return PlanWindow(from: "2026-11-01", to: "2026-12-31")
+        return PlanWindow(from: "2026-11-01", to: "2026-12-31", received: received)
     }
 
     func push(samples: [Sample], deleted: [Deletion]) async throws -> SamplesResponse {
@@ -78,7 +77,12 @@ final class FakeRoute: SyncRoute {
 final class RouteTests: XCTestCase {
     static func pending(_ n: Int) -> Logbook {
         var book = makeLogbook()
-        book.state.events = (1...n).map { CloudRelayTests.event($0) }
+        let deviceId = book.state.deviceId
+        book.state.events = (1...n).map { i -> Event in
+            var event = CloudRelayTests.event(i)
+            event.deviceId = deviceId
+            return event
+        }
         book.state.pending = book.state.events.map(\.id)
         return book
     }
@@ -102,8 +106,7 @@ final class RouteTests: XCTestCase {
         XCTAssertNil(outcome.error)
         XCTAssertTrue(outcome.planned)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "events 2", "plan"])
-        XCTAssertEqual(book.book.state.storeId, "0193a0b0-0000-7000-8000-00000000c001")
+        XCTAssertEqual(calls, ["plan", "events 2", "plan"])
         XCTAssertTrue(book.book.pendingEvents.isEmpty)
         XCTAssertNotNil(book.book.state.plan)
     }
@@ -111,7 +114,6 @@ final class RouteTests: XCTestCase {
     @MainActor
     func testTheHubPullsOnceWhenNothingWaits() async throws {
         let hub = FakeHub(), book = FakeBook()
-        book.book.state.storeId = "0193a0b0-0000-7000-8000-00000000c001"
         _ = await HubRoute(hub).sync(book, health: SampleBatch(), takePlan: true)
         let calls = await hub.calls
         XCTAssertEqual(calls, ["plan"])
@@ -122,7 +124,7 @@ final class RouteTests: XCTestCase {
         let hub = FakeHub(), book = FakeBook(Self.pending(CloudRelay.maxBatch + 100))
         _ = await HubRoute(hub).sync(book, health: SampleBatch(), takePlan: true)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "events \(CloudRelay.maxBatch)", "events 100", "plan"])
+        XCTAssertEqual(calls, ["plan", "events \(CloudRelay.maxBatch)", "events 100", "plan"])
         XCTAssertTrue(book.book.pendingEvents.isEmpty)
     }
 
@@ -133,7 +135,7 @@ final class RouteTests: XCTestCase {
         let outcome = await HubRoute(hub).sync(book, health: SampleBatch(), takePlan: true)
         XCTAssertNil(outcome.error)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "events 600", "plan"])
+        XCTAssertEqual(calls, ["plan", "events 600", "plan"])
         XCTAssertEqual(book.book.pendingEvents.count, 600)
     }
 
@@ -144,7 +146,7 @@ final class RouteTests: XCTestCase {
         let outcome = await HubRoute(hub).sync(book, health: Self.health(samples: ids, deleted: ["D1"]), takePlan: true)
         XCTAssertTrue(outcome.tookHealth)
         let calls = await hub.calls
-        XCTAssertEqual(calls, ["store", "plan", "samples \(CloudRelay.maxBatch) deleted 0", "samples 500 deleted 0",
+        XCTAssertEqual(calls, ["plan", "samples \(CloudRelay.maxBatch) deleted 0", "samples 500 deleted 0",
                                "samples 0 deleted 1"])
     }
 

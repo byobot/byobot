@@ -106,30 +106,29 @@ public struct PlanWindow: Codable, Equatable, Sendable {
     public var sessions: [PerformedSession]
     /// The efforts of those sessions and of the planned ones, and those outside a session from `since` on.
     public var efforts: [PerformedEffort]
-    // Older laptops send none of these.
     /// The first day of logged history the plan carries.
-    public var since: String?
+    public var since: String
     /// The laptop's store as of this read; it changes when the laptop is restored from another store's backup.
-    public var storeId: String?
+    public var storeId: String
     /// The laptop's clock.
-    public var hlc: String?
+    public var hlc: String
     /// Locations and settings removed, not erased: a new one takes another id, a change names their `prev`.
-    public var removed: [RemovedRecord]?
-    /// Records a person writes that were erased, so the phone drops what it holds of them.
-    public var erased: [ErasedRecord]?
-    public var kindVersions: [String: Int]?
+    public var removed: [RemovedRecord]
+    /// Erased records a phone may hold, so it drops what it holds of them.
+    public var erased: [ErasedRecord]
+    public var kindVersions: [String: Int]
     /// The latest of this phone's events the laptop holds; empty when it holds none.
-    public var received: [String: String]?
+    public var received: [String: String]
     /// This phone's events the laptop refused.
-    public var rejected: [Rejection]?
+    public var rejected: [Rejection]
     /// Entries this app can't read, by the list they came in, kept as sent: one newer entry doesn't drop the plan.
     public var unread: [String: [JSONValue]] = [:]
 
     public init(from: String, to: String, activities: [Activity] = [], locations: [Location] = [],
                 settings: [Setting] = [], plans: [Plan] = [], plannedSessions: [PlannedSession] = [],
                 sessions: [PerformedSession] = [], efforts: [PerformedEffort] = [], since: String? = nil,
-                storeId: String? = nil, hlc: String? = nil, removed: [RemovedRecord]? = nil, erased: [ErasedRecord]? = nil,
-                kindVersions: [String: Int]? = nil, received: [String: String]? = nil, rejected: [Rejection]? = nil) {
+                storeId: String = "", hlc: String = "", removed: [RemovedRecord] = [], erased: [ErasedRecord] = [],
+                kindVersions: [String: Int] = [:], received: [String: String] = [:], rejected: [Rejection] = []) {
         self.from = from
         self.to = to
         self.activities = activities
@@ -139,7 +138,7 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         self.plannedSessions = plannedSessions
         self.sessions = sessions
         self.efforts = efforts
-        self.since = since
+        self.since = since ?? from
         self.storeId = storeId
         self.hlc = hlc
         self.removed = removed
@@ -175,14 +174,14 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         plannedSessions = try entries(.plannedSessions)
         sessions = try entries(.sessions)
         efforts = try entries(.efforts)
-        since = try c.decodeIfPresent(String.self, forKey: .since)
-        storeId = try c.decodeIfPresent(String.self, forKey: .storeId)
-        hlc = try c.decodeIfPresent(String.self, forKey: .hlc)
-        removed = try c.decodeIfPresent([RemovedRecord].self, forKey: .removed)
-        erased = try c.decodeIfPresent([ErasedRecord].self, forKey: .erased)
-        kindVersions = try c.decodeIfPresent([String: Int].self, forKey: .kindVersions)
-        received = try c.decodeIfPresent([String: String].self, forKey: .received)
-        rejected = try c.decodeIfPresent([Rejection].self, forKey: .rejected)
+        since = try c.decode(String.self, forKey: .since)
+        storeId = try c.decode(String.self, forKey: .storeId)
+        hlc = try c.decode(String.self, forKey: .hlc)
+        removed = try c.decode([RemovedRecord].self, forKey: .removed)
+        erased = try c.decode([ErasedRecord].self, forKey: .erased)
+        kindVersions = try c.decode([String: Int].self, forKey: .kindVersions)
+        received = try c.decode([String: String].self, forKey: .received)
+        rejected = try c.decode([Rejection].self, forKey: .rejected)
         self.unread = unread
     }
 
@@ -201,14 +200,14 @@ public struct PlanWindow: Codable, Equatable, Sendable {
         try entries(plannedSessions, .plannedSessions)
         try entries(sessions, .sessions)
         try entries(efforts, .efforts)
-        try c.encodeIfPresent(since, forKey: .since)
-        try c.encodeIfPresent(storeId, forKey: .storeId)
-        try c.encodeIfPresent(hlc, forKey: .hlc)
-        try c.encodeIfPresent(removed, forKey: .removed)
-        try c.encodeIfPresent(erased, forKey: .erased)
-        try c.encodeIfPresent(kindVersions, forKey: .kindVersions)
-        try c.encodeIfPresent(received, forKey: .received)
-        try c.encodeIfPresent(rejected, forKey: .rejected)
+        try c.encode(since, forKey: .since)
+        try c.encode(storeId, forKey: .storeId)
+        try c.encode(hlc, forKey: .hlc)
+        try c.encode(removed, forKey: .removed)
+        try c.encode(erased, forKey: .erased)
+        try c.encode(kindVersions, forKey: .kindVersions)
+        try c.encode(received, forKey: .received)
+        try c.encode(rejected, forKey: .rejected)
     }
 }
 

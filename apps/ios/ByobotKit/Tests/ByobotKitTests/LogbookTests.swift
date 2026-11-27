@@ -236,7 +236,6 @@ final class LogbookTests: XCTestCase {
         ack(&book)
         let events = book.state.events
         var window = try Fixtures.window()
-        XCTAssertEqual(book.applyPlan(window), 0, "an older laptop says nothing about what it holds")
         window.received = [book.state.deviceId: events[0].hlc]
         XCTAssertEqual(book.applyPlan(window), 2)
         XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
@@ -292,43 +291,6 @@ final class LogbookTests: XCTestCase {
         window.received = [:]
         XCTAssertEqual(book.applyPlan(window), 0)
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [waiting.id], "the new store gets only what's waiting")
-    }
-
-    func testAnInstallPairedBeforeTheStoreIdWasKeptSendsNothingOld() throws {
-        var book = makeLogbook()
-        book.logEffort(activityId: "run", metrics: [:])
-        ack(&book)
-        book.paired(storeId: "store-b")  // learned from the laptop it's paired with now
-        var window = try Fixtures.window()
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0, "it may have sent those to another store")
-    }
-
-    func testAnOlderInstallBackOnItsRestoredLaptopGetsWhatItLost() throws {
-        var book = makeLogbook()
-        for _ in 0..<3 { book.logEffort(activityId: "run", metrics: [:]) }
-        ack(&book)
-        let events = book.state.events
-        book.paired(storeId: "store-a")  // its own laptop is gone; this one was restored from a backup
-        var window = try Fixtures.window()
-        window.received = [book.state.deviceId: events[0].hlc]
-        XCTAssertEqual(book.applyPlan(window), 2)
-        XCTAssertEqual(book.pendingEvents.map(\.id), Array(events[1...].map(\.id)))
-        ack(&book)
-        book.paired(storeId: "store-b")
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0, "once it knows its store, another one gets nothing old")
-    }
-
-    func testAnOlderInstallMovingOnBeforeItsFirstPlanSendsNothingOld() throws {
-        var book = makeLogbook()
-        book.logEffort(activityId: "run", metrics: [:])
-        ack(&book)
-        book.paired(storeId: "store-a")
-        book.paired(storeId: "store-b")
-        var window = try Fixtures.window()
-        window.received = [:]
-        XCTAssertEqual(book.applyPlan(window), 0)
     }
 
     /// A new laptop set up as start `serve`, pair, then restore the backup: pairing again sends what the old

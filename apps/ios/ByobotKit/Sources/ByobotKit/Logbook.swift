@@ -31,15 +31,9 @@ public struct AppState: Codable, Equatable, Sendable {
     public var workouts: [String: WorkoutChanges]?
     /// The store that holds what this phone sent.
     public var storeId: String?
-    /// What was sent up to this clock reading went to another store, and is never sent again. Kept from before
-    /// the app kept `storeSpans`.
-    public var resendAfter: String?
     /// The store each event went to: one after a span's `after` went to its store, until the next span. Nil
     /// until this phone first moves to another store.
     public var storeSpans: [StoreSpan]?
-    /// What was sent up to this clock reading, before the app kept which store it went to. The first plan
-    /// shows whether this store holds it.
-    public var unsureAfter: String?
 
     public init(deviceId: String = UUID7.make()) {
         self.deviceId = deviceId
@@ -56,9 +50,7 @@ public struct AppState: Codable, Equatable, Sendable {
         case lastHealthSyncAt = "last_health_sync_at"
         case remoteOriginals = "remote_originals"
         case storeId = "store_id"
-        case resendAfter = "resend_after"
         case storeSpans = "store_spans"
-        case unsureAfter = "unsure_after"
     }
 }
 
@@ -154,7 +146,7 @@ public struct Logbook: Sendable {
         if let mine, fresh(mine, pending: Set(state.pending)) { return [mine.id] }
         if let known { return known }
         if let entry = entry(kind, id) { return entry.prev }
-        if let removed = state.plan?.removed?.first(where: { $0.kind == kind && $0.id == id }) { return removed.prev }
+        if let removed = state.plan?.removed.first(where: { $0.kind == kind && $0.id == id }) { return removed.prev }
         return mine.map { [$0.id] } ?? []
     }
 
@@ -318,11 +310,11 @@ public struct Logbook: Sendable {
     }
 
     /// The laptop hasn't shown it holds this event of this phone's: it is waiting, or the pulled plan's latest of
-    /// this phone's events comes before it. An older laptop doesn't say, so then only waiting counts.
+    /// this phone's events comes before it. Before the first plan, only waiting counts.
     func fresh(_ event: Event, pending: Set<String>) -> Bool {
         if pending.contains(event.id) { return true }
-        guard let received = state.plan?.received else { return false }
-        return event.hlc > (received[state.deviceId] ?? "")
+        guard let plan = state.plan else { return false }
+        return event.hlc > (plan.received[state.deviceId] ?? "")
     }
 
     /// The records of a kind as this phone shows them, by one rule: the pulled ones, with this phone's latest
@@ -343,7 +335,7 @@ public struct Logbook: Sendable {
             if latest[event.record.id] == nil { mine.append(event.record.id) }
             latest[event.record.id] = event
         }
-        let says = state.plan?.received != nil
+        let says = state.plan != nil
         for id in mine {
             guard let event = latest[id] else { continue }
             let record: Record<P>? = matches(event.payload)
@@ -365,7 +357,7 @@ public struct Logbook: Sendable {
         guard let plan = state.plan else { return false }
         if let plannedSession, plan.plannedSessions.contains(where: { $0.id == plannedSession }) { return true }
         if let session, plan.sessions.contains(where: { $0.id == session }) { return true }
-        if let since = plan.since, let day, day >= since, day <= plan.to { return true }
+        if let day, day >= plan.since, day <= plan.to { return true }
         return false
     }
 
@@ -482,16 +474,12 @@ public struct Logbook: Sendable {
     /// older backup).
     @discardableResult
     public mutating func applyPlan(_ window: PlanWindow) -> Int {
-        if let hlc = window.hlc, HLC.parse(hlc) != nil, hlc > (state.hlc ?? ""), hlc < HLC.ceiling {
-            state.hlc = hlc  // what's written here next comes after what the laptop has seen
+        if HLC.parse(window.hlc) != nil, window.hlc > (state.hlc ?? ""), window.hlc < HLC.ceiling {
+            state.hlc = window.hlc  // what's written here next comes after what the laptop has seen
         }
-        drop(window.erased ?? [])
-        setAside(window.rejected ?? [])
-        if let unsure = state.unsureAfter {
-            if window.received?[state.deviceId] == nil, unsure > (state.resendAfter ?? "") { state.resendAfter = unsure }
-            state.unsureAfter = nil
-        }
-        let resent = window.received.map { resend(after: $0[state.deviceId]) } ?? 0
+        drop(window.erased)
+        setAside(window.rejected)
+        let resent = resend(after: window.received[state.deviceId])
         state.plan = window
         let planned = Set(window.plannedSessions.map(\.id))
         state.workouts = state.workouts?.filter { planned.contains($0.key) }
@@ -502,7 +490,7 @@ public struct Logbook: Sendable {
     /// Queue again what the laptop no longer holds: this phone's events after `marker`, the latest it holds, that
     /// went to its store.
     mutating func resend(after marker: String?) -> Int {
-        let floor = Swift.max(marker ?? "", state.resendAfter ?? "")
+        let floor = marker ?? ""
         let skip = Set(state.pending).union(state.rejected.map(\.eventId))
         let again = state.events.filter { !skip.contains($0.id) && $0.hlc > floor && store(of: $0) == state.storeId }
         guard !again.isEmpty else { return 0 }
@@ -523,11 +511,7 @@ public struct Logbook: Sendable {
     public mutating func paired(storeId: String) {
         let pending = Set(state.pending)
         let last = state.events.last(where: { !pending.contains($0.id) })?.hlc ?? ""
-        if state.storeId == nil {
-            if last > (state.unsureAfter ?? "") { state.unsureAfter = last }
-        } else if let old = state.storeId, old != storeId {
-            if let unsure = state.unsureAfter, unsure > (state.resendAfter ?? "") { state.resendAfter = unsure }
-            state.unsureAfter = nil
+        if let old = state.storeId, old != storeId {
             var spans = state.storeSpans ?? [StoreSpan(storeId: old, after: "")]
             spans.append(StoreSpan(storeId: storeId, after: Swift.max(last, spans.last?.after ?? "")))
             state.storeSpans = spans
@@ -544,8 +528,8 @@ public struct Logbook: Sendable {
     }
 
     public mutating func settle(with window: PlanWindow) {
-        setAside(window.rejected ?? [])
-        guard let held = window.received?[state.deviceId] else { return }
+        setAside(window.rejected)
+        guard let held = window.received[state.deviceId] else { return }
         let taken = Set(pendingEvents.lazy.filter { $0.hlc <= held }.map(\.id))
         state.pending.removeAll { taken.contains($0) }
         prune()

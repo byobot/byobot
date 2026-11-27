@@ -17,7 +17,7 @@ final class CloudRelayTests: XCTestCase {
 
         /// Publishes a plan with receipts for the relay: the segments it read and the sample lines it refused.
         mutating func publish(_ folder: MemoryCloudFolder, read: [Int] = [], refused: [(Int, Int, String)] = [],
-                              erased: [ErasedRecord]? = nil, plan: JSONValue? = nil) async throws {
+                              erased: [ErasedRecord] = [], plan: JSONValue? = nil) async throws {
             seq += 1
             let window = PlanWindow(from: "2026-11-01", to: "2026-12-31", erased: erased)
             var mine: [String: JSONValue] = ["read": .array(read.map { .number(Double($0)) })]
@@ -211,7 +211,7 @@ final class CloudRelayTests: XCTestCase {
         try await k.publish(folder)
         try await k.publish(folder, erased: [ErasedRecord(kind: "effort", id: "x")])
         _ = try await relay.sync(folder, identity: k.relay)
-        XCTAssertEqual(relay.plan?.erased?.map(\.id), ["x"])
+        XCTAssertEqual(relay.plan?.erased.map(\.id), ["x"])
         XCTAssertEqual(relay.planPath, Cloud.segmentPath(kind: "plan", epoch: 1, seq: 3))
     }
 
@@ -227,7 +227,7 @@ final class CloudRelayTests: XCTestCase {
         let report = try await relay.sync(folder, identity: k.relay)
         XCTAssertEqual(report.pending, 0)
         XCTAssertEqual(relay.takeDelivered(), [event(1).id])
-        XCTAssertEqual(relay.plan?.erased?.map(\.id), ["x"], "the last plan it could read stays")
+        XCTAssertEqual(relay.plan?.erased.map(\.id), ["x"], "the last plan it could read stays")
     }
 
     func testOneEntryANewerMacWroteDoesntDropThePlan() throws {

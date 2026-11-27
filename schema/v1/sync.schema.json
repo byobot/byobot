@@ -336,7 +336,15 @@
         "plans",
         "planned_sessions",
         "sessions",
-        "efforts"
+        "efforts",
+        "since",
+        "store_id",
+        "hlc",
+        "removed",
+        "erased",
+        "kind_versions",
+        "received",
+        "rejected"
       ],
       "properties": {
         "from": {
