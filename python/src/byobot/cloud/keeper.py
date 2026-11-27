@@ -22,6 +22,7 @@ from ..util import ByobotError, ValidationFailed
 from . import files, segment
 from .crypto import CloudError, Identity, b64, dumps, new_key, proof_matches, recovery_code, recovery_key, unb64
 from .folder import Exists, Folder, checksum
+from .state import TABLES, State
 
 JOIN_TTL_S = 600
 MAX_FILES = 500  # past this, the keeper compacts into a new epoch
@@ -29,19 +30,15 @@ PLAN_BEHIND, PLAN_AHEAD = 1, 13
 MISSING_S = 30  # past Drive's change-feed lag
 SEQ_CEILING = 10**9  # a name past this wasn't the keeper's: it writes one seq at a time
 NEWER = "newer byobot"  # in a skip reason: kept in the folder until this byobot is upgraded
-# A device in Drive sync is a row of the store's devices with a class; the hub may know it too.
-CLOUD_COLUMNS = "id, class, box, sign, joined_epoch, moved_epoch, last_seq, removed, last_seen_at"
-ENROL = ("INSERT INTO devices (id, class, box, sign, joined_epoch, moved_epoch) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT "
-         "(id) DO UPDATE SET class = excluded.class, box = excluded.box, sign = excluded.sign, joined_epoch = "
-         "excluded.joined_epoch, moved_epoch = excluded.moved_epoch, last_seq = NULL, removed = 0")
 
 class Keeper:
     def __init__(self, store: Store, folder: Folder, clock: Callable[[], float] = time.time):
         self.store, self.folder, self.clock = store, folder, clock
-        if self._get("identity") is None:
+        self.state = State(store.conn)
+        if self.state.get("identity") is None:
             raise ByobotError("the cloud logbook isn't set up for this store; run byobot cloud setup")
         self.device_id = store.device_id  # the keeper is the Mac, by the one id it has
-        self.identity = Identity.from_private(json.loads(self._get("identity")))
+        self.identity = Identity.from_private(json.loads(self.state.get("identity")))
         self.recovery_code: str | None = None
 
     # -- setup -----------------------------------------------------------------
@@ -63,9 +60,9 @@ class Keeper:
         if code:
             meta += [("recovery_key", b64(recovery_key(code, store.store_id))), ("recovery_unshown", code)]
         with store.transaction():
-            store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", meta)
-            store.conn.execute(ENROL, (store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
-                                       1, 1))
+            State(store.conn).add(meta)
+            State(store.conn).enrol([(store.device_id, "keeper", identity.public()["box"], identity.public()["sign"],
+                                      1, 1)])
         keeper = cls(store, folder, clock)
         keeper.start_epoch()
         keeper.recovery_code = keeper.unshown_code()
@@ -122,24 +119,23 @@ class Keeper:
                 ("seq", _top_seq(listing, top["keeper_device_id"])), ("checkpoint_position", 0),
                 ("recovery_key", b64(recovery_key(code, store_id)))]
         mine = store.device_id
+        state = State(store.conn)
         with store.transaction():
             store.set_device_id(top["keeper_device_id"])  # this Mac takes the keeper's place, and its id
-            store.conn.executemany("INSERT INTO cloud_meta VALUES (?, ?)", [(k, str(v)) for k, v in meta])
-            store.conn.executemany("INSERT INTO cloud_keys VALUES (?, ?)",
-                                   [(e, c["epoch_key"]) for e, c in opened.items()])
-            store.conn.executemany(ENROL, [(*(d[k] for k in files.DEVICE), n, n) for d in devices.values()])
+            state.add(meta)
+            state.add_keys((e, c["epoch_key"]) for e, c in opened.items())
+            state.enrol((*(d[k] for k in files.DEVICE), n, n) for d in devices.values())
         keeper = cls(store, folder, clock)
         keeper._read(listing)
-        outcomes = dict(store.conn.execute("SELECT path, outcome FROM cloud_read"))
+        outcomes = state.outcomes()
         own = {p for p in listing if (w := segment.parse_name(p)) and w["kind"] != "plan" and w["epoch"] == n
                and w.get("device_id", top["keeper_device_id"]) == top["keeper_device_id"]}
         lost = sorted(p for p in own | {segment.name("checkpoint", n, i) for i in range(epoch_body["checkpoint"])}
                       if outcomes.get(p) != "read")
         if lost:  # nothing kept here, so it can run again
             with store.transaction():
-                for table in ("cloud_meta", "cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
-                    store.conn.execute(f"DELETE FROM {table}")
-                _leave(store, "class IS NOT NULL")
+                state.clear(*TABLES)
+                state.leave()
                 store.set_device_id(mine)
             raise ByobotError(f"part of the logbook in Drive can't be read ({lost[0]}: "
                               f"{outcomes.get(lost[0], 'missing')}); this store may hold only part of it, so restore "
@@ -149,58 +145,39 @@ class Keeper:
 
     # -- state -------------------------------------------------------------------
 
-    def _get(self, key: str) -> str | None:
-        row = self.store.conn.execute("SELECT value FROM cloud_meta WHERE key = ?", (key,)).fetchone()
-        return row and row[0]
-
-    def _set(self, key: str, value: Any) -> None:
-        self.store.conn.execute("INSERT INTO cloud_meta VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = "
-                                "excluded.value", (key, str(value)))
-
-    def _unset(self, key: str) -> None:
-        self.store.conn.execute("DELETE FROM cloud_meta WHERE key = ?", (key,))
-
     @property
     def epoch(self) -> int:
-        return int(self._get("epoch"))
+        return int(self.state.get("epoch"))
 
     def key(self, epoch: int) -> bytes | None:
-        row = self.store.conn.execute("SELECT key FROM cloud_keys WHERE epoch = ?", (epoch,)).fetchone()
-        return row and unb64(row[0])
+        found = self.state.key(epoch)
+        return found and unb64(found)
 
     def devices(self, removed: bool = False) -> list[dict]:
-        return [dict(r) for r in self.store.conn.execute(
-            f"SELECT {CLOUD_COLUMNS} FROM devices WHERE class IS NOT NULL AND removed = ? "
-            "ORDER BY class != 'keeper', joined_epoch, id", (int(removed),))]
+        return self.state.devices(removed)
 
     def device(self, device_id: str) -> dict | None:
-        row = self.store.conn.execute(f"SELECT {CLOUD_COLUMNS} FROM devices WHERE id = ? AND class IS NOT NULL",
-                                      (device_id,)).fetchone()
-        return row and dict(row)
+        return self.state.device(device_id)
 
     def _enrol(self, device: dict, epoch: int) -> None:
-        self.store.conn.execute(ENROL, (*(device[k] for k in files.DEVICE), epoch, epoch))
+        self.state.enrol([(*(device[k] for k in files.DEVICE), epoch, epoch)])
 
     def _rejoin(self, device: dict) -> None:
         """Take back a removed device. Its relay counts seqs from the start again, so its older files go unread."""
-        self.store.conn.execute("UPDATE devices SET box = ?, sign = ?, joined_epoch = ?, moved_epoch = ?, "
-                                "last_seq = NULL, removed = 0 WHERE id = ?",
-                                (device["box"], device["sign"], self.epoch, self.epoch, device["device_id"]))
-        like = f"segments/{device['device_id']}/%"
-        self.store.conn.execute("DELETE FROM cloud_read WHERE path LIKE ?", (like,))
-        self.store.conn.execute("DELETE FROM cloud_refused WHERE path LIKE ?", (like,))
-        self._set(f"rejoined:{device['device_id']}", self.epoch)
+        self.state.rejoin(device["device_id"], device["box"], device["sign"], self.epoch)
+        self.state.forget(prefix=f"segments/{device['device_id']}/")
+        self.state.set(f"rejoined:{device['device_id']}", self.epoch)
 
     def _seq_floor(self, listing: dict[str, str]) -> None:
         """A run cut short after an upload leaves that file's seq behind; never write another file under it."""
         top = _top_seq(listing, self.device_id)
-        if top > int(self._get("seq")):
+        if top > int(self.state.get("seq")):
             with self.store.transaction():
-                self._set("seq", top)
+                self.state.set("seq", top)
 
     def _next_seq(self) -> int:
-        seq = int(self._get("seq"))
-        self._set("seq", seq + 1)
+        seq = int(self.state.get("seq"))
+        self.state.set("seq", seq + 1)
         return seq
 
     def _write(self, path: str, data: bytes) -> None:
@@ -213,12 +190,11 @@ class Keeper:
                     raise ByobotError(f"{path} is already in the cloud folder with other content") from None
                 self.folder.delete(path)
                 self.folder.create(path, data)
-        self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, 'written') ON CONFLICT (path) DO UPDATE SET "
-                                "checksum = excluded.checksum, outcome = excluded.outcome", (path, checksum(data)))
+        self.state.mark(path, checksum(data), "written")
 
     def _leftover(self, path: str) -> bool:
         """A file of a start not yet committed, which a lagging listing hid from its cleanup; no device uses it."""
-        n = int(self._get("starting") or 0)
+        n = int(self.state.get("starting") or 0)
         d = files.epoch_dir(n)
         return bool(n) and path.startswith((f"keys/{d}/", f"checkpoints/{d}/"))
 
@@ -236,11 +212,11 @@ class Keeper:
         plan, then the epoch file, which commits it."""
         listing = self.folder.list()
         top = max([files.epoch_number(p) for p in listing if files.is_epoch_file(p)] + [self.epoch])
-        n = int(self._get("starting") or 0)
+        n = int(self.state.get("starting") or 0)
         if not n or n < top or self._committed(n, listing):  # never reuse a number the folder has taken
             n = max(n, top) + 1
         with self.store.transaction():
-            self._set("starting", n)
+            self.state.set("starting", n)
         key = self.key(n) or new_key()  # a retried start seals the same key, so a leftover copy still opens
         store_id = self.store.store_id
         self._seq_floor(listing)
@@ -249,15 +225,15 @@ class Keeper:
             if path.startswith((f"keys/{d}/", f"checkpoints/{d}/", f"plan/{d}-")):
                 self.folder.delete(path)
         with self.store.transaction():
-            self.store.conn.execute("INSERT OR IGNORE INTO cloud_keys VALUES (?, ?)", (n, b64(key)))
+            self.state.add_keys([(n, b64(key))])
         devices = [_wire(d) for d in self.devices()]
         for d in devices:
             if d["device_id"] != self.device_id:
                 self._write(files.key_path(n, d["device_id"]), files.key_file(self.identity, store_id, n, d, key))
-        if self._get("recovery_key"):
+        if self.state.get("recovery_key"):
             content = {"epoch_key": b64(key), "store_key": self.store.store_key.hex(),
                        "keeper_device_id": self.device_id, "keeper_private": self.identity.private()}
-            self._write(files.recovery_path(n), files.recovery_file(unb64(self._get("recovery_key")), store_id, n,
+            self._write(files.recovery_path(n), files.recovery_file(unb64(self.state.get("recovery_key")), store_id, n,
                                                                     content))
         with self.store.snapshot():  # the checkpoint and its position from one snapshot
             events = self.store.events()
@@ -266,25 +242,25 @@ class Keeper:
         for i, part in enumerate(parts):  # uploads hold no write lock, so the hub and other writers go on
             self._segment("checkpoint", i, [{"events": {"events": part}}], n)
         with self.store.transaction():
-            self._set("epoch", n)
-            self._set("checkpoint_position", position)
-            self.store.conn.execute("DELETE FROM cloud_shown")
-            self._unset("plan_digest")
-            self._unset("epoch_pending")
-            self._unset("missing_since")
-            self._unset("closed")
+            self.state.set("epoch", n)
+            self.state.set("checkpoint_position", position)
+            self.state.clear("cloud_shown")
+            self.state.unset("plan_digest")
+            self.state.unset("epoch_pending")
+            self.state.unset("missing_since")
+            self.state.unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
                                                           len(parts), previous=self._previous()))
         with self.store.transaction():
-            self._unset("starting")
-            self._unset("previous_identity")
-            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'removing:%'")
+            self.state.unset("starting")
+            self.state.unset("previous_identity")
+            self.state.unset(prefixes=["removing:"])
         return n
 
     def _previous(self) -> Identity | None:
         """The keys the keeper signed with before `rotate`, until an epoch file hands over from them."""
-        kept = self._get("previous_identity")
+        kept = self.state.get("previous_identity")
         return Identity.from_private(json.loads(kept)) if kept else None
 
     def rotate(self, recovery: bool = False) -> int:
@@ -292,17 +268,16 @@ class Keeper:
         With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted
         once the new epoch is in. A retry of a rotation cut short keeps the code it made, which was never shown."""
         new = Identity.generate()
-        pending = self.unshown_code() if self._get("previous_identity") else None
+        pending = self.unshown_code() if self.state.get("previous_identity") else None
         code = pending or (recovery_code() if recovery else None)
         with self.store.transaction():  # a retry of a rotation cut short still hands over from the keys phones trust
-            if self._get("previous_identity") is None:
-                self._set("previous_identity", json.dumps(self.identity.private()))
-            self._set("identity", json.dumps(new.private()))
+            if self.state.get("previous_identity") is None:
+                self.state.set("previous_identity", json.dumps(self.identity.private()))
+            self.state.set("identity", json.dumps(new.private()))
             if code:
-                self._set("recovery_key", b64(recovery_key(code, self.store.store_id)))
-                self._set("recovery_unshown", code)
-            self.store.conn.execute("UPDATE devices SET box = ?, sign = ? WHERE id = ?",
-                                    (new.public()["box"], new.public()["sign"], self.device_id))
+                self.state.set("recovery_key", b64(recovery_key(code, self.store.store_id)))
+                self.state.set("recovery_unshown", code)
+            self.state.set_device_keys(self.device_id, new.public()["box"], new.public()["sign"])
         self.identity = new
         self.folder.delete(files.device_path(self.device_id))
         n = self.start_epoch()
@@ -316,11 +291,11 @@ class Keeper:
 
     def unshown_code(self) -> str | None:
         """A recovery code setup or `rotate` made that no command has shown yet, as one was cut short."""
-        return self._get("recovery_unshown")
+        return self.state.get("recovery_unshown")
 
     def code_shown(self) -> None:
         with self.store.transaction():
-            self._unset("recovery_unshown")
+            self.state.unset("recovery_unshown")
 
     def _committed(self, n: int, listing: dict[str, str]) -> bool:
         """Whether epoch ``n``'s file is in the folder, read directly since a listing can lag behind an upload."""
@@ -333,19 +308,19 @@ class Keeper:
         the Google client id the phone signs in with."""
         secret = secrets.token_bytes(16)
         expires = self.clock() + JOIN_TTL_S
-        sealed = self._sealed(self.folder.list()) if self.folder is not None and self._get("join") else None
+        sealed = self._sealed(self.folder.list()) if self.folder is not None and self.state.get("join") else None
         with self.store.transaction():
             if sealed:  # the code this one replaces let that phone in
                 self._take(sealed)
-            self._set("join", json.dumps({"secret": b64(secret), "expires": expires}))
-            self._unset("last_join")
+            self.state.set("join", json.dumps({"secret": b64(secret), "expires": expires}))
+            self.state.unset("last_join")
         code = {"store_id": self.store.store_id, "secret": b64(secret), "keeper_key": self.identity.public()["sign"],
                 "expires": expires}
         return {**code, "link": pairing_link(store_id=code["store_id"], secret=code["secret"],
                                              keeper_key=code["keeper_key"], client=client)}
 
     def _admit(self, listing: dict[str, str]) -> dict:
-        join = json.loads(self._get("join") or "null")
+        join = json.loads(self.state.get("join") or "null")
         if not join:
             return {}
         if self.clock() > join["expires"]:
@@ -396,10 +371,10 @@ class Keeper:
         with self.store.transaction():
             if device:
                 self._take(device)
-            replaced = json.loads(self._get("join") or "null") != join
+            replaced = json.loads(self.state.get("join") or "null") != join
             if not replaced:
-                self._unset("join")
-                self._set("last_join", json.dumps(outcome))
+                self.state.unset("join")
+                self.state.set("last_join", json.dumps(outcome))
         if replaced:
             return outcome
         known = {d["id"] for d in self.devices()} | {d["id"] for d in self.devices(removed=True)}
@@ -438,22 +413,20 @@ class Keeper:
 
     def last_join(self) -> dict | None:
         """How the last join ended, once it has."""
-        return None if self._get("join") else json.loads(self._get("last_join") or "null")
+        return None if self.state.get("join") else json.loads(self.state.get("last_join") or "null")
 
     # -- reading -------------------------------------------------------------------
 
     def _read(self, listing: dict[str, str]) -> dict:
         report: dict[str, Any] = {"read": 0, "skipped": []}
-        held = {r[0]: r[1] for r in self.store.conn.execute("SELECT path, checksum FROM cloud_read")}
+        held = self.state.checksums()
         for path, sum_ in listing.items():
             where = segment.parse_name(path)
             if where is None or held.get(path) == sum_:
                 continue
             outcome = self._read_one(path, where)
             with self.store.transaction():
-                self.store.conn.execute("INSERT INTO cloud_read VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET "
-                                        "checksum = excluded.checksum, outcome = excluded.outcome",
-                                        (path, sum_, outcome))
+                self.state.mark(path, sum_, outcome)
             if outcome == "read":
                 report["read"] += 1
             elif outcome != "ignored":
@@ -469,7 +442,7 @@ class Keeper:
         device = self.device(writer)
         if device is None or device["removed"]:
             return "from a device that isn't in this logbook"
-        if where["epoch"] < int(self._get(f"rejoined:{writer}") or 0):
+        if where["epoch"] < int(self.state.get(f"rejoined:{writer}") or 0):
             return "from before this device joined again"
         key = self.key(where["epoch"])
         if key is None:
@@ -486,20 +459,16 @@ class Keeper:
         shown = self._shown if where["epoch"] == self.epoch else lambda ids: None  # a retired epoch's files go
         apply(self.store, writer, device["class"], messages, shown, lambda i, why: rejected.append((i, why)))
         with self.store.transaction():
-            self.store.conn.executemany("INSERT OR REPLACE INTO cloud_refused VALUES (?, ?, ?)",
-                                        [(path, i, why) for i, why in rejected])
+            self.state.refuse((path, i, why) for i, why in rejected)
         erased = set(self.store.erased())
         if erased and any(e.get("record", {}).get("kind") and (e["record"]["kind"], e["record"]["id"]) in erased
                           for m in messages for e in _events(m)) or self._erased_samples(messages):
             with self.store.transaction():
-                self._set("epoch_pending", "erase")  # it carried a record already erased here
+                self.state.set("epoch_pending", "erase")  # it carried a record already erased here
         with self.store.transaction():
-            self.store.conn.execute("UPDATE devices SET moved_epoch = max(moved_epoch, ?), last_seq = "
-                                    "max(coalesce(last_seq, 0), ?) WHERE id = ?",
-                                    (where["epoch"], where.get("seq", 0), writer))
+            self.state.moved(writer, where["epoch"], where.get("seq", 0))
             if writer != self.device_id:
-                self.store.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?",
-                                        (stamp(datetime.fromtimestamp(self.clock()).astimezone()), writer))
+                self.state.seen(writer, stamp(datetime.fromtimestamp(self.clock()).astimezone()))
         return "read"
 
     def _erased_samples(self, messages: list[dict]) -> bool:
@@ -517,15 +486,15 @@ class Keeper:
 
     def _shown(self, ids: list[str]) -> None:
         with self.store.transaction():
-            self.store.conn.executemany("INSERT OR IGNORE INTO cloud_shown VALUES (?)", [(i,) for i in ids])
+            self.state.show(ids)
 
     # -- writing -------------------------------------------------------------------
 
     def publish_events(self) -> int:
         """Publish every event this store holds that the folder doesn't show yet: its own, the source events it
         derived, and whatever a hub-paired phone pushed."""
-        shown = {r[0] for r in self.store.conn.execute("SELECT event_id FROM cloud_shown")}
-        events = [e for e in self.store.events(since=int(self._get("checkpoint_position")))
+        shown = self.state.shown()
+        events = [e for e in self.store.events(since=int(self.state.get("checkpoint_position")))
                   if e["id"] not in shown]
         for part in _parts(events):
             with self.store.transaction():
@@ -549,10 +518,9 @@ class Keeper:
         across epochs), and the samples messages it rejected."""
         out: dict[str, dict] = {d["id"]: {"read": []} for d in self.devices() if d["class"] == "relay"}
         rejected: dict[str, list] = {}
-        for path, line, why in self.store.conn.execute("SELECT * FROM cloud_refused ORDER BY path, line"):
+        for path, line, why in self.state.refused():
             rejected.setdefault(path, []).append((line, why))
-        for path, outcome in self.store.conn.execute("SELECT path, outcome FROM cloud_read WHERE path LIKE "
-                                                     "'segments/%' ORDER BY path"):
+        for path, outcome in self.state.outcomes("segments/").items():
             where = segment.parse_name(path)
             if where and where["device_id"] in out and outcome == "read":
                 mine = out[where["device_id"]]
@@ -565,14 +533,14 @@ class Keeper:
         window = self.plan()
         messages = [{"plan": window}, {"receipts": self.receipts()}]
         digest = checksum(dumps(messages))
-        if self._get("plan_digest") == digest:
+        if self.state.get("plan_digest") == digest:
             return False
         old = [p for p in self.folder.list() if p.startswith("plan/")]
         with self.store.transaction():
             seq = self._next_seq()
         path = self._segment("plan", seq, messages)
         with self.store.transaction():
-            self._set("plan_digest", digest)
+            self.state.set("plan_digest", digest)
         for p in old:
             if p != path:
                 self.folder.delete(p)
@@ -590,37 +558,37 @@ class Keeper:
     def sync(self) -> dict:
         report = self._sync()
         with self.store.transaction():
-            self._set("synced_at", self.clock())
-            self._unset("error")
+            self.state.set("synced_at", self.clock())
+            self.state.unset("error")
         return report
 
     def failed(self, message: str) -> None:
         """Keep why the last sync failed, for `cloud status`."""
         with self.store.transaction():
-            self._set("error", message)
+            self.state.set("error", message)
 
     def _sync(self) -> dict:
-        if self._get("read_by") != __version__:  # upgraded: read again what an older byobot couldn't
+        if self.state.get("read_by") != __version__:  # upgraded: read again what an older byobot couldn't
             with self.store.transaction():
-                self.store.conn.execute("DELETE FROM cloud_read WHERE instr(outcome, ?)", (NEWER,))
-                self._set("read_by", __version__)
-        if self._get("closing"):
+                self.state.forget_outcomes(NEWER)
+                self.state.set("read_by", __version__)
+        if self.state.get("closing"):
             return {"epoch": self.epoch, "closed": self.forget()}
         listing = self.folder.list()
         self._seq_floor(listing)
         report: dict[str, Any] = {}
-        if self._get("closed"):  # turned on again after `cloud off --delete`
+        if self.state.get("closed"):  # turned on again after `cloud off --delete`
             report["reseeded"] = self.start_epoch()
             listing = self.folder.list()
         there = files.epoch_path(self.epoch) in listing
-        starting = self._get("starting")
+        starting = self.state.get("starting")
         if starting and (starting != str(self.epoch) or not there) or not there and self._gone():
             report["reseeded"] = self.start_epoch()  # a start was cut short, or the folder was deleted
             listing = self.folder.list()
-        elif there and (starting or self._get("missing_since")):
+        elif there and (starting or self.state.get("missing_since")):
             with self.store.transaction():
-                self._unset("missing_since")
-                self._unset("starting")
+                self.state.unset("missing_since")
+                self.state.unset("starting")
         report.update(self._admit(listing))
         report.update(self._read(listing))
         report.update(self._cleanup())
@@ -636,10 +604,10 @@ class Keeper:
     def _gone(self) -> bool:
         """Whether the current epoch's file is really gone, not just missing from a listing that lags behind
         another process: still missing on a fresh listing a while after it was first missed."""
-        since = self._get("missing_since")
+        since = self.state.get("missing_since")
         if since is None:
             with self.store.transaction():
-                self._set("missing_since", self.clock())
+                self.state.set("missing_since", self.clock())
             return False
         if self.clock() - float(since) < MISSING_S:
             return False
@@ -647,7 +615,7 @@ class Keeper:
             self.folder.refresh()
         if files.epoch_path(self.epoch) in self.folder.list():
             with self.store.transaction():
-                self._unset("missing_since")
+                self.state.unset("missing_since")
             return False
         return True
 
@@ -658,43 +626,43 @@ class Keeper:
     def remove(self, device_id: str) -> int:
         """Retire a device: a new epoch whose key isn't sealed to it. What it already read, it keeps."""
         device = self.device(device_id)
-        if device is None or device["removed"] and not self._get(f"removing:{device_id}"):
+        if device is None or device["removed"] and not self.state.get(f"removing:{device_id}"):
             raise ByobotError(f"no device {device_id} in this cloud logbook")
         if device["class"] == "keeper":
             raise ByobotError("the keeper can't remove itself")
         with self.store.transaction():  # until an epoch without it commits, running this again finishes the removal
-            self.store.conn.execute("UPDATE devices SET removed = 1 WHERE id = ?", (device_id,))
-            self._set(f"removing:{device_id}", 1)
-            self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch > ?", (self.epoch,))  # it may hold that one
+            self.state.remove(device_id)
+            self.state.set(f"removing:{device_id}", 1)
+            self.state.drop_keys(after=self.epoch)  # it may hold that one
         self.folder.delete(files.device_path(device_id))
         return self.start_epoch()
 
     def off(self) -> None:
         """Stop reading and writing the folder; `cloud setup` turns it on again."""
         with self.store.transaction():
-            self._set("off", 1)
+            self.state.set("off", 1)
 
     def on(self) -> None:
         with self.store.transaction():
-            self._unset("off")
+            self.state.unset("off")
 
     @property
     def is_off(self) -> bool:
-        return self._get("off") is not None
+        return self.state.get("off") is not None
 
     @property
     def is_closed(self) -> bool:
         """Whether `cloud off --delete` closed the folder, so setup may start again in any account."""
-        return self._get("closed") is not None
+        return self.state.get("closed") is not None
 
     def forget(self) -> int:
         """Close the folder and turn Drive sync off. A last epoch lists only this keeper, so every phone learns it
         was taken off and stops writing; every other file is deleted, and with them the keys and devices kept
         here. The logbook is untouched, and `cloud setup` starts a new epoch past the closed one."""
-        n = int(self._get("closing") or 0) or max(
+        n = int(self.state.get("closing") or 0) or max(
             [files.epoch_number(p) for p in self.folder.list() if files.is_epoch_file(p)] + [self.epoch]) + 1
         with self.store.transaction():  # sync finishes a close that failed partway, so phones and this Mac agree
-            self._set("closing", n)
+            self.state.set("closing", n)
         path = files.epoch_path(n)
         keeper = [{"device_id": self.device_id, "device_class": "keeper", **self.identity.public()}]
         try:
@@ -715,30 +683,27 @@ class Keeper:
                 self.folder.delete(p)
             listing += late
         with self.store.transaction():
-            for table in ("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused"):
-                self.store.conn.execute(f"DELETE FROM {table}")
-            _leave(self.store, "class = 'relay'")
-            self.store.conn.execute("DELETE FROM cloud_meta WHERE key IN ('join', 'last_join', "
-                                    "'plan_digest', 'epoch_pending', 'missing_since', 'starting', 'error', 'closing', "
-                                    "'previous_identity') OR key LIKE 'removing:%' OR key LIKE 'rejoined:%'")
-            self._set("epoch", n)
-            self._set("checkpoint_position", 0)
-            self._set("closed", 1)
-            self._set("off", 1)
+            self.state.clear("cloud_keys", "cloud_read", "cloud_shown", "cloud_refused")
+            self.state.leave(relays_only=True)
+            self.state.unset("join", "last_join", "plan_digest", "epoch_pending", "missing_since", "starting", "error",
+                             "closing", "previous_identity", prefixes=["removing:", "rejoined:"])
+            self.state.set("epoch", n)
+            self.state.set("checkpoint_position", 0)
+            self.state.set("closed", 1)
+            self.state.set("off", 1)
         return len(listing)
 
     def _new_epoch_reason(self, listing: dict[str, str]) -> str | None:
-        if self.store.last_erase() > int(self._get("checkpoint_position")):
+        if self.store.last_erase() > int(self.state.get("checkpoint_position")):
             return "erase"
-        if self._get("epoch_pending"):
-            return self._get("epoch_pending")
+        if self.state.get("epoch_pending"):
+            return self.state.get("epoch_pending")
         if sum(not p.startswith("checkpoints/") for p in listing) > MAX_FILES and not self._waiting():
             return "compact"
         return None
 
     def _newer(self) -> bool:
-        found = self.store.conn.execute("SELECT 1 FROM cloud_read WHERE instr(outcome, ?) LIMIT 1", (NEWER,))
-        return found.fetchone() is not None
+        return self.state.any_outcome(NEWER)
 
     def _waiting(self) -> list[str]:
         """Active devices that haven't written in the current epoch yet, so older epochs can't be deleted."""
@@ -747,7 +712,7 @@ class Keeper:
     def _cleanup(self) -> dict:
         """Once every active device writes in the current epoch: delete every older file and key outright."""
         current = self.epoch
-        old_keys = [r[0] for r in self.store.conn.execute("SELECT epoch FROM cloud_keys WHERE epoch < ?", (current,))]
+        old_keys = self.state.key_epochs_before(current)
         listing = self.folder.list()
         old = [p for p in listing if (e := _epoch_of(p)) is not None and e < current]
         if not old and not old_keys:
@@ -760,23 +725,22 @@ class Keeper:
         for path in old:
             self.folder.delete(path)
         with self.store.transaction():
-            self.store.conn.execute("DELETE FROM cloud_keys WHERE epoch < ?", (current,))
-            self.store.conn.executemany("DELETE FROM cloud_read WHERE path = ?", [(p,) for p in old])
-            self.store.conn.executemany("DELETE FROM cloud_refused WHERE path = ?", [(p,) for p in old])
-            self.store.conn.execute("DELETE FROM cloud_meta WHERE key LIKE 'rejoined:%'")
+            self.state.drop_keys(before=current)
+            self.state.forget(old)
+            self.state.unset(prefixes=["rejoined:"])
         return {"cleaned": len(old)}
 
     def local_status(self) -> dict:
         """What this store knows about the folder, without asking Drive."""
-        synced = self._get("synced_at")
+        synced = self.state.get("synced_at")
         out: dict[str, Any] = {"store_id": self.store.store_id, "epoch": self.epoch,
-                               "synced_at": _when(synced), "recovery": bool(self._get("recovery_key"))}
+                               "synced_at": _when(synced), "recovery": bool(self.state.get("recovery_key"))}
         if self.unshown_code():
             out["recovery_code"] = "not shown yet; run `byobot cloud rotate --recovery` for a new one"
         if self.is_off:
             out["off"] = True
-        if self._get("error"):
-            out["error"] = self._get("error")
+        if self.state.get("error"):
+            out["error"] = self.state.get("error")
         if self._newer():
             out["upgrade"] = "a device writes with a newer byobot; upgrade byobot on this Mac to read it"
         out["devices"] = [{**{k: d[k] for k in ("id", "class", "joined_epoch", "moved_epoch", "last_seq")},
@@ -804,30 +768,22 @@ def _when(stamp: str | None) -> str | None:
     return stamp and datetime.fromtimestamp(float(stamp)).astimezone().isoformat(timespec="seconds")
 
 
-def _leave(store: Store, where: str) -> None:
-    """Take devices out of Drive sync; one the hub doesn't know goes altogether."""
-    store.conn.execute("UPDATE devices SET class = NULL, box = NULL, sign = NULL, joined_epoch = NULL, moved_epoch = "
-                       f"NULL, last_seq = NULL, removed = 0 WHERE {where}")
-    store.conn.execute("DELETE FROM devices WHERE class IS NULL AND token_sha256 IS NULL")
-
-
 def due(store: Store, every: float, clock: Callable[[], float] = time.time) -> bool:
     """Whether a background sync is due: this store keeps a folder, Drive sync isn't off, and nothing tried in the
     last ``every`` seconds. A try stamped in the future (the clock ran ahead) counts as due. Reads only, so a store
     without Drive sync is left as it is."""
-    meta = dict(store.conn.execute("SELECT key, value FROM cloud_meta WHERE key IN ('identity', 'off', 'tried_at')"))
+    meta = State(store.conn).meta(["identity", "off", "tried_at"])
     since = clock() - float(meta.get("tried_at", 0))
     return "identity" in meta and "off" not in meta and (since >= every or since < 0)
 
 
 def tried(store: Store, clock: Callable[[], float] = time.time) -> None:
-    store.conn.execute("INSERT INTO cloud_meta VALUES ('tried_at', ?) ON CONFLICT (key) DO UPDATE SET value = "
-                       "excluded.value", (str(clock()),))
+    State(store.conn).set("tried_at", clock())
 
 
 def is_keeper(store: Store) -> bool:
     """Whether this store keeps a cloud folder."""
-    return store.conn.execute("SELECT 1 FROM cloud_meta WHERE key = 'identity'").fetchone() is not None
+    return State(store.conn).get("identity") is not None
 
 
 def _top_seq(listing: dict[str, str], device_id: str) -> int:
