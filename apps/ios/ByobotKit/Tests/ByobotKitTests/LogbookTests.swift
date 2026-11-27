@@ -504,7 +504,7 @@ final class EffortFormTests: XCTestCase {
         XCTAssertEqual(fields[0].target?.display, "3–5")
         XCTAssertEqual(fields[1].text, "100")
         XCTAssertEqual(fields[1].unit, "kg")
-        XCTAssertEqual(fields[1].units, ["kg", "[lb_av]", "%{1RM}"])
+        XCTAssertEqual(fields[1].units, ["kg", "[lb_av]"])
         XCTAssertNil(fields[2].target)
     }
 

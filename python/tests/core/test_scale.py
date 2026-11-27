@@ -20,7 +20,7 @@ N = 5000 if SOAK else 1000
 BASE = 50
 GROWTH = 1.3
 SLACK = 0.003  # seconds, so timer noise on fast operations can't fail a check
-NOISE = 0.25  # of the small-history cost, so disk jitter on slow runners can't either
+NOISE = 0.25  # of the larger of the two smaller costs, so disk jitter on slow runners can't either
 TRIES = 5
 ROUNDS = 3  # interleaved, so a runner slowing down mid-test hits every size alike
 UNDONE: dict[int, set] = {}  # each round undoes fresh creations
@@ -87,7 +87,8 @@ def test_s15_cost_does_not_grow_with_history(worlds, op):
     rounds = [[OPS[op](worlds[n]) for n in sizes] for _ in range(ROUNDS)]
     base, small, large = (min(r[i] for r in rounds) for i in range(len(sizes)))
     ms = ", ".join(f"{c * 1000:.1f} ms at {n}" for c, n in ((base, BASE), (small, N), (large, 2 * N)))
-    assert large - base < GROWTH * (small - base) + SLACK + NOISE * base, f"{op}: {ms}"
+    # Jitter can make the base cost the larger of the two, so growth from it is never taken as negative.
+    assert large - base < GROWTH * max(small - base, 0) + SLACK + NOISE * max(base, small), f"{op}: {ms}"
 
 
 @pytest.mark.skipif(not SOAK, reason="absolute budgets run in the soak tier")
