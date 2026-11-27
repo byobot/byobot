@@ -328,16 +328,12 @@ final class AppModel: ObservableObject, SyncBook {
             if let read {
                 UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
                 UserDefaults.standard.set(read.days, forKey: "healthDays")
-                UserDefaults.standard.set(Self.healthReads, forKey: "healthReads")
                 change { $0.state.lastHealthSyncAt = Timestamp.now() }
             }
         }
         // Away from the laptop, Drive reaching the Mac is enough: no need to say the laptop is out of reach.
         message = healthError ?? cloudError ?? (cloudOK ? nil : laptopError)
     }
-
-    /// Bumped when the app starts reading more of Apple Health, so the next sync looks back a full year.
-    private static let healthReads = 3
 
     /// What Apple Health has new since the last send, with the anchors to keep once it's sent.
     private struct HealthRead {
@@ -353,15 +349,14 @@ final class AppModel: ObservableObject, SyncBook {
         healthNeedsAccess = await health.needsAccess()
         // Look back a month past the last send, so readings an app wrote late still arrive.
         // Sending a reading twice changes nothing on the laptop.
-        let current = UserDefaults.standard.integer(forKey: "healthReads") >= Self.healthReads
-        let last = current ? state.lastHealthSyncAt.flatMap(Timestamp.date) : nil
+        let last = state.lastHealthSyncAt.flatMap(Timestamp.date)
         let now = Date()
         let yearAgo = now.addingTimeInterval(-365 * 86_400)
-        let anchors = current ? (UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]) : [:]
+        let anchors = UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let sent = current ? (UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]) : [:]
+        let sent = UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]
         let totals = try await health.dailyTotals(since: from)
         let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
         return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
