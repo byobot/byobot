@@ -967,7 +967,7 @@ def _cloud_setup(ctx: Context, client_file: str | None = None, ios_client_id: st
 
 
 def _show_code(keeper: Any, out: dict) -> dict:
-    """Add the recovery code that setup made, once."""
+    """Add the recovery code that setup or `cloud rotate` made, once."""
     if code := keeper.unshown_code():
         out["recovery_code"] = code
         out["note"] = "Keep the recovery code somewhere safe. It is shown only now."
@@ -1114,6 +1114,21 @@ def _cloud_remove(ctx: Context, device_id: str, revoke_google: bool | None = Non
             "note": "It can't read anything new, but it stays signed in to Google and could still delete files in "
                     "the Drive folder. If it was lost or stolen, revoke Google access as `--revoke-google` "
                     "explains; that signs out every phone."}
+
+
+@command(
+    "cloud rotate",
+    "Sign the Drive copy with new keys from a new epoch on; every phone follows on its next sync. For a Mac "
+    "whose keys may have leaked.",
+    Param("recovery", "boolean", "Also make a new recovery code, shown once; the old one stops working.",
+          default=False),
+    read_only=False,
+    mcp=False,
+)
+def _cloud_rotate(ctx: Context, recovery: bool = False) -> dict:
+    keeper = _keeper(ctx)
+    with sync.lock(keeper.store):
+        return _show_code(keeper, {"epoch": keeper.rotate(recovery=recovery)})
 
 
 @command(

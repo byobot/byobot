@@ -138,16 +138,17 @@ class Relay:
         return {"epoch": self.epoch, "written": written, "pending": len(self.events)}
 
     def _follow(self, listing: dict[str, str]) -> dict[int, dict]:
-        """The epoch files newer than this relay's that the keeper signed."""
-        bodies = {}
+        """The epoch files newer than this relay's, oldest first, each checked against the keeper key the one
+        before it trusts: a handover moves that trust to the keeper's new key."""
+        bodies, trusted = {}, self.keeper_sign
         for n in sorted(files.epoch_number(p) for p in listing if files.is_epoch_file(p)):
             if self.epoch is not None and n <= self.epoch:
                 continue
             try:
-                bodies[n] = files.read_epoch(self.folder.read(files.epoch_path(n)) or b"", self.keeper_sign,
-                                             self.store_id, n)
+                bodies[n] = files.read_epoch(self.folder.read(files.epoch_path(n)) or b"", trusted, self.store_id, n)
             except CloudError:
                 continue
+            trusted = bodies[n]["keeper_key"]
         return bodies
 
     def _adopt(self, listing: dict[str, str]) -> bool:
@@ -165,7 +166,7 @@ class Relay:
             except CloudError:
                 continue
             first = self.epoch is None
-            self.epoch, self.key = n, key
+            self.epoch, self.key, self.keeper_sign = n, key, body["keeper_key"]
             self.plan = self.plan_path = None
             self.receipts = {}
             return not first

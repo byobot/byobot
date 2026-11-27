@@ -50,6 +50,7 @@ public enum Cloud {
     static let magic = "byobot-segment"
     static let segmentDomain = Data("byobot-cloud segment 1\n".utf8)
     static let documentDomain = Data("byobot-cloud document 1\n".utf8)
+    static let handoverDomain = Data("byobot-cloud handover 1\n".utf8)
     static let sealInfo = Data("byobot-cloud seal 1".utf8)
     static let joinDomain = "byobot-cloud join 1"
     static let maxHeader = 1024
@@ -209,12 +210,20 @@ public enum Cloud {
         return body
     }
 
-    /// An epoch file signed with `keeperSign`.
+    /// An epoch file signed with `keeperSign`, or with a new key that `keeperSign` handed over to; the reader then
+    /// trusts the body's `keeper_key` from this epoch on.
     public static func readEpoch(_ data: Data, keeperSign: String, storeID: String,
                                  epoch: Int) throws -> [String: JSONValue] {
         let unverified = try documentBody(try document(data).raw)
-        guard try unb64(unverified["keeper_key"], size: 32) == unb64(.string(keeperSign), size: 32) else {
-            throw CloudError("signed by another device")
+        let pinned = try unb64(.string(keeperSign), size: 32)
+        guard try unb64(unverified["keeper_key"], size: 32) == pinned else {
+            guard case .object(let handover)? = unverified["handover"], let signer = text(unverified, "keeper_key"),
+                  try unb64(handover["from"], size: 32) == pinned else {
+                throw CloudError("signed by another device, with no handover from the keeper")
+            }
+            try verify(keeperSign, handoverDomain, Data("\(storeID)\n\(epoch)\n\(signer)".utf8),
+                       try unb64(handover["sig"], size: 64))
+            return try checkEpoch(try readDocument(data, signPublic: signer), storeID, epoch)
         }
         return try checkEpoch(try readDocument(data, signPublic: keeperSign), storeID, epoch)
     }

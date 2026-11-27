@@ -110,8 +110,8 @@ public struct CloudRelay: Codable, Equatable, Sendable {
     public private(set) var version = CloudRelay.currentVersion
     public let storeID: String
     public let deviceID: String
-    /// The keeper key this relay trusts, from its join code.
-    public let keeperSign: String
+    /// The keeper key this relay trusts. An epoch file's handover moves it to the keeper's new key.
+    public private(set) var keeperSign: String
     public private(set) var epoch: Int?
     /// The epoch's key. It is kept in the keychain, not with the rest: see `epochKey`.
     var key: Data?
@@ -268,16 +268,18 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                       removed: removed)
     }
 
-    /// The epoch files newer than this relay's that the keeper signed.
+    /// The epoch files newer than this relay's, oldest first, each checked against the keeper key the one before
+    /// it trusts: a handover moves that trust to the keeper's new key.
     func follow(_ folder: some CloudFolder, _ listing: [String: String]) async throws -> [Int: [String: JSONValue]] {
         var bodies: [Int: [String: JSONValue]] = [:]
+        var trusted = keeperSign
         for n in listing.keys.compactMap(Self.epochNumber).sorted() {
             if let epoch, n < epoch || (n == epoch && key != nil) { continue }
             let data = try await folder.read(Cloud.epochPath(n)) ?? Data()
-            guard let body = try? Cloud.readEpoch(data, keeperSign: keeperSign, storeID: storeID, epoch: n) else {
-                continue
-            }
+            guard let body = try? Cloud.readEpoch(data, keeperSign: trusted, storeID: storeID, epoch: n),
+                  let signer = Cloud.text(body, "keeper_key") else { continue }
             bodies[n] = body
+            trusted = signer
         }
         return bodies
     }
@@ -286,7 +288,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
         let epochs = listing.keys.compactMap(Self.epochNumber).sorted(by: >)
         let bodies = try await follow(folder, listing)
         for n in bodies.keys.sorted(by: >) {
-            guard let body = bodies[n] else { continue }
+            guard let body = bodies[n], let signer = Cloud.text(body, "keeper_key") else { continue }
             guard let keyData = try await folder.read(Cloud.keyPath(n, deviceID)) else {
                 if epoch != nil, !Self.lists(body, deviceID) {
                     removed = true
@@ -294,7 +296,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
                 }
                 return false
             }
-            guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: keeperSign,
+            guard let opened = try? Cloud.openKey(keyData, me: me, deviceID: deviceID, keeperSign: signer,
                                                   storeID: storeID, epoch: n) else { continue }
             let moved = epoch != nil && epoch != n
             if epoch != n {
@@ -304,6 +306,7 @@ public struct CloudRelay: Codable, Equatable, Sendable {
             }
             epoch = n
             key = opened
+            keeperSign = signer
             return moved
         }
         if epoch == nil {  // admitted mid-epoch: no epoch file lists it yet, its key file does

@@ -81,7 +81,7 @@ byobot cloud join      # shows a code; in the app, turn on Drive sync and scan i
 byobot cloud status    # devices, when each was last heard from, the folder's size, any error
 ```
 
-`byobot serve`, `byobot remote serve` and `byobot mcp` sync every minute while they run; `byobot cloud sync` syncs now. `byobot cloud off` stops (`--delete` also deletes the folder's files) and `byobot cloud remove` retires a device. If the Mac's keys or the recovery code may have leaked, run `byobot cloud off --delete`, then `byobot cloud setup`, and join each phone again. Erasing a record rewrites the folder under a new key, so the record is gone from Drive once every device has synced. Keep byobot's home out of any folder another app syncs, such as Google Drive for desktop, iCloud Drive or Dropbox.
+`byobot serve`, `byobot remote serve` and `byobot mcp` sync every minute while they run; `byobot cloud sync` syncs now. `byobot cloud off` stops (`--delete` also deletes the folder's files), `byobot cloud remove` retires a device and `byobot cloud rotate` changes the keys. Erasing a record rewrites the folder under a new key, so the record is gone from Drive once every device has synced. Keep byobot's home out of any folder another app syncs, such as Google Drive for desktop, iCloud Drive or Dropbox.
 
 ## Import from WHOOP
 

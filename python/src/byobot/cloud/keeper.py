@@ -98,6 +98,9 @@ class Keeper:
                 continue
         if epoch_body is None:
             raise ByobotError("this cloud folder has no recovery key the code opens; restore from an export instead")
+        if any(e > n and files.epoch_path(e) in listing for e in _recovery_epochs(listing)):
+            raise ByobotError("a newer recovery code replaced that one; use the code `byobot cloud rotate --recovery` "
+                              "showed last")
         top = opened[n]
         devices = {d["device_id"]: d for d in epoch_body["devices"]}
         for path in listing:  # admitted since the epoch file was written: only a key file names them
@@ -248,14 +251,46 @@ class Keeper:
             self.state.unset("closed")
         self.publish_plan()
         self._write(files.epoch_path(n), files.epoch_file(self.identity, store_id, n, self.device_id, devices,
-                                                          len(parts)))
+                                                          len(parts), previous=self._previous()))
         with self.store.transaction():
             self.state.unset("starting")
+            self.state.unset("previous_identity")
             self.state.unset(prefixes=["removing:"])
         return n
 
+    def _previous(self) -> Identity | None:
+        """The keys the keeper signed with before `rotate`, until an epoch file hands over from them."""
+        kept = self.state.get("previous_identity")
+        return Identity.from_private(json.loads(kept)) if kept else None
+
+    def rotate(self, recovery: bool = False) -> int:
+        """Sign with new keys from a new epoch on, whose file the old keys hand over to, so every phone follows.
+        With ``recovery``, a new recovery code too, on ``recovery_code``; the old code's recovery keys are deleted
+        once the new epoch is in. A retry of a rotation cut short keeps the code it made, which was never shown."""
+        new = Identity.generate()
+        pending = self.unshown_code() if self.state.get("previous_identity") else None
+        code = pending or (recovery_code() if recovery else None)
+        with self.store.transaction():  # a retry of a rotation cut short still hands over from the keys phones trust
+            if self.state.get("previous_identity") is None:
+                self.state.set("previous_identity", json.dumps(self.identity.private()))
+            self.state.set("identity", json.dumps(new.private()))
+            if code:
+                self.state.set("recovery_key", b64(recovery_key(code, self.store.store_id)))
+                self.state.set("recovery_unshown", code)
+            self.state.set_device_keys(self.device_id, new.public()["box"], new.public()["sign"])
+        self.identity = new
+        self.folder.delete(files.device_path(self.device_id))
+        n = self.start_epoch()
+        if code:
+            for path in self.folder.list():
+                if path.endswith(f"/{files.RECOVERY}.key") and path != files.recovery_path(n):
+                    self.folder.delete(path)
+        self._publish_device()
+        self.recovery_code = code
+        return n
+
     def unshown_code(self) -> str | None:
-        """A recovery code setup made that no command has shown yet, as it was cut short."""
+        """A recovery code setup or `rotate` made that no command has shown yet, as one was cut short."""
         return self.state.get("recovery_unshown")
 
     def code_shown(self) -> None:
@@ -632,7 +667,7 @@ class Keeper:
         keeper = [{"device_id": self.device_id, "device_class": "keeper", **self.identity.public()}]
         try:
             self._write(path, files.epoch_file(self.identity, self.store.store_id, n, self.device_id, keeper, 0,
-                                               closed=True))
+                                               previous=self._previous(), closed=True))
         except ByobotError:  # an older byobot began this close, without the mark
             body = files.read_epoch(self.folder.read(path) or b"", self.identity.public()["sign"],
                                     self.store.store_id, n)
@@ -651,7 +686,7 @@ class Keeper:
             self.state.clear("cloud_keys", "cloud_read", "cloud_refused")
             self.state.leave(relays_only=True)
             self.state.unset("join", "last_join", "plan_digest", "epoch_pending", "missing_since", "starting", "error",
-                             "closing", "published_position", prefixes=["removing:", "rejoined:"])
+                             "closing", "previous_identity", "published_position", prefixes=["removing:", "rejoined:"])
             self.state.set("epoch", n)
             self.state.set("checkpoint_position", 0)
             self.state.set("closed", 1)
@@ -701,7 +736,7 @@ class Keeper:
         out: dict[str, Any] = {"store_id": self.store.store_id, "epoch": self.epoch,
                                "synced_at": _when(synced), "recovery": bool(self.state.get("recovery_key"))}
         if self.unshown_code():
-            out["recovery_code"] = "not shown yet; run `byobot cloud setup` to see it"
+            out["recovery_code"] = "not shown yet; run `byobot cloud rotate --recovery` for a new one"
         if self.is_off:
             out["off"] = True
         if self.state.get("error"):

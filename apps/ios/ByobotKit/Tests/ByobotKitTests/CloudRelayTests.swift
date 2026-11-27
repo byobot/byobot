@@ -381,6 +381,28 @@ final class CloudRelayTests: XCTestCase {
         XCTAssertNil(object["storeID"])
     }
 
+    func testARelayFollowsAHandoverToTheKeepersNewKeyAndNoOther() async throws {
+        let k = try keeper(), folder = MemoryCloudFolder()
+        var relay = try await joined(k, folder)
+        let path = "schema/fixtures/v1/cloud.json"
+        let valid = try Fixtures.cases(path, key: "valid"), invalid = try Fixtures.cases(path, key: "invalid")
+        func file(_ cases: [[String: JSONValue]], _ name: String) -> [String: JSONValue] {
+            cases.first { $0.string("name") == name } ?? [:]
+        }
+        func data(_ c: [String: JSONValue]) -> Data { Data(base64Encoded: c.string("data") ?? "") ?? Data() }
+        let sealed = file(valid, "epoch key sealed to the relay by the new keeper key")
+        await folder.put(Cloud.keyPath(2, k.relayID), data(sealed))
+        await folder.put(Cloud.epochPath(2), data(file(invalid, "epoch file handed over by a relay")))
+        var report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.epoch, 1)
+        XCTAssertEqual(relay.keeperSign, k.identity.signPublic)
+        await folder.put(Cloud.epochPath(2), data(file(valid, "epoch file handed over to a new keeper key")))
+        report = try await relay.sync(folder, identity: k.relay)
+        XCTAssertEqual(report.epoch, 2)
+        XCTAssertEqual(relay.keeperSign, sealed.string("signer"))
+        XCTAssertNotEqual(relay.keeperSign, k.identity.signPublic)
+    }
+
     func testAKeyForAnotherEpochIsNotRestored() async throws {
         let k = try keeper(), folder = MemoryCloudFolder()
         let relay = try await joined(k, folder)

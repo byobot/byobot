@@ -10,6 +10,7 @@ Every implementation must open the valid files to the expected values and refuse
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import sys
@@ -21,7 +22,8 @@ sys.path.insert(0, str(ROOT / "python" / "src"))
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey  # noqa: E402
 
 from byobot.cloud import files, segment  # noqa: E402
-from byobot.cloud.crypto import Identity, b64, join_proof, recovery_code, recovery_key  # noqa: E402
+from byobot.cloud.crypto import (Identity, b64, join_proof, recovery_code, recovery_key,  # noqa: E402
+                                 sign_document)
 
 OUT = ROOT / "schema" / "fixtures" / "v1" / "cloud.json"
 STORE = "0193a0b0-0000-7000-8000-00000000c001"
@@ -39,7 +41,7 @@ def identity(label: str) -> Identity:
 
 
 def build() -> dict:
-    keeper, relay = identity("keeper"), identity("relay")
+    keeper, relay, rotated = identity("keeper"), identity("relay"), identity("rotated keeper")
     keeper_dev = {"device_id": KEEPER, "device_class": "keeper", **keeper.public()}
     relay_dev = {"device_id": RELAY, "device_class": "relay", **relay.public()}
     epoch_key, other_key, secret = fixed("epoch key"), fixed("other epoch key"), fixed("join secret", 16)
@@ -75,6 +77,12 @@ def build() -> dict:
         assert data.count(old) == 1
         return data.replace(old, new)
 
+    rotated_dev = {"device_id": KEEPER, "device_class": "keeper", **rotated.public()}
+    handover = files.epoch_file(rotated, STORE, 2, KEEPER, [rotated_dev, relay_dev], 1, previous=keeper)
+    replayed = files.epoch_file(rotated, STORE, 3, KEEPER, [rotated_dev, relay_dev], 1)
+    replayed = json.loads(base64.b64decode(json.loads(replayed)["body"]))
+    replayed["handover"] = json.loads(base64.b64decode(json.loads(handover)["body"]))["handover"]
+    replayed = sign_document(rotated, replayed)
     newer = segment.write("segment", STORE, RELAY, 1, 1, relay_messages, epoch_key, relay, fixed("nonce 1", 12))
     newer = tampered(newer, b'"format":1', b'"format":2')
     valid = [
@@ -86,6 +94,13 @@ def build() -> dict:
          "expect": {"format": 1, "store_id": STORE, "epoch": 1, "keeper_device_id": KEEPER,
                     "keeper_key": keeper.public()["sign"], "devices": [keeper_dev, relay_dev], "checkpoint": 1,
                     "capabilities": []}},
+        {"name": "epoch file handed over to a new keeper key", "path": files.epoch_path(2), "def": "signed",
+         "data": handover, "expect": json.loads(base64.b64decode(json.loads(handover)["body"]))},
+        {"name": "epoch key sealed to the relay by the new keeper key", "path": files.key_path(2, RELAY),
+         "def": "signed", "signer": rotated.public()["sign"],
+         "data": files.key_file(rotated, STORE, 2, relay_dev, fixed("second epoch key"),
+                                X25519PrivateKey.from_private_bytes(fixed("second ephemeral"))),
+         "expect": {"epoch_key": b64(fixed("second epoch key"))}},
         {"name": "epoch key sealed to the relay", "path": files.key_path(1, RELAY), "def": "signed",
          "data": files.key_file(keeper, STORE, 1, relay_dev, epoch_key,
                                 X25519PrivateKey.from_private_bytes(fixed("ephemeral"))),
@@ -117,13 +132,17 @@ def build() -> dict:
         {"name": "newer format", "path": seg_path, "data": newer, "error": "upgrade byobot"},
         {"name": "epoch file signed by a relay", "path": files.epoch_path(1),
          "data": files.epoch_file(relay, STORE, 1, KEEPER, [keeper_dev, relay_dev], 1), "error": "signed"},
+        {"name": "epoch file handed over by a relay", "path": files.epoch_path(2),
+         "data": files.epoch_file(rotated, STORE, 2, KEEPER, [rotated_dev, relay_dev], 1, previous=relay),
+         "error": "no handover"},
+        {"name": "handover from another epoch", "path": files.epoch_path(3), "data": replayed, "error": "signed"},
         {"name": "recovery key opened with another code", "path": files.recovery_path(1),
          "data": files.recovery_file(recovery_key(recovery_code(fixed("another code", 20)), STORE), STORE, 1,
                                      recovery_content, fixed("nonce 4", 12)), "error": "recovery code"},
     ]
     for case in valid + invalid:
         case["data"] = b64(case["data"])
-    follow = following(keeper, keeper_dev, relay_dev, epoch_key)
+    follow = following(keeper, rotated, keeper_dev, relay_dev, rotated_dev, epoch_key)
     return {
         "description": "Conformance files for cloud.schema.json, made from fixed keys. Every implementation opens "
                        "the valid ones to `expect` and refuses the invalid ones with an error containing `error`. "
@@ -140,30 +159,38 @@ def build() -> dict:
     }
 
 
-def following(keeper: Identity, keeper_dev: dict, relay_dev: dict, epoch_key: bytes) -> list[dict]:
+def following(keeper: Identity, rotated: Identity, keeper_dev: dict, relay_dev: dict, rotated_dev: dict,
+              epoch_key: bytes) -> list[dict]:
     """Folders a relay reads: which epoch, key and keeper key it takes from each, or that it was removed."""
-    stranger = identity("stranger")
-    keys = {1: epoch_key, 2: fixed("follow epoch key 2")}
+    again, stranger = identity("keeper rotated again"), identity("stranger")
+    again_dev = {"device_id": KEEPER, "device_class": "keeper", **again.public()}
+    keys = {n: fixed(f"follow epoch key {n}") for n in (2, 3)}
+    keys[1] = epoch_key
 
-    def epoch(n, signer, devices):
-        return files.epoch_path(n), files.epoch_file(signer, STORE, n, KEEPER, devices, 1)
+    def epoch(n, signer, devices, previous=None):
+        return files.epoch_path(n), files.epoch_file(signer, STORE, n, KEEPER, devices, 1, previous=previous)
 
     def key(n, signer):
         return files.key_path(n, RELAY), files.key_file(signer, STORE, n, relay_dev, keys[n],
                                                         X25519PrivateKey.from_private_bytes(fixed(f"follow seal {n}")))
 
     one = [epoch(1, keeper, [keeper_dev, relay_dev]), key(1, keeper)]
+    two = one + [epoch(2, rotated, [rotated_dev, relay_dev], keeper), key(2, rotated)]
     at_one = {"epoch": 1, "keeper_key": keeper.public()["sign"], "key": b64(keys[1])}
-    at_two = {"epoch": 2, "keeper_key": keeper.public()["sign"], "key": b64(keys[2])}
-    first = {"at_one": one}
+    at_two = {"epoch": 2, "keeper_key": rotated.public()["sign"], "key": b64(keys[2])}
+    first = {"at_one": one, "at_two": two}
     cases = [
         ("a new relay takes the epoch its key file is in", None, one, {**at_one, "removed": False}),
         ("admitted mid-epoch: no epoch file lists it yet, its key file does", None,
          [epoch(1, keeper, [keeper_dev]), key(1, keeper)], {**at_one, "removed": False}),
-        ("a newer epoch moves the relay to it", "at_one",
-         one + [epoch(2, keeper, [keeper_dev, relay_dev]), key(2, keeper)], {**at_two, "removed": False}),
-        ("an epoch file signed by another key is skipped", "at_one",
+        ("a handover moves trust to the keeper's new key", "at_one", two, {**at_two, "removed": False}),
+        ("two handovers in a row are followed in order", "at_one",
+         two + [epoch(3, again, [again_dev, relay_dev], rotated), key(3, again)],
+         {"epoch": 3, "keeper_key": again.public()["sign"], "key": b64(keys[3]), "removed": False}),
+        ("an epoch file from a key with no handover is skipped", "at_one",
          one + [epoch(2, stranger, [relay_dev]), key(2, stranger)], {**at_one, "removed": False}),
+        ("the old keys can't take trust back", "at_two",
+         two + [epoch(3, keeper, [keeper_dev, relay_dev]), key(3, keeper)], {**at_two, "removed": False}),
         ("a newer epoch with no key file yet is waited for", "at_one",
          one + [epoch(2, keeper, [keeper_dev, relay_dev])], {**at_one, "removed": False}),
         ("a newer epoch that leaves the relay out removes it", "at_one",

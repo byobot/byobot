@@ -46,7 +46,7 @@ def cloud(fake, monkeypatch, tmp_path):
     return client
 
 
-def test_setup_join_sync_status_and_remove(cloud, fake, tmp_path):
+def test_setup_join_sync_status_remove_and_rotate(cloud, fake, tmp_path):
     ctx = Context(actor=CLI)
     assert run("cloud status", ctx, {}) == {"on": False}
     out = run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": "ios.apps.example"})
@@ -64,6 +64,8 @@ def test_setup_join_sync_status_and_remove(cloud, fake, tmp_path):
     status = run("cloud status", ctx, {})
     assert status["on"] and [d["class"] for d in status["devices"]] == ["keeper", "relay"]
     assert run("cloud remove", ctx, {"device_id": PHONE})["epoch"] == 2
+    rotated = run("cloud rotate", ctx, {"recovery": True})
+    assert rotated["epoch"] == 3 and rotated["recovery_code"].startswith("A")
     assert "recovery_code" not in run("cloud status", ctx, {})
     again = run("cloud setup", ctx, {})
     assert again["keeper"] == "already" and "recovery_code" not in again
