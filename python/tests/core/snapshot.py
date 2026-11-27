@@ -5,6 +5,8 @@ Shape, shared by every driver and the reference model:
     records    {"kind/id": {"fields": {...}, "by": "actor_kind:actor_id", "on": replica}}
     conflicts  {"kind/id": [version fields, ...]}  sorted, one entry per distinct concurrent version
     erased     ["kind/id", ...]
+    derived    {"kind/id": {"local_date": "YYYY-MM-DD", "metrics": {code: standard value}}}  sessions and efforts
+    workouts   [occurrence(...) with "provenance": {metric: "you" or source}, ...]  sorted
 
 Arrival order, internal row ids and event ids never appear.
 """
@@ -16,7 +18,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-SECTIONS = ("records", "conflicts", "erased")
+SECTIONS = ("records", "conflicts", "erased", "derived", "workouts")
 
 
 def instant_key(text: str) -> str:
@@ -49,13 +51,14 @@ def key(kind: str, rid: str) -> str:
 
 
 def empty() -> dict:
-    return {"records": {}, "conflicts": {}, "erased": []}
+    return {"records": {}, "conflicts": {}, "erased": [], "derived": {}, "workouts": []}
 
 
 def normalize(snapshot: dict) -> dict:
     out = {s: snapshot.get(s, empty()[s]) for s in SECTIONS}
     out["conflicts"] = {k: sorted(v, key=canonical) for k, v in out["conflicts"].items()}
     out["erased"] = sorted(out["erased"])
+    out["workouts"] = sorted(out["workouts"], key=canonical)
     return json.loads(canonical(out))
 
 
