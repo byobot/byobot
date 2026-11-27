@@ -54,7 +54,7 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
-from byobot import __version__
+from byobot import __version__, util
 from byobot.core.contract import SCHEMA_VERSION, Contract
 from byobot.core.relay import (PERSON, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
@@ -141,23 +141,9 @@ def short_fingerprint(fp: str) -> str:
 # -- port --------------------------------------------------------------------
 
 def choose_port(host: str) -> int:
-    """The port this profile used last, else 8765 for the default profile, else a free one from 8767 up.
-
-    Named profiles never take 8765, and the port is kept, so a paired phone keeps finding its laptop.
-    """
-    saved = serve_dir() / "port"
-    if saved.is_file():
-        return int(saved.read_text().strip())
-    if profile() is None:
-        return DEFAULT_PORT
-    for port in range(DEFAULT_PORT + 2, DEFAULT_PORT + 100):  # 8766 is WHOOP's sign-in callback
-        with socket.socket() as s:
-            try:
-                s.bind((host, port))
-                return port
-            except OSError:
-                continue
-    raise ByobotError("no free port for byobot serve; pass --port")
+    """The port this profile used last, else 8765 for the default profile, else a free one from 8767 to 8779 or
+    8880 to 8979 (8780 to 8879 are remote's). The port is kept, so a paired phone keeps finding its laptop."""
+    return util.choose_port("serve", host, DEFAULT_PORT, [*range(8767, 8780), *range(8880, 8980)])
 
 
 def server_name() -> str:

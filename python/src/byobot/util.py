@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 PROFILE_NAME = re.compile(r"[a-z0-9_]{1,40}")
@@ -39,6 +40,32 @@ def home() -> Path:
 
 def db_path() -> Path:
     return home() / "byobot.db"
+
+
+SERVERS = ("serve", "remote")
+DEFAULT_PORTS = (8765, 8766, 8780)  # serve, WHOOP's sign-in callback, remote
+
+
+def choose_port(server: str, host: str, default: int, ports: Iterable[int]) -> int:
+    """The port this profile's ``serve`` or ``remote`` used last, else ``default`` for the default profile, else the
+    first free one of ``ports`` that no other profile has kept for either server."""
+    saved = home() / server / "port"
+    if saved.is_file():
+        return int(saved.read_text().strip())
+    if profile() is None:
+        return default
+    homes = [base(), *(base() / "profiles").glob("*")]
+    kept = {f.read_text().strip() for h in homes for s in SERVERS if (f := h / s / "port").is_file()}
+    for port in ports:
+        if port in DEFAULT_PORTS or str(port) in kept:
+            continue
+        with socket.socket() as s:
+            try:
+                s.bind((host, port))
+                return port
+            except OSError:
+                continue
+    raise ByobotError(f"no free port for byobot {server}; pass --port")
 
 
 SYNC_FOLDERS = (("Library", "CloudStorage"), ("Library", "Mobile Documents"), ("Dropbox",), ("Google Drive",),
