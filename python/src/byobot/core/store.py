@@ -12,6 +12,7 @@ import functools
 import hashlib
 import json
 import math
+import os
 import secrets
 import sqlite3
 import sys
@@ -94,11 +95,26 @@ def _version(event: dict) -> str:
     return jcs([event["op"], event["payload"] if event["op"] == "put" else None])
 
 
+def _private(path: Path) -> None:
+    """Health data and Drive keys: the folder and the files are the owner's alone. SQLite gives its -wal and -shm
+    files the database file's mode."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        return
+    os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o600))
+    for f in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+        try:
+            if f.stat().st_mode & 0o077:
+                f.chmod(0o600)
+        except FileNotFoundError:
+            pass
+
+
 class Store:
     def __init__(self, path: Path | str, *, contract: Contract | None = None, device_id: str | None = None,
                  wall: Callable[[], datetime] = _local_now, new_id: Callable[[], str] = uuid7, migrate: bool = True):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        _private(self.path)
         self.contract = contract or Contract.shipped()
         self.wall, self.new_id = wall, new_id
         self.conn = sqlite3.connect(self.path, isolation_level=None)
@@ -128,9 +144,6 @@ class Store:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, STORE_VERSION):
             self.conn.close()
-            if version == 5:
-                raise ByobotError(f"{self.path} was written before ids and codes were settled; rewrite it once with "
-                                  "tools/rewrite_store.py from byobot's source")
             if version < STORE_VERSION:
                 raise ByobotError(f"{self.path} was written by an older byobot that this one can't read; move it "
                                   "aside to start a new store, and import your sources again")
