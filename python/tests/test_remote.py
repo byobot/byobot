@@ -1,16 +1,19 @@
 """``byobot remote``: OAuth for remote MCP clients, and MCP over HTTP."""
 
 import base64
+import dataclasses
 import hashlib
 import http.client
 import json
 import secrets
 import threading
+import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
-from byobot import remote, serve
+from byobot import commands, mcp, remote, serve
+from byobot.core.store import Store
 from byobot.remote import Auth, OAuthError
 
 BASE = "https://example-laptop.example.ts.net"
@@ -165,7 +168,7 @@ def running(byobot_home):
 
     Store(byobot_home / "byobot.db").close()
     server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     yield server
     server.shutdown()
@@ -496,3 +499,144 @@ def test_remote_api_key_fails_without_a_clipboard_unless_shown(capsys, auth, mon
     assert main(["remote", "key", "example_assistant"]) == 1
     assert "--show" in capsys.readouterr().err
     assert not auth._load()["keys"] and main(["remote", "key", "--show"]) == 1
+
+
+def test_revoke_also_voids_a_code_the_running_server_already_handed_out(auth):
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                                   "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)  # approved; the code is on its way back
+
+    assert Auth(auth.path).revoke_all() == 0  # `byobot remote revoke`, from another process
+
+    with pytest.raises(OAuthError):
+        auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
+    assert auth.clients() == [], "a client approved before --revoke is connected after it"
+
+
+def test_revoke_during_a_refresh_is_not_undone(auth):
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                                   "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    tokens = auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
+
+    # The refresh request has authenticated the client and is about to rotate its tokens when --revoke runs.
+    authed = auth.authenticate(client["client_id"], None)
+    original = auth._issue
+
+    def issue_after_a_revoke(c):
+        Auth(auth.path).revoke_all()
+        return original(c)
+
+    auth._issue = issue_after_a_revoke
+    try:
+        fresh = auth.refresh(authed, tokens["refresh_token"])
+    except OAuthError:
+        fresh = None
+    auth._issue = original
+    assert auth.clients() == [], "the revoked client is connected again"
+    assert fresh is None or auth.client_for_token(fresh["access_token"]) is None
+
+
+def test_an_api_key_made_while_the_server_issues_tokens_is_kept(auth):
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                                   "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+
+    authed = auth.authenticate(client["client_id"], None)
+    cli = Auth(auth.path)  # `byobot remote key example_key`, from another process
+    original = auth._load
+    made = []
+
+    def load_then_the_cli_writes():
+        data = original()
+        if not made:
+            made.append(cli.create_key("example_key"))
+        return data
+
+    auth._load = load_then_the_cli_writes
+    tokens = auth.exchange(authed, code, CALLBACK, verifier)
+    auth._load = original
+
+    assert auth.client_for_token(tokens["access_token"]) is not None
+    assert auth.client_for_token(made[0]) is not None, "the key printed to the user doesn't work"
+
+
+def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_home, monkeypatch):
+    # import whoop and cloud sync spend most of their time on the network before they write. Here `log` stands in
+    # for them: it waits longer than the deadline, then writes.
+    monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0.3)
+    # A real import runs far more than the default 10,000 steps between checks; a one-record write here doesn't.
+    monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 100)
+    cmd = commands.REGISTRY["log"]
+
+    def slow(ctx, **kw):
+        time.sleep(0.6)
+        return cmd.handler(ctx, **kw)
+
+    monkeypatch.setitem(commands.REGISTRY, "log", dataclasses.replace(cmd, handler=slow))
+    key = running.auth.create_key("example_assistant")
+    resp, raw = request(running, "POST", "/api/v1/tools/log",
+                        {"kind": "activity", "id": "x.plank", "payload": {"name": "Plank"}},
+                        {"Authorization": f"Bearer {key}"})
+    assert resp.status == 200, raw
+    with Store(byobot_home / "byobot.db") as s:
+        assert s.get("activity", "x.plank") is not None
+
+
+def test_a_replayed_refresh_token_revokes_the_chain(auth):
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                            "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    first = auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
+    c = auth.authenticate(client["client_id"], None)
+
+    stolen = auth.refresh(c, first["refresh_token"])  # a copy of the token is used first, elsewhere
+    with pytest.raises(OAuthError):
+        auth.refresh(c, first["refresh_token"])  # the assistant's own refresh: a replay
+    with pytest.raises(OAuthError):
+        auth.refresh(c, stolen["refresh_token"])  # the replay should have revoked what replaced the token
+
+
+def test_approval_stays_closed_when_an_api_key_is_connected(byobot_home):
+    Auth(byobot_home / "remote" / "oauth.json", BASE + "/mcp").create_key("assistant")
+    server = remote.make_server(BASE, "127.0.0.1", 0)
+    try:
+        assert server.pairing is None
+    finally:
+        server.server_close()
+
+
+def test_the_approval_page_leads_with_where_the_app_goes(running):
+    _, raw = request(running, "POST", "/oauth/register", {"client_name": "Example Assistant",
+                                                          "redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
+              "code_challenge": pkce()[1], "code_challenge_method": "S256", "state": "xyz"}
+    _, page = request(running, "GET", "/oauth/authorize?" + urlencode(params))
+    assert b"calling itself" in page and b"<b>client.example</b>" in page
+
+
+def test_an_unexpected_error_keeps_its_text_off_the_network(running, byobot_home, monkeypatch):
+    key = Auth(byobot_home / "remote" / "oauth.json", BASE + "/mcp").create_key("assistant")
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("/home/example-user/.byobot/byobot.db is locked")
+
+    monkeypatch.setattr(mcp, "run", broken)
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {}, {"Authorization": f"Bearer {key}"})
+    assert resp.status == 500 and b"example-user" not in raw
+    assert "internal error" in json.loads(raw)["message"]
+
+
+def test_mcp_refuses_a_request_from_another_sites_page(running):
+    _, tokens = connect(running)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}", "Accept": "application/json, text/event-stream"}
+    ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+    resp, _ = request(running, "POST", "/mcp", ping, {**headers, "Origin": "https://attacker.example"})
+    assert resp.status == 403
+    resp, _ = request(running, "POST", "/mcp", ping, {**headers, "Origin": BASE})
+    assert resp.status == 200

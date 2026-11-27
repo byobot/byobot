@@ -1,18 +1,21 @@
 """The Mac syncs Drive on its own: once a minute while `serve`, `remote` or `mcp` runs, one process at a time, never
 inside a read; and `cloud off`."""
 
+import time
+
 import pytest
 
 from byobot import commands
 from byobot.cloud.drive import Drive, DriveFolder, UpstreamError
+from byobot.cloud.keeper import Keeper, due, tried
 from byobot.cloud.lock import held
-from byobot.commands import Context, run
+from byobot.commands import Context, autosync, run
 from byobot.serve import CloudPoller
 from byobot.util import ValidationFailed
 
-from cloud_doubles import Relay
+from cloud_doubles import MemoryFolder, Relay
 from test_cloud_commands import CLI, cloud, fake  # noqa: F401 - fixtures
-from test_cloud_keeper import PHONE, event
+from test_cloud_keeper import PHONE, Clock, event
 
 
 def meta(ctx, key):
@@ -194,3 +197,11 @@ def test_a_read_during_recover_finds_the_keeper_busy(store, tmp_path, monkeypatc
     with commands._lock(fresh):  # as `cloud recover` holds it, under the new store's old id
         Keeper.recover(fresh, folder, keeper.recovery_code, Clock())
     assert seen == [None]
+
+
+def test_background_sync_runs_again_once_a_clock_that_ran_ahead_is_set_right(store):
+    folder = MemoryFolder()
+    Keeper.setup(store, folder, Clock(time.time()))
+    tried(store, clock=lambda: time.time() + 2 * 86400)  # a sync while the clock ran two days ahead
+    assert due(store, 60), "no background sync for the next two days"
+    assert autosync(store, folder) is not None

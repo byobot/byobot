@@ -1,6 +1,5 @@
 """The `byobot cloud` commands over a fake Drive, and Google's sign-in from the Desktop client."""
 
-import io
 import json
 import threading
 import time
@@ -10,11 +9,11 @@ import urllib.request
 import pytest
 
 from byobot import commands, credentials
-from byobot.cloud import drive
+from byobot.cloud import drive, keeper as keeper_module
 from byobot.cloud.drive import Drive, DriveFolder
-from byobot.link import pairing_link
 from byobot.commands import Context, run
 from byobot.core import commands as core
+from byobot.link import pairing_link
 from byobot.util import ByobotError, ValidationFailed
 
 from cloud_doubles import Relay
@@ -171,3 +170,61 @@ def test_a_client_file_must_be_a_desktop_client(tmp_path):
     path.write_text(json.dumps({"web": {"client_id": "x"}}))
     with pytest.raises(ByobotError, match="Desktop app"):
         drive.read_client(path)
+
+
+def test_setup_again_with_another_google_account_doesnt_strand_the_phone(monkeypatch, tmp_path):
+    first, other = FakeDrive(), FakeDrive()
+    account = {"drive": first}
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(commands, "_drive_folder", lambda store, quick=False: DriveFolder(
+        store.store_id, Drive(account["drive"], sleep=lambda s: None), journal=tmp_path / "mac.json"))
+    monkeypatch.setattr(drive, "sign_in", lambda client, **_: credentials.save(drive.NAME, {**signed_in(), **client}))
+    monkeypatch.setattr(keeper_module, "MISSING_S", 0)
+    client = tmp_path / "client.json"
+    client.write_text(json.dumps({"installed": {"client_id": "cid.apps.example", "client_secret": "s"}}))
+    ctx = Context(actor=CLI)
+    run("cloud setup", ctx, {"client_file": str(client), "ios_client_id": "ios.apps.example"})
+    link = run("cloud join", ctx, {"wait": False})["link"]
+    phone = Relay.join(DriveFolder(ctx.store().store_id, Drive(first, sleep=lambda s: None),
+                                   journal=tmp_path / "phone.json"), link, PHONE)
+    run("cloud sync", ctx, {})
+    phone.sync()
+
+    account["drive"] = other  # the browser was signed in to another Google account this time
+    try:
+        run("cloud setup", ctx, {})
+    except ByobotError:
+        return  # refusing to move the logbook to another account silently is a fix
+    run("cloud sync", ctx, {})
+    run("cloud sync", ctx, {})
+    sent = event()
+    phone.log([sent])
+    for _ in range(3):
+        report = phone.sync()
+        run("cloud sync", ctx, {})
+    assert report.get("epoch") is not None  # the phone still thinks Drive sync works
+    assert ctx.store().event(sent["id"]), "the phone's set never reaches the Mac through Drive"
+
+
+def joined(cloud, fake, tmp_path):  # noqa: F811
+    from byobot.cloud.drive import Drive, DriveFolder
+    from cloud_doubles import Relay
+
+    ctx = Context(actor=CLI)
+    run("cloud setup", ctx, {"client_file": str(cloud), "ios_client_id": "ios.apps.example"})
+    join = run("cloud join", ctx, {"wait": False})
+    Relay.join(DriveFolder(ctx.store().store_id, Drive(fake), journal=tmp_path / "phone.json"), join["link"], PHONE)
+    run("cloud sync", ctx, {})
+    return ctx
+
+
+def test_removing_a_phone_keeps_google_access_unless_asked(cloud, fake, tmp_path, monkeypatch):  # noqa: F811
+    asked = []
+    monkeypatch.setattr("byobot.commands._ask", lambda prompt: asked.append(prompt) or "")
+    out = run("cloud remove", joined(cloud, fake, tmp_path), {"device_id": PHONE})
+    assert out["google_access"] == "kept" and "every phone" in out["note"] and "every phone" in asked[0]
+
+
+def test_revoking_google_access_says_every_phone_signs_out(cloud, fake, tmp_path):  # noqa: F811
+    out = run("cloud remove", joined(cloud, fake, tmp_path), {"device_id": PHONE, "revoke_google": True})
+    assert out["google_access"] == "revoke" and "cloud join" in out["next"]

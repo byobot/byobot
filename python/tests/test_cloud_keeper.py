@@ -5,16 +5,18 @@ import sqlite3
 
 import pytest
 
-from byobot.cloud import files, segment
+from byobot.cloud import files, keeper as keeper_module, segment
 from byobot.cloud.crypto import CloudError
+from byobot.cloud.drive import UpstreamError
 from byobot.cloud.folder import Exists
-from byobot.cloud.keeper import Keeper
-from byobot.link import pairing_link
+from byobot.cloud.keeper import JOIN_TTL_S, Keeper
 from byobot.core import commands, hlc
 from byobot.core.store import Store
+from byobot.link import pairing_link
 from byobot.util import ByobotError, uuid7
 
 from cloud_doubles import LocalFolder, MemoryFolder, Relay, parse_join
+from fake_drive import Killed
 
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
 OTHER = "0193a0b0-0000-7000-8000-00000000ab02"
@@ -30,8 +32,8 @@ def event(device_id=PHONE, actor=ME, n=0, kind="effort"):
 
 
 class Clock:
-    def __init__(self):
-        self.now = 1_000_000.0
+    def __init__(self, now=1_000_000.0):
+        self.now = now
 
     def __call__(self):
         return self.now
@@ -382,3 +384,339 @@ def test_a_phone_on_the_hub_and_in_drive_is_one_device(store, folder, keeper):
     keeper.forget()
     assert store.peer(PHONE)["revoked_at"] and keeper.device(PHONE) is None
     assert [d["id"] for d in keeper.devices()] == [store.device_id]
+
+
+def test_an_event_read_late_from_a_retired_epoch_stays_in_the_folder(store, tmp_path):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock, recovery=True)
+    code = keeper.recovery_code
+    relay = joined(keeper, folder)
+    sent = event()
+    relay.log([sent])
+    relay.sync()  # a segment in epoch 1
+    keeper.compact()  # `cloud compact` reads nothing first: the checkpoint of epoch 2 lacks the phone's set
+    keeper.sync()  # reads the epoch-1 segment late; the plan's receipt lists it
+    relay.sync()  # takes key 2, sees its segment read, forgets the set, writes in epoch 2
+    assert relay.epoch == 2 and relay.events == {}
+    keeper.sync()  # every device moved: epoch 1's files, the set's segment among them, are deleted
+    assert store.event(sent["id"])
+    assert not any(p.startswith("segments/") and "/0000000001-" in p for p in folder.list())
+
+    fresh = Store(tmp_path / "new-mac.db")
+    Keeper.recover(fresh, folder, code, clock)
+    assert fresh.event(sent["id"]), "the phone's set is in no file of the folder, so recovery lost it"
+
+
+def write_newer(relay, messages):
+    relay.seq += 1
+    path = segment.name("segment", relay.epoch, relay.seq, PHONE)
+    relay.folder.create(path, segment.write("segment", relay.store_id, PHONE, relay.epoch, relay.seq, messages,
+                                            relay.key, relay.identity))
+    return path
+
+
+def test_an_older_keeper_keeps_a_segment_with_a_newer_message_until_it_is_upgraded(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = joined(keeper, folder)
+    sent = event()
+    path = write_newer(relay, [{"events": {"events": [sent]}}, {"notes": {"text": "a message a later byobot adds"}}])
+    report = keeper.sync()
+    assert report["skipped"][0]["path"] == path and "upgrade" in report["skipped"][0]["reason"]
+    assert path in folder.list(), "a newer phone's segment was deleted, so it is sent and deleted again forever"
+    assert "upgrade" in keeper.local_status()
+
+
+def test_a_removed_phone_can_join_again_with_a_new_code(store):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = joined(keeper, folder)
+    keeper.remove(PHONE)
+    relay.sync()
+    assert relay.removed  # the app leaves Drive sync and says to show the join code again
+    again = Relay.join(folder, keeper.join_code()["link"], PHONE, identity=relay.identity)  # same id, same keys
+    report = keeper.sync()
+    assert report.get("join") == "admitted", "the phone's answer to a fresh code is ignored, so it can't rejoin"
+    again.sync()
+    sent = event()
+    again.log([sent])
+    again.sync()
+    keeper.sync()
+    assert store.event(sent["id"])
+
+
+def backup(store, path):
+    target = sqlite3.connect(path)
+    store.conn.backup(target)
+    target.close()
+
+
+def test_a_keeper_restored_from_an_older_backup_still_hears_the_phone(store, tmp_path):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    relay = joined(keeper, folder)
+    backup(store, tmp_path / "backup.db")  # last night's backup: epoch 1
+    for _ in range(2):  # two compactions (or erases) since then; each time the phone moves and epoch n-1 goes
+        keeper.compact()
+        relay.sync()
+        keeper.sync()
+    assert keeper.epoch == relay.epoch == 3 and keeper.key(1) is None and keeper.key(2) is None
+    store.close()
+
+    restored = Keeper(Store(tmp_path / "backup.db"), folder, clock)  # the Mac comes back from the backup
+    restored.sync()
+    clock.now += keeper_module.MISSING_S
+    restored.sync()  # its epoch file is gone from the folder, so it seeds the folder again
+    sent = event()
+    relay.log([sent])
+    for _ in range(4):
+        relay.sync()
+        restored.sync()
+    assert restored.store.event(sent["id"]), "the phone's set never reaches the restored Mac through Drive"
+    assert relay.events == {}
+
+
+def test_recover_gets_every_event_or_says_it_cant(store, tmp_path, monkeypatch):
+    monkeypatch.setattr(segment, "MAX_BODY", 128 * 1024)
+    for n in range(40):
+        commands.log(store, ME, [{"kind": "location", "id": f"example_gym_{n}",
+                                  "payload": {"name": f"Gym {n}", "notes": f"{n:04d}" + "x" * 3900}}])
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock, recovery=True)
+    fresh = Store(tmp_path / "new-mac.db")
+    try:
+        Keeper.recover(fresh, folder, keeper.recovery_code, clock)
+    except Exception:
+        return  # saying it can't is fine
+    assert len(fresh.records("location")) == 40, "recover reported success with part of the logbook"
+
+
+def test_recover_says_so_when_a_checkpoint_part_is_missing(store, tmp_path):
+    for n in range(3):
+        commands.log(store, ME, [{"kind": "location", "id": f"example_gym_{n}", "payload": {"name": f"Gym {n}"}}])
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock, recovery=True)
+    folder.delete(segment.name("checkpoint", keeper.epoch, 0))
+    fresh = Store(tmp_path / "new-mac.db")
+    mine = fresh.device_id
+    with pytest.raises(ByobotError, match="can't be read"):
+        Keeper.recover(fresh, folder, keeper.recovery_code, clock)
+    assert not fresh.conn.execute("SELECT 1 FROM cloud_meta").fetchone()  # it can run again
+    assert fresh.device_id == mine
+
+
+def _cut_short(store):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    phone = Relay.join(folder, keeper.join_code()["link"], PHONE)
+    key_path = files.key_path(keeper.epoch, PHONE)
+    create, read = folder.create, folder.read
+
+    def lost(path, data):
+        create(path, data)
+        if path == key_path:
+            raise ByobotError("the answer to the key file's upload was lost")
+
+    def down(path):
+        if path == key_path:
+            raise ByobotError("can't reach Google Drive")
+        return read(path)
+
+    folder.create, folder.read = lost, down
+    with pytest.raises(ByobotError):
+        keeper.sync()  # `cloud join` keeps syncing until the phone is in; the network drops
+    folder.create, folder.read = create, read
+    return keeper, phone, clock
+
+
+def test_a_phone_that_took_its_key_gets_its_events_to_the_mac(store):
+    keeper, phone, clock = _cut_short(store)
+    clock.now += JOIN_TTL_S + 1  # back online after the code ran out
+    keeper.sync()
+    sent = event(PHONE, n=1)
+    phone.log([sent])
+    for _ in range(3):
+        phone.sync()
+        keeper.sync()
+    assert phone.key is None or any(e["id"] == sent["id"] for e in store.events()), \
+        f"the phone counts itself in; the keeper says {keeper.last_join()} and skips what it writes"
+
+
+def test_a_new_code_first_lets_in_the_phone_that_took_its_key(store):
+    keeper, phone, _ = _cut_short(store)
+    keeper.join_code()
+    phone.sync()
+    assert phone.key is not None and keeper.device(PHONE)
+
+
+def test_a_code_shown_while_serve_ends_the_last_one_still_lets_the_phone_in(store):
+    folder = MemoryFolder()
+    clock = Clock()
+    serve = Keeper.setup(store, folder, clock)
+    serve.join_code()  # an earlier `cloud join` that nobody answered
+    clock.now += JOIN_TTL_S + 1
+    join = Keeper(Store(store.path), folder, Clock(clock.now))  # `byobot cloud join` in another process
+    shown = {}
+
+    def serve_clock():
+        if not shown:  # `cloud join` writes its code just after serve's sync read the old one
+            shown.update(join.join_code())
+        return clock.now
+
+    serve.clock = serve_clock
+    serve.sync()
+    serve.clock = clock
+    assert json.loads(join._get("join") or "null"), "the code `cloud join` just showed was unset"
+    phone = Relay.join(folder, shown["link"], PHONE)
+    join.sync()
+    assert join.last_join() == {"join": "admitted", "device": PHONE}
+    phone.sync()
+    assert phone.key is not None
+
+
+def test_a_phone_still_moves_after_a_failed_compact_is_run_again(store, monkeypatch):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    phone = joined(keeper, folder, PHONE)
+    real = Keeper._write
+
+    def cut_short(self, path, data):
+        real(self, path, data)
+        if path == files.epoch_path(2):
+            raise Killed("the run ended right after epoch 2's file landed")
+
+    monkeypatch.setattr(Keeper, "_write", cut_short)
+    with pytest.raises(Killed):
+        keeper.compact()  # `cloud compact`
+    monkeypatch.setattr(Keeper, "_write", real)
+    create, calls = folder.create, []
+
+    def flaky(path, data):
+        calls.append(path)
+        if len(calls) == 1:
+            raise ByobotError("Google Drive answered 503")
+        create(path, data)
+
+    folder.create = flaky
+    with pytest.raises(ByobotError):
+        keeper.compact()  # run again, since it failed; Drive fails once more partway
+    folder.create = create
+    for _ in range(3):
+        keeper.sync()
+        phone.sync()
+    assert phone.epoch == keeper.epoch, f"the phone is stuck in epoch {phone.epoch}, the keeper in {keeper.epoch}"
+    assert keeper.status()["cleanup_waits_on"] == []
+
+
+def test_a_removed_phone_cant_read_what_the_keeper_writes_next(store, monkeypatch):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    lost = joined(keeper, folder, PHONE)
+    real = Keeper._write
+
+    def cut_short(self, path, data):
+        real(self, path, data)
+        if path == files.epoch_path(2):
+            raise Killed("the run ended right after epoch 2's file landed")
+
+    monkeypatch.setattr(Keeper, "_write", cut_short)
+    with pytest.raises(Killed):
+        keeper.compact()
+    monkeypatch.setattr(Keeper, "_write", real)
+    lost.sync()
+    assert lost.epoch == 2
+
+    try:
+        keeper.remove(lost.device_id)  # `cloud remove` for the lost phone
+    except ByobotError:
+        pass  # and running it again says there is no such device
+    keeper.sync()
+    lost.sync()
+    assert keeper.key(keeper.epoch) != lost.key, "the removed phone holds the key of the epoch the keeper writes in"
+
+
+def test_the_same_after_drive_loses_the_epoch_file_upload_s_answer(store, tmp_path):
+    from byobot.cloud import drive as drive_module
+    from byobot.cloud.drive import UpstreamError
+    from cloud_doubles import Relay
+    from fake_drive import FakeDrive
+    from test_cloud_drive import folder_on
+
+    fake = FakeDrive()
+    keeper = Keeper.setup(store, folder_on(fake, tmp_path, store.store_id), Clock())
+    lost = Relay.join(folder_on(fake, tmp_path, store.store_id, who="phone"), keeper.join_code()["link"], PHONE)
+    keeper.sync()
+    lost.sync()
+    fake.fail("POST /upload", "pass", times=2)  # epoch 2's key file and plan land
+    fake.fail("POST /upload", "lost")  # the epoch file lands, its answer is lost, and Drive stays down
+    fake.fail("POST /upload", 503, times=drive_module.TRIES - 1)
+    with pytest.raises(UpstreamError):
+        keeper.compact()
+    assert any(f["name"].endswith("/epochs/0000000002.json") for f in fake.files.values())
+    fake.faults.clear()
+    lost.sync()
+    try:
+        keeper.remove(lost.device_id)
+    except ByobotError:
+        pass
+    keeper.sync()
+    lost.sync()
+    assert keeper.key(keeper.epoch) != lost.key, "the removed phone holds the key of the epoch the keeper writes in"
+
+
+def _off_delete_fails_partway(store):
+    folder, clock = MemoryFolder(), Clock()
+    keeper = Keeper.setup(store, folder, clock)
+    relay = joined(keeper, folder)
+    real, calls = folder.delete, []
+
+    def flaky(path):
+        calls.append(path)
+        if len(calls) == 3:
+            raise UpstreamError("can't reach Google Drive: connection reset")
+        real(path)
+
+    folder.delete = flaky
+    with pytest.raises(ByobotError):
+        keeper.forget()  # `cloud off --delete` answers an error
+    folder.delete = real
+    return keeper, relay
+
+
+def test_a_failed_off_delete_leaves_keeper_and_phone_agreeing(store):
+    keeper, relay = _off_delete_fails_partway(store)
+    for _ in range(2):  # the person runs `cloud sync`, or `serve` syncs on its own
+        keeper.sync()
+        relay.sync()
+    assert keeper.is_off or (not relay.removed and relay.epoch == keeper.epoch), \
+        "the phone was told it was taken off Drive sync while the keeper still counts on it"
+
+
+def test_after_a_failed_off_delete_the_next_epoch_still_starts(store):
+    keeper, relay = _off_delete_fails_partway(store)
+    keeper.sync()
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Gym"}}])
+    commands.erase(store, ME, "location", "example_gym")
+    report = keeper.sync()  # an erase starts the next epoch, whose number the closed marker already took
+    assert keeper.is_off or report.get("new_epoch"), report
+
+
+def test_an_older_phone_still_takes_a_plan_that_carries_a_newer_message(store, monkeypatch):
+    folder = MemoryFolder()
+    keeper = Keeper.setup(store, folder, Clock())
+    relay = joined(keeper, folder)
+    real = Keeper._segment
+
+    def newer_keeper(self, kind, seq, messages, epoch=None):
+        if kind == "plan":  # a later byobot adds a message to the plan segment
+            messages = [*messages, {"reminders": {"items": []}}]
+        return real(self, kind, seq, messages, epoch)
+
+    monkeypatch.setattr(Keeper, "_segment", newer_keeper)
+    sent = event(relay.device_id, n=1)
+    relay.log([sent])
+    relay.sync()
+    keeper.sync()
+    assert store.event(sent["id"])
+    relay.sync()
+    assert relay.events == {} and relay.sent == {}, "the phone never learns the Mac read its set"

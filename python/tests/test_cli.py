@@ -1,13 +1,25 @@
+from __future__ import annotations
+
+import contextlib
+import http.client
+import io
 import json
+import sqlite3
 import subprocess
 import sys
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from byobot import __version__
+from byobot import __version__, mcp, remote, serve
 from byobot.cli import build_parser, main
-from byobot.commands import REGISTRY, Context, run
-from byobot.util import ValidationFailed
+from byobot.commands import REGISTRY, Command, Context, run
+from byobot.core import commands as core
+from byobot.core.store import Store
+from byobot.review import review
+from byobot.util import Conflict, ValidationFailed
 
 
 def cli(capsys, *argv):
@@ -340,3 +352,365 @@ def test_switches_are_booleans():
     assert build_parser().parse_args(["cloud", "remove", "x"]).revoke_google is None
     with pytest.raises(ValidationFailed, match="true or false"):
         run("cloud off", Context(actor={"kind": "human", "id": "me"}), {"delete": "yes"})
+
+
+BASE = "https://example-laptop.example.ts.net"
+
+
+def _refuse(constant: str):
+    raise ValueError(f"not JSON: {constant}")
+
+
+def strict_loads(text: str):
+    """JSON as RFC 8259 has it: NaN and Infinity are not JSON."""
+    return json.loads(text, parse_constant=_refuse)
+
+
+def shared() -> list[Command]:
+    """Commands that the CLI, MCP and the JSON API all offer."""
+    return [c for c in REGISTRY.values() if c.cli and c.mcp]
+
+
+def filler(cmd: Command) -> dict:
+    """Some value for every required argument, so a later check is the one that answers."""
+    out = {}
+    for p in cmd.params:
+        if not p.required:
+            continue
+        if p.choices:
+            out[p.name] = p.choices[0]
+        elif p.type == "integer":
+            out[p.name] = 1
+        elif p.type == "json":
+            out[p.name] = {}
+        else:
+            out[p.name] = "example-id"
+    return out
+
+
+def argv_for(cmd: Command, args: dict, extra: list[str] | None = None) -> list[str]:
+    positional, flags = [], []
+    for p in cmd.params:
+        if p.name not in args:
+            continue
+        value = args[p.name]
+        text = json.dumps(value) if p.type == "json" else str(value)
+        if p.positional:
+            positional.append(text)
+        else:
+            flags += [f"--{p.name.replace('_', '-')}", text]
+    return [*cmd.name.split(" "), *positional, *flags, *(extra or [])]
+
+
+def via_cli(argv: list[str]) -> tuple:
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
+    except BaseException as exc:  # noqa: BLE001 - a traceback is what we are looking for
+        return ("broken", f"raised {type(exc).__name__}: {exc}")
+    if code == 0:
+        try:
+            return ("ok", strict_loads(out.getvalue()))
+        except ValueError as exc:
+            return ("broken", f"exit 0 but stdout is not JSON: {exc}")
+    try:
+        body = strict_loads(err.getvalue())
+    except ValueError:
+        return ("broken", f"exit {code}, stderr not JSON: {err.getvalue().strip()[-160:]}")
+    if code == 1 and isinstance(body, dict) and "error" in body:
+        return ("error", body["error"])
+    return ("broken", f"exit {code}: {body}")
+
+
+def via_mcp(tool: str, args: dict) -> tuple:
+    server = mcp.Server()
+    server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+                   "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "example-agent"}}})
+    try:
+        reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {"name": tool, "arguments": args}})
+    finally:
+        server.close()
+    if "error" in reply:
+        return ("broken", f"JSON-RPC error {reply['error']}")
+    result = reply["result"]
+    body = json.loads(result["content"][0]["text"])
+    if result["isError"]:
+        return ("error", body.get("error") if isinstance(body, dict) else body)
+    return ("ok", body)
+
+
+class Api:
+    """`byobot remote`'s JSON API, on a free port, with an API key."""
+
+    def __init__(self, home):
+        from byobot.core.store import Store
+
+        Store(home / "byobot.db").close()
+        self.server = remote.make_server(BASE, "127.0.0.1", 0, pair=False)
+        self.key = self.server.auth.create_key("example_assistant")
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def raw(self, path: str, body: bytes) -> tuple[int, bytes]:
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=30)
+        conn.request("POST", path, body=body, headers={"Content-Type": "application/json",
+                                                       "Authorization": f"Bearer {self.key}"})
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        return resp.status, data
+
+    def call(self, tool: str, args: dict) -> tuple:
+        status, data = self.raw(f"/api/v1/tools/{tool}", json.dumps(args).encode())
+        try:
+            body = strict_loads(data)
+        except ValueError as exc:
+            return ("broken", f"HTTP {status}, body not JSON: {exc}")
+        if status == 200:
+            return ("ok", body)
+        if 400 <= status < 500 and isinstance(body, dict) and "error" in body:
+            return ("error", body["error"])
+        return ("broken", f"HTTP {status}: {body}")
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
+    """CLI-11: import activities tells agents "Use @path for a file", but only the CLI reads @path; over MCP and the
+    API the string is refused as "expected a list of activities"."""
+    path = tmp_path / "activities.json"
+    path.write_text(json.dumps([{"id": "x_example_carry", "name": "Example carry"}]))
+    tool = next(t for t in mcp.tools() if t["name"] == "import")
+    if "@path" in json.dumps(tool):
+        assert via_mcp("import", {"source": "activities", "records": f"@{path}"})[0] == "ok"
+
+
+def test_cli_a_text_value_is_taken_as_the_help_says(capsys):
+    """CLI-11: `resolve` takes an event id or "remove", but it is a JSON argument on the CLI, so
+    `byobot resolve session ID remove` stops at "could not read JSON" unless the word is typed with JSON quotes."""
+    via_cli(["resolve", "session", "example-id", "remove"])
+    assert "could not read JSON" not in capsys.readouterr().err
+
+
+ME = {"kind": "human", "id": "me"}
+
+
+EST = timezone(timedelta(hours=-5))
+
+
+@pytest.mark.parametrize("bound", ["2026/11/20", "11/20/2026", "20.11.2026", "garbage123"])
+@pytest.mark.parametrize("which", ["since", "until"])
+def test_cli_a_date_bound_that_is_not_a_date_is_refused(bound, which):
+    """CLI-4: one session on 2026-11-25; `--since 2026/11/20` lists none and `--since 11/20/2026` lists it, both
+    without a word, so an agent reports "no sessions" or the wrong ones."""
+    assert via_cli(["log", "session", '{"name": "Example session", "time": {"start": "2026-11-25T10:00:00-05:00"}}'])[0] \
+        == "ok"
+    assert via_cli(["list", "session", f"--{which}", bound]) == ("error", "invalid")
+    assert via_mcp("list", {"kind": "observation", which: bound}) == ("error", "invalid")
+
+
+@pytest.mark.parametrize("bound", ["yesterday", "2026-13-45T99:00:00Z"])
+def test_cli_an_events_bound_that_is_not_a_time_is_refused(bound):
+    """CLI-4: `list events` never checks its bounds."""
+    assert via_cli(["init"])[0] == "ok"
+    assert via_cli(["list", "events", "--since", bound]) == ("error", "invalid")
+
+
+def test_cli_events_since_a_timestamp_compares_instants_not_text(byobot_home):
+    """CLI-4: an event written at 10:00-05:00 (15:00Z) is after 14:00Z and before 16:00Z, but `ts >= '…14:00:00Z'`
+    compares "10:00…" with "14:00…" as text: it is left out of `--since 14:00Z` and kept by `--until 12:00Z`."""
+    with Store(byobot_home / "byobot.db", wall=lambda: datetime(2026, 11, 20, 10, 0, tzinfo=EST)) as store:
+        core.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+    ctx = Context(actor=ME, path=byobot_home / "byobot.db")
+    try:
+        since = run("list", ctx, {"kind": "events", "type": "location", "since": "2026-11-20T14:00:00Z"})
+        until = run("list", ctx, {"kind": "events", "type": "location", "until": "2026-11-20T12:00:00Z"})
+    finally:
+        ctx.close()
+    assert (since["count"], until["count"]) == (1, 0)
+
+
+AGENT = {"kind": "agent", "id": "example-agent"}
+
+
+def test_cli_two_logs_of_the_same_new_id_never_overwrite_each_other(byobot_home):
+    """CLI-10: core.log checks that the id is free before its write transaction. When another process creates the
+    same id in between (an agent over MCP and the person at the CLI both adding `example-gym`), the second write
+    names the first as its prev and goes through as an edit: the first writer's record is silently replaced."""
+    path = byobot_home / "byobot.db"
+    mine, theirs = Store(path), Store(path)
+    real = mine.write
+
+    def write(actor, changes):
+        core.log(theirs, AGENT, [{"kind": "location", "id": "example_gym", "payload": {"name": "Agent's gym"}}])
+        return real(actor, changes)
+
+    mine.write = write
+    try:
+        with pytest.raises(Conflict):
+            core.log(mine, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "My gym"}}])
+        assert mine.get("location", "example_gym")["payload"]["name"] == "Agent's gym"
+    finally:
+        mine.close()
+        theirs.close()
+
+
+@pytest.mark.parametrize("module,saved_in", [(serve, serve.serve_dir), (remote, remote.remote_dir)],
+                         ids=["serve", "remote"])
+def test_cli_two_profiles_never_keep_the_same_port(module, saved_in, monkeypatch):
+    """CLI-5: alex runs `byobot serve` (or `remote`) first and keeps port 8767 (8781). Later, while alex's server is
+    stopped, sam runs it for the first time: the port is free, so sam keeps the same one. From then on the two can't
+    serve at once ("could not listen"), and alex's tunnel (`tailscale funnel ... 8781`) reaches sam's server."""
+    monkeypatch.setenv("BYOBOT_PROFILE", "alex")
+    alex = module.choose_port()
+    saved_in().mkdir(parents=True, exist_ok=True)
+    (saved_in() / "port").write_text(f"{alex}\n")  # what run() writes once it listens
+    monkeypatch.setenv("BYOBOT_PROFILE", "sam")
+    sam = module.choose_port()
+    assert sam != alex
+
+
+def test_cli_a_mistyped_profile_is_refused_not_created(byobot_home):
+    """CLI-6: `byobot --profile alxe ...` (or an MCP config with that typo) quietly makes a new empty store: reads
+    say there is nothing, and writes land in a store nobody looks at. Restore only fills an empty store, so they
+    can't be moved back."""
+    assert via_cli(["--profile", "alex", "init"])[0] == "ok"
+    assert via_cli(["--profile", "alex", "log", "location", '{"name": "Example gym"}', "--id", "example_gym"])[0] == "ok"
+    read = via_cli(["--profile", "alxe", "list", "location"])
+    write = via_cli(["--profile", "alxe", "log", "observation", '{"code": "body_mass", "value": 80, "unit": "kg"}'])
+    assert (read[0], write[0]) == ("error", "error")
+    assert not (byobot_home / "profiles" / "alxe").exists()
+
+
+HOLD_S = 6.5  # longer than the store's 5 s busy timeout, as a big ingest, restore or rebuild is
+
+
+def test_cli_a_read_answers_while_another_process_holds_the_write_lock(byobot_home):
+    """CLI-13."""
+    assert via_cli(["init"])[0] == "ok"
+    ready = threading.Event()
+
+    def writer():
+        conn = sqlite3.connect(byobot_home / "byobot.db", isolation_level=None, timeout=10)
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
+        ready.set()
+        time.sleep(HOLD_S)
+        conn.execute("COMMIT")
+        conn.close()
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    ready.wait(5)
+    try:
+        cli_answer = via_cli(["list", "session"])
+        mcp_answer = via_mcp("list", {"kind": "session"})
+    finally:
+        thread.join()
+    assert (cli_answer[0], mcp_answer[0]) == ("ok", "ok"), (cli_answer, mcp_answer)
+
+
+def _planned(day: str, status: str | None) -> dict:
+    payload = {"scheduled_on": day, "name": f"Example {status or 'planned'} day", "location_id": "example_gym",
+               "blocks": [{"efforts": [{"activity_id": "x.example_press"}]}]}
+    if status:
+        payload["status"] = status
+    return {"kind": "planned_session", "payload": payload}
+
+
+def test_cli_a_cancelled_session_is_not_planned_or_missed(byobot_home):
+    """CLI-12: an agent that cancels Tuesday's session (status cancelled) then reads `review` is told the person
+    missed it, and adherence counts it as planned."""
+    with Store(byobot_home / "byobot.db") as store:
+        core.log(store, ME, [_planned("2026-11-17", "cancelled"), _planned("2026-11-18", None),
+                             _planned("2026-11-19", "skipped")])
+        out = review(store, 2, "2026-11-23")
+    assert out["plan_adherence"]["planned"] == 1
+    assert [m["scheduled_on"] for m in out["plan_adherence"]["missed"]] == ["2026-11-18"]
+
+
+@pytest.mark.parametrize("make,argv", [
+    (lambda tmp: None, ["log", "session", "@{tmp}/no-such-file.json"]),
+    (lambda tmp: (tmp / "a-folder").mkdir(), ["log", "session", "@{tmp}/a-folder"]),
+    (lambda tmp: (tmp / "latin1.json").write_bytes(b'{"notes": "caf\xe9"}'), ["log", "session", "@{tmp}/latin1.json"]),
+    (lambda tmp: None, ["export", "{tmp}/no-such-folder/backup.jsonl"]),
+    (lambda tmp: None, ["review", "--until", "9999-12-31"]),
+    (lambda tmp: None, ["review", "--until", "0001-01-07"]),
+    (lambda tmp: None, ["review", "--weeks", "1000000"]),
+    (lambda tmp: None, ["log", "observation",
+                        '{{"code": "body_mass", "value": 80, "unit": "kg", "time": {{"start": "9999-12-31T23:30:00"}}}}']),
+    (lambda tmp: None, ["validate", "[1, 2]"]),
+    (lambda tmp: (tmp / "a-file").write_text("x"), ["--home", "{tmp}/a-file", "status"]),
+    (lambda tmp: (tmp / "cut.jsonl").write_text('{"byobot_export": 1}\n'), ["restore", "{tmp}/cut.jsonl"]),
+], ids=["@missing", "@folder", "@not-utf8", "export-missing-folder", "review-until-9999", "review-until-0001",
+        "review-weeks-huge", "observation-year-9999", "validate-a-list", "home-is-a-file",
+        "restore-header-without-id"])
+def test_cli_a_mistake_is_a_json_error_not_a_traceback(make, argv, tmp_path):
+    """CLI-3."""
+    make(tmp_path)
+    answer = via_cli([a.format(tmp=tmp_path) for a in argv])
+    assert answer[0] in ("error", "ok"), answer
+    if argv[0] == "validate":
+        assert answer[0] == "ok" or answer == ("error", "invalid")
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("review", {"until": "9999-12-31"}),
+    ("review", {"weeks": 1000000}),
+    ("validate", {"document": [1, 2]}),
+    ("log", {"kind": "observation", "payload": {"code": "body_mass", "value": 80, "unit": "kg",
+                                                "time": {"start": "9999-12-31T23:30:00"}}}),
+])
+def test_cli_mcp_answers_a_mistake_as_a_tool_error_not_an_internal_error(tool, args):
+    """CLI-3: the same inputs over MCP are JSON-RPC -32603 "internal error", which agents treat as a server fault."""
+    answer = via_mcp(tool, args)
+    assert answer[0] != "broken", answer
+
+
+def test_cli_a_closed_pipe_ends_quietly(monkeypatch):
+    """CLI-9: `byobot list ... | head` that closes early must not print a BrokenPipeError traceback."""
+
+    class Closed(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(sys, "stdout", Closed())
+    try:
+        main(["schema"])
+    except SystemExit:
+        pass
+
+
+def test_cli_ctrl_c_ends_with_130_and_no_traceback(monkeypatch, capsys):
+    """CLI-9: Ctrl-C during a command (a long query, an import) should exit 130 quietly."""
+
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("byobot.cli.run", interrupted)
+    try:
+        code = main(["status"])
+    except SystemExit as exc:
+        code = exc.code
+    except KeyboardInterrupt:
+        pytest.fail("KeyboardInterrupt escaped main(), so Python prints a traceback")
+    assert code == 130
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_serve_with_a_port_out_of_range_is_a_json_error(capsys):
+    """CLI-3: `byobot serve --port 70000` raises OverflowError, which run() doesn't catch (it catches OSError)."""
+    try:
+        code = main(["serve", "--port", "70000", "--no-pair"])
+    except SystemExit as exc:
+        code = exc.code
+    except OverflowError as exc:
+        pytest.fail(f"traceback: {exc!r}")
+    err = capsys.readouterr().err
+    assert code == 1 and "error" in json.loads(err)

@@ -5,16 +5,18 @@ import hashlib
 import http.client
 import json
 import socket
+import sqlite3
 import ssl
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from byobot import link, serve
-from byobot.core import commands, hlc
+from byobot import link, remote, serve
+from byobot.core import commands, hlc, relay
 from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
 from byobot.util import uuid7
@@ -279,12 +281,13 @@ class Client:
     def __init__(self, port, fp, token=None):
         self.port, self.fp, self.token = port, fp, token
 
-    def call(self, method, path, body=None, token=None):
+    def raw(self, method, path, data: bytes | None = None, token=None, timeout: float = 15):
+        """(status, body) or raises ConnectionError when the server closes without answering."""
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE  # trust comes from the pinned fingerprint below
-        conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=10)
+        conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=ctx, timeout=timeout)
         try:
             conn.connect()
             served = serve.fingerprint(conn.sock.getpeercert(binary_form=True))
@@ -293,22 +296,42 @@ class Client:
             tok = token if token is not None else self.token
             if tok:
                 headers["Authorization"] = f"Bearer {tok}"
-            conn.request(method, path, body=None if body is None else json.dumps(body), headers=headers)
-            resp = conn.getresponse()
-            return resp.status, json.loads(resp.read())
+            conn.request(method, path, body=data, headers=headers)
+            try:
+                resp = conn.getresponse()
+            except (http.client.RemoteDisconnected, ConnectionResetError, ssl.SSLError) as exc:
+                raise ConnectionError(f"no answer: {exc!r}") from None
+            body = resp.read()
+            try:
+                return resp.status, json.loads(body)
+            except ValueError:
+                return resp.status, body
         finally:
             conn.close()
+
+    def call(self, method, path, body=None, token=None, timeout: float = 15):
+        return self.raw(method, path, None if body is None else json.dumps(body).encode(), token, timeout)
+
+
+@contextmanager
+def running(**kw):
+    """A running hub with pairing open, and a client pinned to its certificate."""
+    logs = []
+    kw = {"pair": True, "log": logs.append, **kw}
+    srv, info = serve.make_server("127.0.0.1", 0, **kw)
+    thread = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    try:
+        yield srv, info, Client(info["port"], info["fingerprint"]), logs
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.fixture
 def server(byobot_home):
-    logs = []
-    srv, info = serve.make_server("127.0.0.1", 0, pair=True, log=logs.append)
-    thread = threading.Thread(target=srv.serve_forever, daemon=True)
-    thread.start()
-    yield srv, info, Client(info["port"], info["fingerprint"]), logs
-    srv.shutdown()
-    srv.server_close()
+    with running() as h:
+        yield h
 
 
 def _pair(client, info, device_id=PHONE):
@@ -333,6 +356,18 @@ def _event(kind, rid, payload=None, op="put", prev=(), device_id=PHONE, actor=ME
         event["reverts"] = reverts
     return {**event, "kind_version": 1, "payload": payload} if op == "put" else {**event, "payload": payload or {}}
 
+
+
+def location(slug, name):
+    return _event("location", slug, {"name": name})
+
+
+def no_answer(fn) -> bool:
+    try:
+        fn()
+    except (ConnectionError, socket.timeout, TimeoutError):
+        return True
+    return False
 
 def db(byobot_home):
     return Store(byobot_home / "byobot.db")
@@ -930,3 +965,523 @@ def test_profile_shows_in_the_server_name(monkeypatch):
     assert serve.server_name() == "example-laptop"
     monkeypatch.setenv("BYOBOT_PROFILE", "alex")
     assert serve.server_name() == "example-laptop (alex)"
+
+
+def test_a_new_location_under_an_erased_slug_is_not_reported_as_kept(store):
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+    commands.erase(store, ME, "location", "example_gym")
+
+    # On the phone, which last pulled before the erase, you add "Example gym" again: same slug, prev [].
+    added = _event("location", "example_gym", {"name": "Example gym"})
+    [result] = relay.accept_events(store, PHONE, [added])
+
+    kept = store.get("location", "example_gym") is not None
+    assert kept or result["status"] == "rejected", (
+        f"the hub answered {result['status']!r} but kept nothing; the phone drops the location at its next pull")
+
+
+@pytest.fixture
+def deadlined(byobot_home, monkeypatch):
+    monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 5)  # 30 s in production; scaled down, with room for slow CI
+    with running() as h:
+        yield h
+
+
+def _connect(port):
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))
+
+
+def _response(sock) -> tuple[int, dict, bytes]:
+    """One HTTP/1.1 response read off a kept-alive connection."""
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise ConnectionError(f"closed after {data!r}")
+        data += chunk
+    head, rest = data.split(b"\r\n\r\n", 1)
+    lines = head.decode().split("\r\n")
+    headers = {k.lower(): v.strip() for k, v in (line.split(":", 1) for line in lines[1:])}
+    length = int(headers.get("content-length", 0))
+    while len(rest) < length:
+        rest += sock.recv(4096)
+    return int(lines[0].split()[1]), headers, rest[:length]
+
+
+def _post(path, token, body: bytes) -> bytes:
+    return (f"POST {path} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\n"
+            f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body
+
+
+def test_each_request_on_a_kept_alive_connection_gets_its_own_deadline(deadlined):
+    _, info, client, _ = deadlined
+    token = _pair(client, info)["token"]
+    sock = _connect(info["port"])
+    statuses = []
+    # A first sync sends a year of Apple Health readings, a thousand at a time, one request after another.
+    for _ in range(30):
+        sock.sendall(_post("/v1/samples", token, json.dumps({"samples": []}).encode()))
+        try:
+            status, _, _ = _response(sock)
+        except ConnectionError:
+            status = "closed"
+        statuses.append(status)
+        if status != 200:
+            break
+        time.sleep(0.2)  # each request is quick; together they outlast one deadline
+    sock.close()
+    assert statuses == [200] * 30, statuses
+
+
+def test_a_refusal_after_an_earlier_post_on_the_connection_does_not_desync_it(deadlined):
+    _, info, client, _ = deadlined
+    token = _pair(client, info)["token"]
+    sock = _connect(info["port"])
+    sock.sendall(_post("/v1/samples", token, json.dumps({"samples": []}).encode()))
+    assert _response(sock)[0] == 200
+    # Refused before its body is read: the body must be dropped or the connection closed, never parsed.
+    inner = b"GET /v1/hello HTTP/1.1\r\nHost: x\r\n\r\n"
+    sock.sendall(_post("/v1/events", "not-a-token", inner))
+    status, headers, _ = _response(sock)
+    assert status == 401
+    assert headers.get("connection", "").lower() == "close", "the unread body stays on a kept-alive connection"
+    sock.settimeout(2)
+    try:
+        extra = _response(sock)
+    except (ConnectionError, TimeoutError, socket.timeout, ssl.SSLError, OSError):
+        extra = None
+    assert extra is None, f"the body was answered as a request of its own: {extra}"
+
+
+def test_an_event_landing_between_the_two_pull_queries_is_not_skipped(server, byobot_home, monkeypatch):
+    _, info, client, _ = server
+    with Store(byobot_home / "byobot.db") as s:
+        seed(s)
+    _pair(client, info)
+    status, first = client.call("GET", "/v1/events")
+    assert status == 200 and first["more"] is False
+    cursor = first["next"]
+
+    # Another writer (the CLI, an agent over MCP, the Drive poller, another phone's push) commits an event right
+    # after the hub has read the page but before it asks for the page's last position.
+    late = _event("activity", "x.plank", {"name": "Plank"}, device_id="0193a0b0-0000-7000-8000-00000000ab02")
+    original = Store.events
+    armed = [True]
+
+    def events_then_a_concurrent_write(self, since=0, limit=-1):
+        out = original(self, since, limit)
+        if armed[0] and since == cursor:
+            armed[0] = False
+            with Store(byobot_home / "byobot.db") as other:
+                assert other.accept(late)[0] == "accepted"
+        return out
+
+    monkeypatch.setattr(Store, "events", events_then_a_concurrent_write)
+    status, page = client.call("GET", f"/v1/events?after={cursor}")
+    assert status == 200 and page["events"] == []
+    status, after = client.call("GET", f"/v1/events?after={page['next']}")
+    assert status == 200
+    pulled = [e["id"] for e in page["events"] + after["events"]]
+    assert late["id"] in pulled, "the cursor moved past an event the puller never received"
+
+
+BASE = "https://example-laptop.example.ts.net"
+
+
+@pytest.fixture
+def remote_server(byobot_home):
+    Store(byobot_home / "byobot.db").close()
+    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+def _exchange(sock, raw: bytes) -> bytes:
+    sock.sendall(raw)
+    out = b""
+    try:
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            out += chunk
+    except (TimeoutError, socket.timeout, ConnectionError, ssl.SSLError):
+        pass
+    return out
+
+
+def test_a_pairing_code_in_other_digits_gets_an_answer_and_spends_a_try(server):
+    srv, info, client, _ = server
+    # "١٢٣٤٥٦" is 123456 in Arabic-Indic digits: not ASCII, so secrets.compare_digest raises TypeError.
+    body = json.dumps({"code": "١٢٣٤٥٦", "device_id": "example-phone",
+                       "name": "Example iPhone"}).encode()
+    sock = _tls_client(info["port"], info["fingerprint"])
+    reply = _exchange(sock, b"POST /v1/pair HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+                            b"Connection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+    sock.close()
+    assert reply.startswith(b"HTTP/1.1 403"), f"no answer at all: {reply[:80]!r}"
+    assert srv.pairing.tries_left == serve.PAIRING_TRIES - 1
+
+
+def test_an_approval_code_in_other_digits_gets_a_page(remote_server):
+    from test_remote import CALLBACK, FORM, pkce, request
+
+    resp, raw = request(remote_server, "POST", "/oauth/register", {"client_name": "Example Assistant",
+                                                                   "redirect_uris": [CALLBACK],
+                                                                   "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    _, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
+              "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz"}
+    try:
+        resp, _ = request(remote_server, "POST", "/oauth/authorize", {**params, "approval_code": "¹²"}, FORM)
+        status = resp.status
+    except (http.client.HTTPException, ConnectionError):
+        status = None
+    assert status == 403, "the approval page dropped the connection instead of answering"
+
+
+def test_a_pull_cursor_in_other_digits_is_a_400(server):
+    _, info, client, _ = server
+    _pair(client, info)
+    try:
+        status, _ = client.call("GET", "/v1/events?after=%C2%B2")  # "²": str.isdigit() is True, int() fails
+    except (http.client.HTTPException, ConnectionError):
+        status = None
+    assert status == 400
+
+
+def test_the_log_never_carries_terminal_control_codes_from_a_stranger(server):
+    _, info, _, logs = server
+    sock = _tls_client(info["port"], info["fingerprint"])
+    # ESC ] 0 ; ... BEL sets the terminal's title; other sequences can rewrite what `byobot serve` showed.
+    _exchange(sock, b"GET /v1/\x1b]0;pwned\x07\x1b[2J HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    sock.close()
+    assert logs, "nothing was logged"
+    assert not any("\x1b" in line or "\x07" in line for line in logs), logs
+
+
+def test_registration_with_a_malformed_grant_types_gets_an_oauth_error(remote_server):
+    from test_remote import CALLBACK, request
+
+    try:
+        resp, raw = request(remote_server, "POST", "/oauth/register",
+                            {"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none", "grant_types": 5})
+        status = resp.status
+    except (http.client.HTTPException, ConnectionError):
+        status = None
+    assert status == 400, "an unauthenticated registration dropped the connection instead of answering"
+
+
+def test_a_client_that_never_sends_redirect_uri_can_finish_sign_in(remote_server):
+    """RFC 6749 4.1.3 (kept by OAuth 2.1): redirect_uri is required at the token endpoint only if it was in the
+    authorization request. byobot lets a client with one registered address leave it out of the request, then
+    insists on it at the token endpoint."""
+    from urllib.parse import parse_qs, urlencode, urlsplit
+
+    from test_remote import CALLBACK, FORM, pkce, request
+
+    resp, raw = request(remote_server, "POST", "/oauth/register", {"client_name": "Example Assistant",
+                                                                   "redirect_uris": [CALLBACK],
+                                                                   "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    verifier, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "code_challenge": challenge,
+              "code_challenge_method": "S256", "state": "xyz"}  # no redirect_uri
+    resp, _ = request(remote_server, "GET", "/oauth/authorize?" + urlencode(params))
+    assert resp.status == 200
+    resp, _ = request(remote_server, "POST", "/oauth/authorize",
+                      {**params, "approval_code": remote_server.pairing.code}, FORM)
+    assert resp.status == 302
+    code = parse_qs(urlsplit(resp.getheader("Location")).query)["code"][0]
+    resp, raw = request(remote_server, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": code,
+                                                               "client_id": client["client_id"],
+                                                               "code_verifier": verifier}, FORM)
+    assert resp.status == 200, raw
+
+
+def test_a_get_with_a_body_does_not_desync_the_next_request_on_the_connection(remote_server):
+    # Behind a tunnel, one upstream connection carries requests from different callers, so leftover body bytes
+    # would become the start of someone else's request.
+    smuggled = b"GET /api/v1/openapi.json HTTP/1.1\r\nHost: x\r\n\r\n"
+    first = (b"GET /.well-known/oauth-authorization-server HTTP/1.1\r\nHost: x\r\nContent-Length: "
+             + str(len(smuggled)).encode() + b"\r\n\r\n" + smuggled)
+    second = b"GET /.well-known/oauth-protected-resource HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    sock = socket.create_connection(("127.0.0.1", remote_server.server_address[1]), timeout=5)
+    reply = _exchange(sock, first + second)
+    sock.close()
+    answers = reply.count(b"HTTP/1.1 ")
+    assert b'"openapi"' not in reply, "the body of the first request was answered as a request of its own"
+    assert answers <= 2
+
+
+def test_a_restore_while_serving_is_what_phones_are_told(server, byobot_home, tmp_path):
+    _, info, client, _ = server
+    with Store(tmp_path / "old-laptop.db") as old:
+        commands.log(old, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+        backup, original = list(old.export()), old.store_id
+    with Store(byobot_home / "byobot.db") as s:  # `byobot restore backup.jsonl` in another terminal
+        s.restore(backup)
+        assert s.store_id == original
+
+    status, hello = client.call("GET", "/v1/hello")
+    assert status == 200
+    paired = _pair(client, info)
+    assert hello["server"]["store_id"] == original
+    assert paired["server"]["store_id"] == original, (
+        "the phone records another store, so it never sends again what the old laptop held after the backup")
+
+
+def test_the_plan_names_the_restored_store(server, byobot_home, tmp_path):
+    _, info, client, _ = server
+    paired = _pair(client, info)
+    with Store(tmp_path / "old-laptop.db") as old:
+        backup, original = list(old.export()), old.store_id
+    with Store(byobot_home / "byobot.db") as s:
+        s.restore(backup)
+    client.token = paired["token"]
+    status, plan = client.call("GET", "/v1/plan")
+    assert status == 200 and plan["store_id"] == original
+
+
+def _accounted(window: dict, pushed: list[dict], held: set[str]) -> list[str]:
+    """Ids the phone's settle would drop although the hub neither holds nor lists them as refused."""
+    marker = window["received"].get(PHONE)
+    refused = {r["id"] for r in window["rejected"]}
+    return [e["id"] for e in pushed if marker and e["hlc"] <= marker and e["id"] not in held
+            and e["id"] not in refused]
+
+
+def test_a_refusal_before_a_failure_mid_push_is_still_reported(server, byobot_home, monkeypatch):
+    srv, info, client, _ = server
+    _pair(client, info)
+    refused = location("example_gym", "Example gym")
+    refused["actor"] = {"kind": "agent", "id": "example-coach"}  # refused: a phone pushes only as its person
+    kept = location("example_park", "Example park")
+    cut = location("example_pool", "Example pool")
+
+    real = Store.accept
+
+    def accept(self, e):
+        if isinstance(e, dict) and e.get("id") == cut["id"]:
+            # What SQLite raises when another process held the write lock past the 5 s busy timeout.
+            raise sqlite3.OperationalError("database is locked")
+        return real(self, e)
+
+    monkeypatch.setattr(Store, "accept", accept)
+    pushed = [refused, kept, cut]
+    no_answer(lambda: client.call("POST", "/v1/events", {"events": pushed, "kind_versions": {}}))
+    monkeypatch.setattr(Store, "accept", real)
+
+    status, window = client.call("GET", "/v1/plan")
+    assert status == 200, window
+    with Store(byobot_home / "byobot.db") as s:
+        held = {e["id"] for e in pushed if s.event(e["id"])}
+    assert kept["id"] in held  # committed before the failure, so `received` already names it
+    assert _accounted(window, pushed, held) == [], (
+        "the refused event is at or below `received` but not in `rejected`, so the phone's settle drops it")
+
+
+def test_a_push_that_fails_part_way_still_answers(server, monkeypatch):
+    """The phone should learn the outcome of the events that went in, not get a dropped connection."""
+    srv, info, client, _ = server
+    _pair(client, info)
+    first, second = location("example_park", "Example park"), location("example_pool", "Example pool")
+    real = Store.accept
+
+    def accept(self, e):
+        if isinstance(e, dict) and e.get("id") == second["id"]:
+            raise sqlite3.OperationalError("database is locked")
+        return real(self, e)
+
+    monkeypatch.setattr(Store, "accept", accept)
+    try:
+        status, body = client.call("POST", "/v1/events", {"events": [first, second], "kind_versions": {}})
+    except ConnectionError as exc:
+        pytest.fail(f"the push got no HTTP answer: {exc}")
+    assert status in (200, 503), body
+
+
+HOLD_S = 6.5  # longer than the store's 5 s busy timeout
+
+
+def _hold_write_lock(db: Path, ready: threading.Event, seconds: float) -> None:
+    conn = sqlite3.connect(db, isolation_level=None, timeout=10)
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
+    ready.set()
+    time.sleep(seconds)
+    conn.execute("COMMIT")
+    conn.close()
+
+
+def _while_another_process_writes(db: Path, request):
+    ready = threading.Event()
+    writer = threading.Thread(target=_hold_write_lock, args=(db, ready, HOLD_S), daemon=True)
+    writer.start()
+    ready.wait(5)
+    try:
+        return request()
+    finally:
+        writer.join(15)
+
+
+def test_a_plan_read_while_another_process_writes_is_answered(server, byobot_home):
+    srv, info, client, _ = server
+    _pair(client, info)
+    try:
+        status, body = _while_another_process_writes(byobot_home / "byobot.db",
+                                                     lambda: client.call("GET", "/v1/plan", timeout=20))
+    except ConnectionError as exc:
+        pytest.fail(f"the plan read got no HTTP answer while another process wrote: {exc}")
+    assert status == 200, body
+
+
+def test_a_push_while_another_process_writes_gets_an_answer(server, byobot_home):
+    srv, info, client, _ = server
+    _pair(client, info)
+    events = [location("example_park", "Example park")]
+    try:
+        status, body = _while_another_process_writes(
+            byobot_home / "byobot.db",
+            lambda: client.call("POST", "/v1/events", {"events": events, "kind_versions": {}}, timeout=20))
+    except ConnectionError as exc:
+        pytest.fail(f"the push got no HTTP answer while another process wrote: {exc}")
+    assert status in (200, 503), body
+
+
+def test_a_plan_is_one_snapshot_even_when_an_erase_lands_while_it_is_read(store, byobot_home, monkeypatch):
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+    real = relay._device_state
+
+    def erase_meanwhile(s, device_id):
+        with Store(byobot_home / "byobot.db") as other:  # the CLI, on its own connection
+            commands.erase(other, ME, "location", "example_gym")
+        return real(s, device_id)
+
+    monkeypatch.setattr(relay, "_device_state", erase_meanwhile)
+    window = relay.plan_window(store, "2026-11-01", "2026-11-14", PHONE)
+    live = {e["id"] for e in window["locations"]}
+    erased = {e["id"] for e in window["erased"] if e["kind"] == "location"}
+    assert not live & erased, "the window shows example_gym as live, with its payload, and as erased"
+
+
+def test_a_push_after_an_erase_compacts_the_file_at_most_once(store, byobot_home):
+    commands.log(store, ME, [{"kind": "location", "id": "example_gym", "payload": {"name": "Example gym"}}])
+    reader = sqlite3.connect(byobot_home / "byobot.db", isolation_level=None)
+    reader.execute("BEGIN")
+    reader.execute("SELECT count(*) FROM events").fetchone()  # another process mid-read, e.g. a remote tool call
+    commands.erase(store, ME, "location", "example_gym")
+    assert store.compact_pending()
+
+    vacuums = []
+    store.conn.set_trace_callback(lambda sql: vacuums.append(sql) if sql.strip().upper() == "VACUUM" else None)
+    from byobot.core import hlc
+    from byobot.util import uuid7
+    events = []
+    for i in range(20):
+        events.append({"id": uuid7(), "schema_version": 1, "record": {"kind": "location", "id": f"example_place_{i}"},
+                       "op": "put", "kind_version": 1, "hlc": hlc.format((1795700000000 + i * 1000, 0)),
+                       "ts": "2026-11-23T08:00:00-05:00", "device_id": PHONE, "actor": ME, "prev": [],
+                       "payload": {"name": f"Example place {i}"}})
+    results = relay.accept_events(store, PHONE, events)
+    reader.execute("COMMIT")
+    reader.close()
+    assert all(r["status"] == "accepted" for r in results)
+    assert len(vacuums) <= 1, f"one push of {len(events)} events ran VACUUM {len(vacuums)} times"
+
+
+class _Busy(socket.socket):
+    """Ports below 8780 are taken by other programs on this computer."""
+
+    def bind(self, address):
+        if address[1] < remote.DEFAULT_PORT:
+            raise OSError(98, "Address already in use")
+        return super().bind((address[0], 0))
+
+
+def test_a_named_profile_hub_never_takes_the_remote_port(monkeypatch):
+    monkeypatch.setenv("BYOBOT_PROFILE", "example")
+    monkeypatch.setattr(serve.socket, "socket", _Busy)
+    port = serve.choose_port()
+    remote_ports = range(remote.DEFAULT_PORT, remote.DEFAULT_PORT + 100)
+    assert port not in remote_ports, f"serve chose {port}, which `byobot remote` uses or will choose"
+
+
+def _sample(value: str) -> bytes:
+    return ('{"samples": [{"source": "apple_health", "source_id": "example-sample-1", '
+            '"type": "HKQuantityTypeIdentifierBodyMass", "start": "2026-11-01T08:00:00Z", '
+            f'"end": "2026-11-01T08:00:00Z", "value": {value}, "unit": "kg"}}]}}').encode()
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "1e400"])
+def test_a_sample_with_a_number_json_cannot_hold_is_refused_with_an_answer(server, value):
+    srv, info, client, _ = server
+    _pair(client, info)
+    try:
+        status, body = client.raw("POST", "/v1/samples", _sample(value))
+    except ConnectionError as exc:
+        pytest.fail(f"no HTTP answer for a sample valued {value}: {exc}")
+    assert status == 400, body
+
+
+def test_an_event_body_with_a_huge_integer_gets_an_answer(server):
+    srv, info, client, _ = server
+    _pair(client, info)
+    body = b'{"events": [], "kind_versions": {}, "x": ' + b"9" * 5000 + b"}"
+    try:
+        status, answer = client.raw("POST", "/v1/events", body)
+    except ConnectionError as exc:
+        pytest.fail(f"no HTTP answer: {exc}")
+    assert status == 400, answer
+
+
+def test_an_unauthenticated_registration_with_a_huge_integer_gets_an_answer(remote_server):
+    body = (b'{"redirect_uris": ["https://client.example/cb"], "token_endpoint_auth_method": "none", "x": '
+            + b"9" * 5000 + b"}")
+    conn = http.client.HTTPConnection("127.0.0.1", remote_server.server_address[1], timeout=10)
+    try:
+        conn.request("POST", "/oauth/register", body=body, headers={"Content-Type": "application/json"})
+        try:
+            resp = conn.getresponse()
+        except (http.client.RemoteDisconnected, ConnectionResetError) as exc:
+            pytest.fail(f"a stranger's registration got no HTTP answer: {exc!r}")
+        assert resp.status == 400
+    finally:
+        conn.close()
+
+
+def test_a_pairing_whose_token_could_not_be_stored_can_be_tried_again(server, monkeypatch):
+    srv, info, client, _ = server
+    real = Store.pair
+    calls = []
+
+    def flaky(self, *args):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")  # the CLI held the write lock past 5 s
+        return real(self, *args)
+
+    monkeypatch.setattr(Store, "pair", flaky)
+    request = {"code": info["code"], "device_id": "0193a0b0-0000-7000-8000-00000000ab32", "name": "Example iPhone"}
+    try:
+        client.call("POST", "/v1/pair", request)
+    except ConnectionError:
+        pass  # no answer today; a 503 would be right too
+    status, body = client.call("POST", "/v1/pair", request)
+    assert status == 200, body
+
+
+def test_hello_names_the_computer_only_while_pairing_is_open(byobot_home):
+    with running(pair=False) as (srv, _, client, _):
+        srv.name = "Example Person's laptop"
+        status, body = client.call("GET", "/v1/hello")
+    assert status == 200 and body["pairing_open"] is False
+    assert body["server"]["name"] == "byobot"
