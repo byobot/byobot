@@ -177,7 +177,7 @@ def test_s9_two_devices_defining_one_activity_apart_conflict(world):
     world.author("phone", {"intent": "define_activity", "record": {"id": "x.row", "name": "Row"}})
     world.author("laptop", {"intent": "define_activity", "record": {"id": "x.row", "name": "Rowing machine"}})
     both_ways(world, "phone", "laptop")
-    assert list(world.snapshot("laptop")["conflicts"]) == ["activity/row"]
+    assert list(world.snapshot("laptop")["conflicts"]) == ["activity/x.row"]
     for name in ("phone", "laptop"):
         assert diff(world.snapshot(name), world.expected(name)) == []
 
@@ -196,20 +196,20 @@ def test_s9_two_devices_importing_the_same_data_write_it_once(world):
 # -- S10. re-planning orphans logged sets ---------------------------------------------------------------
 
 PLAN = {"id": "ps1", "scheduled_on": "2026-03-02", "name": "Legs", "blocks": [
-    {"id": "ps1.b0", "rounds": 3, "efforts": [{"id": "ps1.pe0", "activity_id": "barbell_back_squat"}]},
-    {"id": "ps1.b1", "rounds": 3, "efforts": [{"id": "ps1.pe1", "activity_id": "lunge"}]}]}
+    {"id": "ps1.b0", "rounds": 3, "efforts": [{"id": "ps1.pe0", "activity_id": "x.barbell_back_squat"}]},
+    {"id": "ps1.b1", "rounds": 3, "efforts": [{"id": "ps1.pe1", "activity_id": "x.lunge"}]}]}
 
 
 def test_s10_replanning_without_ids_keeps_logged_sets_linked(world):
     world.replica("phone")
-    for activity in ("barbell_back_squat", "lunge"):
+    for activity in ("x.barbell_back_squat", "x.lunge"):
         world.author("phone", {"intent": "define_activity", "record": {"id": activity, "name": activity}})
     world.author("phone", {"intent": "plan_session", "record": PLAN}, {"kind": "agent", "id": "example-agent"})
     world.author("phone", {"intent": "log_effort", "record": {
-        "id": "e1", "activity_id": "barbell_back_squat", "planned_effort_id": "ps1.pe0", "round": 1,
+        "id": "e1", "activity_id": "x.barbell_back_squat", "planned_effort_id": "ps1.pe0", "round": 1,
         "performed_at": T("10:05"), "metrics": {"reps": {"value": 5}}}})
-    replanned = {**PLAN, "blocks": [{"rounds": 4, "efforts": [{"activity_id": "barbell_back_squat"}]},
-                                    {"rounds": 3, "efforts": [{"activity_id": "lunge"}]}]}
+    replanned = {**PLAN, "blocks": [{"rounds": 4, "efforts": [{"activity_id": "x.barbell_back_squat"}]},
+                                    {"rounds": 3, "efforts": [{"activity_id": "x.lunge"}]}]}
     world.author("phone", {"intent": "replan_session", "record": replanned}, {"kind": "agent", "id": "example-agent"})
     plan = world.snapshot("phone")["records"]["planned_session/ps1"]["fields"]
     planned = {e.get("id") for b in plan["blocks"] for e in b["efforts"]}
@@ -220,11 +220,11 @@ def test_s10_replanning_without_ids_keeps_logged_sets_linked(world):
 def test_s10_a_swapped_exercise_gets_a_new_planned_effort(world):
     """A replan that puts lunges where squats were must not relink the squats logged to that slot."""
     world.replica("phone")
-    for activity in ("barbell_back_squat", "lunge"):
+    for activity in ("x.barbell_back_squat", "x.lunge"):
         world.author("phone", {"intent": "define_activity", "record": {"id": activity, "name": activity}})
     world.author("phone", {"intent": "plan_session", "record": PLAN}, {"kind": "agent", "id": "example-agent"})
-    swapped = {**PLAN, "blocks": [{"rounds": 3, "efforts": [{"activity_id": "lunge"}]},
-                                  {"rounds": 3, "efforts": [{"activity_id": "lunge"}]}]}
+    swapped = {**PLAN, "blocks": [{"rounds": 3, "efforts": [{"activity_id": "x.lunge"}]},
+                                  {"rounds": 3, "efforts": [{"activity_id": "x.lunge"}]}]}
     world.author("phone", {"intent": "replan_session", "record": swapped}, {"kind": "agent", "id": "example-agent"})
     plan = world.snapshot("phone")["records"]["planned_session/ps1"]["fields"]
     ids = [b["efforts"][0]["id"] for b in plan["blocks"]]
