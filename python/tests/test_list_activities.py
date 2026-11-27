@@ -18,7 +18,7 @@ def test_list_activities_by_muscle_and_equipment(capsys):
         define(capsys, a)
 
     def ids(*argv):
-        return [i["id"] for i in cli(capsys, "list", "activities", *argv)[1]["items"]]
+        return [i["id"] for i in cli(capsys, "list", "activity", *argv)[1]["items"]]
 
     assert ids("--muscle", "biceps") == ["x.cable_curl", "x.cable_row"]
     assert ids("--muscle", "lats", "--equipment", "cable") == ["x.cable_row"]
@@ -30,7 +30,7 @@ def test_list_activities_brief(capsys):
     define(capsys, {"id": "x.cable_row", "name": "Cable Row", "load_type": "cable", "equipment": ["bench"],
                     "targets": {"main": ["lats"]}, "notes": "Neutral grip."})
     define(capsys, {"id": "x.plank", "name": "Plank"})
-    brief = cli(capsys, "list", "activities", "--detail", "brief")[1]["items"]
+    brief = cli(capsys, "list", "activity", "--detail", "brief")[1]["items"]
     assert brief == [{"id": "x.cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "load_type": "cable",
                       "equipment": ["bench"], "source": "store"}, {"id": "x.plank", "name": "Plank", "source": "store"}]
 

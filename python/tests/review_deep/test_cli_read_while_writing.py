@@ -37,8 +37,8 @@ def test_cli_a_read_answers_while_another_process_holds_the_write_lock(byobot_ho
     thread.start()
     ready.wait(5)
     try:
-        cli_answer = via_cli(["list", "sessions"])
-        mcp_answer = via_mcp("list", {"kind": "sessions"})
+        cli_answer = via_cli(["list", "session"])
+        mcp_answer = via_mcp("list", {"kind": "session"})
     finally:
         thread.join()
     assert (cli_answer[0], mcp_answer[0]) == ("ok", "ok"), (cli_answer, mcp_answer)

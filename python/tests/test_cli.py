@@ -71,11 +71,11 @@ def test_log_list_and_query(capsys):
     assert event["actor"] == {"kind": "human", "id": "me"} and event["record"]["kind"] == "effort"
     assert event["payload"]["time"]["start"] and event["payload"]["modality"] == "self_reported"  # filled in for us
 
-    code, listed, _ = cli(capsys, "list", "efforts")
+    code, listed, _ = cli(capsys, "list", "effort")
     assert listed["count"] == 1 and listed["items"][0]["metrics"] == {"duration": {"value": 60, "unit": "s"}}
     assert listed["items"][0]["id"] == event["record"]["id"]
-    assert cli(capsys, "list", "efforts", "--activity", "x.row")[1]["count"] == 0
-    assert cli(capsys, "list", "activities")[1]["items"][0]["default_metrics"] == ["duration"]
+    assert cli(capsys, "list", "effort", "--activity", "x.row")[1]["count"] == 0
+    assert cli(capsys, "list", "activity")[1]["items"][0]["default_metrics"] == ["duration"]
 
     code, rows, _ = cli(capsys, "query", "SELECT count(*) AS n FROM events")
     assert rows["rows"] == [{"n": 2}]
@@ -93,7 +93,7 @@ def test_planned_session_fills_ids_and_lists_nested(capsys):
     rid = out["event"]["record"]["id"]
     block = out["event"]["payload"]["blocks"][0]
     assert block["id"] == f"{rid}.0" and [e["id"] for e in block["efforts"]] == [f"{rid}.0.0", f"{rid}.0.1"]
-    planned = cli(capsys, "list", "planned")[1]["items"][0]
+    planned = cli(capsys, "list", "planned_session")[1]["items"][0]
     assert planned["blocks"][0]["rounds"] == 3
     assert planned["blocks"][0]["metrics"] == {"rest": {"value": 90, "unit": "s"}}
     assert [e["activity_id"] for e in planned["blocks"][0]["efforts"]] == ["x.pull_up", "x.dip"]
@@ -129,7 +129,7 @@ def test_session_with_efforts_in_one_batch(capsys):
                                             "time": {"start": "2026-11-20T18:00:00-05:00"}}}]
     code, out, _ = cli(capsys, "log", "batch", json.dumps(batch))
     assert code == 0 and len(out["events"]) == 2
-    session = cli(capsys, "list", "sessions")[1]["items"][0]
+    session = cli(capsys, "list", "session")[1]["items"][0]
     assert session["metrics"]["duration"] == {"value": 90, "unit": "min"} and session["local_date"] == "2026-11-20"
     assert session["efforts"] == [out["events"][1]["record"]["id"]]
 
@@ -140,7 +140,7 @@ def test_log_from_file_and_stdin(capsys, tmp_path, monkeypatch):
     assert cli(capsys, "log", "activity", f"@{path}", "--id", "x.plank")[0] == 0
     monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(json.dumps({"name": "Row"})))
     assert cli(capsys, "log", "activity", "-", "--id", "x.row")[0] == 0
-    assert cli(capsys, "list", "activities")[1]["count"] == 2
+    assert cli(capsys, "list", "activity")[1]["count"] == 2
 
 
 def test_actor_flag(capsys):
@@ -174,18 +174,18 @@ def test_edit_and_undo(capsys):
     rid = out["event"]["record"]["id"]
     code, edit, _ = cli(capsys, "edit", "effort", rid, '{"metrics": {"reps": {"value": 7}}, "notes": "last one didn\'t count"}')
     assert code == 0 and edit["event"]["prev"] == [out["event"]["id"]]
-    effort = cli(capsys, "list", "efforts")[1]["items"][0]
+    effort = cli(capsys, "list", "effort")[1]["items"][0]
     assert effort["metrics"] == {"reps": {"value": 7}}
     code, undo, _ = cli(capsys, "undo", edit["event"]["id"])
     assert code == 0 and undo["events"][0]["reverts"] == edit["event"]["id"]
-    assert cli(capsys, "list", "efforts")[1]["items"][0]["metrics"] == {"reps": {"value": 8}}
+    assert cli(capsys, "list", "effort")[1]["items"][0]["metrics"] == {"reps": {"value": 8}}
     assert cli(capsys, "edit", "effort", "missing", '{"notes": "x"}')[0] != 0
 
 
 def test_remove_and_history(capsys):
     cli(capsys, "log", "activity", json.dumps({"name": "Plank"}), "--id", "x.plank")
     assert cli(capsys, "remove", "activity", "x.plank", "--reason", "typo")[0] == 0
-    assert cli(capsys, "list", "activities")[1]["count"] == 0
+    assert cli(capsys, "list", "activity")[1]["count"] == 0
     versions = cli(capsys, "history", "activity", "x.plank")[1]["versions"]
     assert [v["op"] for v in versions] == ["put", "retract"]
 
@@ -196,18 +196,18 @@ def test_ingest_ndjson_file(capsys, tmp_path):
     code, out, _ = cli(capsys, "ingest", f"@{path}")
     assert out == {"written": {"hume": 1, "apple_health": 1}, "unchanged": 0}
     assert cli(capsys, "ingest", f"@{path}")[1] == {"written": {"hume": 0, "apple_health": 0}, "unchanged": 2}
-    code, listed, _ = cli(capsys, "list", "observations", "--type", "body_mass")
+    code, listed, _ = cli(capsys, "list", "observation", "--type", "body_mass")
     assert listed["count"] == 1 and listed["items"][0]["value"] == 82.4
 
 
 def test_correct_and_exclude_an_import(capsys):
     cli(capsys, "ingest", json.dumps(WEIGHT))
-    rid = cli(capsys, "list", "sources")[1]["items"][0]["id"]
+    rid = cli(capsys, "list", "source_record")[1]["items"][0]["id"]
     code, out, _ = cli(capsys, "correct", rid, '{"value": 81.9, "unit": "kg"}')
     assert code == 0, out
-    assert cli(capsys, "list", "observations")[1]["items"][0]["value"] == 81.9
+    assert cli(capsys, "list", "observation")[1]["items"][0]["value"] == 81.9
     assert cli(capsys, "exclude", rid, "--notes", "wrong person")[0] == 0
-    assert cli(capsys, "list", "observations")[1]["count"] == 0
+    assert cli(capsys, "list", "observation")[1]["count"] == 0
     assert cli(capsys, "correct", "missing", '{"value": 1}')[0] != 0
 
 
@@ -285,7 +285,7 @@ def test_import_activities_keeps_yours_unless_told(capsys, tmp_path):
 def test_log_and_list_locations(capsys):
     code, out, _ = cli(capsys, "log", "location", json.dumps({"name": "Home gym"}), "--id", "home")
     assert code == 0 and out["event"]["record"] == {"kind": "location", "id": "home"}
-    assert [i["name"] for i in cli(capsys, "list", "locations")[1]["items"]] == ["Home gym"]
+    assert [i["name"] for i in cli(capsys, "list", "location")[1]["items"]] == ["Home gym"]
 
 
 def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
@@ -295,10 +295,10 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     (lib / "activities" / "dip.json").write_text(json.dumps({"id": "x.dip", "name": "Dip", "targets": {"main": ["triceps"]}}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     cli(capsys, "log", "activity", '{"name": "Plank"}', "--id", "x.plank")
-    items = cli(capsys, "list", "activities")[1]["items"]
+    items = cli(capsys, "list", "activity")[1]["items"]
     assert [(i["id"], i["source"]) for i in items] == [("x.dip", "library"), ("x.plank", "store")]
     assert items[0]["targets"] == {"main": ["triceps"]} and "payload" not in items[0]
-    assert [i["id"] for i in cli(capsys, "list", "activities", "--source", "library")[1]["items"]] == ["x.dip"]
+    assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["x.dip"]
 
 
 def test_planned_session_must_name_existing_records(capsys):

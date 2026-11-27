@@ -50,7 +50,7 @@ def test_a_read_leaves_drive_alone(phone, monkeypatch):
     age(ctx)
     monkeypatch.setattr(commands, "autosync", lambda *a, **k: pytest.fail("a read synced Drive"))
     run("status", ctx, {})
-    run("list", ctx, {"kind": "efforts"})
+    run("list", ctx, {"kind": "effort"})
     assert efforts(ctx) == 0 and meta(ctx, "tried_at") == "0"
 
 

@@ -364,7 +364,7 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 @command(
     "correct",
     "Use your values over what a source imported, whatever the source later says.",
-    Param("record_id", "string", "The source record's id (see `list sources` or `list workouts`).", required=True,
+    Param("record_id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
           positional=True),
     Param("fields", "json", "What to use instead: name, time, metrics, or value and unit for a single "
           "measurement. Merges into earlier corrections; null takes one back.", required=True, positional=True,
@@ -549,22 +549,21 @@ def _ingest(ctx: Context, samples: Any) -> dict:
 
 # -- reading --------------------------------------------------------------------
 
-LIST_KINDS = ("events", "activities", "locations", "settings", "plans", "planned", "sessions", "efforts",
-              "observations", "workouts", "sources", "overlays")
-# kind -> (table, time column for since/until, order, record kind)
+# kind -> (table, time column for since/until, order); a record kind, or workouts across you and your sources
 LISTS = {
-    "activities": ("activities", None, "name, id", "activity"),
-    "locations": ("locations", None, "name, id", "location"),
-    "settings": ("settings", None, "id", "setting"),
-    "plans": ("plans", "starts_on", "starts_on DESC, id", "plan"),
-    "planned": ("planned_sessions", "scheduled_on", "scheduled_on DESC, id", "planned_session"),
-    "sessions": ("sessions", "start_ms", "start_ms DESC, id", "session"),
-    "efforts": ("efforts", "start_ms", "start_ms DESC, id", "effort"),
-    "observations": ("observations", "start_ms", "start_ms DESC, id", "observation"),
-    "workouts": ("occurrences", "start_ms", "start_ms DESC, id", None),
-    "sources": ("source_records", None, "revised_at DESC, id", "source_record"),
-    "overlays": ("overlays", None, "id", "overlay"),
+    "activity": ("activities", None, "name, id"),
+    "location": ("locations", None, "name, id"),
+    "setting": ("settings", None, "id"),
+    "plan": ("plans", "starts_on", "starts_on DESC, id"),
+    "planned_session": ("planned_sessions", "scheduled_on", "scheduled_on DESC, id"),
+    "session": ("sessions", "start_ms", "start_ms DESC, id"),
+    "effort": ("efforts", "start_ms", "start_ms DESC, id"),
+    "observation": ("observations", "start_ms", "start_ms DESC, id"),
+    "source_record": ("source_records", None, "revised_at DESC, id"),
+    "overlay": ("overlays", None, "id"),
+    "workouts": ("occurrences", "start_ms", "start_ms DESC, id"),
 }
+LIST_KINDS = ("events", *LISTS)
 JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_curve", "value", "raw", "fields")
 BRIEF_ACTIVITY = ("id", "name", "targets", "load_type", "equipment", "movement_type", "fatigue", "default_metrics",
                   "source")
@@ -601,17 +600,19 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
 
 @command(
     "list",
-    "List records of one kind, newest first: sessions you logged (sessions), sets (efforts), measurements "
-    "(observations), workouts as one per occasion across you and your sources (workouts), and more.",
-    Param("kind", "string", "What to list.", required=True, choices=LIST_KINDS, positional=True),
-    Param("type", "string", "Only this record kind (events), code (observations) or source type (sources)."),
-    Param("activity", "string", "Only this activity id (efforts)."),
-    Param("source", "string", "Only this source, such as whoop (observations, sources, workouts), or for "
+    "List records of one kind, newest first: sessions you logged (session), sets (effort), measurements "
+    "(observation), workouts as one per occasion across you and your sources (workouts), the logbook's events "
+    "(events), and more.",
+    Param("kind", "string", "What to list: a record kind, workouts or events.", required=True, choices=LIST_KINDS,
+          positional=True),
+    Param("type", "string", "Only this record kind (events), code (observation) or source type (source_record)."),
+    Param("activity", "string", "Only this activity id (effort)."),
+    Param("source", "string", "Only this source, such as whoop (observation, source_record, workouts), or for "
           "activities `library` (shipped with byobot) or `store` (yours)."),
-    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activities)."),
+    Param("muscle", "string", "Only activities that work this muscle, as main or synergist (activity)."),
     Param("equipment", "string", "Only activities loaded this way, such as dumbbell, or needing this kit, such as "
-          "bench (activities)."),
-    Param("detail", "string", "brief keeps only what picking an activity needs (activities).",
+          "bench (activity)."),
+    Param("detail", "string", "brief keeps only what picking an activity needs (activity).",
           choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records on or after this date, or at or after this timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
@@ -641,17 +642,17 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
                 bound = _bound(value)
                 add(f"{day if isinstance(bound, str) else instant} {op} ?", bound)
     else:
-        table, time, order, _ = LISTS[kind]
+        table, time, order = LISTS[kind]
         sql = f"SELECT * FROM {table}"
-        add("code = ?", type if kind == "observations" else None)
-        add("source_type = ?", type if kind == "sources" else None)
-        add("activity_id = ?", activity if kind == "efforts" else None)
-        if kind in ("observations", "sources", "activities"):
+        add("code = ?", type if kind == "observation" else None)
+        add("source_type = ?", type if kind == "source_record" else None)
+        add("activity_id = ?", activity if kind == "effort" else None)
+        if kind in ("observation", "source_record", "activity"):
             add("source = ?", source)
         if kind == "workouts" and source is not None:
             add("id IN (SELECT occurrence_id FROM occurrence_items i JOIN source_records s ON s.id = i.id "
                 "WHERE s.source = ?)", source)
-        if kind == "activities":
+        if kind == "activity":
             if muscle is not None:
                 where.append("EXISTS (SELECT 1 FROM json_each(targets, '$.main') WHERE value = ?"
                              " UNION ALL SELECT 1 FROM json_each(targets, '$.synergists') WHERE value = ?)")
@@ -667,25 +668,24 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
     if where:
         sql += " WHERE " + " AND ".join(where)
     rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, limit])
-    owner = LISTS[kind][3] if kind in LISTS else None
-    newer = {i for _, i in store.newer(owner)} if owner else set()
+    newer = {i for _, i in store.newer(kind)} if kind not in ("events", "workouts") else set()
     for row in rows:
         if row.get("id") in newer:
             row["newer"] = True  # this record also holds a version a newer byobot wrote, which this one can't read
         for col in JSON_COLUMNS:
-            if isinstance(row.get(col), str) and (kind != "observations" or col != "value"):
+            if isinstance(row.get(col), str) and (kind != "observation" or col != "value"):
                 row[col] = json.loads(row[col])
         if kind == "events":
             row["payload"] = json.loads(row["payload"])
-        if kind == "activities" and detail == "brief":
+        if kind == "activity" and detail == "brief":
             for col in [c for c in row if c not in BRIEF_ACTIVITY or row[c] is None]:
                 del row[col]
-        if kind in ("sessions", "efforts"):
-            row["metrics"] = metrics_of(store, LISTS[kind][3], row["id"])
-        if kind == "sessions":
+        if kind in ("session", "effort"):
+            row["metrics"] = metrics_of(store, kind, row["id"])
+        if kind == "session":
             row["efforts"] = [e["id"] for e in store.rows(
                 "SELECT id FROM efforts WHERE session_id = ? ORDER BY start_ms, id", (row["id"],))]
-        if kind == "planned":
+        if kind == "planned_session":
             _planned(store, row)
         if kind == "workouts":
             _workout(store, row)
