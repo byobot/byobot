@@ -376,3 +376,36 @@ def test_a_new_recovery_code_retires_the_old_one(store, folder, keeper, tmp_path
         Keeper.recover(Store(tmp_path / "a.db"), folder, old, clock)
     again = Keeper.recover(Store(tmp_path / "b.db"), folder, keeper.recovery_code, clock)
     assert again.identity.public() == keeper.identity.public()
+
+
+def moved(keeper, relay):
+    """The relay writes in the keeper's epoch, so cleanup can run."""
+    relay.sync()
+    relay.log([event()])
+    relay.sync()
+    keeper.sync()
+    keeper.sync()
+
+
+
+def test_a_new_code_cut_short_is_kept_and_shown_by_the_retry(store, folder, keeper, tmp_path, clock, monkeypatch):
+    relay = joined(keeper, folder)
+    keeper.sync()
+    create = folder.create
+
+    def lost(path, data):
+        if path.startswith("epochs/"):
+            raise OSError("offline")
+        create(path, data)
+
+    monkeypatch.setattr(folder, "create", lost)
+    with pytest.raises(OSError):
+        keeper.rotate(recovery=True)
+    made = keeper.unshown_code()
+    assert keeper.local_status()["recovery_code"].startswith("not shown yet")
+    monkeypatch.setattr(folder, "create", create)
+    keeper.rotate()  # without --recovery, it still finishes the code the cut-short try made
+    assert keeper.recovery_code == made
+    moved(keeper, relay)
+    Keeper.recover(Store(tmp_path / "a.db"), folder, made, clock)
+
