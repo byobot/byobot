@@ -259,7 +259,8 @@ def test_a_connected_assistant_uses_the_tools(running):
     assert json.loads(raw)["result"]["isError"] is False
     resp, raw = rpc(running, token, "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_kind, actor_id FROM events"}}, session=session)
-    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_kind": "agent", "actor_id": "example-assistant"}]
+    [row] = json.loads(raw)["result"]["structuredContent"]["rows"]
+    assert row["actor_kind"] == "agent" and row["actor_id"].startswith("Example Assistant#")
 
 
 def test_sessions_belong_to_their_client(running):
@@ -281,7 +282,8 @@ def test_without_a_session_writes_name_the_connected_app(running):
         "kind": "activity", "id": "plank", "payload": {"name": "Plank"}}})
     resp, raw = rpc(running, tokens["access_token"], "tools/call", {"name": "query", "arguments": {
         "sql": "SELECT actor_id FROM events"}})
-    assert json.loads(raw)["result"]["structuredContent"]["rows"] == [{"actor_id": "Example Assistant"}]
+    [row] = json.loads(raw)["result"]["structuredContent"]["rows"]
+    assert row["actor_id"].startswith("Example Assistant#")
 
 
 def test_a_wrong_code_does_not_approve(running):
@@ -416,7 +418,8 @@ def test_an_api_key_calls_tools(running, header):
                                                             "payload": {"name": "Plank"}}, auth)
     assert resp.status == 200, raw
     resp, raw = request(running, "POST", "/api/tools/query", {"sql": "SELECT actor_id FROM events"}, auth)
-    assert json.loads(raw)["rows"] == [{"actor_id": "example_assistant"}]
+    [row] = json.loads(raw)["rows"]
+    assert row["actor_id"].startswith("example_assistant#key:")
     resp, raw = request(running, "POST", "/api/tools/query", {}, auth)
     assert resp.status == 400 and json.loads(raw)["error"] == "invalid"
     assert request(running, "POST", "/api/tools/nope", {}, auth)[0].status == 404

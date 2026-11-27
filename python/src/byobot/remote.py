@@ -76,6 +76,11 @@ def _redirect_ok(uri: Any) -> bool:
     return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "::1"))
 
 
+def actor_id(client: dict) -> str:
+    """The author of a client's writes: its name and its own id, so two clients that call themselves alike differ."""
+    return f"{client['client_name'][:100]}#{client['client_id']}"
+
+
 class OAuthError(Exception):
     def __init__(self, error: str, description: str, status: int = 400):
         super().__init__(description)
@@ -566,7 +571,7 @@ class Handler(serve.Handler):
         message = self._body()
         initializing = isinstance(message, dict) and message.get("method") == "initialize"
         session = None if initializing else self._session(client)
-        server = mcp.Server()
+        server = mcp.Server(actor_id(client))
         server.client = session["client"] if session else {"name": client["client_name"]}
         if session:
             server.protocol = session["protocol"]
@@ -628,8 +633,7 @@ class Handler(serve.Handler):
             args = {}
         if not isinstance(args, dict):
             raise serve.HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
-        server = mcp.Server()
-        server.client = {"name": client["client_name"]}
+        server = mcp.Server(actor_id(client))
         server.ctx = Context(actor={}, path=self.server.db)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
         try:

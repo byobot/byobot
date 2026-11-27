@@ -80,13 +80,14 @@ def tools() -> list[dict]:
 
 
 class Server:
-    def __init__(self) -> None:
+    def __init__(self, actor_id: str | None = None) -> None:
         self.protocol = LATEST
         self.client = {"name": "mcp-client"}
+        self.actor_id = actor_id  # else the name the client gives itself
         self.ctx: Context | None = None
 
     def _context(self, model: str | None) -> Context:
-        actor = {"kind": "agent", "id": str(self.client.get("name") or "mcp-client")[:200]}
+        actor = {"kind": "agent", "id": str(self.actor_id or self.client.get("name") or "mcp-client")[:200]}
         model = model or os.environ.get("BYOBOT_AGENT_MODEL")
         if model:
             actor["model"] = str(model)[:200]
