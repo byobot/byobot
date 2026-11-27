@@ -314,6 +314,25 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["dip"]
 
 
+def test_list_refuses_filters_that_dont_fit_and_says_when_cut_short(capsys):
+    code, _, err = cli(capsys, "list", "session", "--muscle", "chest")
+    assert code == 1 and json.loads(err)["message"] == "muscle doesn't apply to list session; it fits activity"
+    assert cli(capsys, "list", "location", "--detail", "brief")[0] == 1
+    for i in range(3):
+        cli(capsys, "log", "location", json.dumps({"name": f"Gym {i}"}), "--id", f"gym_{i}")
+    out = cli(capsys, "list", "location", "--limit", "2")[1]
+    assert out["count"] == 2 and out["truncated"] is True
+    assert cli(capsys, "list", "location", "--limit", "3")[1]["truncated"] is False
+
+
+def test_list_one_record_by_id(capsys):
+    cli(capsys, "log", "location", '{"name": "Example gym"}', "--id", "example_gym")
+    cli(capsys, "log", "location", '{"name": "Home gym"}', "--id", "home")
+    assert [i["id"] for i in cli(capsys, "list", "location", "--id", "home")[1]["items"]] == ["home"]
+    event = cli(capsys, "list", "events", "--limit", "1")[1]["items"][0]
+    assert cli(capsys, "list", "events", "--id", event["id"])[1]["items"] == [event]
+
+
 def test_planned_session_must_name_existing_records(capsys):
     for id, name in (("x.barbell_back_squat", "Barbell Back Squat"), ("x.hack_squat", "Hack Squat")):
         cli(capsys, "log", "activity", json.dumps({"name": name}), "--id", id)
