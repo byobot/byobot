@@ -446,9 +446,11 @@ class Handler(serve.Handler):
                        if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
                                 "code_challenge_method", "state", "scope", "resource"))
         self._html(HTTPStatus.FORBIDDEN if message else HTTPStatus.OK, "Connect to byobot",
-                   f"<p><b>{escape(client['client_name'])}</b> wants to read and write your byobot "
-                   f"({escape(self.server.name)}). It will return to {escape(urlsplit(uri).hostname or '')}.</p>"
-                   f"<p>Enter the code <code>byobot remote</code> shows.</p>"
+                   f"<p>An app calling itself <b>{escape(client['client_name'])}</b> wants to read and write your "
+                   f"byobot ({escape(self.server.name)}). After you approve, it goes to "
+                   f"<b>{escape(urlsplit(uri).hostname or '')}</b>.</p>"
+                   f"<p>Enter the code <code>byobot remote</code> shows only if you just started connecting this "
+                   f"app yourself and that address is your assistant's.</p>"
                    f"<form method=post action='/oauth/authorize'>{keep}"
                    f"<p><input name=approval_code inputmode=numeric autocomplete=one-time-code size=8 autofocus>"
                    f" <button>Connect</button></p></form><p>{escape(message)}</p>")
