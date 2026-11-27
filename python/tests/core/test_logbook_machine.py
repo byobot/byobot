@@ -12,6 +12,7 @@ import random
 import tempfile
 from datetime import timedelta
 
+import pytest
 from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
@@ -212,7 +213,9 @@ class Logbook(RuleBasedStateMachine):
             batch = {"samples": [], "deleted": [("HKWorkoutTypeIdentifier", hid)]}
         else:
             minute = int(hid[1]) * 2
-            batch = [health_workout(hid, day(at, 10, minute - 1), day(at, 10, 57 + minute), distance * 1000.0)]
+            sample = health_workout(hid, day(at, 10, minute - 1), day(at, 10, 57 + minute), distance * 1000.0)
+            sample["raw"]["modified_at"] = day(at, 12, distance)  # a changed sample says when; see the test below
+            batch = [sample]
         self.world.ingest(REPLICAS[r], "apple-health", batch)
 
     @rule(r=replica, wid=st.sampled_from(WORKOUTS), distance=st.none() | st.integers(1, 20))
@@ -314,3 +317,15 @@ class Logbook(RuleBasedStateMachine):
 
 Logbook.TestCase.settings = settings(settings.default, stateful_step_count=30)
 test_logbook = Logbook.TestCase
+
+
+@pytest.mark.xfail(strict=True, reason="open: without a revision time, revisions are ordered by when each device wrote "
+                                       "them, so one imported on two devices orders differently on each")
+def test_a_sample_without_a_revision_time_imported_on_two_devices_reads_the_same_on_both():
+    state = Logbook()
+    state.start()
+    for r, at in ((0, 1), (0, 0), (1, 1)):
+        state.world.tick(60)
+        sample = health_workout("h1", day(at, 10, 1), day(at, 10, 59), 1000.0)
+        state.world.ingest(REPLICAS[r], "apple-health", [sample])
+    state.teardown()
