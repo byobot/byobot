@@ -166,6 +166,23 @@ def test_s20_erasing_a_record_in_conflict_ends_the_conflict(world):
         gone(world, name, MARK(1), MARK(4), MARK(5))
 
 
+def test_s20_two_erases_of_one_record_name_the_first_everywhere(world):
+    world.replica("phone")
+    world.replica("laptop")
+    world.author("phone", noted("e1", MARK(1)))
+    world.sync("phone", "laptop")
+    first = world.author("phone", {"intent": "erase", "record": ["effort", "e1"]})
+    world.author("laptop", renote("e1", MARK(6)))
+    world.author("laptop", {"intent": "erase", "record": ["effort", "e1"]})
+    both_ways(world, "phone", "laptop")
+    for name in ("phone", "laptop"):
+        same(world, name)
+        gone(world, name, MARK(1), MARK(6))
+        if world.driver.name == "v1":  # every replica names the same erase on what it blanked
+            named = {e.get("redacted_by") for e in world.state(name).store.events() if e["op"] != "erase"}
+            assert named == {first.events[0]["id"]}, name
+
+
 def test_s20_an_export_restored_after_an_erase_holds_nothing_of_it(world):
     world.replica("laptop")
     world.author("laptop", noted("e1", MARK(6)))
