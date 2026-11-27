@@ -57,3 +57,8 @@ def test_payload_errors_names_what_is_wrong():
     assert CONTRACT.payload_errors("activity", {}, "plank")
     assert CONTRACT.payload_errors("observation", {"code": "body_mass", "value": 80, "unit": "kg", "modality":
                                    "self_reported", "time": {"start": "2026-01-01T08:00:00Z"}}) == []
+
+
+def test_a_day_that_does_not_exist_is_refused():
+    assert CONTRACT.payload_errors("plan", {"name": "Base", "starts_on": "2026-02-30"})
+    assert CONTRACT.payload_errors("plan", {"name": "Base", "starts_on": "2026-02-28"}) == []

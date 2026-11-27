@@ -40,9 +40,9 @@ def _round(x):
 
 # Code -> review key, and the factor from the code's own unit. A day keeps its latest value, except MEAN keys,
 # which average.
-RECOVERY = {"recovery_score": ("recovery_pct", 1), "hrv_rmssd": ("hrv_rmssd_ms", 1), "hrv_sdnn": ("hrv_sdnn_ms", 1),
-            "resting_heart_rate": ("resting_hr_bpm", 1), "sleep_performance": ("sleep_performance_pct", 1),
-            "strain": ("strain", 1), "skin_temperature": ("skin_temp_c", 1),
+RECOVERY = {"whoop_recovery_score": ("recovery_pct", 1), "hrv_rmssd": ("hrv_rmssd_ms", 1), "hrv_sdnn": ("hrv_sdnn_ms", 1),
+            "resting_heart_rate": ("resting_hr_bpm", 1), "whoop_sleep_performance": ("sleep_performance_pct", 1),
+            "whoop_strain": ("strain", 1), "skin_temperature": ("skin_temp_c", 1),
             "sleeping_wrist_temperature": ("skin_temp_c", 1), "respiratory_rate": ("respiratory_rate_bpm", 1),
             "oxygen_saturation": ("spo2_pct", 1)}
 BODY = {"body_mass": ("weight_kg", 1), "body_fat_percentage": ("body_fat_pct", 1),

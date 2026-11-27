@@ -5,6 +5,7 @@ Set BYOBOT_CREDENTIALS=file to use the file even on a Mac.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -12,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from byobot.util import ByobotError, home, profile
+from byobot.util import ByobotError, base, home, profile
 
 SERVICE = "byobot"
 
@@ -23,9 +24,14 @@ def _keychain() -> bool:
 
 
 def _account(name: str) -> str:
-    """The Keychain account: ``whoop`` for the default profile, ``alex/whoop`` for profile ``alex``."""
+    """The Keychain account: ``whoop`` for the default profile, ``alex/whoop`` for profile ``alex``, and for a home
+    other than ~/.byobot, a hash of its path before that, so two homes never share a sign-in."""
     who = profile()
-    return f"{who}/{name}" if who else name
+    account = f"{who}/{name}" if who else name
+    where = base().expanduser().resolve()
+    if where != (Path.home() / ".byobot").resolve():
+        account = f"{hashlib.sha256(str(where).encode()).hexdigest()[:16]}/{account}"
+    return account
 
 
 def _file(name: str) -> Path:

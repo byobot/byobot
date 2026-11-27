@@ -113,7 +113,7 @@ final class HealthKitReader: @unchecked Sendable {
 
     /// Each day's totals, and its average, lowest and highest heart rate, from the start of the day `since` falls in.
     func dailyTotals(since: Date) async throws -> [DailyTotal] {
-        let start = Calendar.current.startOfDay(for: since)
+        let start = Calendar.contract.startOfDay(for: since)
         let window = HKQuery.predicateForSamples(withStart: start, end: nil)
         let day = DateComponents(day: 1)
         var out: [DailyTotal] = []

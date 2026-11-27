@@ -326,6 +326,9 @@ def test_commands_hold_writes_to_the_registry(pair):
                 commands.log(a, ME, [record])
     with pytest.raises(ValidationFailed, match="sleep_stage has no value napping"):
         commands.observe(a, ME, "sleep_stage", "napping", start="2026-03-02T01:00:00-05:00")
+    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
+    with pytest.raises(ValidationFailed, match="unknown code tempo_typo"):
+        commands.edit(a, ME, "effort", e["record"]["id"], {"metrics": {"tempo_typo": {"value": 1}}})
 
 
 def test_measures_are_kept_in_each_codes_own_unit_too(pair):
@@ -573,5 +576,5 @@ def test_accept_never_raises_on_a_huge_number(pair):
     big = {**e, "id": "0190f000-0000-7000-8000-00000000eeee", "prev": [e["id"]],
            "payload": {**effort(), "metrics": {"reps": {"value": 5}, "x.count": {"value": 10**20}}}}
     assert b.accept(big) == ("rejected", "a number too large to store")
-    with pytest.raises(ValidationFailed):
-        sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
+    assert sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
+    assert a.rows("SELECT * FROM observations WHERE code = 'respiratory_rate'") == []

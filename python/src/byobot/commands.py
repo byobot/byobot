@@ -13,7 +13,7 @@ import time
 import webbrowser
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -36,6 +36,7 @@ class Param:
     default: Any = None
     positional: bool = False
     schema: dict | None = None  # JSON Schema for a "json" param, shown to agents
+    bounds: tuple[int, int] | None = None  # the smallest and largest value of an "integer" param
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class Context:
 
 
 REGISTRY: dict[str, Command] = {}
+MAX_LIMIT = 1_000_000
 
 
 def command(name: str, summary: str, *params: Param, read_only: bool = True, cli: bool = True,
@@ -89,15 +91,21 @@ def command(name: str, summary: str, *params: Param, read_only: bool = True, cli
 
 def run(name: str, ctx: Context, args: dict) -> Any:
     cmd = REGISTRY[name]
-    known = {p.name for p in cmd.params}
-    clean = {k: v for k, v in args.items() if k in known and v is not None}
+    known = [p.name for p in cmd.params]
+    if unknown := sorted(set(args) - set(known)):
+        takes = f"; it takes {', '.join(known)}" if known else "; it takes none"
+        raise ValidationFailed(f"{cmd.name} does not take {', '.join(unknown)}{takes}")
+    clean = {k: v for k, v in args.items() if v is not None}
     for p in cmd.params:
         if p.required and p.name not in clean:
             raise ValidationFailed(f"missing required argument {p.name!r}")
         if p.choices and p.name in clean and clean[p.name] not in p.choices:
             raise ValidationFailed(f"{p.name} must be one of {', '.join(p.choices)}")
-        if p.type == "integer" and p.name in clean and (isinstance(clean[p.name], bool) or not isinstance(clean[p.name], int)):
-            raise ValidationFailed(f"{p.name} must be an integer")
+        if p.type == "integer" and p.name in clean:
+            if isinstance(clean[p.name], bool) or not isinstance(clean[p.name], int):
+                raise ValidationFailed(f"{p.name} must be an integer")
+            if p.bounds and not p.bounds[0] <= clean[p.name] <= p.bounds[1]:
+                raise ValidationFailed(f"{p.name} must be from {p.bounds[0]} to {p.bounds[1]}")
         if p.type == "string" and p.name in clean and not isinstance(clean[p.name], str):
             raise ValidationFailed(f"{p.name} must be a string")
     return cmd.handler(ctx, **clean)
@@ -146,6 +154,8 @@ def _export(ctx: Context, path: str) -> dict:
     target = Path(path).expanduser()
     if target.exists():
         raise ValidationFailed(f"{target} already exists")
+    if not target.parent.is_dir():
+        raise NotFound(f"no folder {target.parent}")
     partial = target.with_name(target.name + ".partial")
     fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -433,8 +443,8 @@ def _history(ctx: Context, kind: str, id: str) -> dict:
     "import activities",
     "Import your own activities, with the muscles they work and the equipment they need, so the app can "
     "suggest swaps. Activities you already have are kept unless you say replace.",
-    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list. "
-          "Use @path for a file.", required=True, positional=True, schema={"type": ["object", "array"]}),
+    Param("activities", "json", "A list of activities, each with its id, or an object with an `activities` list.",
+          required=True, positional=True, schema={"type": ["object", "array"]}),
     Param("existing", "string", "What to do with an id you already have.", choices=("keep", "replace"),
           default="keep"),
     read_only=False,
@@ -458,7 +468,7 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
             kept.append(rid)
             continue
         (replaced if found else added).append(rid)
-        changes.append({"kind": "activity", "id": rid, "op": "put", "payload": payload})
+        changes.append({"kind": "activity", "id": rid, "op": "put", "payload": payload, "create": not found})
     if changes:
         store.write(ctx.actor, changes)
     return {"added": added, "replaced": replaced, "kept": kept}
@@ -468,15 +478,13 @@ def _import_activities(ctx: Context, activities: Any, existing: str = "keep") ->
     "import whoop",
     "Import recovery, sleep, strain and workouts from WHOOP. The first import goes back 90 days; later ones "
     "pick up where the last left off. Importing again changes nothing.",
-    Param("days", "integer", "Import this many days back instead."),
+    Param("days", "integer", "Import this many days back instead.", bounds=(1, 3650)),
     read_only=False,
     description="Needs `byobot connect whoop` once, in a terminal. Every record WHOOP sends is kept as it sent it, "
                 "with each rescore as a new version. A workout that overlaps one you logged is read as one workout; "
                 "`correct` and `exclude` change how an import reads.",
 )
 def _import_whoop(ctx: Context, days: int | None = None) -> dict:
-    if days is not None and days < 1:
-        raise ValidationFailed("days must be at least 1")
     return whoop.import_into(ctx.store(), whoop.Client(), days)
 
 
@@ -557,14 +565,20 @@ JSON_COLUMNS = ("tags", "equipment", "targets", "default_metrics", "resistance_c
 BRIEF_ACTIVITY = ("id", "name", "targets", "equipment", "movement_type", "fatigue", "default_metrics", "source")
 
 
-def _bound(at: str) -> Any:
-    """A date bounds a local date; a timestamp bounds an instant."""
-    if len(at) == 10:
-        return at
+def _bound(at: str) -> str | int:
+    """A date (YYYY-MM-DD) bounds a local date; a timestamp bounds an instant, in epoch milliseconds."""
     try:
+        if len(at) == 10:
+            return date.fromisoformat(at).isoformat()
         return int(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000)
-    except ValueError:
-        raise ValidationFailed(f"{at!r} is not a date or a timestamp") from None
+    except (ValueError, OverflowError, OSError):
+        raise ValidationFailed(f"{at!r} is not a date (YYYY-MM-DD) or a timestamp") from None
+
+
+def _day(at: str) -> str:
+    """The date a bound names, for tables that keep dates."""
+    bound = _bound(at)
+    return bound if isinstance(bound, str) else at[:10]
 
 
 def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
@@ -595,7 +609,7 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
           choices=("full", "brief"), default="full"),
     Param("since", "string", "Only records on or after this date, or at or after this timestamp."),
     Param("until", "string", "Only records before this date or timestamp."),
-    Param("limit", "integer", "At most this many records.", default=50),
+    Param("limit", "integer", "At most this many records.", default=50, bounds=(0, MAX_LIMIT)),
     description="Muscle and equipment names are in `byobot schema vocabulary`. Dates are local dates, as the "
                 "record was written.",
 )
@@ -615,9 +629,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
         sql, order, day = "SELECT seq, id, kind, record_id, op, hlc, ts, device_id, actor_kind, actor_id, " \
                           "actor_model, batch, reverts, payload FROM events", "seq DESC", "substr(ts, 1, 10)"
         add("kind = ?", type)
+        instant = "CAST(round((julianday(ts) - 2440587.5) * 86400000) AS INTEGER)"  # ts keeps its writer's offset
         for value, op in ((since, ">="), (until, "<")):
             if value is not None:
-                add(f"{'ts' if len(value) > 10 else day} {op} ?", value)
+                bound = _bound(value)
+                add(f"{day if isinstance(bound, str) else instant} {op} ?", bound)
     else:
         table, time, order, _ = LISTS[kind]
         sql = f"SELECT * FROM {table}"
@@ -638,11 +654,11 @@ def _list(ctx: Context, kind: str, type: str | None = None, activity: str | None
         if time is not None:
             for value, op in ((since, ">="), (until, "<")):
                 if value is not None:
-                    bound = _bound(value) if time == "start_ms" else value[:10]
+                    bound = _bound(value) if time == "start_ms" else _day(value)
                     add(f"{'local_date' if isinstance(bound, str) and time == 'start_ms' else time} {op} ?", bound)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, max(0, limit)])
+    rows = store.rows(f"{sql} ORDER BY {order} LIMIT ?", [*params, limit])
     owner = LISTS[kind][3] if kind in LISTS else None
     newer = {i for _, i in store.newer(owner)} if owner else set()
     for row in rows:
@@ -698,13 +714,13 @@ def _workout(store: Store, row: dict) -> None:
     "query",
     "Run one read-only SQL query against the store.",
     Param("sql", "string", "A single SELECT (or WITH ... SELECT) statement.", required=True, positional=True),
-    Param("limit", "integer", "At most this many rows.", default=1000),
+    Param("limit", "integer", "At most this many rows.", default=1000, bounds=(0, MAX_LIMIT)),
     description="Tables are listed by `byobot schema sql`. Every metric is one row in `metrics`, with std_value "
                 "in its code's own unit; `occurrences` holds each workout once, across you and your sources.",
 )
 def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
     ctx.store()  # make sure the store exists before opening it read-only
-    return query(ctx.path, sql, limit=max(0, limit))
+    return query(ctx.path, sql, limit=limit)
 
 
 SCHEMA_CHOICES = (*SCHEMA_NAMES, "sql", "vocabulary")
@@ -740,6 +756,8 @@ VALIDATE_AS = ("event", *sorted(Contract.shipped().registry["kinds"]))
 def _validate(ctx: Context, document: Any, **kwargs: Any) -> dict:
     kind = kwargs.get("as", "event")
     contract = Contract.shipped()
+    if kind == "event" and not isinstance(document, dict):
+        raise ValidationFailed("an event is a JSON object")
     if kind != "event":
         errors = contract.payload_errors(kind, document)
     else:
@@ -1069,7 +1087,7 @@ def _cloud_off(ctx: Context, delete: str = "no") -> dict:
     "Summarize recent training: sessions and workouts done, planned sessions done and missed, the last two days "
     "of sets for each exercise at each location, weekly sets per muscle, daily recovery, sleep, body, activity, "
     "mobility and vitals, and what is planned from today on.",
-    Param("weeks", "integer", "How many weeks back to look.", default=4),
+    Param("weeks", "integer", "How many weeks back to look.", default=4, bounds=(1, 520)),
     Param("until", "string", "The last day to include, as a date. Defaults to today."),
     description="Sets count once for each muscle an activity works, split into main and synergist. Loads compare "
                 "only within one location. Each day's value comes from one source: yours, then sources in "
@@ -1078,9 +1096,7 @@ def _cloud_off(ctx: Context, delete: str = "no") -> dict:
 def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
     from byobot.review import review
 
-    if weeks < 1:
-        raise ValidationFailed("weeks must be at least 1")
     try:
         return review(ctx.store(), weeks, until)
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
         raise ValidationFailed(f"until must be a date such as 2026-11-23: {exc}") from None

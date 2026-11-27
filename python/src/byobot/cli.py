@@ -11,11 +11,11 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NoReturn, Sequence
 
 from byobot import __version__, mascot
 from byobot.commands import REGISTRY, Context, Param, run
-from byobot.util import ByobotError, ValidationFailed, db_path, profile, utf8_stdio
+from byobot.util import ByobotError, NotFound, ValidationFailed, db_path, home, profile, utf8_stdio
 
 DEFAULT_ACTOR = "human:me"
 
@@ -31,17 +31,24 @@ def parse_actor(text: str) -> dict:
     return actor
 
 
-def read_json(text: str) -> Any:
-    """A JSON argument: literal JSON, ``@path`` for a file, or ``-`` for stdin. Files may be JSON lines."""
+def read_json(text: str, text_ok: bool = False) -> Any:
+    """A JSON argument: literal JSON, ``@path`` for a file, or ``-`` for stdin. Files may be JSON lines.
+    With ``text_ok``, an argument that isn't JSON is taken as text."""
     if text == "-":
         raw, where = sys.stdin.read(), "stdin"
     elif text.startswith("@"):
-        raw, where = Path(text[1:]).expanduser().read_text(encoding="utf-8"), text[1:]
+        where = text[1:]
+        try:
+            raw = Path(where).expanduser().read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValidationFailed(f"could not read {where}: {exc}") from None
     else:
         raw, where = text, "argument"
     try:
         return json.loads(raw)
     except json.JSONDecodeError as first:
+        if where == "argument" and text_ok:
+            return raw
         if where != "argument":
             try:
                 return [json.loads(line) for line in raw.splitlines() if line.strip()]
@@ -50,8 +57,25 @@ def read_json(text: str) -> Any:
         raise ValidationFailed(f"could not read JSON from {where}: {first}") from None
 
 
+class Parser(argparse.ArgumentParser):
+    """Usage errors are JSON errors too."""
+
+    def error(self, message: str) -> NoReturn:
+        raise ValidationFailed(message, details={"usage": self.format_usage().strip()})
+
+
+def _port(text: str) -> int:
+    try:
+        port = int(text)
+    except ValueError:
+        port = -1
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a port from 0 to 65535")
+    return port
+
+
 def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
-    kwargs: dict[str, Any] = {"help": p.help}
+    kwargs: dict[str, Any] = {"help": p.help + (" Use @path for a file." if p.type == "json" else "")}
     if p.type == "integer":
         kwargs["type"] = int
     if p.choices:
@@ -71,7 +95,7 @@ def _members(group: str) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog="byobot",
         description="byobot: bring your own bot. Your health data in one local store, for the agent of your choice.",
     )
@@ -102,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
                     "Shows a QR code to pair a phone when none is paired yet (or with --pair).")
     serve.add_argument("--host", default="0.0.0.0", help="Address to listen on. Default: all interfaces.")
-    serve.add_argument("--port", type=int, help="Port to listen on. Default: the one this profile used last, "
+    serve.add_argument("--port", type=_port, help="Port to listen on. Default: the one this profile used last, "
                                                 "else 8765 for the default profile.")
     serve.add_argument("--pair", action="store_true", default=None, help="Show a pairing code even if a device is paired.")
     serve.add_argument("--no-pair", dest="pair", action="store_false", help="Do not show a pairing code.")
@@ -112,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
                     "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.")
     remote.add_argument("--url", help="The https address your tunnel gives this profile. Saved after the first run.")
     remote.add_argument("--host", default="127.0.0.1", help="Address to listen on. Default: this computer only.")
-    remote.add_argument("--port", type=int, help="Port to listen on. Default: the one this profile used last, "
+    remote.add_argument("--port", type=_port, help="Port to listen on. Default: the one this profile used last, "
                                                  "else 8780 for the default profile.")
     remote.add_argument("--pair", action="store_true", default=None,
                         help="Show a code to connect an assistant even if one is connected.")
@@ -138,8 +162,29 @@ def _banner() -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     utf8_stdio()
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        return 130
+    except BrokenPipeError:  # the reader went away, as with `byobot list ... | head`
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        return 141
+
+
+def _fail(exc: ByobotError) -> int:
+    sys.stderr.write(json.dumps(exc.to_dict(), indent=2) + "\n")
+    return 1
+
+
+def _main(argv: Sequence[str] | None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except ByobotError as exc:
+        return _fail(exc)
     if args.home:
         os.environ["BYOBOT_HOME"] = args.home
     if args.profile:
@@ -149,7 +194,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        profile()
+        if (name := profile()) and not home().is_dir() and args.command not in ("init", "restore"):
+            raise NotFound(f"no profile {name}; run `byobot --profile {name} init` to make it")
         actor = parse_actor(args.actor or os.environ.get("BYOBOT_ACTOR") or DEFAULT_ACTOR)
         if args.command == "mcp":
             from byobot.mcp import serve
@@ -171,7 +217,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         for p in cmd.params:
             value = getattr(args, p.name, None)
             if value is not None and p.type == "json":
-                value = read_json(value)
+                kinds = (p.schema or {}).get("type")
+                value = read_json(value, kinds == "string" or isinstance(kinds, list) and "string" in kinds)
             values[p.name] = value
         ctx = Context(actor=actor, path=db_path())
         try:
@@ -179,9 +226,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             ctx.close()
     except ByobotError as exc:
-        sys.stderr.write(json.dumps(exc.to_dict(), indent=2) + "\n")
-        return 1
-    sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+        return _fail(exc)
+    except BrokenPipeError:
+        raise
+    except OSError as exc:  # such as a --home that is a file
+        return _fail(ByobotError(str(exc)))
+    sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
     if cmd.name == "validate" and not result["valid"]:
         return 1
     return 0

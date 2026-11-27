@@ -208,7 +208,7 @@ def test_import_keeps_each_record_and_reads_it_toward_the_morning(monkeypatch, s
                                                                  ("sleep", SLEEP_ID)]
     assert json.loads(raw[1]["raw"]) == recovery()  # kept as WHOOP sent it
     found = observations(store)
-    assert found["recovery_score"]["started_at"] == "2026-11-20T11:00:00.000Z"  # when you woke
+    assert found["whoop_recovery_score"]["started_at"] == "2026-11-20T11:00:00.000Z"  # when you woke
     assert found["sleep_deep_duration"]["value"] == 5400 and found["oxygen_saturation"]["value"] == 96.5
     assert review(store, 1, "2026-11-22")["recovery"] == [
         {"date": "2026-11-20", "asleep_h": 7.5, "hrv_rmssd_ms": 61.2, "recovery_pct": 68, "resting_hr_bpm": 52,
@@ -232,7 +232,7 @@ def test_a_rescore_is_a_new_version(monkeypatch, store):
     rescored = recovery(updated_at="2026-11-20T15:00:00.000Z")
     rescored["score"] = {**rescored["score"], "recovery_score": 70.0}
     out, _ = import_whoop(monkeypatch, whoop_api(recoveries=[rescored]), days=30)
-    assert out["written"] == 1 and observations(store)["recovery_score"]["value"] == 70
+    assert out["written"] == 1 and observations(store)["whoop_recovery_score"]["value"] == 70
     rid = store.rows("SELECT id FROM source_records")[0]["id"]
     assert len(run("history", Context(actor=YOU), {"kind": "source_record", "id": rid})["versions"]) == 2
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import math
 import secrets
 import sqlite3
 import sys
@@ -564,6 +565,8 @@ class Store:
             raise ValidationFailed("not a byobot export") from None
         if not isinstance(header, dict) or header.get("byobot_export") != EXPORT_VERSION:
             raise ValidationFailed("not a byobot export this version can read")
+        if not all(isinstance(header.get(k), str) for k in ("store_id", "store_key")):
+            raise ValidationFailed("not a byobot export: the header has no store_id or store_key")
         outcomes: dict[str, int] = {}
         with self._tx():  # all or nothing
             self.adopt(header["store_id"], header["store_key"])
@@ -656,7 +659,8 @@ class Store:
     # -- writing ---------------------------------------------------------------
 
     def write(self, actor: dict, changes: list[dict]) -> list[dict]:
-        """Author events, all or none. Each change is {kind, id, op, payload?, reverts?, prev?}."""
+        """Author events, all or none. Each change is {kind, id, op, payload?, reverts?, prev?, create?}; a create
+        is refused if the record is live or erased by the time it is written."""
         batch = self.new_id() if len(changes) > 1 else None
         written = []
         with self._tx():
@@ -677,6 +681,8 @@ class Store:
     def _event(self, actor: dict, change: dict, batch: str | None) -> dict:
         kind, rid, op = change["kind"], change["id"], change["op"]
         found = self.record(kind, rid)
+        if change.get("create") and found and (found["live"] or found["erased"]):
+            raise Conflict(f"{kind} {rid} {'was erased' if found['erased'] else 'already exists'}")
         if found and kind != "source_record" and op != "erase" and not set(found["tips"]) <= set(found["heads"]):
             raise Conflict(f"{kind} {rid} holds a version written by a newer byobot; upgrade to change it")
         prev = change.get("prev")
@@ -753,8 +759,9 @@ def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000, s
             if time.monotonic() > deadline:
                 raise ValidationFailed(f"query stopped after {seconds:g} s; narrow it or add a LIMIT") from None
             raise ValidationFailed(f"query refused: {exc}") from None
-        return {"columns": columns, "rows": [dict(zip(columns, r)) for r in fetched[:limit]],
-                "truncated": len(fetched) > limit}
+        rows = [{c: None if isinstance(v, float) and not math.isfinite(v) else v for c, v in zip(columns, r)}
+                for r in fetched[:limit]]  # JSON has no Infinity or NaN
+        return {"columns": columns, "rows": rows, "truncated": len(fetched) > limit}
     finally:
         conn.close()
 
@@ -791,8 +798,8 @@ def _header(event: dict) -> str:
 
 def _content(event: dict, blank: bool = False) -> str:
     """What makes two deliveries of a source event the same; `blank` leaves out what erase blanks."""
-    return jcs([event["record"], event["op"], event.get("kind_version"), event["prev"],
-                {} if blank else event["payload"]])
+    return jcs([event.get("record"), event.get("op"), event.get("kind_version"), event.get("prev"),
+                {} if blank else event.get("payload")])
 
 
 def _envelope(row: sqlite3.Row) -> dict:
@@ -819,8 +826,10 @@ def _text(x: Any) -> str:
 
 def _canonical(event: dict) -> str:
     try:
-        return jcs(event)
-    except (TypeError, ValueError):
+        text = jcs(event)
+        text.encode("utf-8")
+        return text
+    except (TypeError, ValueError, RecursionError):
         return ""
 
 

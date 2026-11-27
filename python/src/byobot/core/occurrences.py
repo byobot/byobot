@@ -1,7 +1,7 @@
 """Workouts seen by more than one author, read as one: your sessions and each source's, merged.
 
-A source workout joins another workout when they overlap by at least half the shorter one, or when you said
-it is the same as it. Two of your own sessions never merge. Each value comes from the best item that has it:
+A source workout joins another workout when they overlap by at least half the shorter one (one with no end
+joins one it falls within), or when you said it is the same as it. Two of your own sessions never merge. Each value comes from the best item that has it:
 yours first, then sources in `source_priority` order (its `codes` override `default` for those codes); the merged
 workout keeps which record gave each value.
 
@@ -91,6 +91,9 @@ def priority(conn: sqlite3.Connection) -> tuple[list[str], dict[str, list[str]]]
 
 
 def _overlap(a: dict, b: dict) -> bool:
+    point, other = sorted((a, b), key=lambda x: x["end"] - x["start"])
+    if point["end"] == point["start"]:
+        return other["start"] <= point["start"] < other["end"]
     shared = min(a["end"], b["end"]) - max(a["start"], b["start"])
     return shared > 0 and shared >= SAME * min(a["end"] - a["start"], b["end"] - b["start"])
 
@@ -123,19 +126,28 @@ def resolve(conn: sqlite3.Connection, touched: Iterable[tuple[str, str]], spans:
     live = [it for k, i in items if k in ITEMS and (it := _item(conn, k, i, default))]
     tied = {(it["kind"], it["id"]): links(conn, it["kind"], it["id"]) for it in live}
     clusters: list[list[dict]] = []
-    for it in sorted(live, key=lambda x: (x["start"], x["id"])):
-        home = None
-        for c in clusters:
-            keys = {(x["kind"], x["id"]) for x in c}
-            linked = bool(tied[(it["kind"], it["id"])] & keys)
-            both_yours = it["you"] and any(x["you"] for x in c)
-            if linked or (not both_yours and any(_overlap(it, x) for x in c)):
-                home = c
-                break
-        if home is None:
-            clusters.append([it])
-        else:
-            home.append(it)
+    ordered = sorted(live, key=lambda x: (x["start"], x["id"]))
+    keys = {(it["kind"], it["id"]) for it in live}
+    # Links first, so a linked item joins the record it was tied to, not one it overlaps.
+    for by_link in (True, False):
+        for it in ordered:
+            if bool(tied[(it["kind"], it["id"])] & keys) != by_link:
+                continue
+            home = None
+            for c in clusters:
+                if it["you"] and any(x["you"] for x in c):
+                    continue
+                if by_link:
+                    joins = bool(tied[(it["kind"], it["id"])] & {(x["kind"], x["id"]) for x in c})
+                else:
+                    joins = any(_overlap(it, x) for x in c)
+                if joins:
+                    home = c
+                    break
+            if home is None:
+                clusters.append([it])
+            else:
+                home.append(it)
     for c in clusters:
         _write(conn, sorted(c, key=lambda x: (x["order"], x["start"], x["id"])), codes)
 

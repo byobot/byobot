@@ -586,6 +586,19 @@ final class ClockAndHealthTests: XCTestCase {
         XCTAssertNil(Timestamp.zone(TimeZone(secondsFromGMT: 3600)!), "an offset is not a zone")
     }
 
+    func testContractDatesAreGregorianWhateverCalendarThePhoneShows() throws {
+        XCTAssertEqual(Calendar.contract.identifier, .gregorian)
+        XCTAssertEqual(Calendar.contract.timeZone, .current)
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = .current
+        let noon = try XCTUnwrap(buddhist.date(from: DateComponents(year: 2569, month: 11, day: 20, hour: 12)))
+        XCTAssertEqual(LocalDate.string(noon), "2026-11-20")
+        XCTAssertEqual(LocalDate.date("2026-11-20"), noon)
+        let total = DailyTotal(type: "HKQuantityTypeIdentifierStepCount", start: noon, end: noon + 3600, value: 10)
+        XCTAssertEqual(HealthMapping.sample(total, readAt: noon)?.sourceId,
+                       "daily:HKQuantityTypeIdentifierStepCount:2026-11-20")
+    }
+
     let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale",
                               deviceManufacturer: "Example")
 
