@@ -56,8 +56,7 @@ def main() -> None:
         needed: set = set()
         schemas[name] = clean(source[name], needed)
         queue += sorted(needed - schemas.keys())
-    out = {"x-whoop-api-version": doc["info"]["version"], "responses": list(RESPONSES),
-           "components": {"schemas": dict(sorted(schemas.items()))}}
+    out = {"x-whoop-api-version": doc["info"]["version"], "components": {"schemas": dict(sorted(schemas.items()))}}
     OUT.write_text(json.dumps(out, indent=2) + "\n")
     print(f"wrote {OUT.relative_to(ROOT)}")
 
