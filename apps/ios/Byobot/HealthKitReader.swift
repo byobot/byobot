@@ -60,8 +60,7 @@ final class HealthKitReader: @unchecked Sendable {
     var available: Bool { HKHealthStore.isHealthDataAvailable() }
 
     private var readTypes: Set<HKObjectType> {
-        var types: Set<HKObjectType> = [sleep, HKObjectType.workoutType(), HKQuantityType(.heartRate),
-                                        HKQuantityType(.activeEnergyBurned)]
+        var types: Set<HKObjectType> = [sleep, HKObjectType.workoutType(), HKQuantityType(.heartRate)]
         for (id, _, _) in quantities { types.insert(HKQuantityType(id)) }
         for (id, _) in totals { types.insert(HKQuantityType(id)) }
         for id in Self.distances { types.insert(HKQuantityType(id)) }
