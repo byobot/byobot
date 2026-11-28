@@ -27,7 +27,8 @@ from byobot.core import commands
 from byobot.core.store import Store
 from byobot.util import ByobotError
 
-ME = {"kind": "human", "id": "me"}
+from helpers import ME
+
 START = datetime(2026, 11, 23, 7, 0, tzinfo=timezone(timedelta(hours=-5)))
 SOAK = bool(os.environ.get("BYOBOT_SOAK"))
 SEEDS = [int(os.environ["BYOBOT_SIM_SEED"])] if os.environ.get("BYOBOT_SIM_SEED") else range(200 if SOAK else 10)

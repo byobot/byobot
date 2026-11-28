@@ -7,11 +7,9 @@ import json
 import socket
 import sqlite3
 import ssl
-import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -23,11 +21,9 @@ from byobot.core.store import Store
 from byobot.util import uuid7
 from conftest import newer_contract
 
-from helpers import fixture
+from helpers import ME, PHONE, fixture, serving, while_another_process_writes
 
 SYNC = fixture("sync.json")
-PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
-ME = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-coach"}
 
 
@@ -322,13 +318,8 @@ def running(**kw):
     logs = []
     kw = {"pair": True, "log": logs.append, **kw}
     srv, info = serve.make_server("127.0.0.1", 0, **kw)
-    thread = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    thread.start()
-    try:
+    with serving(srv):
         yield srv, info, Client(info["port"], info["fingerprint"]), logs
-    finally:
-        srv.shutdown()
-        srv.server_close()
 
 
 @pytest.fixture
@@ -1063,12 +1054,8 @@ BASE = "https://example-laptop.example.ts.net"
 @pytest.fixture
 def remote_server(byobot_home):
     Store(byobot_home / "byobot.db").close()
-    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    thread.start()
-    yield server
-    server.shutdown()
-    server.server_close()
+    with serving(remote.make_server(BASE, "127.0.0.1", 0, pair=True)) as server:
+        yield server
 
 
 def _exchange(sock, raw: bytes) -> bytes:
@@ -1267,35 +1254,11 @@ def test_a_push_that_fails_part_way_still_answers(server, monkeypatch):
     assert status in (200, 503), body
 
 
-HOLD_S = 6.5  # longer than the store's 5 s busy timeout
-
-
-def _hold_write_lock(db: Path, ready: threading.Event, seconds: float) -> None:
-    conn = sqlite3.connect(db, isolation_level=None, timeout=10)
-    conn.execute("BEGIN IMMEDIATE")
-    conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
-    ready.set()
-    time.sleep(seconds)
-    conn.execute("COMMIT")
-    conn.close()
-
-
-def _while_another_process_writes(db: Path, request):
-    ready = threading.Event()
-    writer = threading.Thread(target=_hold_write_lock, args=(db, ready, HOLD_S), daemon=True)
-    writer.start()
-    ready.wait(5)
-    try:
-        return request()
-    finally:
-        writer.join(15)
-
-
 def test_a_plan_read_while_another_process_writes_is_answered(server, byobot_home):
     srv, info, client, _ = server
     _pair(client, info)
     try:
-        status, body = _while_another_process_writes(byobot_home / "byobot.db",
+        status, body = while_another_process_writes(byobot_home / "byobot.db",
                                                      lambda: client.call("GET", "/v1/plan", timeout=20))
     except ConnectionError as exc:
         pytest.fail(f"the plan read got no HTTP answer while another process wrote: {exc}")
@@ -1307,7 +1270,7 @@ def test_a_push_while_another_process_writes_gets_an_answer(server, byobot_home)
     _pair(client, info)
     events = [location("example_park", "Example park")]
     try:
-        status, body = _while_another_process_writes(
+        status, body = while_another_process_writes(
             byobot_home / "byobot.db",
             lambda: client.call("POST", "/v1/events", {"events": events, "kind_versions": {}}, timeout=20))
     except ConnectionError as exc:

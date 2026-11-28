@@ -6,7 +6,6 @@ import hashlib
 import http.client
 import json
 import secrets
-import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -16,6 +15,8 @@ from byobot import commands, remote, web
 from byobot.core import query as query_module
 from byobot.core.store import Store
 from byobot.remote import READ, Auth, OAuthError
+
+from helpers import serving
 
 BASE = "https://example-laptop.example.ts.net"
 CALLBACK = "https://client.example/callback"
@@ -185,12 +186,8 @@ def running(byobot_home):
     from byobot.core.store import Store
 
     Store(byobot_home / "byobot.db").close()
-    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    thread.start()
-    yield server
-    server.shutdown()
-    server.server_close()
+    with serving(remote.make_server(BASE, "127.0.0.1", 0, pair=True)) as server:
+        yield server
 
 
 def request(server, method, path, body=None, headers=None):

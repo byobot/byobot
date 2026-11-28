@@ -1,7 +1,5 @@
 """A write names the version it was made from, so nothing it didn't see is overwritten or chosen."""
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
 
 from byobot.commands import Context, run
@@ -11,40 +9,13 @@ from byobot.core.store import Store
 from byobot.util import Conflict, ValidationFailed
 from conftest import newer_contract
 
-ME = {"kind": "human", "id": "me"}
-AGENT = {"kind": "agent", "id": "example-agent"}
-
-
-class Wall:
-    def __init__(self):
-        self.at = datetime(2026, 3, 2, 15, tzinfo=timezone.utc)
-
-    def __call__(self):
-        self.at += timedelta(seconds=1)
-        return self.at
-
-
-def effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
-            "metrics": {"reps": {"value": reps}}}
-
-
-def reps(store, rid):
-    return store.get("effort", rid)["payload"]["metrics"]["reps"]["value"]
-
-
-def sync(*stores):
-    for a in stores:
-        for b in stores:
-            if a is not b:
-                b.accept_many(a.events())
+from helpers import AGENT, ME, Wall, effort, open_store, peer, reps, sync
 
 
 @pytest.fixture
 def stores(tmp_path):
-    made = [Store(tmp_path / f"{n}.db", device_id=n, wall=Wall()) for n in ("phone", "laptop", "tablet")]
-    for s in made[1:]:
-        s.adopt(made[0].store_id, made[0]._get("store_key"))
+    phone = open_store(tmp_path / "phone.db", "phone")
+    made = [phone, *(peer(phone, tmp_path / f"{n}.db", n) for n in ("laptop", "tablet"))]
     yield made
     for s in made:
         s.close()

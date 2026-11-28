@@ -22,22 +22,7 @@ from byobot.core.store import STORE_VERSION, Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
 from conftest import newer_contract
 
-ME = {"kind": "human", "id": "me"}
-T0 = datetime(2026, 3, 2, 10, tzinfo=timezone(timedelta(hours=-5)))
-
-
-class Wall:
-    def __init__(self, at=T0):
-        self.at = at
-
-    def __call__(self):
-        self.at += timedelta(seconds=1)
-        return self.at
-
-
-def effort(reps=5):
-    return {"activity_id": "row", "time": {"start": "2026-03-02T10:00:00-05:00"},
-            "metrics": {"reps": {"value": reps}}}
+from helpers import AGENT, ME, T0, Wall, effort, open_store, peer, reps, sync, whoop_workout
 
 
 def observation(code, value, start, unit=None):
@@ -52,15 +37,6 @@ def pair(tmp_path):
     yield a, b
     a.close()
     b.close()
-
-
-def sync(a, b):
-    b.accept_many(a.events())
-    a.accept_many(b.events())
-
-
-def reps(store, rid):
-    return store.get("effort", rid)["payload"]["metrics"]["reps"]["value"]
 
 
 def test_a_new_store_records_who_it_is(pair):
@@ -588,7 +564,7 @@ SLEEP = {"id": "s1", "start": "2026-03-02T04:00:00.000Z", "end": "2026-03-02T12:
 
 def test_a_source_event_redelivered_after_erase_is_a_duplicate(pair):
     a, b = pair
-    b.adopt(a.store_id, a._get("store_key"))
+    b.adopt(a.store_id, a.store_key.hex())
     [src] = sources.ingest(a, "whoop", [("sleep", "s1", SLEEP)])
     [mine] = sources.ingest(b, "whoop", [("sleep", "s1", SLEEP)])
     assert mine["id"] == src["id"]
@@ -619,9 +595,6 @@ def test_accept_never_raises_on_a_huge_number(pair):
     assert b.accept(big) == ("rejected", "a number too large to store")
     assert sources.ingest(a, "whoop", [("sleep", "s1", {**SLEEP, "score": {"respiratory_rate": 10**20}})])
     assert a.rows("SELECT * FROM observations WHERE code = 'respiratory_rate'") == []
-
-
-AGENT = {"kind": "agent", "id": "example-agent"}
 
 
 def session(start="2026-03-02T09:00:00-05:00", end="2026-03-02T10:00:00-05:00", name="lift"):
@@ -669,9 +642,8 @@ def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session
 
 
 def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
-    a = Store(tmp_path / "a.db", device_id="phone", wall=Wall())
-    b = Store(tmp_path / "b.db", device_id="laptop", wall=Wall())
-    b.adopt(a.store_id, a._get("store_key"))
+    a = open_store(tmp_path / "a.db", "phone")
+    b = peer(a, tmp_path / "b.db")
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
     rid = e["record"]["id"]
     b.accept_many(a.events())
@@ -721,17 +693,6 @@ def test_an_existing_stores_files_are_made_private_when_opened(tmp_path):
 
 
 EST = timezone(timedelta(hours=-5))
-
-
-def open_store(path, device_id="laptop", wall=None, **kw) -> Store:
-    return Store(path, device_id=device_id, wall=wall or Wall(), **kw)
-
-
-def whoop_workout(wid: str, start: str, end: str, updated="2026-03-02T16:00:00.000Z", strain=10.0, hr=140,
-                  offset="-05:00") -> dict:
-    return {"id": wid, "start": start, "end": end, "timezone_offset": offset, "updated_at": updated,
-            "sport_name": "running", "score_state": "SCORED",
-            "score": {"strain": strain, "average_heart_rate": hr, "max_heart_rate": hr + 30}}
 
 
 def _bad(kind, store, logged, imported):
@@ -815,7 +776,7 @@ def _race(path: Path, monkeypatch, first_writes: bool) -> dict:
 
     def first():
         with Store(path, wall=Wall()) as s:
-            seen["first"] = (s.store_id, s._get("store_key"))
+            seen["first"] = (s.store_id, s.store_key)
             if first_writes:
                 sources.ingest(s, "whoop", [("workout", "1001", whoop_workout(
                     "1001", "2026-03-02T14:00:00.000Z", "2026-03-02T15:00:00.000Z"))])
@@ -823,7 +784,7 @@ def _race(path: Path, monkeypatch, first_writes: bool) -> dict:
 
     def second():
         with Store(path, wall=Wall()) as s:
-            seen["second"] = (s.store_id, s._get("store_key"))
+            seen["second"] = (s.store_id, s.store_key)
 
     a = threading.Thread(target=first, name="first")
     a.start()

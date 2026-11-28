@@ -8,10 +8,9 @@ from byobot import swaps
 from byobot.commands import Context, run
 from byobot.util import NotFound
 
-from helpers import fixture
+from helpers import ME, fixture
 
 FIXTURE = fixture("swaps.json")
-ME = {"kind": "human", "id": "me"}
 
 
 @pytest.mark.parametrize("case", FIXTURE["cases"], ids=[c["name"] for c in FIXTURE["cases"]])

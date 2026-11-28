@@ -4,6 +4,7 @@ from datetime import datetime
 from byobot.core import commands, sources
 from byobot.review import review
 
+from helpers import ME
 from test_cli import cli
 
 MON, WED, NEXT, S1 = (f"01a2147e-0000-7000-8000-00000000000{i}" for i in range(1, 5))
@@ -222,9 +223,6 @@ def test_a_nap_does_not_replace_the_nights_sleep_performance(store):
     assert day["date"] == "2026-11-20"
     assert day["whoop_sleep_performance"]["value"] == 91, day  # the night's, as the WHOOP app shows it
     assert day["respiratory_rate"]["value"] == 15.2, day
-
-
-ME = {"kind": "human", "id": "me"}
 
 
 def test_a_codes_override_picks_the_daily_value_too(store):

@@ -4,11 +4,8 @@ import contextlib
 import http.client
 import io
 import json
-import sqlite3
 import subprocess
 import sys
-import threading
-import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -21,6 +18,8 @@ from byobot.core import sources
 from byobot.core.store import Store
 from byobot.review import review
 from byobot.util import Conflict, ValidationFailed
+
+from helpers import AGENT, ME, serving, while_another_process_writes
 
 
 def cli(capsys, *argv):
@@ -491,8 +490,8 @@ class Api:
         Store(home / "byobot.db").close()
         self.server = remote.make_server(BASE, "127.0.0.1", 0, pair=False)
         self.key = self.server.auth.create_key("example_assistant")
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
+        self.serving = serving(self.server)
+        self.serving.__enter__()
 
     def raw(self, path: str, body: bytes) -> tuple[int, bytes]:
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=30)
@@ -516,8 +515,7 @@ class Api:
         return ("broken", f"HTTP {status}: {body}")
 
     def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
+        self.serving.__exit__(None, None, None)
 
 
 def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
@@ -535,9 +533,6 @@ def test_cli_a_text_value_is_taken_as_the_help_says(capsys):
     `byobot resolve session ID remove` stops at "could not read JSON" unless the word is typed with JSON quotes."""
     via_cli(["resolve", "session", "example-id", "remove"])
     assert "could not read JSON" not in capsys.readouterr().err
-
-
-ME = {"kind": "human", "id": "me"}
 
 
 EST = timezone(timedelta(hours=-5))
@@ -573,9 +568,6 @@ def test_cli_events_since_a_timestamp_compares_instants_not_text(byobot_home):
     finally:
         ctx.close()
     assert (since["count"], until["count"]) == (1, 0)
-
-
-AGENT = {"kind": "agent", "id": "example-agent"}
 
 
 def test_cli_two_logs_of_the_same_new_id_never_overwrite_each_other(byobot_home):
@@ -627,31 +619,11 @@ def test_cli_a_mistyped_profile_is_refused_not_created(byobot_home):
     assert not (byobot_home / "profiles" / "alxe").exists()
 
 
-HOLD_S = 6.5  # longer than the store's 5 s busy timeout, as a big ingest, restore or rebuild is
-
-
 def test_cli_a_read_answers_while_another_process_holds_the_write_lock(byobot_home):
     """CLI-13."""
     assert via_cli(["init"])[0] == "ok"
-    ready = threading.Event()
-
-    def writer():
-        conn = sqlite3.connect(byobot_home / "byobot.db", isolation_level=None, timeout=10)
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
-        ready.set()
-        time.sleep(HOLD_S)
-        conn.execute("COMMIT")
-        conn.close()
-
-    thread = threading.Thread(target=writer)
-    thread.start()
-    ready.wait(5)
-    try:
-        cli_answer = via_cli(["list", "session"])
-        mcp_answer = via_mcp("list", {"kind": "session"})
-    finally:
-        thread.join()
+    cli_answer, mcp_answer = while_another_process_writes(
+        byobot_home / "byobot.db", lambda: (via_cli(["list", "session"]), via_mcp("list", {"kind": "session"})))
     assert (cli_answer[0], mcp_answer[0]) == ("ok", "ok"), (cli_answer, mcp_answer)
 
 

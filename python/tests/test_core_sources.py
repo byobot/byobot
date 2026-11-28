@@ -8,23 +8,14 @@ from byobot.core import commands, relay, sources
 from byobot.core.store import Store
 from byobot.util import ValidationFailed
 
-from test_core_store import open_store, whoop_workout
+from helpers import ME, Wall, open_store, whoop_workout
 
-ME = {"kind": "human", "id": "me"}
-
-
-class Wall:
-    def __init__(self):
-        self.at = datetime(2026, 3, 2, 12, tzinfo=timezone.utc)
-
-    def __call__(self):
-        self.at += timedelta(seconds=1)
-        return self.at
+NOON = datetime(2026, 3, 2, 12, tzinfo=timezone.utc)
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = Store(tmp_path / "s.db", device_id="phone", wall=Wall())
+    s = open_store(tmp_path / "s.db", "phone", Wall(NOON))
     yield s
     s.close()
 
@@ -70,7 +61,7 @@ def test_the_same_revision_twice_writes_once(store):
 
 def test_an_event_id_not_derived_from_its_payload_is_refused(store, tmp_path):
     [e] = sources.ingest(store, "whoop", [("sleep", "s1", sleep())])
-    other = Store(tmp_path / "o.db", device_id="laptop", wall=Wall())
+    other = open_store(tmp_path / "o.db", wall=Wall(NOON))
     forged = {**e, "payload": {**e["payload"], "raw": sleep("2026-03-02T15:00:00Z")}}
     assert other.accept(forged)[0] == "rejected"
     other.close()
