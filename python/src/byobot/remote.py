@@ -194,7 +194,7 @@ class Auth:
             raise OAuthError("invalid_client_metadata", "only authorization_code and refresh_token grants are supported")
         name = meta.get("client_name")
         name = name.strip()[:100] if isinstance(name, str) and name.strip() else "MCP client"
-        client = {"client_id": secrets.token_urlsafe(16), "client_name": name, "redirect_uris": uris,
+        client = {"client_id": secrets.token_hex(16), "client_name": name, "redirect_uris": uris,
                   "token_endpoint_auth_method": method, "client_id_issued_at": int(time.time()),
                   "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": FULL}
         out = dict(client)
