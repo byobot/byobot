@@ -34,7 +34,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, mcp, util, web
-from byobot.cloud.lock import held
+from byobot.lock import held
 from byobot.cloud.sync import CloudPoller
 from byobot.commands import Context
 from byobot.core.store import interrupted, limit_time
