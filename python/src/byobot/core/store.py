@@ -140,6 +140,8 @@ class Store:
 
     def _migrate(self, device_id: str | None, migrate: bool) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == STORE_VERSION and "header" not in {r[1] for r in self.conn.execute("PRAGMA table_info(events)")}:
+            version = STORE_VERSION - 1  # written at version 6 before events kept their header (#156)
         if version not in (0, STORE_VERSION):
             self.conn.close()
             if version < STORE_VERSION:
@@ -156,6 +158,9 @@ class Store:
             self._repair_clock()
             return
         with self.transaction():
+            # Another process may have created or rebuilt the store while this one waited for the write lock.
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            reshaped = version != 0 and self._get("shape") != self._shape(self.contract)
             if reshaped:
                 reducers.drop(self.conn)
             for table in retired:
@@ -165,8 +170,8 @@ class Store:
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
-            # Another process may have created the store while this one waited for the write lock.
-            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            if reshaped:
+                self.use(self.contract)  # in the same transaction, so no reader sees the tables empty
             if version == 0:
                 self._set("store_id", uuid7())
                 self._set("store_key", secrets.token_hex(32))
@@ -177,8 +182,6 @@ class Store:
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
-        if reshaped:
-            self.use(self.contract)
         self._repair_clock()
 
     def _repair_clock(self) -> None:
@@ -304,6 +307,8 @@ class Store:
             return
         self.conn.execute("PRAGMA busy_timeout=0")
         try:
+            if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
+                return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
             self.conn.execute("VACUUM")
             busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
         except sqlite3.OperationalError:  # another connection is reading
