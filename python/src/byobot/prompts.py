@@ -44,5 +44,6 @@ PROMPTS = {
 
 
 def render(name: str, arguments: dict) -> str:
-    given = "".join(f"My {k}: {v}\n" for k, v in arguments.items() if v and k in ("goal", "days", "notes"))
+    names = {a["name"] for a in PROMPTS[name]["arguments"]}
+    given = "".join(f"My {k}: {v}\n" for k, v in arguments.items() if v and k in names)
     return TEMPLATES[name].format(today=date.today().isoformat(), given=given)
