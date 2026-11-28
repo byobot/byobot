@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from byobot import link, remote, serve
+from byobot import link, remote, serve, web
+from byobot.core import store as store_module
 from byobot.core import commands, hlc, relay
 from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
@@ -71,23 +72,23 @@ def test_the_pin_is_the_public_key_s_so_a_renewed_certificate_keeps_it(byobot_ho
 # -- pairing codes -------------------------------------------------------------
 
 def test_pairing_code_is_single_use():
-    p = serve.Pairing()
+    p = web.Pairing()
     assert len(p.code) == 6 and p.code.isdigit() and p.open
     assert p.check(p.code[:3] + "-" + p.code[3:])
     assert not p.open and not p.check(p.code)
 
 
 def test_pairing_closes_after_too_many_wrong_codes():
-    p = serve.Pairing()
+    p = web.Pairing()
     wrong = "000000" if p.code != "000000" else "111111"
-    for _ in range(serve.PAIRING_TRIES):
+    for _ in range(web.PAIRING_TRIES):
         assert not p.check(wrong)
     assert not p.open and not p.check(p.code)
 
 
 def test_pairing_expires(monkeypatch):
-    p = serve.Pairing()
-    monkeypatch.setattr(serve.time, "monotonic", lambda: p.expires_at + 1)
+    p = web.Pairing()
+    monkeypatch.setattr(web.time, "monotonic", lambda: p.expires_at + 1)
     assert not p.open and not p.check(p.code)
 
 
@@ -434,7 +435,7 @@ def test_pairing_wrong_code_then_right_code_once(server):
     _, info, client, _ = server
     wrong = "000000" if info["code"] != "000000" else "111111"
     status, body = client.call("POST", "/v1/pair", {"code": wrong, "device_id": PHONE, "name": "Phone"})
-    assert status == 403 and body["error"] == "wrong_code" and body["details"]["tries_left"] == serve.PAIRING_TRIES - 1
+    assert status == 403 and body["error"] == "wrong_code" and body["details"]["tries_left"] == web.PAIRING_TRIES - 1
     paired = _pair(client, info)
     assert paired["device"]["device_id"] == PHONE and paired["server"]["device_id"] == info["device_id"]
     status, body = client.call("POST", "/v1/pair", {"code": info["code"], "device_id": "other", "name": "Other"})
@@ -792,7 +793,7 @@ def test_expect_100_continue_is_sent_only_after_auth(server):
 
     token = _pair(client, info)["token"]
     too_big = _raw_exchange(info["port"], info["fingerprint"], _post_headers(
-        "/v1/events", f"Authorization: Bearer {token}", f"Content-Length: {serve.MAX_BODY + 1}", "Expect: 100-continue"))
+        "/v1/events", f"Authorization: Bearer {token}", f"Content-Length: {web.MAX_BODY + 1}", "Expect: 100-continue"))
     assert too_big.startswith(b"HTTP/1.1 413") and b"HTTP/1.1 100" not in too_big
 
     body = b'{"events":[]}'
@@ -849,7 +850,7 @@ def test_writes_are_not_under_the_query_deadline(server, monkeypatch):
     _, info, client, _ = server
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
-    monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 1)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
     event = _event("activity", "plank", {"name": "Plank"})
     status, body = client.call("POST", "/v1/events", {"events": [event]})
     assert status == 200 and body["accepted"] == 1
@@ -867,7 +868,7 @@ def test_content_length_is_validated_before_the_body_is_read(server):
         ([auth, "Content-Length: -1"], 400, "invalid"),
         ([auth, "Content-Length: nope"], 400, "invalid"),
         ([auth, "Content-Length: +12"], 400, "invalid"),
-        ([auth, f"Content-Length: {serve.MAX_BODY + 1}"], 413, "too_large"),
+        ([auth, f"Content-Length: {web.MAX_BODY + 1}"], 413, "too_large"),
         ([auth, "Content-Length: 2", "Content-Length: 2"], 400, "invalid"),
         ([auth, "Content-Length: 5", "Transfer-Encoding: chunked"], 400, "invalid"),
         ([auth, "Content-Length: 0"], 400, "invalid"),  # present and empty: not "missing", and not a hang
@@ -892,12 +893,12 @@ def test_pairing_rejects_a_bad_length_without_spending_a_guess(server):
     assert _status_line(_raw_exchange(info["port"], info["fingerprint"], negative)) == 400
     wrong = "000000" if info["code"] != "000000" else "111111"
     status, body = client.call("POST", "/v1/pair", {"code": wrong, "device_id": PHONE, "name": "Example iPhone"})
-    assert status == 403 and body["details"]["tries_left"] == serve.PAIRING_TRIES - 1
+    assert status == 403 and body["details"]["tries_left"] == web.PAIRING_TRIES - 1
     _pair(client, info)
 
 
 def test_a_stalled_client_is_disconnected(server, monkeypatch):
-    monkeypatch.setattr(serve, "SOCKET_TIMEOUT_S", 1)
+    monkeypatch.setattr(web, "SOCKET_TIMEOUT_S", 1)
     _, info, client, _ = server
     started = time.monotonic()
     data = _raw_exchange(info["port"], info["fingerprint"],
@@ -909,7 +910,7 @@ def test_a_stalled_client_is_disconnected(server, monkeypatch):
 
 
 def test_a_slow_body_is_stopped(server, monkeypatch):
-    monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 1)
+    monkeypatch.setattr(web, "REQUEST_DEADLINE_S", 1)
     _, info, client, _ = server
     token = _pair(client, info)["token"]
     head = _post_headers("/v1/events", f"Authorization: Bearer {token}", "Content-Length: 100000")
@@ -924,7 +925,7 @@ def test_plan_and_status_give_up_on_a_long_query(server, monkeypatch):
     _, info, client, _ = server
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
-    monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 1)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
     for path in ("/v1/plan", "/v1/status"):
         status, body = client.call("GET", path)
         assert status == 503 and body["error"] == "timeout", path
@@ -978,7 +979,7 @@ def test_a_new_location_under_an_erased_slug_is_not_reported_as_kept(store):
 
 @pytest.fixture
 def deadlined(byobot_home, monkeypatch):
-    monkeypatch.setattr(serve, "REQUEST_DEADLINE_S", 5)  # 30 s in production; scaled down, with room for slow CI
+    monkeypatch.setattr(web, "REQUEST_DEADLINE_S", 5)  # 30 s in production; scaled down, with room for slow CI
     with running() as h:
         yield h
 
@@ -1091,7 +1092,7 @@ def test_a_pairing_code_in_other_digits_gets_an_answer_and_spends_a_try(server):
                             b"Connection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
     sock.close()
     assert reply.startswith(b"HTTP/1.1 403"), f"no answer at all: {reply[:80]!r}"
-    assert srv.pairing.tries_left == serve.PAIRING_TRIES - 1
+    assert srv.pairing.tries_left == web.PAIRING_TRIES - 1
 
 
 def test_an_approval_code_in_other_digits_gets_a_page(remote_server):
