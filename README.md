@@ -55,7 +55,7 @@ tailscale funnel --bg 8780    # shows your address, such as https://example-lapt
 byobot remote serve --url https://example-laptop.example.ts.net
 ```
 
-Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote serve` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote revoke` disconnects every assistant.
+Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote serve` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot device list` shows every connected assistant, and `byobot device remove` disconnects one.
 
 For an assistant that calls an API instead, run `byobot remote key NAME` for a key on the clipboard (add `--show` to print it once instead, and `--read-only` for a key that can't write), and point it at `https://example-laptop.example.ts.net/api/v1/openapi.json`. Each tool is `POST /api/v1/tools/TOOL` with its arguments as JSON and the key as `Authorization: Bearer KEY` or `X-API-Key: KEY`. An error's body is `{"error": CODE, "message": ...}`, where CODE is a stable code such as `invalid`, `not_found` or `forbidden`, listed in the OpenAPI description.
 
@@ -64,24 +64,6 @@ For an assistant that calls an API instead, run `byobot remote key NAME` for a k
 Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
 
 The app and byobot work together when they share a release line (app 0.1 with byobot 0.1.x), which speaks sync protocol 1 and schema version 1; `byobot status` shows the version and schema version.
-
-## Sync through Google Drive (optional)
-
-When the phone can't reach your computer, it can sync through a hidden folder in your own Google Drive, encrypted with keys only your devices hold. Your computer stays the copy that counts.
-
-You use your own Google Cloud project, once:
-
-1. Make a project at [console.cloud.google.com](https://console.cloud.google.com) and turn on the Google Drive API.
-2. Set up the OAuth consent screen as External, with only the `drive.appdata` scope, then press Publish app so it says In production. In Testing, Google signs every device out after seven days.
-3. Make two OAuth clients: a Desktop app (download its JSON) and an iOS client for the app's bundle id.
-
-```bash
-byobot cloud setup     # asks for the Desktop client's JSON and the iOS client id, signs you in, shows a recovery code
-byobot cloud join      # shows a code; in the app, turn on Drive sync and scan it
-byobot cloud status    # devices, when each was last heard from, the folder's size, any error
-```
-
-`byobot serve`, `byobot remote serve` and `byobot mcp` sync every minute while they run; `byobot cloud sync` syncs now. `byobot cloud off` stops (`--delete` also deletes the folder's files), `byobot cloud remove` retires a device and `byobot cloud rotate` changes the keys. Erasing a record rewrites the folder under a new key, so the record is gone from Drive once every device has synced. Keep byobot's home out of any folder another app syncs, such as Google Drive for desktop, iCloud Drive or Dropbox.
 
 ## Import from WHOOP
 

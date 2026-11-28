@@ -48,28 +48,17 @@ final class SyncTests: XCTestCase {
             let link = try XCTUnwrap(item.string("link"))
             if item.bool("valid") == false {
                 XCTAssertThrowsError(try PairingLink(link: link), name)
-                XCTAssertThrowsError(try CloudJoin(link: link), name)
                 continue
             }
             guard case .object(let expect)? = item["expect"] else { return XCTFail("\(name): bad fixture") }
-            if case .array(let hosts)? = expect["hosts"], case .number(let port)? = expect["port"] {
-                let parsed = try PairingLink(link: link)
-                XCTAssertEqual(parsed.hosts.map { JSONValue.string($0) }, hosts, name)
-                XCTAssertEqual(parsed.port, Int(port), name)
-                XCTAssertEqual(parsed.code, expect.string("code"), name)
-                XCTAssertEqual(parsed.fingerprint, expect.string("pin"), name)
-            } else {
-                XCTAssertThrowsError(try PairingLink(link: link), name)
+            guard case .array(let hosts)? = expect["hosts"], case .number(let port)? = expect["port"] else {
+                return XCTFail("\(name): bad fixture")
             }
-            if let store = expect.string("store_id") {
-                let join = try CloudJoin(link: link)
-                XCTAssertEqual(join.storeID, store, name)
-                XCTAssertEqual(join.secret, expect.string("secret"), name)
-                XCTAssertEqual(join.keeperKey, expect.string("keeper_key"), name)
-                XCTAssertEqual(join.client, expect.string("client"), name)
-            } else {
-                XCTAssertThrowsError(try CloudJoin(link: link), name)
-            }
+            let parsed = try PairingLink(link: link)
+            XCTAssertEqual(parsed.hosts.map { JSONValue.string($0) }, hosts, name)
+            XCTAssertEqual(parsed.port, Int(port), name)
+            XCTAssertEqual(parsed.code, expect.string("code"), name)
+            XCTAssertEqual(parsed.fingerprint, expect.string("pin"), name)
         }
     }
 

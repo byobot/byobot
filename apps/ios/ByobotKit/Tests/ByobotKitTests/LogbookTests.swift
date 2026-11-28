@@ -337,6 +337,34 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.state.storeId, "store-a")
     }
 
+    func testAppleHealthGoesAgainToAnotherOrARestoredStore() throws {
+        func sent(_ book: inout Logbook) {
+            var health = HealthState()
+            health.anchors = ["steps": Data([1])]
+            health.days = ["steps 2026-01-01": -18_000]
+            book.state.health = health
+            book.state.lastHealthSyncAt = "2026-11-23T08:00:00Z"
+        }
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        sent(&book)
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: book.state.events[0].hlc]
+        book.applyPlan(window)
+        XCTAssertEqual(book.state.health?.anchors, ["steps": Data([1])], "the same store keeps them")
+
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 1)
+        XCTAssertEqual(book.state.health?.anchors, [:], "a restored store gets them again")
+        XCTAssertNil(book.state.lastHealthSyncAt)
+
+        sent(&book)
+        book.paired(storeId: "store-b")
+        XCTAssertEqual(book.state.health?.days, [:], "another store gets them again")
+    }
+
     func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]
@@ -391,18 +419,18 @@ final class LogbookTests: XCTestCase {
         let sent = book.logEffort(activityId: "run", metrics: [:])
         ack(&book)
         let waiting = book.logEffort(activityId: "run", metrics: [:])
-        book.delivered([])
+        book.prune()
         XCTAssertEqual(book.state.events.map(\.record.id), [sent.id, waiting.id], "the newest sent marks how far it sent")
 
         let session = book.startSession(name: "Long one")
         let set = book.logEffort(activityId: "run", metrics: [:])
         ack(&book)
         clock.now += 60 * 86_400
-        book.delivered([])
+        book.prune()
         XCTAssertEqual(Set(book.state.events.map(\.record.id)), [session.id, set.id], "the active session's stay")
 
         book.state.rejected = (0..<250).map { RejectedEvent(eventId: "refused-\($0)", reason: nil, at: "2026-11-23T08:00:00Z") }
-        book.delivered([])
+        book.prune()
         XCTAssertEqual(book.state.rejected.count, Logbook.keptRejected)
         XCTAssertEqual(book.state.rejected.first?.eventId, "refused-50")
     }

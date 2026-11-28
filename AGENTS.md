@@ -34,10 +34,9 @@ Each marker guards one boundary. Most changes move none of them.
 | `RULES` | `core/reducers.py` | how records are derived | derivation changes; derived tables rebuild on open |
 | `STORE_VERSION` | `core/store.py` | the SQLite file | its tables change in a way a rebuild cannot fix; older stores are refused |
 | `PROTOCOL` | `serve.py` | the hub's HTTP API | an endpoint changes incompatibly |
-| `FORMAT` | `cloud/crypto.py` | every Drive file | a Drive file changes incompatibly |
 | `EXPORT_VERSION` | `core/store.py` | the export file | the export file changes |
 | `v` | `link.py` | the `byobot://pair` link | the link changes |
-| `capabilities` | hub hello and pair, Drive device and epoch files | optional features | a feature is added without a version bump |
+| `capabilities` | hub hello and pair | optional features | a feature is added without a version bump |
 
 ## Privacy
 

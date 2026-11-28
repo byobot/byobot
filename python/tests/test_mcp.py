@@ -185,7 +185,7 @@ def test_answers_mark_where_other_apps_text_can_be(store):
     marks = {
         "query": run("query", ctx, {"sql": "SELECT 1 AS one"}),
         "list": run("list", ctx, {"kind": "source_record"}),
-        "devices": run("devices list", ctx, {}),
+        "device": run("device list", ctx, {}),
         "conflicts": run("conflicts", ctx, {}),
     }
     for name, answer in marks.items():

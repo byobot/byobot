@@ -378,7 +378,7 @@ def test_planned_session_must_name_existing_records(capsys):
 
 def test_a_group_alone_shows_its_help(capsys):
     with pytest.raises(SystemExit) as exit:
-        main(["devices"])
+        main(["device"])
     assert exit.value.code == 0 and "remove" in capsys.readouterr().out
 
 

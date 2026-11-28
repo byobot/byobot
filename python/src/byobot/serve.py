@@ -11,7 +11,7 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
 * **Pairing.** ``byobot serve`` shows a one-time six-digit code, valid for ten
   minutes and five tries, as a QR code holding a ``byobot://pair`` link. The
   phone trades the code for a token; the store keeps only the token's hash.
-  ``byobot devices remove`` revokes a device.
+  ``byobot device remove`` revokes a device.
 * **Protocol (v1).** JSON over HTTPS under ``/v1``:
 
   ``GET /v1/hello``        who this is (no token needed)

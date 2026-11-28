@@ -5,9 +5,8 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 ## Where your data lives
 
 - Your logbook lives on your own devices: a database on your computer (`~/.byobot`) and the iPhone app's own storage.
-- The phone syncs with your computer over your local network, or through Drive sync. A phone that joined Drive sync can read the whole logbook there, so treat it like the computer.
+- The phone syncs with your computer over your local network, nowhere else.
 - Profiles keep two people's logbooks apart, not private from each other: anyone, and any program, using the same macOS account can read every profile and its sign-ins. For privacy between people, give each their own macOS account.
-- If you turn on Drive sync, your logbook is stored encrypted in a hidden app folder in your own Google Drive. byobot asks only for the `drive.appdata` scope, so it can't see your other Drive files, and it signs in through a Google Cloud project you control. It is encrypted on your devices before it leaves them, with keys Google can't read.
 
 ## Other services
 
@@ -19,4 +18,3 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 
 - One record: `byobot erase <kind> <id>`.
 - Everything on a computer: delete the `~/.byobot` folder. On the iPhone: delete the app.
-- Drive sync: `byobot cloud off --delete` deletes the folder's files, all but a small signed note that holds no data and tells phones sync ended. Or, in Google Drive's settings under Manage apps, delete byobot's hidden app data and disconnect it.

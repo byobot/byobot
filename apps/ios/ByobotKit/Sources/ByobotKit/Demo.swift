@@ -1,4 +1,4 @@
-// Sample data to look around the app with, such as for App Review, with no laptop or Drive. Nothing syncs.
+// Sample data to look around the app with, such as for App Review, with no laptop. Nothing syncs.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
