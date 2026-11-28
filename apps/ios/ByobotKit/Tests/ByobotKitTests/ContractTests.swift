@@ -114,6 +114,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(MetricRegistry.healthkit, healthkit)
         XCTAssertEqual(MetricRegistry.spec("load")?.units, ["kg", "[lb_av]"])
         XCTAssertEqual(MetricRegistry.spec("reps")?.kind, .integer)
+        XCTAssertEqual(MetricRegistry.sorted(["x.b", "load", "x.a", "reps"]), ["reps", "load", "x.a", "x.b"])
         XCTAssertEqual(MetricRegistry.spec("sleep_stage")?.values, HealthMapping.sleepStages.sorted { $0.key < $1.key }.map(\.value))
         XCTAssertTrue(MetricRegistry.isCustom("x.grade"))
         XCTAssertFalse(MetricRegistry.isCustom("grade"))

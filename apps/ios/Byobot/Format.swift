@@ -9,14 +9,9 @@ enum Format {
     /// `Reps 5 · Load 100 kg · RPE 8`, in registry order.
     static func metrics(_ metrics: Metrics?) -> String {
         guard let metrics, !metrics.isEmpty else { return "Done" }
-        return metrics.keys.sorted(by: order)
+        return MetricRegistry.sorted(metrics.keys)
             .map { "\(MetricSpec.label(for: $0)) \(metrics[$0]!.display)" }
             .joined(separator: " · ")
-    }
-
-    private static func order(_ a: String, _ b: String) -> Bool {
-        let rank = { (name: String) in MetricRegistry.all.firstIndex { $0.name == name } ?? MetricRegistry.all.count }
-        return rank(a) != rank(b) ? rank(a) < rank(b) : a < b
     }
 
     /// `1:30`, or `12:05` past ten minutes.
@@ -30,11 +25,6 @@ enum Format {
     static func duration(_ seconds: TimeInterval) -> String {
         let minutes = Int((seconds / 60).rounded())
         return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
-    }
-
-    /// The order metrics read in.
-    static func sorted(_ metrics: Metrics) -> [String] {
-        metrics.keys.sorted(by: order)
     }
 
     /// `Monday 23 Nov`, or `Today`.

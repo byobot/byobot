@@ -58,7 +58,7 @@ public enum EffortForm {
     /// Each starts from the exact target where the plan has one; a range target shows as a hint instead.
     public static func fields(planned: PlannedEffort?, activity: Activity?) -> [MetricField] {
         var names: [String] = []
-        for name in (planned?.metrics ?? [:]).keys.sorted(by: metricOrder) where !names.contains(name) {
+        for name in MetricRegistry.sorted((planned?.metrics ?? [:]).keys) where !names.contains(name) {
             names.append(name)
         }
         for name in activity?.defaultMetrics ?? [] where !names.contains(name) {
@@ -71,7 +71,9 @@ public enum EffortForm {
     public static func fields(planned: PlannedEffort?, activity: Activity?, filledFrom metrics: Metrics?) -> [MetricField] {
         var fields = self.fields(planned: planned, activity: activity)
         for i in fields.indices { fields[i].text = "" }
-        for (name, measure) in (metrics ?? [:]).sorted(by: { metricOrder($0.key, $1.key) }) {
+        let values = metrics ?? [:]
+        for name in MetricRegistry.sorted(values.keys) {
+            let measure = values[name]!
             if !fields.contains(where: { $0.name == name }) { fields.append(field(name: name, target: nil)) }
             let i = fields.firstIndex { $0.name == name }!
             fields[i].text = measure.value?.text ?? measure.startingNumber.map(formatNumber) ?? ""
@@ -88,11 +90,6 @@ public enum EffortForm {
         }
         let unit = target?.unit ?? MetricRegistry.spec(name)?.units.first
         return MetricField(name: name, target: target, text: text, unit: unit)
-    }
-
-    static func metricOrder(_ a: String, _ b: String) -> Bool {
-        let (oa, ob) = (MetricRegistry.order(a), MetricRegistry.order(b))
-        return oa != ob ? oa < ob : a < b
     }
 
     /// Metrics from the filled fields. Empty fields are left out.

@@ -252,7 +252,7 @@ private struct FocusCard: View {
                         .font(.subheadline).foregroundStyle(.indigo)
                 }
             }
-            ForEach(Format.sorted(values), id: \.self) { name in
+            ForEach(MetricRegistry.sorted(values.keys), id: \.self) { name in
                 MetricNudger(name: name, value: values[name]!, target: slot.effort.metrics?[name]) {
                     onNudge(name, $0)
                 }
