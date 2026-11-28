@@ -45,7 +45,6 @@ class Command:
     handler: Callable[..., Any]
     params: tuple[Param, ...] = ()
     read_only: bool = True
-    cli: bool = True
     mcp: bool = True
     description: str = ""
     destructive: bool = False
@@ -80,10 +79,10 @@ REGISTRY: dict[str, Command] = {}
 MAX_LIMIT = 1_000_000
 
 
-def command(name: str, summary: str, *params: Param, read_only: bool = True, cli: bool = True,
-            mcp: bool = True, description: str = "", destructive: bool = False, hidden: bool = False) -> Callable:
+def command(name: str, summary: str, *params: Param, read_only: bool = True, mcp: bool = True,
+            description: str = "", destructive: bool = False, hidden: bool = False) -> Callable:
     def register(fn: Callable) -> Callable:
-        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive, hidden)
+        REGISTRY[name] = Command(name, summary, fn, params, read_only, mcp, description, destructive, hidden)
         return fn
 
     return register
@@ -96,6 +95,9 @@ def run(name: str, ctx: Context, args: dict) -> Any:
         takes = f"; it takes {', '.join(known)}" if known else "; it takes none"
         raise ValidationFailed(f"{cmd.name} does not take {', '.join(unknown)}{takes}")
     clean = {k: v for k, v in args.items() if v is not None}
+    for p in cmd.params:
+        if p.default is not None:
+            clean.setdefault(p.name, p.default)
     for p in cmd.params:
         if p.required and p.name not in clean:
             raise ValidationFailed(f"missing required argument {p.name!r}")
@@ -309,7 +311,7 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
     description="Overlays on the record go with it. The iPhone app keeps its own copy until the app is deleted, "
                 "and exports made before now still hold it.",
 )
-def _erase(ctx: Context, kind: str, id: str, efforts: bool = False) -> dict:
+def _erase(ctx: Context, kind: str, id: str, efforts: bool) -> dict:
     store = ctx.store()
     events = core.erase(store, ctx.actor, kind, id, with_efforts=efforts)
     still = [{"kind": k, "id": r} for k, r in core.linked(store, kind, id)]
@@ -398,7 +400,7 @@ def _exclude(ctx: Context, id: str, reason: str | None = None) -> dict:
           default="session"),
     read_only=False,
 )
-def _same_as(ctx: Context, id: str, other_id: str, other_kind: str = "session") -> dict:
+def _same_as(ctx: Context, id: str, other_id: str, other_kind: str) -> dict:
     store = ctx.store()
     _source_record(store, id)
     if store.get(other_kind, other_id) is None:
@@ -448,7 +450,7 @@ IMPORT_SOURCES = ("activities", "whoop")
                 "sent it, with each rescore as a new version. A workout that overlaps one you logged is read as one "
                 "workout; `correct` and `exclude` change how an import reads.",
 )
-def _import(ctx: Context, source: str, records: Any = None, existing: str = "keep", days: int | None = None) -> dict:
+def _import(ctx: Context, source: str, existing: str, records: Any = None, days: int | None = None) -> dict:
     if source == "whoop":
         if records is not None:
             raise ValidationFailed("import whoop reads WHOOP itself; it takes no records")
@@ -607,9 +609,9 @@ def metrics_of(store: Store, kind: str, rid: str, part: str = "") -> dict:
                 "as the record was written. A filter that doesn't fit the kind is refused. truncated says more "
                 "records matched than the limit.",
 )
-def _list(ctx: Context, kind: str, id: str | None = None, type: str | None = None, activity: str | None = None,
-          source: str | None = None, muscle: str | None = None, equipment: str | None = None, detail: str = "full",
-          since: str | None = None, until: str | None = None, limit: int = 50) -> dict:
+def _list(ctx: Context, kind: str, detail: str, limit: int, id: str | None = None, type: str | None = None,
+          activity: str | None = None, source: str | None = None, muscle: str | None = None,
+          equipment: str | None = None, since: str | None = None, until: str | None = None) -> dict:
     given = {"id": id, "type": type, "activity": activity, "source": source, "muscle": muscle,
              "equipment": equipment, "since": since, "until": until}
     for name, value in given.items():
@@ -749,7 +751,7 @@ def _equipment(store: Store, location: str | None) -> list[str] | None:
                 "as synergist, 0.5 for each shared synergist, less 1.5 for each main muscle the original doesn't "
                 "work and 1 for each it leaves out.",
 )
-def _swap_list(ctx: Context, activity: str, location: str | None = None, limit: int = 8) -> dict:
+def _swap_list(ctx: Context, activity: str, limit: int, location: str | None = None) -> dict:
     store = ctx.store()
     library = _activities(store)
     original = next((a for a in library if a["id"] == activity), None)
@@ -774,7 +776,7 @@ def _swap_list(ctx: Context, activity: str, location: str | None = None, limit: 
     description="A time is one session's sets, or a set logged without a session. This is the app's last time at "
                 "the gym.",
 )
-def _effort_history(ctx: Context, activity: str, location: str | None = None, limit: int = 3) -> dict:
+def _effort_history(ctx: Context, activity: str, limit: int, location: str | None = None) -> dict:
     store = ctx.store()
     sets = store.rows(
         "SELECT e.id, e.session_id, coalesce(e.location_id, s.location_id) AS location_id, e.performed_at,"
@@ -806,7 +808,7 @@ def _effort_history(ctx: Context, activity: str, location: str | None = None, li
     description="Tables are listed by `byobot schema sql`. Every metric is one row in `metrics`, with std_value "
                 "in its code's own unit; `occurrences` holds each workout once, across you and your sources.",
 )
-def _query(ctx: Context, sql: str, limit: int = 1000) -> dict:
+def _query(ctx: Context, sql: str, limit: int) -> dict:
     ctx.store()  # make sure the store exists before opening it read-only
     return {**query(ctx.path, sql, limit=limit), **untrusted("rows")}
 
@@ -907,7 +909,7 @@ def _device_remove(ctx: Context, id: str) -> dict:
                 "only within one location. Each day's value comes from one source: yours, then sources in "
                 "source_priority order.",
 )
-def _review(ctx: Context, weeks: int = 4, until: str | None = None) -> dict:
+def _review(ctx: Context, weeks: int, until: str | None = None) -> dict:
     from byobot.review import review
 
     try:
@@ -946,7 +948,7 @@ def _mcp(ctx: Context) -> None:
     description="Serve the plan to the byobot app and take back what it logged, over HTTPS on your local network. "
                 "Shows a QR code to pair a phone when none is paired yet (or with --pair).",
 )
-def _serve(ctx: Context, host: str = "0.0.0.0", port: int | None = None, pair: bool | None = None) -> None:
+def _serve(ctx: Context, host: str, port: int | None = None, pair: bool | None = None) -> None:
     from byobot import serve
 
     serve.run(host, port, pair)
@@ -966,7 +968,7 @@ def _serve(ctx: Context, host: str = "0.0.0.0", port: int | None = None, pair: b
     description="Serve the MCP tools at /mcp, with sign-in, for assistants that run elsewhere. Listens on this "
                 "computer only; run a tunnel (such as Tailscale Funnel) that gives it an https address.",
 )
-def _remote_serve(ctx: Context, url: str | None = None, host: str = "127.0.0.1", port: int | None = None,
+def _remote_serve(ctx: Context, host: str, url: str | None = None, port: int | None = None,
                   pair: bool | None = None) -> None:
     from byobot import remote
 
@@ -982,7 +984,7 @@ def _remote_serve(ctx: Context, url: str | None = None, host: str = "127.0.0.1",
     read_only=False,
     mcp=False,
 )
-def _remote_key(ctx: Context, name: str, show: bool = False, read_only: bool = False) -> dict:
+def _remote_key(ctx: Context, name: str, show: bool, read_only: bool) -> dict:
     from byobot import remote
 
     return remote.make_key(name, show, read_only)
