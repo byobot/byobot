@@ -34,6 +34,8 @@ final class WorkoutTests: XCTestCase {
         XCTAssertTrue(ActivityLibrary.bundled.allSatisfy { $0.library == true && $0.prev.isEmpty })
         XCTAssertEqual(book.activity("barbell_romanian_deadlift")?.name, "Barbell Romanian Deadlift")
         XCTAssertEqual(book.activity("barbell_back_squat")?.name, "Barbell back squat", "the plan's version wins")
+        XCTAssertEqual(book.name(of: "barbell_romanian_deadlift"), "Barbell Romanian Deadlift")
+        XCTAssertEqual(book.name(of: "x.unknown"), "x.unknown")
         XCTAssertEqual(book.library.filter { $0.id == "barbell_back_squat" }.count, 1)
         XCTAssertNotNil(book.alternatives(for: PlannedEffort(id: "e", activityId: "barbell_romanian_deadlift")).first)
     }
@@ -453,7 +455,15 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(summary.done, 3)
         XCTAssertEqual(summary.total, 8)
         XCTAssertEqual(summary.extras.map(\.id), [extra.id])
+        XCTAssertEqual(book.extras(inSession: performed.id).map(\.id), [extra.id])
         XCTAssertNotNil(summary.duration)
         XCTAssertEqual(book.finishedSessions.map(\.id), [performed.id])
+    }
+
+    func testASessionLastsFromStartToEnd() {
+        var session = PerformedSession(id: "s", payload: SessionPayload(time: RecordTime(start: "2026-11-26T08:00:00-05:00")))
+        XCTAssertNil(session.duration)
+        session.payload.time.end = "2026-11-26T14:10:00Z"
+        XCTAssertEqual(session.duration, 4200)
     }
 }

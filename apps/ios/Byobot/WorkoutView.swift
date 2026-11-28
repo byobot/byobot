@@ -58,7 +58,7 @@ struct WorkoutView: View {
             }
         }
         .sheet(item: $summary, onDismiss: { dismiss() }) { summary in
-            NavigationStack { SummaryView(summary: summary, names: { model.book.activity($0)?.name ?? $0 }) }
+            NavigationStack { SummaryView(summary: summary, names: { model.book.name(of: $0) }) }
         }
         .sheet(isPresented: $unplanned) {
             NavigationStack {
@@ -122,12 +122,12 @@ struct WorkoutView: View {
                 Text("Tap an exercise to see its sets or swap it.")
             }
             if running, let active {
-                let extras = model.book.efforts(inSession: active.id).filter { $0.plannedEffortId == nil }
+                let extras = model.book.extras(inSession: active.id)
                 if !extras.isEmpty {
                     Section("Also logged") {
                         ForEach(extras) { effort in
                             VStack(alignment: .leading) {
-                                Text(model.book.activity(effort.activityId)?.name ?? effort.activityId)
+                                Text(model.book.name(of: effort.activityId))
                                 Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                             }
                             .swipeActions { Button("Undo", role: .destructive) { model.undo(effort) } }
@@ -209,7 +209,7 @@ struct WorkoutView: View {
 
     private func finish() {
         guard let planned, let active else { return }
-        let extras = model.book.efforts(inSession: active.id).filter { $0.plannedEffortId == nil }
+        let extras = model.book.extras(inSession: active.id)
         let performed = model.finish()
         summary = model.book.workout(planned).summary(extras: extras, performed: performed)
     }

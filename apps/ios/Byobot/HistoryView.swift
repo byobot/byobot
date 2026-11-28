@@ -31,8 +31,8 @@ struct HistoryView: View {
         var parts: [String] = []
         if let start = Timestamp.date(session.startedAt) {
             parts.append(start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
-            if let end = session.endedAt.flatMap(Timestamp.date) {
-                parts.append(Format.duration(end.timeIntervalSince(start)))
+            if let duration = session.duration {
+                parts.append(Format.duration(duration))
             }
         }
         parts.append("\(model.book.efforts(inSession: session.id).count) sets")
@@ -50,7 +50,7 @@ private struct HistoryDetail: View {
             Section {
                 ForEach(model.book.efforts(inSession: session.id)) { effort in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.book.activity(effort.activityId)?.name ?? effort.activityId)
+                        Text(model.book.name(of: effort.activityId))
                         Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                         if let notes = effort.notes {
                             Text(notes).font(.caption).foregroundStyle(.secondary)

@@ -166,10 +166,7 @@ extension Workout {
         let rows = exercises.map { exercise in
             SummaryRow(exercise: exercise, sets: (logged[exercise.effort.id] ?? [:]).sorted { $0.key < $1.key }.map(\.value))
         }
-        let duration = performed.flatMap { s in
-            s.endedAt.flatMap(Timestamp.date).flatMap { end in Timestamp.date(s.startedAt).map { end.timeIntervalSince($0) } }
-        }
-        return SessionSummary(rows: rows, extras: extras, done: done, total: total, duration: duration)
+        return SessionSummary(rows: rows, extras: extras, done: done, total: total, duration: performed?.duration)
     }
 }
 
@@ -184,6 +181,11 @@ extension Logbook {
 
     public func activity(_ id: String) -> Activity? {
         state.plan?.activity(id) ?? shipped.first { $0.id == id }
+    }
+
+    /// The activity's name, else its id.
+    public func name(of id: String) -> String {
+        activity(id)?.name ?? id
     }
 
     /// Every set of an activity this phone knows of: pulled from the laptop, with this phone's own versions on top.

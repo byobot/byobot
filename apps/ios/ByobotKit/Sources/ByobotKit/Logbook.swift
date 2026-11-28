@@ -387,6 +387,11 @@ public struct Logbook: Sendable {
         currentEfforts().filter { $0.sessionId == id }
     }
 
+    /// The session's sets outside the plan.
+    public func extras(inSession id: String) -> [PerformedEffort] {
+        efforts(inSession: id).filter { $0.plannedEffortId == nil }
+    }
+
     /// What has been logged against each planned effort and round, here and (from the last pull) anywhere else.
     public func logged(for planned: PlannedSession) -> [String: [Int: PerformedEffort]] {
         let plannedIds = Set(planned.blocks.flatMap { $0.efforts.map(\.id) })

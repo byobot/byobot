@@ -237,6 +237,12 @@ extension Record where Payload == SessionPayload {
     public var endedAt: String? { payload.time.end }
     public var plannedSessionId: String? { payload.links?.answers?.id }
     public var planId: String? { payload.links?.partOf?.id }
+
+    /// From start to end, once it has ended.
+    public var duration: TimeInterval? {
+        guard let end = endedAt.flatMap(Timestamp.date), let start = Timestamp.date(startedAt) else { return nil }
+        return end.timeIntervalSince(start)
+    }
 }
 
 extension Record where Payload == PlannedSessionPayload {
