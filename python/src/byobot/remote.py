@@ -37,7 +37,7 @@ from byobot import __version__, mcp, util, web
 from byobot.lock import held
 from byobot.commands import Context
 from byobot.core.store import interrupted, limit_time
-from byobot.util import PROFILE_NAME, ByobotError, ValidationFailed, db_path, home, profile
+from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 
 READ, FULL = "read", "read write"  # a client with only read may call read-only tools
@@ -325,6 +325,41 @@ class Auth:
 
         self._change(add)
         return key
+
+    def assistants(self) -> list[dict]:
+        """Every assistant that can reach the store: a signed-in client by its client_id, an API key as key:<hash>."""
+        with self.lock:
+            data = self._load()
+        signed_in = [{"id": c["client_id"], "name": c["client_name"], "route": "sign_in",
+                      "read_only": scope_of(c) == READ, "since": c.get("client_id_issued_at")}
+                     for c in data["clients"].values()]
+        keys = [{"id": "key:" + h[:16], "name": k["name"], "route": "api_key", "read_only": k.get("scope") == READ,
+                 "since": k.get("created_at")} for h, k in data["keys"].items()]
+        return signed_in + keys
+
+    def remove(self, assistant_id: str) -> dict:
+        """Disconnect one assistant. A sign-in part way through, this one's or another's, has to start again."""
+        def drop(data: dict) -> dict | None:
+            key = next((h for h in data["keys"] if "key:" + h[:16] == assistant_id), None)
+            if key is not None:
+                found = {"id": assistant_id, "name": data["keys"].pop(key)["name"], "route": "api_key"}
+            elif assistant_id in data["clients"]:
+                name = data["clients"].pop(assistant_id)["client_name"]
+                found = {"id": assistant_id, "name": name, "route": "sign_in"}
+                for kind in ("access", "refresh", "used"):
+                    data[kind] = {h: t for h, t in data[kind].items() if t["client_id"] != assistant_id}
+            else:
+                return None
+            data["generation"] += 1
+            return found
+
+        found = self._change(drop)
+        if found is None:
+            raise NotFound(f"no assistant {assistant_id}")
+        with self.lock:
+            self.pending.pop(assistant_id, None)
+            self.grants = {k: g for k, g in self.grants.items() if g.client_id != assistant_id}
+        return found
 
     def revoke_all(self) -> int:
         def clear(data: dict) -> int:

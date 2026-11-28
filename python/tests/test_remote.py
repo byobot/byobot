@@ -15,7 +15,7 @@ import pytest
 from byobot import commands, mcp, remote, web
 from byobot.core import store as store_module
 from byobot.core.store import Store
-from byobot.remote import Auth, OAuthError
+from byobot.remote import READ, Auth, OAuthError
 
 BASE = "https://example-laptop.example.ts.net"
 CALLBACK = "https://client.example/callback"
@@ -140,6 +140,31 @@ def test_revoke_all_is_seen_by_a_running_server(auth, byobot_home):
     assert other.revoke_all() == 1
     assert auth.client_for_token(tokens["access_token"]) is None
     assert auth.clients() == []
+
+
+def test_remove_one_assistant_and_leave_the_others(auth):
+    client, tokens = approved(auth)
+    key = auth.create_key("example_key", READ)
+    listed = {a["route"]: a for a in auth.assistants()}
+    assert listed["sign_in"]["id"] == client["client_id"] and listed["api_key"]["read_only"]
+    other = Auth(auth.path)  # as `byobot device remove` would, from another process
+    assert other.remove(client["client_id"])["route"] == "sign_in"
+    assert auth.client_for_token(tokens["access_token"]) is None and auth.client_for_token(key)
+    assert other.remove(listed["api_key"]["id"])["name"] == "example_key"
+    assert auth.client_for_token(key) is None and auth.assistants() == []
+    with pytest.raises(remote.NotFound):
+        other.remove(client["client_id"])
+
+
+def test_removing_an_assistant_voids_a_code_already_handed_out(auth):
+    first, _ = approved(auth)
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                            "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    Auth(auth.path).remove(first["client_id"])
+    with pytest.raises(OAuthError):
+        auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
 
 
 def test_token_file_is_private_and_holds_only_hashes(auth):
