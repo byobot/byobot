@@ -580,10 +580,8 @@ class Handler(web.Handler):
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
-        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
-        server.quiet_errors = True
-        server.protocol = version or mcp.LATEST
-        server.ctx = commands.Context(actor={}, path=self.server.db)
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ, path=self.server.db,
+                            protocol=version or mcp.LATEST, quiet_errors=True)
         try:
             if not _writes(message):
                 limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
