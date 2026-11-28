@@ -14,6 +14,16 @@ enum Format {
             .joined(separator: " · ")
     }
 
+    /// `3 × Reps 5`: the planned effort, with how many sets when there are several.
+    static func plan(_ exercise: Exercise) -> String {
+        (exercise.total > 1 ? "\(exercise.total) × " : "") + metrics(exercise.effort.metrics)
+    }
+
+    /// `free_weights` as `Free Weights`.
+    static func words(_ name: String) -> String {
+        name.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
     /// `1:30`, or `12:05` past ten minutes.
     static func clock(_ seconds: TimeInterval) -> String {
         let total = max(0, Int(seconds.rounded(.up)))

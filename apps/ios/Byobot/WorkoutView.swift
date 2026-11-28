@@ -222,10 +222,6 @@ struct LogForm: Identifiable {
     var id: String { slot.id + (editing?.id ?? "") }
 }
 
-extension Exercise {
-    var swapped: Bool { swap != nil }
-}
-
 // MARK: Cards
 
 /// The set to do now: big targets, nudges, and one tap to log it as planned.
@@ -422,11 +418,11 @@ private struct ExerciseRow: View {
                 .foregroundStyle(exercise.done >= exercise.total ? Color.green : Color.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(workout.name(exercise.activityId)).foregroundStyle(.primary)
-                if exercise.swapped {
+                if exercise.swap != nil {
                     Text("In place of \(workout.name(exercise.effort.activityId))")
                         .font(.caption).foregroundStyle(.indigo)
                 }
-                Text((exercise.total > 1 ? "\(exercise.total) × " : "") + Format.metrics(exercise.effort.metrics))
+                Text(Format.plan(exercise))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
