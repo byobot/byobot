@@ -17,8 +17,8 @@ CI runs all of these. A change is done when they pass.
 - `schema/v1` is the source of truth. A schema change ships with fixtures in `schema/fixtures/v1`, regenerated Swift, and Python and Swift tests.
 - Never edit `apps/ios/ByobotKit/Sources/ByobotKit/Generated/` by hand.
 - The `events` table, the byobot logbook, is append-only; erase only blanks payloads.
-- Derived tables rebuild on open when their DDL changes; raise `RULES` in `core/reducers.py` when records are derived differently. Never bump `STORE_VERSION` for this: byobot refuses every store written at an older one.
-- Library activity ids never change or go away. Names are lowercase with underscores; see `library/README.md`.
+- Never bump `STORE_VERSION` for a derivation change; raise `RULES`.
+- Library activities follow `library/README.md`.
 - Ask first before changing `SCHEMA_VERSION`, `STORE_VERSION` or the sync protocol.
 - One logical change per commit, messages as Conventional Commits (see `CONTRIBUTING.md`). Minimal comments.
 - Merging, force-pushing and releases are for maintainers.

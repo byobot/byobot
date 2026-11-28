@@ -61,7 +61,7 @@ For an assistant that calls an API instead, run `byobot remote key NAME` for a k
 
 ## Pair the iPhone app
 
-Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/ios`](apps/ios).
+Run `byobot serve` and scan the QR code it shows with the iPhone's Camera app, or enter the address, port and code by hand and check the fingerprint matches. To build the app, see [`apps/ios`](apps/ios).
 
 The app and byobot work together when they share a release line (app 0.1 with byobot 0.1.x), which speaks sync protocol 1 and schema version 1; `byobot status` shows the version and schema version.
 

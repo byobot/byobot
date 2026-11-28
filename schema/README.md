@@ -6,5 +6,3 @@ JSON Schemas (draft 2020-12) for everything byobot stores and exchanges. Every i
 |---|---|
 | `v1/` | Schema 1: the byobot logbook's events, records, registry and sync protocol 1; see [`v1/README.md`](v1/README.md) |
 | `fixtures/v1/` | Conformance cases every implementation must pass |
-
-Change a schema only with new fixture cases, regenerated Swift and both test suites passing (see [`AGENTS.md`](../AGENTS.md)).
