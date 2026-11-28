@@ -683,9 +683,6 @@ def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
     assert a.conflicts("effort", rid), "undo of a resolve kept only one side; the other version is no longer shown"
 
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
-
-
 def mode(path):
     return stat.S_IMODE(path.stat().st_mode)
 
@@ -700,6 +697,10 @@ def opened(path):
         os.umask(old)
 
 
+posix_modes = pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+
+
+@posix_modes
 def test_a_new_store_is_readable_only_by_its_owner(tmp_path):
     home = tmp_path / "home"
     opened(home / "byobot.db")
@@ -708,6 +709,7 @@ def test_a_new_store_is_readable_only_by_its_owner(tmp_path):
         f.name: 0 for f in home.iterdir() if f.name.startswith("byobot.db")}
 
 
+@posix_modes
 def test_an_existing_stores_files_are_made_private_when_opened(tmp_path):
     home = tmp_path / "home"
     opened(home / "byobot.db")
