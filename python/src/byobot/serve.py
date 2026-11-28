@@ -19,7 +19,6 @@ then pulls the plan and pushes what it logged. Nothing goes through a cloud.
   ``GET /v1/status``       a cheap authenticated check
   ``GET /v1/plan``         what the phone needs to train from a date window: each record with its payload and
                            the versions a change to it names as ``prev``
-  ``GET /v1/events``       the logbook after an arrival position, in arrival order
   ``POST /v1/events``      push events authored on the phone; each is accepted, a duplicate, or rejected
   ``POST /v1/samples``     push samples read from Apple Health, and the ones it says were deleted
 
@@ -79,7 +78,6 @@ QUERY_TIMEOUT_S = 5
 QUERY_PROGRESS_INTERVAL = 10_000
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 DATE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
-MAX_PULL = 5000
 
 
 # -- certificate -------------------------------------------------------------
@@ -511,8 +509,7 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(BUSY)
 
     def do_GET(self) -> None:  # noqa: N802
-        self._dispatch({"/v1/hello": self.hello, "/v1/status": self.status, "/v1/plan": self.plan,
-                        "/v1/events": self.pull})
+        self._dispatch({"/v1/hello": self.hello, "/v1/status": self.status, "/v1/plan": self.plan})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path.rstrip("/")
@@ -597,22 +594,6 @@ class Handler(BaseHTTPRequestHandler):
                 return plan_window(store, start, end, self.peer["device_id"])
             except sqlite3.OperationalError as exc:
                 _query_interrupted(exc)
-
-    def pull(self) -> dict:
-        q = self._query()
-        after = q.get("after", "0")
-        if not re.fullmatch(r"[0-9]{1,18}", after):
-            raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "after must be an arrival position")
-        with Store(self.server.db, migrate=False) as store:
-            self._guard_reads(store)
-            try:
-                with store.snapshot():
-                    found = store.events(int(after), MAX_PULL + 1)
-                    last = store.conn.execute("SELECT max(seq) FROM (SELECT seq FROM events WHERE seq > ? ORDER BY "
-                                              "seq LIMIT ?)", (int(after), MAX_PULL)).fetchone()[0]
-            except sqlite3.OperationalError as exc:
-                _query_interrupted(exc)
-            return {"events": found[:MAX_PULL], "next": last or int(after), "more": len(found) > MAX_PULL}
 
     def events(self) -> dict:
         body = self._body()

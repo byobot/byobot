@@ -256,10 +256,9 @@ class Store:
         row = self.conn.execute(f"{SELECT_EVENTS} WHERE id = ?", (event_id,)).fetchone()
         return row and _envelope(row)
 
-    def events(self, since: int = 0, limit: int = -1) -> list[dict]:
-        """Every event after arrival position `since`, in arrival order: at most `limit` (-1 for all)."""
-        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE seq > ? ORDER BY seq LIMIT ?",
-                                                        (since, limit))]
+    def events(self, since: int = 0) -> list[dict]:
+        """Every event after arrival position `since`, in arrival order."""
+        return [_envelope(r) for r in self.conn.execute(f"{SELECT_EVENTS} WHERE seq > ? ORDER BY seq", (since,))]
 
     def history(self, kind: str, rid: str) -> list[dict]:
         """One record's events, in arrival order."""
