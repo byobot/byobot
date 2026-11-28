@@ -602,3 +602,17 @@ def test_a_page_cut_short_is_tried_again_then_an_upstream_error(monkeypatch):
     with pytest.raises(whoop.UpstreamError):
         client.request("GET", "/v2/cycle")
 
+
+def test_paging_stops_when_the_same_next_token_comes_back(monkeypatch):
+    calls = []
+
+    def opener(req):
+        calls.append(req.full_url)
+        if len(calls) > 20:
+            raise AssertionError("still paging after 20 requests")
+        return Answer(json.dumps({"records": [], "next_token": "same"}).encode())
+
+    client = signed_in(monkeypatch, opener)
+    with pytest.raises(whoop.UpstreamError):
+        list(client.pages("/v2/cycle", "PaginatedCycleResponse", "2026-03-01T00:00:00.000Z"))
+    assert len(calls) == 2

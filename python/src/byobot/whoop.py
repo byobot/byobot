@@ -167,13 +167,16 @@ class Client(oauth.Session):
 
     def pages(self, path: str, name: str, start: str) -> Iterator[dict]:
         """Every record since `start`, page by page, each page checked before any record is used."""
-        params = {"limit": PAGE, "start": start}
+        params, seen = {"limit": PAGE, "start": start}, set()
         while True:
             body = self.request("GET", path, params)
             check(body, name)
             yield from body.get("records") or []
             if not body.get("next_token"):
                 return
+            if body["next_token"] in seen:
+                raise UpstreamError(f"WHOOP sent the same page twice for {path}; try again")
+            seen.add(body["next_token"])
             params["nextToken"] = body["next_token"]
 
 
