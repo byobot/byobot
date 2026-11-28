@@ -12,7 +12,7 @@ from byobot.commands import REGISTRY
 from test_cli import Api, argv_for, filler, shared, via_cli, via_mcp
 
 # Setup and device admin, which belong to the person at the computer.
-CLI_ONLY = {"init", "connect", "disconnect", "rebuild", "devices remove", "erase", "export", "restore", "ingest",
+CLI_ONLY = {"init", "connect", "disconnect", "rebuild", "devices remove", "erase", "export", "restore",
             "mcp", "serve", "remote serve", "remote key", "remote revoke"}
 
 

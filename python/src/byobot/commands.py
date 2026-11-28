@@ -49,6 +49,7 @@ class Command:
     mcp: bool = True
     description: str = ""
     destructive: bool = False
+    hidden: bool = False  # left out of help: maintenance only
 
     @property
     def tool(self) -> str:
@@ -80,9 +81,9 @@ MAX_LIMIT = 1_000_000
 
 
 def command(name: str, summary: str, *params: Param, read_only: bool = True, cli: bool = True,
-            mcp: bool = True, description: str = "", destructive: bool = False) -> Callable:
+            mcp: bool = True, description: str = "", destructive: bool = False, hidden: bool = False) -> Callable:
     def register(fn: Callable) -> Callable:
-        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive)
+        REGISTRY[name] = Command(name, summary, fn, params, read_only, cli, mcp, description, destructive, hidden)
         return fn
 
     return register
@@ -150,7 +151,7 @@ def _status(ctx: Context) -> dict:
             **({"warning": w} if (w := sync_folder_warning(home())) else {})}
 
 
-@command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False)
+@command("rebuild", "Rebuild every derived table from the byobot logbook.", read_only=False, mcp=False, hidden=True)
 def _rebuild(ctx: Context) -> dict:
     ctx.store().rebuild()
     return {"counts": ctx.store().counts()}
@@ -523,28 +524,6 @@ def _open_sign_in(url: str) -> None:
 )
 def _disconnect(ctx: Context, source: str) -> dict:
     return whoop.disconnect()
-
-
-@command(
-    "ingest",
-    "Add samples read from a health store, such as Apple Health: weight, heart rate, sleep, "
-    "workouts. Sending the same samples again changes nothing.",
-    Param("samples", "json", "One sample or a list, each {source, source_id, type, start, end, value, unit}, or an "
-          "object {samples, deleted} where deleted lists {source, source_id} the health store removed.",
-          required=True, positional=True, schema={"type": ["object", "array"]}),
-    read_only=False,
-    mcp=False,  # it writes as any source, so only the person runs it
-)
-def _ingest(ctx: Context, samples: Any) -> dict:
-    deleted: list = []
-    if isinstance(samples, dict) and ("samples" in samples or "deleted" in samples):
-        samples, deleted = samples.get("samples") or [], samples.get("deleted") or []
-    batch = samples if isinstance(samples, list) else [samples]
-    if not isinstance(deleted, list):
-        raise ValidationFailed("deleted must be a list")
-    written = sources.ingest_samples(ctx.store(), batch, deleted)
-    return {"written": {s: len(e) for s, e in written.items()}, "unchanged": len(batch) - sum(
-        e["op"] == "put" for es in written.values() for e in es)}
 
 
 # -- reading --------------------------------------------------------------------
