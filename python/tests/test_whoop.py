@@ -31,7 +31,7 @@ class Fake:
         self.answers = {k: list(v) for k, v in answers.items()}
         self.requests = []
 
-    def __call__(self, req):
+    def __call__(self, req, timeout=None):
         url = urllib.parse.urlsplit(req.full_url)
         body = urllib.parse.parse_qs(req.data.decode()) if req.data else None
         self.requests.append((req.get_method(), url.path, urllib.parse.parse_qs(url.query), body,
@@ -135,7 +135,7 @@ def test_two_refreshing_at_once_spend_the_refresh_token_once():
     connected(expires_at=time.time() - 1)
     posts = []
 
-    def opener(req):
+    def opener(req, timeout=None):
         if req.get_method() == "POST":
             posts.append(urllib.parse.parse_qs(req.data.decode())["refresh_token"])
             time.sleep(0.2)  # the other one tries meanwhile
@@ -163,7 +163,6 @@ def test_a_request_has_a_timeout(monkeypatch):
     def urlopen(req, timeout=None):
         seen.append(timeout)
         return io.BytesIO(b'{"records": []}')
-    monkeypatch.setattr(whoop, "_urlopen", urlopen)
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     whoop.Client().request("GET", "/v2/cycle")
     assert seen == [whoop.TIMEOUT]
@@ -172,7 +171,7 @@ def test_a_request_has_a_timeout(monkeypatch):
 def test_a_long_wait_or_a_refusal_is_not_tried_again(monkeypatch):
     connected()
     monkeypatch.setattr(time, "sleep", lambda s: pytest.fail("waited"))
-    def busy(req):
+    def busy(req, timeout=None):
         raise urllib.error.HTTPError(req.full_url, 429, "busy", {"Retry-After": "3600"}, None)
     with pytest.raises(whoop.UpstreamError, match="too many requests"):
         whoop.Client(busy).request("GET", "/v2/cycle")
@@ -486,7 +485,7 @@ class FakeWhoop:
     def time(self) -> float:
         return self.clock
 
-    def __call__(self, req):
+    def __call__(self, req, timeout=None):
         self.requests += 1
         url = urllib.parse.urlsplit(req.full_url)
         if req.get_method() == "POST":
@@ -554,7 +553,7 @@ class _NoRotation(FakeWhoop):
     """A token endpoint that renews the access token without sending a new refresh token, as RFC 6749 section
     6 allows; the refresh token sent stays good."""
 
-    def __call__(self, req):
+    def __call__(self, req, timeout=None):
         if req.get_method() == "POST":
             self.refreshed = True
             return io.BytesIO(json.dumps({"access_token": "access-2", "expires_in": 3600,
@@ -598,7 +597,7 @@ def test_a_page_cut_short_is_tried_again_then_an_upstream_error(monkeypatch):
         def read(self, *a):
             raise http.client.IncompleteRead(b"{")
 
-    client = signed_in(monkeypatch, lambda req: Cut(b""))
+    client = signed_in(monkeypatch, lambda req, timeout=None: Cut(b""))
     with pytest.raises(whoop.UpstreamError):
         client.request("GET", "/v2/cycle")
 
@@ -606,7 +605,7 @@ def test_a_page_cut_short_is_tried_again_then_an_upstream_error(monkeypatch):
 def test_paging_stops_when_the_same_next_token_comes_back(monkeypatch):
     calls = []
 
-    def opener(req):
+    def opener(req, timeout=None):
         calls.append(req.full_url)
         if len(calls) > 20:
             raise AssertionError("still paging after 20 requests")

@@ -118,16 +118,11 @@ def _retry_after(e: urllib.error.HTTPError, attempt: int) -> float:
         return min(2.0 ** attempt, 30.0) + random.random()
 
 
-_urlopen = urllib.request.urlopen
-
-
 class Client(oauth.Session):
     provider = PROVIDER
 
     def __init__(self, opener: Callable | None = None):
-        opener = opener or urllib.request.urlopen
-        # Test fakes stand in for urlopen and take no timeout.
-        super().__init__((lambda req: opener(req, timeout=TIMEOUT)) if opener is _urlopen else opener)
+        super().__init__(lambda req: (opener or urllib.request.urlopen)(req, timeout=TIMEOUT))
 
     def request(self, method: str, path: str, params: dict | None = None) -> Any:
         """One call's JSON. Refreshes the access token once on a 401, and waits and tries again when WHOOP is busy
