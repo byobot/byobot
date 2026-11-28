@@ -413,6 +413,8 @@ final class WorkoutTests: XCTestCase {
         let clock = try XCTUnwrap(IntervalClock(slots: emom.slots))
         XCTAssertEqual(clock.phases.count, 10)
         XCTAssertEqual(clock.total, 600)
+        XCTAssertEqual(emom.clock(["gone"] + emom.slots.map(\.id)), clock, "a slot no longer there is left out")
+        XCTAssertEqual(emom.clock(emom.slots.reversed().map(\.id)), IntervalClock(slots: Array(emom.slots.reversed())))
 
         // The plan names each side of the couch stretch, so each is its own hold.
         let hips = book.workout(try session("sess-mobility"))
@@ -434,6 +436,20 @@ final class WorkoutTests: XCTestCase {
                        ["e-couch-l:1", "e-couch-r:1", "e-couch-l:2", "e-couch-r:2"])
         let upper = book.workout(try session("sess-upper"))
         XCTAssertNil(upper.clockSlots(from: upper.slots[0]))
+    }
+
+    func testLoggingASlotAnswersItsPlannedEffort() throws {
+        var book = try makeBook()
+        let upper = try session("sess-upper")
+        book.startSession(planned: upper)
+        let workout = book.workout(upper)
+        let slot = workout.slots[0]
+        let set = book.log(slot, metrics: ["reps": .exact(8)], notes: "easy", in: workout)
+        XCTAssertEqual(set.activityId, slot.activityId)
+        XCTAssertEqual(set.plannedEffortId, slot.effort.id)
+        XCTAssertEqual(set.round, slot.round)
+        XCTAssertEqual(set.notes, "easy")
+        XCTAssertEqual(book.workout(upper).slots[0].logged?.id, set.id)
     }
 
     // MARK: Summary

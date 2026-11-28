@@ -90,6 +90,19 @@ public struct Countdown: Codable, Equatable, Sendable {
     }
 }
 
+/// An interval block or a hold running on the clock, with the slots it started with.
+public struct RunningClock: Equatable, Sendable {
+    public var plannedSessionId: String
+    public var slotIds: [String]
+    public var startedAt: Date
+
+    public init(plannedSessionId: String, slotIds: [String], startedAt: Date) {
+        self.plannedSessionId = plannedSessionId
+        self.slotIds = slotIds
+        self.startedAt = startedAt
+    }
+}
+
 /// Work and rest phases for timed slots: a hold, each side of a hold, or a whole interval block.
 public struct IntervalClock: Equatable, Sendable {
     public struct Phase: Equatable, Sendable {
@@ -201,6 +214,13 @@ extension Logbook {
         let last = lastTime(slot.activityId, excludingSession: activeSession?.id, at: currentLocationId)
         return Prefill.asPlanned(slot, previous: workout.previous(slot), lastTime: last.elsewhere ? nil : last.efforts.last,
                                  atAnotherGym: plannedElsewhere(workout.session))
+    }
+
+    /// Log a planned set, swap and all.
+    @discardableResult
+    public mutating func log(_ slot: Slot, metrics: Metrics, notes: String? = nil, in workout: Workout) -> PerformedEffort {
+        logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id, round: slot.round,
+                  side: slot.effort.side, notes: workout.notes(for: slot, notes))
     }
 
     /// Your order and swaps for a planned session, kept on this phone; what you did goes in the logged sets.

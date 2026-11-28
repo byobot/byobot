@@ -508,6 +508,22 @@ public struct Logbook: Sendable {
         state.storeId = storeId
     }
 
+    /// Apple Health is read and sent from now on.
+    public mutating func enableHealth() {
+        var health = state.health ?? HealthState()
+        health.enabled = true
+        state.health = health
+    }
+
+    /// Apple Health went out up to these anchors and daily totals.
+    public mutating func sentHealth(anchors: [String: Data], days: [String: Int]) {
+        var health = state.health ?? HealthState()
+        health.anchors = anchors
+        health.days = days
+        state.health = health
+        state.lastHealthSyncAt = Timestamp.string(clock())
+    }
+
     /// Apple Health goes out again from the start, for a store that may not hold what was sent: another one, or
     /// one restored from a backup.
     mutating func resendHealth() {

@@ -155,6 +155,12 @@ public struct Workout: Sendable {
         return slot.isTimed ? [slot] : nil
     }
 
+    /// The phases of a running clock, from the slots it started with as they stand now.
+    public func clock(_ slotIds: [String]) -> IntervalClock? {
+        let byId = Dictionary(slots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return IntervalClock(slots: slotIds.compactMap { byId[$0] })
+    }
+
     /// Notes for a set: only what you typed, the reason you gave for a swap and then your note.
     public func notes(for slot: Slot, _ extra: String?) -> String? {
         let parts = [slot.swap?.reason, extra].compactMap { $0?.isEmpty == false ? $0 : nil }

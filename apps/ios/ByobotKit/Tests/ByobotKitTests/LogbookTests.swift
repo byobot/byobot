@@ -366,6 +366,16 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.state.health?.days, [:], "another store gets them again")
     }
 
+    func testSendingAppleHealthKeepsWhereItStopped() {
+        var book = makeLogbook()
+        book.enableHealth()
+        book.sentHealth(anchors: ["steps": Data([1])], days: ["daily:steps:2026-11-20": -18_000])
+        XCTAssertEqual(book.state.health?.enabled, true)
+        XCTAssertEqual(book.state.health?.anchors, ["steps": Data([1])])
+        XCTAssertEqual(book.state.health?.days, ["daily:steps:2026-11-20": -18_000])
+        XCTAssertNotNil(book.state.lastHealthSyncAt)
+    }
+
     func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]

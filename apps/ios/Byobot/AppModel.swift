@@ -257,13 +257,7 @@ final class AppModel: ObservableObject, SyncBook {
                     let health = SampleBatch(samples: read?.samples ?? [], deleted: read?.deleted ?? [])
                     try await HubSync(SyncClient(server: server, token: token)).sync(self, health: health)
                     if let read {
-                        change {
-                            var kept = $0.state.health ?? HealthState()
-                            kept.anchors = read.anchors
-                            kept.days = read.days
-                            $0.state.health = kept
-                            $0.state.lastHealthSyncAt = Timestamp.now()
-                        }
+                        change { $0.sentHealth(anchors: read.anchors, days: read.days) }
                     }
                 } catch {
                     laptopError = error.localizedDescription
@@ -307,11 +301,7 @@ final class AppModel: ObservableObject, SyncBook {
     func enableHealth() async {
         do {
             try await health.requestAccess()
-            change {
-                var health = $0.state.health ?? HealthState()
-                health.enabled = true
-                $0.state.health = health
-            }
+            change { $0.enableHealth() }
             healthNeedsAccess = false
             await sync()
         } catch {
@@ -359,10 +349,7 @@ final class AppModel: ObservableObject, SyncBook {
     /// Log a planned set, swap and all, then start the rest that follows it.
     func log(_ slot: Slot, metrics: Metrics, notes: String? = nil, in planned: PlannedSession) {
         let workout = book.workout(planned)
-        change {
-            $0.logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id, round: slot.round,
-                         side: slot.effort.side, notes: workout.notes(for: slot, notes))
-        }
+        change { $0.log(slot, metrics: metrics, notes: notes, in: workout) }
         if clock == nil, let seconds = slot.restSeconds, seconds > 0, book.workout(planned).next != nil {
             rest = Countdown(startedAt: Date(), seconds: seconds)
         } else {
@@ -413,17 +400,13 @@ final class AppModel: ObservableObject, SyncBook {
             self.rest = nil
             Haptics.done()
         }
-        guard let running = clock, let timer = intervalClock(running) else { return }
+        guard let running = clock, let planned = plan?.plannedSession(running.plannedSessionId) else { return }
+        let workout = book.workout(planned)
+        guard let timer = workout.clock(running.slotIds) else { return }
         let elapsed = now.timeIntervalSince(running.startedAt)
-        if let planned = plan?.plannedSession(running.plannedSessionId) {
-            let workout = book.workout(planned)
-            for slot in timer.finishedSlots(elapsed: elapsed) where slot.logged == nil {
-                let metrics = book.asPlanned(slot, in: workout)
-                change {
-                    $0.logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id,
-                                 round: slot.round, side: slot.effort.side, notes: workout.notes(for: slot, nil))
-                }
-            }
+        for slot in timer.finishedSlots(elapsed: elapsed) where slot.logged == nil {
+            let metrics = book.asPlanned(slot, in: workout)
+            change { $0.log(slot, metrics: metrics, in: workout) }
         }
         let phase = timer.position(elapsed: elapsed)?.index
         guard phase != clockPhase else { return }
@@ -438,16 +421,8 @@ final class AppModel: ObservableObject, SyncBook {
 
     /// The running clock's phases, from the slots it started with as they stand now.
     func intervalClock(_ running: RunningClock) -> IntervalClock? {
-        guard let planned = plan?.plannedSession(running.plannedSessionId) else { return nil }
-        let byId = Dictionary(book.workout(planned).slots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        return IntervalClock(slots: running.slotIds.compactMap { byId[$0] })
+        plan?.plannedSession(running.plannedSessionId).flatMap { book.workout($0).clock(running.slotIds) }
     }
-}
-
-struct RunningClock: Equatable {
-    var plannedSessionId: String
-    var slotIds: [String]
-    var startedAt: Date
 }
 
 enum Haptics {
