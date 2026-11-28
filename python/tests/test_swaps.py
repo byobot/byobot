@@ -1,7 +1,6 @@
 """Swaps and last time at the gym: the app's rules, for agents too."""
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -9,7 +8,9 @@ from byobot import swaps
 from byobot.commands import Context, run
 from byobot.util import NotFound
 
-FIXTURE = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "swaps.json").read_text())
+from helpers import fixture
+
+FIXTURE = fixture("swaps.json")
 ME = {"kind": "human", "id": "me"}
 
 

@@ -1,16 +1,14 @@
 """The core's contract module agrees with the shared schema/v1 fixtures."""
 
-import json
-from pathlib import Path
-
 import pytest
 
 from byobot.core.contract import Contract, Rejected, mac
 from conftest import newer_contract
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "schema" / "v1").is_dir())
-CASES = json.loads((ROOT / "schema" / "fixtures" / "v1" / "cases.json").read_text())["cases"]
-IDS = json.loads((ROOT / "schema" / "fixtures" / "v1" / "ids.json").read_text())
+from helpers import fixture
+
+CASES = fixture("cases.json")["cases"]
+IDS = fixture("ids.json")
 CONTRACT = Contract.shipped()
 
 
@@ -36,6 +34,10 @@ def test_derived_ids_and_macs():
         assert s["record_id"] == CONTRACT.derived("source_record", [p["source"], p["source_type"], p["source_id"]])
         assert s["mac"] == mac(key, p)
         assert s["put_event_id"] == CONTRACT.derived("source_revision", [s["record_id"], s["mac"]])
+        assert s["retract_event_id"] == CONTRACT.derived("source_deletion", [s["record_id"], s["put_event_id"]])
+        assert s["tombstone_event_id"] == CONTRACT.derived("source_deletion", [s["record_id"]])
+    for o in IDS["overlays"]:
+        assert o["record_id"] == CONTRACT.derived("overlay", [o["effect"], o["target"]["kind"], o["target"]["id"]])
 
 
 def test_a_newer_contract_understands_newer_versions_and_kinds():

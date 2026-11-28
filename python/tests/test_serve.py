@@ -23,7 +23,9 @@ from byobot.core.store import Store
 from byobot.util import uuid7
 from conftest import newer_contract
 
-SYNC = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "sync.json").read_text())
+from helpers import fixture
+
+SYNC = fixture("sync.json")
 PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
 ME = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-coach"}
