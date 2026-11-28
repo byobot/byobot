@@ -526,12 +526,6 @@ public struct Logbook: Sendable {
 
     /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push
     /// never arrived. Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
-    /// Events the Mac read from the cloud folder: done, whichever route they went by.
-    public mutating func delivered(_ ids: Set<String>) {
-        state.pending.removeAll { ids.contains($0) }
-        prune()
-    }
-
     public mutating func settle(with window: PlanWindow) {
         setAside(window.rejected)
         guard let held = window.received[state.deviceId] else { return }
