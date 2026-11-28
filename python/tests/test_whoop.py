@@ -16,6 +16,7 @@ import pytest
 
 from byobot import credentials, oauth, whoop
 from byobot.commands import Context, run
+from byobot.core.contract import stamp
 from byobot.util import NotConnected, ValidationFailed
 
 
@@ -398,13 +399,6 @@ def test_the_whoop_sign_in_state_has_at_least_128_bits():
     assert len(seen[0]) >= 22
 
 
-UTC = timezone.utc
-
-
-def stamp(at: datetime) -> str:
-    return at.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
 def sleep_record(n: int, night: datetime) -> dict:
     start, end = night, night + timedelta(hours=8)
     return {"user_id": 1, "created_at": stamp(end), "updated_at": stamp(end), "timezone_offset": "-05:00",
@@ -456,8 +450,7 @@ def history(days: int, until: datetime, workouts_every: int = 3) -> dict[str, li
     return out
 
 
-PATHS = {"/developer/v2/activity/sleep": "sleep", "/developer/v2/recovery": "recovery",
-         "/developer/v2/cycle": "cycle", "/developer/v2/activity/workout": "workout"}
+PATHS = {urllib.parse.urlsplit(whoop.API + path).path: kind for kind, (path, _) in whoop.ENDPOINTS.items()}
 
 
 class FakeWhoop:
