@@ -431,7 +431,7 @@ def test_an_api_key_calls_tools(running, header):
 
 def test_api_errors_carry_a_code_and_its_status(running):
     auth = {"X-API-Key": running.auth.create_key("example_assistant")}
-    resp, raw = request(running, "POST", "/api/v1/tools/history", {"kind": "activity", "id": "missing"}, auth)
+    resp, raw = request(running, "POST", "/api/v1/tools/versions", {"kind": "activity", "id": "missing"}, auth)
     assert resp.status == 404 and json.loads(raw)["error"] == "not_found"
     resp, raw = request(running, "POST", "/api/v1/tools/nope", {}, auth)
     assert resp.status == 404 and json.loads(raw)["error"] == "not_found"
