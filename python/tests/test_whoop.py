@@ -16,7 +16,7 @@ import pytest
 
 from byobot import credentials, oauth, whoop
 from byobot.commands import Context, run
-from byobot.util import ValidationFailed
+from byobot.util import NotConnected, ValidationFailed
 
 
 @pytest.fixture(autouse=True)
@@ -181,7 +181,7 @@ def test_a_long_wait_or_a_refusal_is_not_tried_again(monkeypatch):
 
 
 def test_not_connected_says_how_to_connect():
-    with pytest.raises(whoop.NotConnected, match="byobot connect whoop"):
+    with pytest.raises(NotConnected, match="byobot connect whoop"):
         whoop.Client(Fake({}))
 
 

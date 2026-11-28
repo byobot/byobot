@@ -28,7 +28,7 @@ from jsonschema.exceptions import best_match
 
 from byobot import credentials, oauth
 from byobot.core.contract import instant, stamp
-from byobot.util import PORTS, ByobotError
+from byobot.util import PORTS, ByobotError, UpstreamError
 
 API = "https://api.prod.whoop.com/developer"
 AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
@@ -45,9 +45,7 @@ BUSY = {429, 500, 502, 503, 504}
 LONGEST_WAIT = 120  # WHOOP's limit is per minute; a longer Retry-After means try again later
 
 
-PROVIDER = oauth.Provider(NAME, "WHOOP", TOKEN_URL, "`byobot connect whoop`", rotates=True,
-                          refresh_form={"scope": "offline"})
-UpstreamError, NotConnected = oauth.UpstreamError, oauth.NotConnected
+PROVIDER = oauth.Provider(NAME, "WHOOP", TOKEN_URL, "`byobot connect whoop`", refresh_form={"scope": "offline"})
 
 
 def authorize_url(client_id: str, state: str, challenge: str) -> str:
