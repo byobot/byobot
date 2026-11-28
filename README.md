@@ -55,7 +55,7 @@ tailscale funnel --bg 8780    # shows your address, such as https://example-lapt
 byobot remote serve --url https://example-laptop.example.ts.net
 ```
 
-Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote serve` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot remote revoke` disconnects every assistant.
+Add `https://example-laptop.example.ts.net/mcp` as a custom connector, and enter the code `byobot remote serve` shows when it asks (tick Only let it read to keep it from writing). Each profile gets its own port and address: the next one is 8781, behind `tailscale funnel --bg --https=8443 8781`. `byobot device list` shows every connected assistant, and `byobot device remove` disconnects one.
 
 For an assistant that calls an API instead, run `byobot remote key NAME` for a key on the clipboard (add `--show` to print it once instead, and `--read-only` for a key that can't write), and point it at `https://example-laptop.example.ts.net/api/v1/openapi.json`. Each tool is `POST /api/v1/tools/TOOL` with its arguments as JSON and the key as `Authorization: Bearer KEY` or `X-API-Key: KEY`. An error's body is `{"error": CODE, "message": ...}`, where CODE is a stable code such as `invalid`, `not_found` or `forbidden`, listed in the OpenAPI description.
 

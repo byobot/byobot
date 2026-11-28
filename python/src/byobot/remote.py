@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
@@ -36,7 +37,7 @@ from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 from byobot import __version__, mcp, util, web
 from byobot.lock import held
 from byobot.commands import Context
-from byobot.core.store import interrupted, limit_time
+from byobot.core.store import interrupted, limit_time, stamp
 from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 
@@ -109,7 +110,7 @@ class Grant:
     client_id: str
     redirect_uri: str
     challenge: str
-    generation: int  # revoke_all moves oauth.json past this, and the code with it
+    generation: int  # removing an assistant moves oauth.json past this, and the code with it
     named: bool = True  # whether the request named redirect_uri, so the token request must too (RFC 6749 4.1.3)
     scope: str = FULL
     expires_at: float = field(default_factory=lambda: time.monotonic() + CODE_TTL_S)
@@ -119,7 +120,7 @@ class Auth:
     """The authorization server's state for one profile, kept in ``oauth.json`` (mode 0600).
 
     Approved clients and token hashes live in the file, read on every check, so
-    ``byobot remote revoke`` takes effect while a server runs. Clients that have
+    ``byobot device remove`` takes effect while a server runs. Clients that have
     registered but not been approved yet, and authorization codes, stay in memory.
     A change is written only if no other process wrote the file since it was read.
     """
@@ -282,7 +283,7 @@ class Auth:
         return self._issue(client)
 
     def _issue(self, client: dict, generation: int | None = None) -> dict:
-        """Tokens for an approved client, or, with the generation of its code, for one approved since the last revoke."""
+        """Tokens for an approved client, or, with its code's generation, for one approved since the last removal."""
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         cid, now = client["client_id"], time.time()
 
@@ -330,11 +331,14 @@ class Auth:
         """Every assistant that can reach the store: a signed-in client by its client_id, an API key as key:<hash>."""
         with self.lock:
             data = self._load()
+        def since(at: int | None) -> str | None:
+            return at and stamp(datetime.fromtimestamp(at, timezone.utc))
+
         signed_in = [{"id": c["client_id"], "name": c["client_name"], "route": "sign_in",
-                      "read_only": scope_of(c) == READ, "since": c.get("client_id_issued_at")}
+                      "since": since(c.get("client_id_issued_at")), "read_only": scope_of(c) == READ}
                      for c in data["clients"].values()]
-        keys = [{"id": "key:" + h[:16], "name": k["name"], "route": "api_key", "read_only": k.get("scope") == READ,
-                 "since": k.get("created_at")} for h, k in data["keys"].items()]
+        keys = [{"id": "key:" + h[:16], "name": k["name"], "route": "api_key", "since": since(k.get("created_at")),
+                 "read_only": k.get("scope") == READ} for h, k in data["keys"].items()]
         return signed_in + keys
 
     def remove(self, assistant_id: str) -> dict:
@@ -361,17 +365,6 @@ class Auth:
             self.grants = {k: g for k, g in self.grants.items() if g.client_id != assistant_id}
         return found
 
-    def revoke_all(self) -> int:
-        def clear(data: dict) -> int:
-            count = len(data["clients"]) + len(data["keys"])
-            data.update(clients={}, access={}, refresh={}, used={}, keys={}, generation=data["generation"] + 1)
-            return count
-
-        count = self._change(clear)
-        with self.lock:
-            self.pending.clear()
-            self.grants.clear()
-        return count
 
 
 # -- HTTP --------------------------------------------------------------------
@@ -753,9 +746,12 @@ def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
     return out
 
 
-def revoke() -> dict:
-    """The ``byobot remote revoke`` command."""
-    return {"disconnected": Auth(remote_dir() / "oauth.json").revoke_all()}
+def assistants() -> list[dict]:
+    return Auth(remote_dir() / "oauth.json").assistants()
+
+
+def remove_assistant(assistant_id: str) -> dict:
+    return Auth(remote_dir() / "oauth.json").remove(assistant_id)
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
@@ -786,7 +782,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
     else:
         names = ", ".join([c["client_name"] for c in server.auth.clients()]
                           + [f"API key {k['name']}" for k in server.auth.keys()])
-        err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot remote revoke` to disconnect all.\n")
+        err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot device remove` to disconnect one.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
     try:

@@ -53,7 +53,7 @@ class Command:
 
     @property
     def tool(self) -> str:
-        """The MCP tool and API name: `devices list` becomes `devices_list`."""
+        """The MCP tool and API name: `device list` becomes `device_list`."""
         return self.name.replace(" ", "_")
 
 
@@ -863,21 +863,37 @@ def _validate(ctx: Context, kind: str, document: Any) -> dict:
     return {"valid": not errors, "kind": kind, "errors": errors}
 
 
-@command("devices list", "List the phones and other devices paired with `byobot serve`.")
-def _devices_list(ctx: Context) -> dict:
-    peers = ctx.store().peers()
-    return {"count": len(peers), "items": peers, **untrusted("items")}
+@command("device list", "List the phones paired with `byobot serve` and the assistants connected to `byobot "
+         "remote serve`: everything that can reach this store.")
+def _device_list(ctx: Context) -> dict:
+    from byobot import remote
+
+    phones = [{"id": p["device_id"], "name": p["name"], "route": "hub", "since": p["paired_at"],
+               "last_seen_at": p["last_seen_at"]} for p in ctx.store().peers() if p["revoked_at"] is None]
+    items = phones + remote.assistants()
+    return {"count": len(items), "items": items, **untrusted("items")}
 
 
 @command(
-    "devices remove",
-    "Stop syncing with a paired device. Its token stops working at once; pairing again starts fresh.",
-    Param("device_id", "string", "The device to remove (see `byobot devices list`).", required=True, positional=True),
+    "device remove",
+    "Cut off a phone or an assistant. Its token or key stops working at once; pairing or connecting again starts "
+    "fresh.",
+    Param("id", "string", "The phone or assistant to remove (see `byobot device list`).", required=True,
+          positional=True),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _devices_remove(ctx: Context, device_id: str) -> dict:
-    return {"device": ctx.store().unpair(device_id)}
+def _device_remove(ctx: Context, id: str) -> dict:
+    from byobot import remote
+
+    store = ctx.store()
+    if (phone := store.peer(id)) and phone["revoked_at"] is None:
+        store.unpair(id)
+        return {"removed": {"id": id, "name": phone["name"], "route": "hub"}}
+    try:
+        return {"removed": remote.remove_assistant(id)}
+    except NotFound:
+        raise NotFound(f"no phone or assistant {id}; see `byobot device list`") from None
 
 
 @command(
@@ -970,11 +986,3 @@ def _remote_key(ctx: Context, name: str, show: bool = False, read_only: bool = F
     from byobot import remote
 
     return remote.make_key(name, show, read_only)
-
-
-@command("remote revoke", "Disconnect every assistant and API key from this profile.", read_only=False,
-         destructive=True, mcp=False)
-def _remote_revoke(ctx: Context) -> dict:
-    from byobot import remote
-
-    return remote.revoke()
