@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any, Callable
 
 from .. import library
-from . import mappers, occurrences
+from . import hlc, mappers, occurrences
 from .contract import Contract, instant
 
 DDL = """
@@ -158,7 +158,7 @@ def _json(value: Any) -> str | None:
 
 
 def _ms(ts: str | None) -> int | None:
-    return None if ts is None else int(instant(ts).timestamp() * 1000)
+    return None if ts is None else hlc.millis(instant(ts))
 
 
 def _when(t: dict) -> tuple:

@@ -7,8 +7,8 @@ from typing import Iterable
 
 from ..util import ValidationFailed, plain_text
 from . import mappers
-from .contract import documents, mac
-from .store import Store, stamp
+from .contract import documents, mac, stamp
+from .store import Store
 
 ACTOR_KIND = "connector"
 

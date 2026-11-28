@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, Iterator
 from .. import library
 from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
-from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
+from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac, stamp
 
 EXPORT_VERSION = 1
 STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
@@ -79,10 +79,6 @@ PEER_COLUMNS = "id AS device_id, name, paired_at, last_seen_at, revoked_at"
 
 def _local_now() -> datetime:
     return datetime.now().astimezone()
-
-
-def stamp(at: datetime) -> str:
-    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _order(event: dict) -> tuple[str, str]:

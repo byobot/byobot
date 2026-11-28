@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from byobot.core import occurrences
+from byobot.core.contract import instant
 from byobot.core.store import Store
 from byobot.reads import occurrence_items
 
@@ -74,7 +75,7 @@ SAME = {"hrv_sdnn": "hrv", "hrv_rmssd": "hrv", "sleeping_wrist_temperature": "sk
 def _night(ended_at: str) -> str:
     """The day a night belongs to, in the offset it was recorded in: one ending in the evening counts toward
     the next morning."""
-    return (datetime.fromisoformat(ended_at.replace("Z", "+00:00")) + timedelta(hours=6)).date().isoformat()
+    return (instant(ended_at) + timedelta(hours=6)).date().isoformat()
 
 
 def _daily(store: Store, lo: str, hi: str) -> dict[str, dict]:

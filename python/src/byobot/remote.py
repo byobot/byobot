@@ -35,7 +35,8 @@ from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 from byobot import __version__, commands, mcp, oauth, util, web
 from byobot.lock import held
-from byobot.core.store import interrupted, limit_time, stamp
+from byobot.core.contract import stamp
+from byobot.core.store import interrupted, limit_time
 from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 

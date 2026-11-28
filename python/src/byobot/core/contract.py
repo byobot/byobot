@@ -66,6 +66,10 @@ def instant(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
+def stamp(at: datetime) -> str:
+    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 class Rejected(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -185,7 +189,7 @@ class Contract:
         for metrics in _measures(kind, p):
             for code, m in metrics.items():
                 bounds = [m.get("min"), m.get("value") if "min" in m or "max" in m else None, m.get("max")]
-                bounds = [x for x in bounds if _number(x)]
+                bounds = [x for x in bounds if number(x)]
                 if bounds != sorted(bounds):
                     broken.add("range_order")
                 if not self.code_ok(code, m):
@@ -211,7 +215,7 @@ class Contract:
             return False
         numbers = [m[k] for k in ("value", "min", "max") if k in m]
         if kind in ("quantity", "integer", "number"):
-            if not all(_number(x) for x in numbers):
+            if not all(number(x) for x in numbers):
                 return False
             if kind == "integer" and any(x != int(x) for x in numbers):
                 return False
@@ -250,7 +254,7 @@ class Contract:
     def canonical(self, code: str, m: dict, key: str = "value") -> float | None:
         """`m[key]` in the code's own unit, or None when it can't be converted."""
         spec, x = self.registry["codes"].get(code), m.get(key)
-        if spec is None or not _number(x):
+        if spec is None or not number(x):
             return None
         if spec["value"] != "quantity":
             return x if spec["value"] in ("integer", "number") else None
@@ -282,7 +286,7 @@ def later(event: dict) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and v > SCHEMA_VERSION
 
 
-def _number(x: Any) -> bool:
+def number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 

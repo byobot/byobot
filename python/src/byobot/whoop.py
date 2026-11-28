@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
 from byobot import credentials, oauth
+from byobot.core.contract import instant, stamp
 from byobot.util import ByobotError
 
 API = "https://api.prod.whoop.com/developer"
@@ -180,11 +181,9 @@ class Client(oauth.Session):
             params["nextToken"] = body["next_token"]
 
 
-def utc(ts: str) -> str:
-    """An instant in UTC, to the millisecond."""
-    at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
-    return at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+def utc(at: datetime) -> str:
+    """An instant in UTC, to the millisecond; a naive one reads as UTC."""
+    return stamp((at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc))
 
 
 # source_type -> (path, response schema): each record is kept as WHOOP sent it; byobot reads it on the way out.
@@ -211,10 +210,11 @@ def import_into(store, client: Client, days: int | None = None) -> dict:
     last = store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
                               (NAME,)).fetchone()[0]
     if days is None and last:
-        since = datetime.fromisoformat(last.replace("Z", "+00:00")) - timedelta(days=7)
+        since = instant(last) - timedelta(days=7)
     else:
         since = datetime.now(timezone.utc) - timedelta(days=days or 90)
-    found = collect(client, utc(since.isoformat()))
+    start = utc(since)
+    found = collect(client, start)
     written = sources.ingest(store, NAME, found)
-    return {"since": utc(since.isoformat()), "fetched": len(found), "written": len(written),
+    return {"since": start, "fetched": len(found), "written": len(written),
             "whoop_api": version()}

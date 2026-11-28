@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .. import library
 from ..util import Conflict, NotFound, ValidationFailed
 from . import mappers
-from .contract import instant
-from .store import Store, stamp
+from .contract import instant, stamp
+from .store import Store
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
 TIMED = ("session", "effort", "observation")

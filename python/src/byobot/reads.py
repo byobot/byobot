@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Callable
 
 from byobot import swaps
+from byobot.core.contract import instant
 from byobot.core.store import Store
 from byobot.util import NotFound, ValidationFailed
 
@@ -36,7 +37,7 @@ def _bound(at: str) -> str | int:
     try:
         if len(at) == 10:
             return date.fromisoformat(at).isoformat()
-        return int(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000)
+        return int(instant(at).timestamp() * 1000)
     except (ValueError, OverflowError, OSError):
         raise ValidationFailed(f"{at!r} is not a date (YYYY-MM-DD) or a timestamp") from None
 
