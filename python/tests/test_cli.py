@@ -79,9 +79,6 @@ def test_bad_profile_names_are_refused(capsys, name):
 WEIGHT = {"source": "apple_health", "source_id": "w-1", "type": "HKQuantityTypeIdentifierBodyMass",
           "start": "2026-11-20T07:00:00-05:00", "end": "2026-11-20T07:00:00-05:00", "value": 82.4, "unit": "kg",
           "device": "Example scale"}
-RESTING = {"source": "apple_health", "source_id": "r-1", "type": "HKQuantityTypeIdentifierRestingHeartRate",
-           "start": "2026-11-20T00:00:00-05:00", "end": "2026-11-21T00:00:00-05:00", "value": 52,
-           "unit": "count/min", "device": "Example Watch"}
 
 
 def test_log_list_and_query(capsys):

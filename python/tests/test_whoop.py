@@ -19,11 +19,6 @@ from byobot.commands import Context, run
 from byobot.util import NotConnected, ValidationFailed
 
 
-@pytest.fixture(autouse=True)
-def file_credentials(monkeypatch):
-    monkeypatch.setenv("BYOBOT_CREDENTIALS", "file")
-
-
 class Fake:
     """Answers like WHOOP, from canned answers per (method, path)."""
 

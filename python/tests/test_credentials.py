@@ -7,11 +7,6 @@ import pytest
 from byobot import credentials
 
 
-@pytest.fixture(autouse=True)
-def file_credentials(monkeypatch):
-    monkeypatch.setenv("BYOBOT_CREDENTIALS", "file")
-
-
 def test_credentials_file_is_yours_alone(byobot_home):
     credentials.save("example", {"a": 1})
     assert credentials.load("example") == {"a": 1}

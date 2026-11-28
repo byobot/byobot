@@ -723,11 +723,6 @@ def test_an_existing_stores_files_are_made_private_when_opened(tmp_path):
 EST = timezone(timedelta(hours=-5))
 
 
-DERIVED = ("activities", "locations", "settings", "plans", "planned_sessions", "planned_blocks", "planned_efforts",
-           "sessions", "efforts", "observations", "metrics", "source_records", "source_links", "source_sessions",
-           "overlays", "occurrences", "occurrence_items", "occurrence_metrics")
-
-
 def open_store(path, device_id="laptop", wall=None, **kw) -> Store:
     return Store(path, device_id=device_id, wall=wall or Wall(), **kw)
 
@@ -737,16 +732,6 @@ def whoop_workout(wid: str, start: str, end: str, updated="2026-03-02T16:00:00.0
     return {"id": wid, "start": start, "end": end, "timezone_offset": offset, "updated_at": updated,
             "sport_name": "running", "score_state": "SCORED",
             "score": {"strain": strain, "average_heart_rate": hr, "max_heart_rate": hr + 30}}
-
-
-def derived(store: Store) -> dict:
-    """Every derived table's rows, sorted, so two stores (or one before and after a rebuild) compare exactly."""
-    out = {}
-    for table in DERIVED:
-        rows = [json.dumps(dict(r), sort_keys=True) for r in store.conn.execute(f"SELECT * FROM {table}")]
-        out[table] = sorted(rows)
-    out["records"] = sorted(json.dumps(dict(r), sort_keys=True) for r in store.conn.execute("SELECT * FROM records"))
-    return out
 
 
 def _bad(kind, store, logged, imported):
