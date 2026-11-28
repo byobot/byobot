@@ -32,6 +32,8 @@ STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 MAX_REJECTIONS = 1000  # per device, newest kept
 TOO_BIG = "a number too large to store"
+# Drive sync's tables, which held its keys; a store that had them drops them on open.
+RETIRED = ("cloud_meta", "cloud_keys", "cloud_read", "cloud_refused")
 SELECT_EVENTS = "SELECT header, payload, redacted_by FROM events"
 
 # Each event is kept once: `header` is the event as received less its payload; the other columns are read from it.
@@ -145,14 +147,21 @@ class Store:
                                   "aside to start a new store, and import your sources again")
             raise ByobotError(f"{self.path} was written by a newer byobot (store version {version}); upgrade byobot")
         reshaped = version != 0 and self._get("shape") != self._shape(self.contract)
+        retired = [r[0] for r in self.conn.execute(
+            f"SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ({','.join('?' * len(RETIRED))})",
+            RETIRED)]
         # A store already at this version and shape opens without the write lock, so a read never waits on a
         # writer; `migrate=False` (each hub request) leaves the shape to whoever opened it with migration.
-        if version and (not reshaped or not migrate) and device_id in (None, self._get("device_id")):
+        if version and (not (reshaped or retired) or not migrate) and device_id in (None, self._get("device_id")):
             self._repair_clock()
             return
         with self.transaction():
             if reshaped:
                 reducers.drop(self.conn)
+            for table in retired:
+                self.conn.execute(f"DROP TABLE IF EXISTS {table}")
+            if retired:
+                self._set("compact_pending", "1")
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
