@@ -28,13 +28,6 @@ SPRITE = [
     "..##########..",
     "....######....",
 ]
-EYE_X, EYE_Y = 5, 7
-EYES = {
-    "open": [".eee.", "eweee", "eeeee", "eeeee", ".eee."],
-    "blink": [".....", ".....", "eeeee", ".....", "....."],
-    "happy": [".....", "..e..", ".e.e.", "e...e", "....."],
-    "error": ["e...e", ".e.e.", "..e..", ".e.e.", "e...e"],
-}
 PALETTE = {
     "#": ((244, 162, 97), 215),  # apricot body
     "a": ((161, 161, 170), 248),  # neutral antenna
@@ -63,21 +56,18 @@ def _sgr(fg: str | None, bg: str | None, t: str) -> str:
     return f"\x1b[{';'.join(codes)}m" if codes else ""
 
 
-def compose(eye: str = "open") -> list[list[str]]:
+def compose() -> list[list[str]]:
     grid = [list(row) for row in SPRITE]
-    for dy, row in enumerate(EYES[eye]):
-        for dx, px in enumerate(row):
-            grid[EYE_Y + dy][EYE_X + dx] = "#" if px == "." else px
     if len(grid) % 2:
         grid.append(["."] * len(grid[0]))
     return grid
 
 
-def render(eye: str = "open", t: str | None = None) -> list[str]:
+def render(t: str | None = None) -> list[str]:
     t = t or tier()
     if t == "ascii":
         return ["  y", " (o)"]
-    grid = compose(eye)
+    grid = compose()
     lines = []
     for y in range(0, len(grid), 2):
         out = []
