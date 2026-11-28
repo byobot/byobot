@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
-from byobot import commands, mcp, remote, web
+from byobot import commands, remote, web
 from byobot.core import store as store_module
 from byobot.core.store import Store
 from byobot.remote import READ, Auth, OAuthError
