@@ -10,15 +10,13 @@ from typing import Iterator
 
 
 @contextmanager
-def held(path: Path, wait: bool = True) -> Iterator[bool]:
-    """Yields True once the lock is held, or False at once when ``wait`` is off and another process holds it."""
+def held(path: Path) -> Iterator[None]:
+    """Holds the lock for the block, waiting while another process holds it."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(path, "a+b") as f:
-        if not _take(f, wait):
-            yield False
-            return
+        _take(f)
         try:
-            yield True
+            yield
         finally:
             _drop(f)
 
@@ -26,15 +24,13 @@ def held(path: Path, wait: bool = True) -> Iterator[bool]:
 if os.name == "nt":  # pragma: no cover - Windows
     import msvcrt
 
-    def _take(f, wait: bool) -> bool:
-        while True:  # LK_LOCK gives up after 10 s, and a long sync holds the lock longer
+    def _take(f) -> None:
+        while True:  # LK_LOCK gives up after 10 s, and a holder may keep the lock longer
             f.seek(0)
             try:
                 msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                return True
+                return
             except OSError:
-                if not wait:
-                    return False
                 time.sleep(0.2)
 
     def _drop(f) -> None:
@@ -43,12 +39,8 @@ if os.name == "nt":  # pragma: no cover - Windows
 else:
     import fcntl
 
-    def _take(f, wait: bool) -> bool:
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
-        except BlockingIOError:
-            return False
-        return True
+    def _take(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_EX)
 
     def _drop(f) -> None:
         fcntl.flock(f, fcntl.LOCK_UN)

@@ -23,7 +23,6 @@ from ..util import ValidationFailed
 SCHEMA_VERSION = 1
 SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
 SLUG_KINDS = ("activity", "location", "setting")
-RULES = ("time_order", "date_order", "range_order", "code_value", "part_ids", "self_reference", "derived_id")
 
 
 def schema_dir() -> Path:

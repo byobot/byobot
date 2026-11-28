@@ -11,7 +11,6 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -119,11 +118,6 @@ def uuid7() -> str:
         _uuid7_last[:] = [ms, rand_a]
     value = (ms & ((1 << 48) - 1)) << 80 | 0x7 << 76 | rand_a << 64 | 0b10 << 62 | rand_b
     return str(uuid.UUID(int=value))
-
-
-def now() -> str:
-    """The current time as RFC 3339 UTC with milliseconds, e.g. ``2026-11-20T18:00:00.000Z``."""
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def utf8_stdio() -> None:

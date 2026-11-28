@@ -243,9 +243,6 @@ class Store:
     def device_id(self) -> str:
         return self._get("device_id")
 
-    def set_device_id(self, device_id: str) -> None:
-        self._set("device_id", device_id)
-
     @property
     def store_key(self) -> bytes:
         return bytes.fromhex(self._get("store_key"))
@@ -279,10 +276,6 @@ class Store:
 
     def is_empty(self) -> bool:
         return self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone() is None
-
-    def last_erase(self) -> int:
-        """The position of the latest erase, or 0."""
-        return self.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
 
     def accept(self, event: Any) -> tuple[str, str]:
         """Take in one event from anywhere. Returns (outcome, reason); never raises for bad input."""
