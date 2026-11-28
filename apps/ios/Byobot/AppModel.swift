@@ -257,7 +257,7 @@ final class AppModel: ObservableObject, SyncBook {
                     let health = SampleBatch(samples: read?.samples ?? [], deleted: read?.deleted ?? [])
                     try await HubSync(SyncClient(server: server, token: token)).sync(self, health: health)
                     if let read {
-                        change { $0.sentHealth(anchors: read.anchors, days: read.days) }
+                        change { $0.sentHealth(anchors: read.anchors, days: read.days, readFrom: read.from) }
                     }
                 } catch {
                     laptopError = error.localizedDescription
@@ -273,6 +273,8 @@ final class AppModel: ObservableObject, SyncBook {
     private struct HealthRead {
         var samples: [Sample]
         var deleted: [Deletion]
+        /// Where Apple Health stood when it was read.
+        var from: HealthState?
         var anchors: [String: Data]
         /// Each daily total sent, with the offset its day started at.
         var days: [String: Int]
@@ -295,7 +297,7 @@ final class AppModel: ObservableObject, SyncBook {
         let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
         return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
                           deleted: changes.deleted.map { HealthMapping.deletion($0.0, type: $0.1) } + days.deleted,
-                          anchors: changes.anchors, days: days.sent)
+                          from: state.health, anchors: changes.anchors, days: days.sent)
     }
 
     func enableHealth() async {

@@ -369,11 +369,28 @@ final class LogbookTests: XCTestCase {
     func testSendingAppleHealthKeepsWhereItStopped() {
         var book = makeLogbook()
         book.enableHealth()
-        book.sentHealth(anchors: ["steps": Data([1])], days: ["daily:steps:2026-11-20": -18_000])
+        book.sentHealth(anchors: ["steps": Data([1])], days: ["daily:steps:2026-11-20": -18_000],
+                        readFrom: book.state.health)
         XCTAssertEqual(book.state.health?.enabled, true)
         XCTAssertEqual(book.state.health?.anchors, ["steps": Data([1])])
         XCTAssertEqual(book.state.health?.days, ["daily:steps:2026-11-20": -18_000])
         XCTAssertNotNil(book.state.lastHealthSyncAt)
+    }
+
+    func testAppleHealthReadBeforeASyncFindsARestoredStoreGoesAgainInFull() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.enableHealth()
+        book.sentHealth(anchors: ["steps": Data([1])], days: [:], readFrom: book.state.health)
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        let read = book.state.health
+        var window = try Fixtures.window()
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 1)
+        book.sentHealth(anchors: ["steps": Data([2])], days: [:], readFrom: read)
+        XCTAssertEqual(book.state.health?.anchors, [:], "the read began past what the restored store holds")
+        XCTAssertNil(book.state.lastHealthSyncAt)
     }
 
     func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
