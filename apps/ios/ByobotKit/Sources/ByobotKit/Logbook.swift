@@ -482,6 +482,10 @@ public struct Logbook: Sendable {
         if HLC.parse(window.hlc) != nil, window.hlc > (state.hlc ?? ""), window.hlc < HLC.ceiling {
             state.hlc = window.hlc  // what's written here next comes after what the laptop has seen
         }
+        if let current = state.storeId, window.storeId != current,
+           state.storeSpans?.contains(where: { $0.storeId == window.storeId }) == true {
+            paired(storeId: window.storeId)  // restored into the store it was paired as, from one sent to before
+        }
         drop(window.erased)
         setAside(window.rejected)
         let resent = resend(after: window.received[state.deviceId])
