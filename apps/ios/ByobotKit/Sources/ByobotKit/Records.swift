@@ -1,9 +1,8 @@
 // Records as the laptop sends them, and what the app needs to write events about them: hybrid
-// logical clocks, derived ids and the payloads of the kinds a person writes.
+// logical clocks and the payloads of the kinds a person writes.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
-import CryptoKit
 import Foundation
 
 /// A live record: its id, its current payload, and the events a change to it names as `prev`.
@@ -307,55 +306,5 @@ public enum HLC {
         let wall = UInt64(Swift.max(0, now.timeIntervalSince1970) * 1000)
         guard let last = last.flatMap(parse), last.ms >= wall else { return format(ms: wall, counter: 0) }
         return last.counter >= 999_999 ? format(ms: last.ms + 1, counter: 0) : format(ms: last.ms, counter: last.counter + 1)
-    }
-}
-
-/// Ids derived from other ids: UUIDv5 over the RFC 8785 JSON of their parts.
-public enum DerivedId {
-    public static func make(_ namespace: String, _ parts: [String]) -> String {
-        uuid5(namespace: namespace, name: Array(canonical(parts).utf8))
-    }
-
-    /// The overlay that holds your intent about a record, one per effect and target.
-    public static func overlay(_ effect: OverlayEffect, kind: String, id: String) -> String {
-        make(Namespace.overlay, [effect.rawValue, kind, id])
-    }
-
-    /// A JSON array of strings with nothing between the tokens, as RFC 8785 writes it.
-    static func canonical(_ parts: [String]) -> String {
-        "[" + parts.map(quote).joined(separator: ",") + "]"
-    }
-
-    static func quote(_ s: String) -> String {
-        var out = "\""
-        for scalar in s.unicodeScalars {
-            switch scalar {
-            case "\"": out += "\\\""
-            case "\\": out += "\\\\"
-            case "\u{08}": out += "\\b"
-            case "\u{0C}": out += "\\f"
-            case "\n": out += "\\n"
-            case "\r": out += "\\r"
-            case "\t": out += "\\t"
-            case _ where scalar.value < 0x20: out += String(format: "\\u%04x", scalar.value)
-            default: out.unicodeScalars.append(scalar)
-            }
-        }
-        return out + "\""
-    }
-
-    static func uuid5(namespace: String, name: [UInt8]) -> String {
-        let hex = namespace.replacingOccurrences(of: "-", with: "")
-        var ns: [UInt8] = []
-        var i = hex.startIndex
-        while i < hex.endIndex {
-            let j = hex.index(i, offsetBy: 2)
-            ns.append(UInt8(hex[i..<j], radix: 16) ?? 0)
-            i = j
-        }
-        var bytes = Array(Insecure.SHA1.hash(data: Data(ns + name)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return bytes.uuid
     }
 }

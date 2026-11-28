@@ -68,17 +68,6 @@ final class ContractTests: XCTestCase {
             .decoded(PlannedSessionPayload.self), "a retract has no payload to read")
     }
 
-    func testOverlayIdsMatchTheContract() throws {
-        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/ids.json"),
-              case .array(let overlays)? = doc["overlays"] else { return XCTFail("no overlays") }
-        XCTAssertFalse(overlays.isEmpty)
-        for case .object(let o) in overlays {
-            guard case .object(let target)? = o["target"], let effect = o.string("effect").flatMap(OverlayEffect.init),
-                  let kind = target.string("kind"), let id = target.string("id") else { return XCTFail("bad fixture") }
-            XCTAssertEqual(DerivedId.overlay(effect, kind: kind, id: id), o.string("record_id"), effect.rawValue)
-        }
-    }
-
     func testClockReadingsOrderAsText() throws {
         let pattern = try Fixtures.pattern("hlc")
         let at = Date(timeIntervalSince1970: 1_795_000_000)
