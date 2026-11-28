@@ -23,6 +23,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var activeSessionId: String?
     public var lastSyncAt: String?
     public var lastHealthSyncAt: String?
+    /// Where reading Apple Health stands. Kept in this file so it is saved with what was sent.
+    public var health: HealthState?
     /// The last clock reading this phone wrote.
     public var hlc: String?
     /// Sets logged elsewhere, as they stood before this phone first corrected them.
@@ -53,8 +55,18 @@ public struct AppState: Codable, Equatable, Sendable {
         case remoteOriginals = "remote_originals"
         case storeId = "store_id"
         case storeSpans = "store_spans"
-        case demo
+        case demo, health
     }
+}
+
+public struct HealthState: Codable, Equatable, Sendable {
+    public var enabled = false
+    /// Where each type's reading stopped.
+    public var anchors: [String: Data] = [:]
+    /// Each daily total sent, with the offset its day started at.
+    public var days: [String: Int] = [:]
+
+    public init() {}
 }
 
 public struct StoreSpan: Codable, Equatable, Hashable, Sendable {
@@ -485,6 +497,7 @@ public struct Logbook: Sendable {
         drop(window.erased)
         setAside(window.rejected)
         let resent = resend(after: window.received[state.deviceId])
+        if resent > 0 { resendHealth() }
         state.plan = window
         let planned = Set(window.plannedSessions.map(\.id))
         state.workouts = state.workouts?.filter { planned.contains($0.key) }
@@ -520,18 +533,21 @@ public struct Logbook: Sendable {
             var spans = state.storeSpans ?? [StoreSpan(storeId: old, after: "")]
             spans.append(StoreSpan(storeId: storeId, after: Swift.max(last, spans.last?.after ?? "")))
             state.storeSpans = spans
+            resendHealth()
         }
         state.storeId = storeId
     }
 
-    /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push
-    /// never arrived. Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
-    /// Events the Mac read from the cloud folder: done, whichever route they went by.
-    public mutating func delivered(_ ids: Set<String>) {
-        state.pending.removeAll { ids.contains($0) }
-        prune()
+    /// Apple Health goes out again from the start, for a store that may not hold what was sent: another one, or
+    /// one restored from a backup.
+    mutating func resendHealth() {
+        state.health?.anchors = [:]
+        state.health?.days = [:]
+        state.lastHealthSyncAt = nil
     }
 
+    /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push
+    /// never arrived. Pushes go out in the order written, so what is waiting up to the latest event it holds was taken.
     public mutating func settle(with window: PlanWindow) {
         setAside(window.rejected)
         guard let held = window.received[state.deviceId] else { return }

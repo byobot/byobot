@@ -27,6 +27,19 @@ final class StateFileTests: XCTestCase {
         XCTAssertEqual(loaded.state, book.state)
     }
 
+    func testHealthStateIsSavedWithTheRest() throws {
+        var file = StateFile(url: dir.appendingPathComponent("state.json"))
+        var state = makeLogbook().state
+        var health = HealthState()
+        health.enabled = true
+        health.anchors = ["steps": Data([1, 2, 3])]
+        health.days = ["steps 2026-01-01": -18_000]
+        state.health = health
+        try file.save(state)
+        var again = StateFile(url: file.url)
+        XCTAssertEqual(again.load().state.health, health)
+    }
+
     func testAFileFromANewerAppIsSetAside() throws {
         var file = StateFile(url: dir.appendingPathComponent("state.json"))
         var state = makeLogbook().state

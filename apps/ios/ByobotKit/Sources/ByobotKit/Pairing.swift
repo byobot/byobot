@@ -1,4 +1,4 @@
-// The `byobot://pair` link that `byobot serve` and `byobot cloud join` show as a QR code.
+// The `byobot://pair` link that `byobot serve` shows as a QR code.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -62,12 +62,6 @@ public struct PairingLink: Equatable, Sendable {
 
     /// The link format's version.
     public static let version = 1
-
-    /// Whether a link names a hub, a Drive store, or both.
-    public static func names(_ link: String) -> (hub: Bool, drive: Bool) {
-        let names = Set((try? items(link))?.map(\.name) ?? [])
-        return (names.contains("host"), names.contains("store_id"))
-    }
 
     static func data(fromBase64URL text: String) -> Data? {
         var b64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")

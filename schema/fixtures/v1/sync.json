@@ -1241,7 +1241,7 @@
       "link": "https://pair?v=1&host=192.0.2.5&port=9000&code=000001&pin=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
     },
     {
-      "name": "link/neither",
+      "name": "link/no-hub",
       "valid": false,
       "link": "byobot://pair?v=1"
     }

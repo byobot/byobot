@@ -1,4 +1,4 @@
-// Secrets kept in the keychain on this device only: the laptop's token, the Google sign-in and the cloud keys.
+// Secrets kept in the keychain on this device only: the laptop's token.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -20,7 +20,7 @@ enum Keychain {
         delete(service: service, account: server)
     }
 
-    static func set(_ data: Data, service: String, account: String) throws {
+    private static func set(_ data: Data, service: String, account: String) throws {
         delete(service: service, account: account)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -35,7 +35,7 @@ enum Keychain {
         }
     }
 
-    static func data(service: String, account: String) -> Data? {
+    private static func data(service: String, account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -48,7 +48,7 @@ enum Keychain {
         return item as? Data
     }
 
-    static func delete(service: String, account: String) {
+    private static func delete(service: String, account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
