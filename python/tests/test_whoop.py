@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import re
@@ -572,3 +573,32 @@ def test_conn_a_refresh_without_a_new_refresh_token_keeps_the_old_one(monkeypatc
     assert out["fetched"] == sum(len(v) for v in records.values())
     kept = credentials.load(whoop.NAME)
     assert kept["access_token"] == "access-2" and kept["refresh_token"] == "refresh-1"
+
+
+SIGNED_IN = {"access_token": "t", "refresh_token": "r", "expires_at": 1e12, "client_id": "c", "client_secret": "s"}
+
+
+def signed_in(monkeypatch, opener):
+    monkeypatch.setattr(whoop.credentials, "load", lambda name: dict(SIGNED_IN))
+    return whoop.Client(opener)
+
+
+class Answer(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_a_page_cut_short_is_tried_again_then_an_upstream_error(monkeypatch):
+    monkeypatch.setattr(whoop.time, "sleep", lambda s: None)
+
+    class Cut(Answer):
+        def read(self, *a):
+            raise http.client.IncompleteRead(b"{")
+
+    client = signed_in(monkeypatch, lambda req: Cut(b""))
+    with pytest.raises(whoop.UpstreamError):
+        client.request("GET", "/v2/cycle")
+

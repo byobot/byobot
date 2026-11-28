@@ -8,6 +8,7 @@ written.
 
 from __future__ import annotations
 
+import http.client
 import http.server
 import json
 import random
@@ -155,7 +156,7 @@ class Client(oauth.Session):
                 if e.code not in BUSY or last:
                     why = oauth.why(e, "WHOOP")[0]
                     raise UpstreamError(f"WHOOP answered {e.code} for {path}{': ' + why if why else ''}") from None
-            except (urllib.error.URLError, OSError) as e:
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
                 if attempt >= 1:
                     raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
                 wait = 2.0
