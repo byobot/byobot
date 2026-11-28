@@ -163,15 +163,17 @@ def _sample_revised(raw: dict) -> str:
     return str((raw.get("raw") or {}).get("modified_at") or raw.get("modified_at") or "")
 
 
+# Health samples may arrive without a revision time; a changed one is stamped on arrival.
+SAMPLES = {("apple_health", "quantity_sample"): sample, ("apple_health", "category_sample"): sample,
+           ("apple_health", "workout"): health_workout}
+
 # (source, source_type) -> (when the revision was made, as the source says; what it reads as)
 MAPPERS: dict[tuple[str, str], tuple[Callable[[dict], str], Callable[[dict, Related], dict]]] = {
     ("whoop", "sleep"): (_whoop_revised, whoop_sleep),
     ("whoop", "recovery"): (_whoop_revised, whoop_recovery),
     ("whoop", "cycle"): (_whoop_revised, whoop_cycle),
     ("whoop", "workout"): (_whoop_revised, whoop_workout),
-    ("apple_health", "quantity_sample"): (_sample_revised, sample),
-    ("apple_health", "category_sample"): (_sample_revised, sample),
-    ("apple_health", "workout"): (_sample_revised, health_workout),
+    **{key: (_sample_revised, mapper) for key, mapper in SAMPLES.items()},
 }
 
 
@@ -187,7 +189,7 @@ def unstamped(raw: Any) -> Any:
 
 def stamped(payload: dict, at: str) -> dict:
     """A health sample with `at` as its revision time, for a changed one sent again without a time of its own."""
-    if MAPPERS.get((payload.get("source"), payload.get("source_type")), (None,))[0] is not _sample_revised:
+    if (payload.get("source"), payload.get("source_type")) not in SAMPLES:
         return payload
     return {**payload, "raw": {**payload["raw"], "modified_at": at}}
 
