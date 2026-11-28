@@ -80,16 +80,8 @@ public final class SyncClient: @unchecked Sendable {
                                                               capabilities: Capabilities.app))
     }
 
-    public func status() async throws -> SyncStatus {
-        try await call("GET", "/v1/status", body: Optional<Int>.none)
-    }
-
-    public func plan(from: String? = nil, to: String? = nil) async throws -> PlanWindow {
-        var query: [String] = []
-        if let from { query.append("from=\(from)") }
-        if let to { query.append("to=\(to)") }
-        return try await call("GET", "/v1/plan" + (query.isEmpty ? "" : "?" + query.joined(separator: "&")),
-                              body: Optional<Int>.none)
+    public func plan() async throws -> PlanWindow {
+        try await call("GET", "/v1/plan", body: Optional<Int>.none)
     }
 
     public func push(events: [Event]) async throws -> EventsResponse {

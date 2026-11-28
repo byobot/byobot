@@ -200,7 +200,7 @@ final class AppModel: ObservableObject, SyncBook {
         guard !book.pendingEvents.isEmpty, let token else { return }
         let client = SyncClient(hosts: old.hosts, port: old.port, fingerprint: old.fingerprint, token: token, timeout: 3)
         let window = await withTaskGroup(of: PlanWindow?.self) { group in
-            group.addTask { try? await client.plan(from: nil, to: nil) }
+            group.addTask { try? await client.plan() }
             group.addTask {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 return nil
