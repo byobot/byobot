@@ -19,6 +19,7 @@ from byobot.core import commands, reducers, relay, sources
 from byobot.core.contract import Contract
 from byobot.core.store import STORE_VERSION, Store, query
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
+from conftest import newer_contract
 
 ME = {"kind": "human", "id": "me"}
 T0 = datetime(2026, 3, 2, 10, tzinfo=timezone(timedelta(hours=-5)))
@@ -159,7 +160,7 @@ def test_unknown_kinds_and_versions_are_kept_then_projected_after_an_upgrade(pai
     meal = {**e, "id": "019aa000-0000-7000-8000-0000000000bb", "record": {"kind": "meal", "id": e["record"]["id"]}}
     assert [o for o, _ in b.accept_many([newer, meal])] == ["stored_unprojected"] * 2
     assert b.get("effort", e["record"]["id"]) is None
-    b.use(Contract.shipped().newer(2, {"meal": {"version": 2, "description": "A meal."}}))
+    b.use(newer_contract(Contract.shipped(), 2, {"meal": {"version": 2, "description": "A meal."}}))
     assert b.get("effort", e["record"]["id"])["payload"]["bar_speed"] == {"value": 0.6}
     assert b.get("meal", e["record"]["id"]) is not None
 
@@ -224,7 +225,7 @@ def test_reopening_with_an_older_contract_stops_projecting_what_it_can_not_read(
     a, b = pair
     [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
     newer = {**e, "id": "019aa000-0000-7000-8000-0000000000aa", "kind_version": 2}
-    b.use(Contract.shipped().newer(2))
+    b.use(newer_contract(Contract.shipped(), 2))
     assert b.accept(newer) == ("accepted", "")
     b.close()
     reopened = Store(tmp_path / "b.db")
@@ -259,7 +260,7 @@ def test_a_later_schema_version_is_kept_and_relayed_as_received_never_applied(pa
     with pytest.raises(Conflict, match="newer byobot"):
         commands.edit(b, ME, "effort", rid, {"metrics": {"reps": {"value": 9}}})
     b.rebuild()
-    b.use(Contract.shipped().newer(3))
+    b.use(newer_contract(Contract.shipped(), 3))
     assert reps(b, rid) == 5
     with Store(tmp_path / "c.db") as c:
         c.restore(b.export())

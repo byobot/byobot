@@ -21,6 +21,7 @@ from byobot.core import commands, hlc, relay
 from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
 from byobot.util import uuid7
+from conftest import newer_contract
 
 SYNC = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "sync.json").read_text())
 CASES = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "cases.json").read_text())["cases"]
@@ -146,7 +147,7 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     payload = {"activity_id": "x.barbell_back_squat", "metrics": {"reps": {"value": 5}},
                "time": {"start": "2026-11-23T07:40:00-05:00"}}
     [plain] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
-    hub.use(Contract.shipped().newer(2))
+    hub.use(newer_contract(Contract.shipped(), 2))
     [fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
     entries = {e["id"]: e["kind_version"] for e in relay._entries(hub, "effort", [plain["record"]["id"],
                                                                                fast["record"]["id"]])}

@@ -9,6 +9,7 @@ from byobot.core import commands
 from byobot.core.contract import Contract
 from byobot.core.store import Store
 from byobot.util import Conflict, ValidationFailed
+from conftest import newer_contract
 
 ME = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-agent"}
@@ -114,7 +115,7 @@ def test_resolve_keeps_a_version_that_arrived_after_the_person_looked(stores):
 
 def ahead():
     """A contract a version ahead."""
-    return Contract.shipped().newer(2)
+    return newer_contract(Contract.shipped(), 2)
 
 
 def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):

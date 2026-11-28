@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import hmac
 import json
@@ -267,17 +266,6 @@ class Contract:
     def fingerprint(self) -> str:
         """What decides which events this contract projects, and how: the whole registry."""
         return hashlib.sha256(jcs(self.registry).encode()).hexdigest()
-
-    def newer(self, version: int, kinds: dict[str, dict] | None = None) -> Contract:
-        """A contract as an install `version` would know it: every kind at that version, plus `kinds`.
-
-        Only for tests and tooling: a real upgrade ships its own schemas.
-        """
-        registry = copy.deepcopy(self.registry)
-        for spec in registry["kinds"].values():
-            spec["version"] = max(spec["version"], version)
-        registry["kinds"].update(kinds or {})
-        return Contract(registry, self.schemas)
 
 
 PLACEHOLDER_ID = "00000000-0000-7000-8000-000000000000"
