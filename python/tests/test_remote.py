@@ -6,6 +6,7 @@ import hashlib
 import http.client
 import json
 import secrets
+import socket
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -16,7 +17,7 @@ from byobot.core import query as query_module
 from byobot.core.store import Store
 from byobot.remote import READ, Auth, OAuthError
 
-from helpers import serving
+from helpers import exchange, serving
 
 BASE = "https://example-laptop.example.ts.net"
 CALLBACK = "https://client.example/callback"
@@ -678,3 +679,82 @@ def test_mcp_refuses_a_request_from_another_sites_page(running):
     assert resp.status == 403
     resp, _ = request(running, "POST", "/mcp", ping, {**headers, "Origin": BASE})
     assert resp.status == 200
+
+
+def test_an_approval_code_in_other_digits_gets_a_page(running):
+    resp, raw = request(running, "POST", "/oauth/register", {"client_name": "Example Assistant",
+                                                             "redirect_uris": [CALLBACK],
+                                                             "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    _, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
+              "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz"}
+    try:
+        resp, _ = request(running, "POST", "/oauth/authorize", {**params, "approval_code": "¹²"}, FORM)
+        status = resp.status
+    except (http.client.HTTPException, ConnectionError):
+        status = None
+    assert status == 403, "the approval page dropped the connection instead of answering"
+
+
+def test_registration_with_a_malformed_grant_types_gets_an_oauth_error(running):
+    try:
+        resp, raw = request(running, "POST", "/oauth/register",
+                            {"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none", "grant_types": 5})
+        status = resp.status
+    except (http.client.HTTPException, ConnectionError):
+        status = None
+    assert status == 400, "an unauthenticated registration dropped the connection instead of answering"
+
+
+def test_a_client_that_never_sends_redirect_uri_can_finish_sign_in(running):
+    """RFC 6749 4.1.3 (kept by OAuth 2.1): redirect_uri is required at the token endpoint only if it was in the
+    authorization request. byobot lets a client with one registered address leave it out of the request, then
+    insists on it at the token endpoint."""
+    resp, raw = request(running, "POST", "/oauth/register", {"client_name": "Example Assistant",
+                                                             "redirect_uris": [CALLBACK],
+                                                             "token_endpoint_auth_method": "none"})
+    client = json.loads(raw)
+    verifier, challenge = pkce()
+    params = {"response_type": "code", "client_id": client["client_id"], "code_challenge": challenge,
+              "code_challenge_method": "S256", "state": "xyz"}  # no redirect_uri
+    resp, _ = request(running, "GET", "/oauth/authorize?" + urlencode(params))
+    assert resp.status == 200
+    resp, _ = request(running, "POST", "/oauth/authorize",
+                      {**params, "approval_code": running.pairing.code}, FORM)
+    assert resp.status == 302
+    code = parse_qs(urlsplit(resp.getheader("Location")).query)["code"][0]
+    resp, raw = request(running, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": code,
+                                                         "client_id": client["client_id"],
+                                                         "code_verifier": verifier}, FORM)
+    assert resp.status == 200, raw
+
+
+def test_a_get_with_a_body_does_not_desync_the_next_request_on_the_connection(running):
+    # Behind a tunnel, one upstream connection carries requests from different callers, so leftover body bytes
+    # would become the start of someone else's request.
+    smuggled = b"GET /api/v1/openapi.json HTTP/1.1\r\nHost: x\r\n\r\n"
+    first = (b"GET /.well-known/oauth-authorization-server HTTP/1.1\r\nHost: x\r\nContent-Length: "
+             + str(len(smuggled)).encode() + b"\r\n\r\n" + smuggled)
+    second = b"GET /.well-known/oauth-protected-resource HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+    sock = socket.create_connection(("127.0.0.1", running.server_address[1]), timeout=5)
+    reply = exchange(sock, first + second)
+    sock.close()
+    answers = reply.count(b"HTTP/1.1 ")
+    assert b'"openapi"' not in reply, "the body of the first request was answered as a request of its own"
+    assert answers <= 2
+
+
+def test_an_unauthenticated_registration_with_a_huge_integer_gets_an_answer(running):
+    body = (b'{"redirect_uris": ["https://client.example/cb"], "token_endpoint_auth_method": "none", "x": '
+            + b"9" * 5000 + b"}")
+    conn = http.client.HTTPConnection("127.0.0.1", running.server_address[1], timeout=10)
+    try:
+        conn.request("POST", "/oauth/register", body=body, headers={"Content-Type": "application/json"})
+        try:
+            resp = conn.getresponse()
+        except (http.client.RemoteDisconnected, ConnectionResetError) as exc:
+            pytest.fail(f"a stranger's registration got no HTTP answer: {exc!r}")
+        assert resp.status == 400
+    finally:
+        conn.close()

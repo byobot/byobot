@@ -1,7 +1,9 @@
 """What several test modules share."""
 
 import json
+import socket
 import sqlite3
+import ssl
 import threading
 import time
 from contextlib import contextmanager
@@ -100,3 +102,18 @@ def while_another_process_writes(db: Path, request):
         return request()
     finally:
         writer.join(15)
+
+
+def exchange(sock, raw: bytes) -> bytes:
+    """Send raw bytes and read until the server closes the connection or goes quiet."""
+    sock.sendall(raw)
+    out = b""
+    try:
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            out += chunk
+    except (TimeoutError, socket.timeout, ConnectionError, ssl.SSLError):
+        pass
+    return out
