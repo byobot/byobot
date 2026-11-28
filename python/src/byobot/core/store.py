@@ -307,6 +307,8 @@ class Store:
             return
         self.conn.execute("PRAGMA busy_timeout=0")
         try:
+            if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
+                return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
             self.conn.execute("VACUUM")
             busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
         except sqlite3.OperationalError:  # another connection is reading

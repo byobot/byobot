@@ -1036,3 +1036,21 @@ def test_a_reader_never_sees_derived_tables_empty_while_an_upgrade_rebuilds(tmp_
     with Store(path) as s:
         assert s.rows("SELECT id FROM locations") == [{"id": "example_gym"}]
     assert seen == [1]
+
+
+def test_a_compaction_held_off_by_a_reader_does_not_rewrite_the_whole_file_on_every_open(tmp_path):
+    path, wal = tmp_path / "byobot.db", tmp_path / "byobot.db-wal"
+    with Store(path) as s:
+        s.write(ME, [{"kind": "location", "id": f"l{i}", "op": "put", "payload": {"name": f"Example Gym {i}"},
+                      "create": True} for i in range(2000)])
+        reader = sqlite3.connect(path)
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM events").fetchone()
+        s.write(ME, [{"kind": "location", "id": "l0", "op": "erase"}])
+        assert s.compact_pending()
+    after_erase = wal.stat().st_size
+    for _ in range(5):
+        Store(path).close()
+    grown = wal.stat().st_size
+    reader.close()
+    assert grown < 1.5 * after_erase
