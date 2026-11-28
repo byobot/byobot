@@ -283,6 +283,8 @@ class Handler(web.Handler):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "capabilities must be a list of names")
         with self.server.pairing_lock:
             pairing = self.server.pairing
+            if pairing is not None and not pairing.open and self._removed(device_id):
+                pairing = None
             if pairing is None or not pairing.admits(device_id):
                 raise HTTPError(HTTPStatus.FORBIDDEN, "pairing_closed",
                                 "pairing is closed; run `byobot serve --pair` for a new code")
@@ -294,6 +296,12 @@ class Handler(web.Handler):
             self.peer = store.pair(device_id, name, token_hash(token))
         self.server.log(printable(f"paired {name} ({device_id})"))
         return {"token": token, "server": self._server_info(), "device": self.peer}
+
+    def _removed(self, device_id: str) -> bool:
+        """A device removed after it spent the code can't send it again to pair back."""
+        with Store(self.server.db, migrate=False) as store:
+            peer = store.peer(device_id)
+        return bool(peer and peer["revoked_at"])
 
     def status(self) -> dict:
         with Store(self.server.db, migrate=False) as store:

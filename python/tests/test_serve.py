@@ -1440,3 +1440,14 @@ def test_hello_names_the_computer_only_while_pairing_is_open(byobot_home):
         status, body = client.call("GET", "/v1/hello")
     assert status == 200 and body["pairing_open"] is False
     assert body["server"]["name"] == "byobot"
+
+
+def test_a_removed_phone_cannot_pair_back_with_the_code_it_spent(server, byobot_home):
+    _, info, client, _ = server
+    _pair(client, info)
+    with db(byobot_home) as s:
+        s.unpair(PHONE)
+    status, body = client.call("POST", "/v1/pair", {"code": info["code"], "device_id": PHONE, "name": "Test phone"},
+                               token="")
+    assert status == 403 and body["error"] == "pairing_closed"
+
