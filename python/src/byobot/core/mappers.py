@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Callable
 
-from . import telemetry
+from .contract import Contract
 
 # (source_type, source_id) of another record this one reads, and its current raw or None.
 Related = Callable[[str, str], "dict | None"]
@@ -99,9 +100,31 @@ def whoop_workout(raw: dict, related: Related) -> dict:
 
 # -- samples: Apple Health -------------------------------------------------------
 
+# HealthKit units as the registry spells them.
+UNITS = {"count/min": "/min", "degC": "Cel", "ml/kg*min": "mL/(kg.min)", "mmHg": "mm[Hg]", "count": None}
+
+
+@lru_cache(maxsize=1)
+def codes() -> dict[str, str]:
+    """Each HealthKit sample type's registry code."""
+    registry = Contract.shipped().registry["codes"]
+    return {spec["healthkit"]: code for code, spec in registry.items() if "healthkit" in spec}
+
+
+def observation(sample: dict) -> dict | None:
+    """A sample's observation payload, or None for a type that isn't one."""
+    code = codes().get(sample["type"])
+    if code is None:
+        return None
+    value, unit = sample["value"], UNITS.get(sample.get("unit"), sample.get("unit"))
+    if isinstance(value, str):
+        value = re.sub(r"(?<!^)([A-Z]+)", r"_\1", value).lower()  # asleepREM -> asleep_rem
+    payload = {"code": code, "value": value, "time": {"start": sample["start"], "end": sample.get("end", sample["start"])}}
+    return {**payload, "unit": unit} if unit else payload
+
 
 def sample(raw: dict, related: Related) -> dict:
-    found = telemetry.observation(raw)
+    found = observation(raw)
     return {"observations": [found] if found else []}
 
 
