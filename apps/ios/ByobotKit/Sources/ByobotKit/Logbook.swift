@@ -174,21 +174,8 @@ public struct Logbook: Sendable {
         return (entry(kind, id)?.kindVersion ?? 1) > (KindVersion.all[kind] ?? 1)
     }
 
-    private func entry(_ kind: String, _ id: String) -> (prev: [String], kindVersion: Int?)? {
-        guard let plan = state.plan else { return nil }
-        func find<P: Codable & Hashable & Sendable>(_ records: [Record<P>]) -> (prev: [String], kindVersion: Int?)? {
-            records.first { $0.id == id }.map { ($0.prev, $0.kindVersion) }
-        }
-        switch kind {
-        case "activity": return find(plan.activities)
-        case "location": return find(plan.locations)
-        case "setting": return find(plan.settings)
-        case "plan": return find(plan.plans)
-        case "planned_session": return find(plan.plannedSessions)
-        case "session": return find(plan.sessions)
-        case "effort": return find(plan.efforts)
-        default: return nil
-        }
+    private func entry(_ kind: String, _ id: String) -> (any PlanEntry)? {
+        state.plan?.records(kind).first { $0.id == id }
     }
 
     func now() -> RecordTime {

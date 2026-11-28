@@ -243,6 +243,38 @@ extension Record where Payload == PlannedSessionPayload {
     public var planId: String? { payload.links?.partOf?.id }
 }
 
+/// A plan record of any kind.
+protocol PlanEntry {
+    var id: String { get }
+    var prev: [String] { get }
+    var kindVersion: Int? { get }
+    var conflict: Bool? { get }
+    var versions: [ConflictVersion]? { get }
+    var json: JSONValue { get }
+}
+
+extension Record: PlanEntry {
+    var json: JSONValue { Payloads.json(payload) }
+}
+
+extension PlanWindow {
+    /// The kinds a plan carries, in the order it lists them.
+    static let kinds = ["activity", "location", "setting", "plan", "planned_session", "session", "effort"]
+
+    func records(_ kind: String) -> [any PlanEntry] {
+        switch kind {
+        case "activity": return activities
+        case "location": return locations
+        case "setting": return settings
+        case "plan": return plans
+        case "planned_session": return plannedSessions
+        case "session": return sessions
+        case "effort": return efforts
+        default: return []
+        }
+    }
+}
+
 /// A payload as JSON, and back.
 enum Payloads {
     static func json<T: Encodable>(_ value: T) -> JSONValue {
