@@ -40,7 +40,7 @@ def _authored(kind: str) -> None:
 
 def check_activity_id(rid: Any) -> None:
     """Your own activities are `x.` ids; a plain id is the library's, which yours may replace."""
-    if isinstance(rid, str) and not rid.startswith("x.") and rid not in {a["id"] for a in library.activities()}:
+    if isinstance(rid, str) and not rid.startswith("x.") and rid not in library.by_id():
         raise ValidationFailed(f"{rid} isn't a library activity; your own activities' ids start with x., as in x.{rid}")
 
 

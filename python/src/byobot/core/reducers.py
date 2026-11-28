@@ -122,8 +122,8 @@ def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload:
     conn.execute("DELETE FROM metrics WHERE owner_kind = ? AND owner_id = ?", (kind, rid))
     if payload is not None and kind in REDUCERS:
         REDUCERS[kind](conn, c, rid, payload)
-    elif kind == "activity" and rid in _library():
-        _activity_row(conn, rid, _library()[rid], "library")
+    elif kind == "activity" and rid in library.by_id():
+        _activity_row(conn, rid, library.by_id()[rid], "library")
 
 
 def clear(conn: sqlite3.Connection) -> None:
@@ -132,15 +132,11 @@ def clear(conn: sqlite3.Connection) -> None:
     seed_library(conn)
 
 
-def _library() -> dict[str, dict]:
-    return {a["id"]: {k: v for k, v in a.items() if k != "id"} for a in library.activities()}
-
-
 def seed_library(conn: sqlite3.Connection) -> None:
     """Library activities ship with byobot; one you put replaces it, and retracting yours brings it back."""
     conn.execute("DELETE FROM activities WHERE source = 'library'")
     mine = {r[0] for r in conn.execute("SELECT id FROM activities")}
-    for rid, p in _library().items():
+    for rid, p in library.by_id().items():
         if rid not in mine:
             _activity_row(conn, rid, p, "library")
 

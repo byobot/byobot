@@ -9,6 +9,7 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Any
 
+from .. import library
 from ..util import ValidationFailed
 from . import sources
 from .contract import sync_errors
@@ -192,9 +193,7 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
         if r["source"] == "store":
             activities += _entries(store, "activity", [r["id"]])
         else:
-            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
-            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
-            activities.append({"id": r["id"], "payload": payload, "prev": [],
+            activities.append({"id": r["id"], "payload": library.by_id()[r["id"]], "prev": [],
                                "kind_version": store.contract.version("activity"), "library": True})
     return {"from": start, "to": end, "since": since, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
@@ -227,11 +226,6 @@ def _device_state(store: Store, device_id: str | None) -> dict:
             "kind_versions": store.contract.kind_versions(),
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}
-
-
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment", "targets", "default_metrics",
-             "resistance_curve")
-_JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 
 
 def _recent_efforts(store: Store, times: int = 2) -> list[str]:
