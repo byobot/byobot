@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from byobot.cloud import lock
+from byobot import lock
 from byobot.util import ByobotError, base, home, profile
 
 SERVICE = "byobot"

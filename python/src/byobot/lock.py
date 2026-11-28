@@ -1,5 +1,4 @@
-"""One keeper at a time: `serve`, the MCP server and the CLI can each sync, so they take a lock on a small file
-first. The system drops it if a process dies."""
+"""One writer at a time across processes: a lock on a small file, which the system drops if a process dies."""
 
 from __future__ import annotations
 

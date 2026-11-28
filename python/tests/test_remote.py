@@ -599,7 +599,7 @@ def test_an_api_key_made_while_the_server_issues_tokens_is_kept(auth):
 
 
 def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_home, monkeypatch):
-    # import whoop and cloud sync spend most of their time on the network before they write. Here `log` stands in
+    # import whoop spends most of their time on the network before they write. Here `log` stands in
     # for them: it waits longer than the deadline, then writes.
     monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0.3)
     # A real import runs far more than the default 10,000 steps between checks; a one-record write here doesn't.

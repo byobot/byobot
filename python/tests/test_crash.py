@@ -1,7 +1,7 @@
 """Kill byobot at every write step of the work that changes a store, then check what the next start finds.
 
 A child process does the work and kills itself just before its Nth write: an SQLite statement that changes the
-store, or a file the cloud folder creates or deletes. Then the store must open, hold every event it held before and
+store. Then the store must open, hold every event it held before and
 nothing that wasn't written, read the same as a rebuild from its logbook, and finish the work when run again, ending
 where an uninterrupted run ends.
 
@@ -34,8 +34,6 @@ SESSION = "0193a0b0-0000-7000-a000-000000000100"
 
 def arm(kill_at: int) -> list[int]:
     """Count write steps from here on, and die just before step `kill_at` (never, if it is 0)."""
-    from cloud_doubles import LocalFolder
-
     count = [0]
 
     def step():
@@ -54,13 +52,6 @@ def arm(kill_at: int) -> list[int]:
 
     sqlite3.connect = counted
     _repeatable()
-    for name in ("create", "delete"):
-        real = getattr(LocalFolder, name)
-
-        def wrapped(self, *args, _real=real):
-            step()
-            _real(self, *args)
-        setattr(LocalFolder, name, wrapped)
     return count
 
 
@@ -109,8 +100,6 @@ def phone_events(n: int, offset: int = 0) -> list[dict]:
 
 def work(op: str, root: Path) -> None:
     """What the child does to the store in `root`."""
-    from cloud_doubles import LocalFolder
-    from byobot.cloud.keeper import Keeper
     from byobot.core import commands, relay, sources
     from byobot.core.store import Store
 
@@ -132,10 +121,6 @@ def work(op: str, root: Path) -> None:
             relay.push_events(store, PHONE, {"events": phone_events(20, offset=100)})
         elif op == "restore":
             store.restore((root / "export.jsonl").read_text().splitlines())
-        elif op == "drive":
-            keeper = Keeper(store, LocalFolder(root / "cloud", store.store_id))
-            keeper.sync()
-            keeper.sync()
         else:
             raise SystemExit(f"no op {op}")
 
@@ -144,9 +129,6 @@ def work(op: str, root: Path) -> None:
 
 def seed(root: Path, op: str) -> None:
     """The store each run starts from."""
-    from cloud_doubles import LocalFolder
-    from byobot.cloud.keeper import Keeper
-    from cloud_doubles import Relay
     from byobot.core import commands, relay, sources
     from byobot.core.store import Store
 
@@ -166,14 +148,6 @@ def seed(root: Path, op: str) -> None:
             store.conn.execute("UPDATE meta SET value = 'older' WHERE key = 'shape'")
         if op == "restore":
             (root / "export.jsonl").write_text("\n".join(store.export()))
-        if op == "drive":
-            folder = LocalFolder(root / "cloud", store.store_id)
-            keeper = Keeper.setup(store, folder)
-            phone = Relay.join(folder, keeper.join_code()["link"], PHONE)
-            keeper.sync()
-            phone.sync()
-            phone.log(phone_events(15, offset=200))
-            phone.sync()
     if op == "restore":
         db.unlink()
         for extra in root.glob("byobot.db-*"):
@@ -232,7 +206,7 @@ def no_secret_left(root: Path) -> None:
     assert b"example-secret-note" not in raw, "an erased note is still in the store's files"
 
 
-OPS = ("import", "rebuild", "reshape", "erase", "pair", "restore", "drive")
+OPS = ("import", "rebuild", "reshape", "erase", "pair", "restore")
 
 
 @pytest.mark.parametrize("op", OPS)
@@ -251,8 +225,6 @@ def test_a_kill_at_any_write_step_loses_nothing_and_finishes_on_the_next_run(tmp
             events, _ = held(root)
             assert start <= events <= end, f"{op}: killed at step {n} of {total}, the logbook lost or gained events"
         again = child(op, root, 0)
-        if op == "drive":
-            again = child(op, root, 0)  # the folder settles over a couple of syncs
         assert again.returncode == 0, f"{op}: killed at step {n} of {total}, the next run failed: {again.stderr}"
         events, after = held(root)
         assert events == end, f"{op}: killed at step {n} of {total}, the next run ended with other events"

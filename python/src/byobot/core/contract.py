@@ -21,7 +21,7 @@ from referencing import Registry, Resource
 from ..util import ValidationFailed
 
 SCHEMA_VERSION = 1
-SCHEMA_NAMES = ("common", "records", "event", "registry", "sync", "cloud")
+SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
 SLUG_KINDS = ("activity", "location", "setting")
 RULES = ("time_order", "date_order", "range_order", "code_value", "part_ids", "self_reference", "derived_id")
 
@@ -76,11 +76,6 @@ class Rejected(Exception):
 def sync_errors(definition: str, document: Any) -> list[str]:
     """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
     return _errors("sync", definition, document)
-
-
-def cloud_errors(definition: str, document: Any) -> list[str]:
-    """Why a cloud protocol file or message (a `$defs` entry of cloud.schema.json) is malformed."""
-    return _errors("cloud", definition, document)
 
 
 def _errors(schema: str, definition: str, document: Any) -> list[str]:

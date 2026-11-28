@@ -378,8 +378,8 @@ def test_planned_session_must_name_existing_records(capsys):
 
 def test_a_group_alone_shows_its_help(capsys):
     with pytest.raises(SystemExit) as exit:
-        main(["cloud"])
-    assert exit.value.code == 0 and "setup" in capsys.readouterr().out
+        main(["devices"])
+    assert exit.value.code == 0 and "remove" in capsys.readouterr().out
 
 
 def test_your_own_activity_ids_start_with_x(capsys):
@@ -389,11 +389,11 @@ def test_your_own_activity_ids_start_with_x(capsys):
 
 
 def test_switches_are_booleans():
-    assert build_parser().parse_args(["cloud", "join", "--no-wait"]).wait is False
-    assert build_parser().parse_args(["cloud", "off", "--delete"]).delete is True
-    assert build_parser().parse_args(["cloud", "remove", "x"]).revoke_google is None
+    assert build_parser().parse_args(["serve", "--no-pair"]).pair is False
+    assert build_parser().parse_args(["remote", "key", "example", "--read-only"]).read_only is True
+    assert build_parser().parse_args(["serve"]).pair is None
     with pytest.raises(ValidationFailed, match="true or false"):
-        run("cloud off", Context(actor={"kind": "human", "id": "me"}), {"delete": "yes"})
+        run("remote key", Context(actor={"kind": "human", "id": "me"}), {"name": "example", "show": "yes"})
 
 
 BASE = "https://example-laptop.example.ts.net"

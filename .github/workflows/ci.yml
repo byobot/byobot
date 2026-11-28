@@ -79,8 +79,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Check the generated Swift is up to date
         run: uv run --locked --project python python tools/gen_swift.py --check
-      - name: Check the cloud test vectors are up to date
-        run: uv run --locked --project python python tools/gen_cloud_vectors.py --check
 
   package:
     name: Build and smoke-test the wheel
