@@ -66,19 +66,12 @@ CREATE TABLE IF NOT EXISTS unprojected (event_id TEXT PRIMARY KEY, kind TEXT NOT
 CREATE TABLE IF NOT EXISTS clocks (device_id TEXT PRIMARY KEY, hlc TEXT NOT NULL, seen_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY, name TEXT, last_seen_at TEXT,
-  token_sha256 TEXT UNIQUE, paired_at TEXT, revoked_at TEXT,
-  class TEXT, box TEXT, sign TEXT, joined_epoch INTEGER, moved_epoch INTEGER, last_seq INTEGER,
-  removed INTEGER NOT NULL DEFAULT 0);
+  token_sha256 TEXT UNIQUE, paired_at TEXT, revoked_at TEXT);
 CREATE TABLE IF NOT EXISTS rejections (
   device_id TEXT NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (device_id, event_id));
-CREATE TABLE IF NOT EXISTS cloud_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_read (path TEXT PRIMARY KEY, checksum TEXT NOT NULL, outcome TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloud_refused (path TEXT NOT NULL, line INTEGER NOT NULL, reason TEXT NOT NULL,
-  PRIMARY KEY (path, line));
 """
-# One row per device: paired with the hub when it has a token, in Drive sync when it has a class.
+# One row per device paired with the hub.
 PEER_COLUMNS = "id AS device_id, name, paired_at, last_seen_at, revoked_at"
 
 
@@ -99,7 +92,7 @@ def _version(event: dict) -> str:
 
 
 def _private(path: Path) -> None:
-    """Health data and Drive keys: the folder and the files are the owner's alone. SQLite gives its -wal and -shm
+    """Health data: the folder and the files are the owner's alone. SQLite gives its -wal and -shm
     files the database file's mode."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if sys.platform == "win32":
@@ -754,9 +747,8 @@ def ddl() -> str:
 
 
 _READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
-# The store's own key, the paired devices' token hashes and Drive sync's keys and bookkeeping stay out of queries.
-_UNREADABLE = {("meta", None), ("devices", "token_sha256"), ("cloud_meta", None), ("cloud_keys", None),
-               ("cloud_read", None), ("cloud_refused", None)}
+# The store's own key and the paired devices' token hashes stay out of queries.
+_UNREADABLE = {("meta", None), ("devices", "token_sha256")}
 
 
 @functools.cache

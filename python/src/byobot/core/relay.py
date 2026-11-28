@@ -1,5 +1,5 @@
 """What a relay device, such as a phone, may write into the byobot logbook, and the plan it reads back. Every
-transport (the hub, later Drive) uses these, so the two can't drift apart."""
+transport uses these (today only the hub), so a second one would follow the same rules."""
 
 from __future__ import annotations
 
