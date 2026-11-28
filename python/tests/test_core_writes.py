@@ -8,7 +8,7 @@ from byobot.commands import Context, run
 from byobot.core import commands
 from byobot.core.contract import Contract
 from byobot.core.store import Store
-from byobot.util import Conflict
+from byobot.util import Conflict, ValidationFailed
 
 ME = {"kind": "human", "id": "me"}
 AGENT = {"kind": "agent", "id": "example-agent"}
@@ -136,3 +136,9 @@ def test_an_older_install_wont_overwrite_a_version_it_cant_read(tmp_path):
     assert [(i["id"], i.get("newer")) for i in listed] == [(rid, True)]
     old.use(ahead())
     assert not old.get("effort", rid)["newer"] and reps(old, rid) == 8
+
+
+def test_a_library_activity_cant_be_erased_so_it_stays_yours_to_change(tmp_path):
+    with Store(tmp_path / "s.db") as store:
+        with pytest.raises(ValidationFailed, match="library activity"):
+            commands.erase(store, ME, "activity", "bench_press")

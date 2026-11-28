@@ -17,8 +17,8 @@ import pytest
 
 from byobot.core import commands, reducers, relay, sources
 from byobot.core.contract import Contract
-from byobot.core.store import Store, query
-from byobot.util import Conflict, NotFound, ValidationFailed
+from byobot.core.store import STORE_VERSION, Store, query
+from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
 
 ME = {"kind": "human", "id": "me"}
 T0 = datetime(2026, 3, 2, 10, tzinfo=timezone(timedelta(hours=-5)))
@@ -980,3 +980,105 @@ def test_a_store_from_before_drive_was_removed_drops_its_keys(tmp_path):
         assert not store.conn.execute("SELECT 1 FROM sqlite_schema WHERE name = 'cloud_keys'").fetchone()
         assert not store.compact_pending()
     assert b"secret" not in path.read_bytes()
+
+
+# The events and peers tables as #135..#155 wrote them, still at STORE_VERSION 6 (from 39885df's DDL).
+PRE_156 = """
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE events (
+  seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, record_id TEXT NOT NULL,
+  op TEXT NOT NULL, kind_version INTEGER, hlc TEXT NOT NULL, ts TEXT NOT NULL, device_id TEXT NOT NULL,
+  actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, actor_model TEXT, prev TEXT NOT NULL, batch TEXT,
+  reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
+CREATE TABLE later_events (id TEXT PRIMARY KEY, envelope TEXT NOT NULL);
+CREATE TABLE peers (
+  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
+  last_seen_at TEXT, revoked_at TEXT);
+CREATE TABLE locations (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO meta VALUES ('store_id', '019aa000-0000-7000-8000-000000000001'), ('store_key', '00'),
+  ('device_id', 'example-laptop'), ('hlc', '0000000000000-00000'), ('shape', 'an older shape');
+INSERT INTO events VALUES (1, '019aa000-0000-7000-8000-000000000002', 'location', 'example_gym', 'put', 1,
+  '0001764000000000-00000', '2026-11-27T00:00:00.000Z', 'example-laptop', 'human', 'me', NULL, '[]', NULL, NULL,
+  NULL, '{"name":"Example Gym"}');
+INSERT INTO locations VALUES ('example_gym', 'Example Gym');
+"""
+
+
+def test_a_version_6_store_from_before_events_kept_their_header_is_refused_untouched(tmp_path):
+    path = tmp_path / "byobot.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(PRE_156 + f"PRAGMA user_version = {STORE_VERSION};")
+    conn.close()
+    with pytest.raises(ByobotError, match="move it aside"):
+        Store(path)
+    conn = sqlite3.connect(path)
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")}
+    assert conn.execute("SELECT count(*) FROM locations").fetchone()[0] == 1
+    assert "devices" not in tables
+
+
+def test_a_reader_never_sees_derived_tables_empty_while_an_upgrade_rebuilds(tmp_path, monkeypatch):
+    path = tmp_path / "byobot.db"
+    with Store(path) as s:
+        s.write(ME, [{"kind": "location", "id": "example_gym", "op": "put", "payload": {"name": "Example Gym"},
+                      "create": True}])
+    seen = []
+    use = Store.use
+
+    def watched(self, contract):
+        reader = sqlite3.connect(path)
+        seen.append(reader.execute("SELECT count(*) FROM locations").fetchone()[0])
+        reader.close()
+        use(self, contract)
+
+    monkeypatch.setattr(Store, "use", watched)
+    monkeypatch.setattr(Store, "_shape", staticmethod(lambda contract: "the next release's shape"))
+    with Store(path) as s:
+        assert s.rows("SELECT id FROM locations") == [{"id": "example_gym"}]
+    assert seen == [1]
+
+
+def test_a_compaction_held_off_by_a_reader_does_not_rewrite_the_whole_file_on_every_open(tmp_path):
+    path, wal = tmp_path / "byobot.db", tmp_path / "byobot.db-wal"
+    with Store(path) as s:
+        s.write(ME, [{"kind": "location", "id": f"l{i}", "op": "put", "payload": {"name": f"Example Gym {i}"},
+                      "create": True} for i in range(2000)])
+        reader = sqlite3.connect(path)
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM events").fetchone()
+        s.write(ME, [{"kind": "location", "id": "l0", "op": "erase"}])
+        assert s.compact_pending()
+    after_erase = wal.stat().st_size
+    for _ in range(5):
+        Store(path).close()
+    grown = wal.stat().st_size
+    reader.close()
+    assert grown < 1.5 * after_erase
+
+
+WORKOUT = {"id": "3001", "start": "2026-03-02T14:00:00.000Z", "end": "2026-03-02T15:00:00.000Z",
+           "timezone_offset": "-05:00", "updated_at": "2026-03-02T16:00:00.000Z", "sport_name": "running",
+           "score_state": "SCORED", "score": {"strain": 10.0, "average_heart_rate": 140}}
+
+
+def test_an_erased_workout_takes_no_correction(tmp_path):
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        [src] = sources.ingest(s, "whoop", [("workout", "3001", WORKOUT)])
+        commands.erase(s, ME, "source_record", src["record"]["id"])
+        with pytest.raises(Conflict, match="erased"):
+            commands.correct(s, ME, src["record"]["id"], {"name": "Example note"})
+
+
+def test_erasing_again_takes_a_correction_the_first_erase_had_not_seen(pair):
+    a, b = pair
+    b.adopt(a.store_id, a._get("store_key"))
+    [src] = sources.ingest(a, "whoop", [("workout", "3001", WORKOUT)])
+    rid = src["record"]["id"]
+    sync(a, b)
+    fix = commands.correct(b, ME, rid, {"name": "Example note"})
+    commands.erase(a, ME, "source_record", rid)
+    sync(a, b)
+    commands.erase(a, ME, "source_record", rid)
+    assert all(e["payload"] == {} for e in a.history("overlay", fix["record"]["id"]))
+    with pytest.raises(Conflict, match="already erased"):
+        commands.erase(a, ME, "source_record", rid)

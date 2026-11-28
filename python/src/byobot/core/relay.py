@@ -82,7 +82,7 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kind_versions
         reason = "events must be authored by the paired device that pushes them"
     elif event.get("actor") != actor:
         reason = "events must be authored by the paired device's user"
-    elif record.get("kind") in CONNECTOR_KINDS or event.get("op") not in ("put", "retract") or "redacted_by" in event:
+    elif record.get("kind") in CONNECTOR_KINDS or event.get("op") == "erase" or "redacted_by" in event:
         reason = "a phone writes only what a person writes"
     elif _too_new(store, event, kind_versions):
         reason = "a newer byobot wrote this record; update the app to change it"
