@@ -20,18 +20,6 @@ settings.register_profile("soak", max_examples=5000, deadline=None, suppress_hea
 settings.load_profile(os.environ.get("BYOBOT_HYPOTHESIS_PROFILE", "ci"))
 
 
-def pytest_configure(config):
-    config.addinivalue_line("markers", "baseline(**drivers): a driver's known failure, run as a strict xfail")
-
-
-def pytest_collection_modifyitems(items):
-    for item in items:
-        marker = item.get_closest_marker("baseline")
-        driver = getattr(item, "callspec", None) and item.callspec.params.get("driver")
-        if marker and driver in marker.kwargs:
-            item.add_marker(pytest.mark.xfail(strict=True, reason=f"{driver} baseline: {marker.kwargs[driver]}"))
-
-
 @pytest.hookimpl(wrapper=True)
 def pytest_pyfunc_call(pyfuncitem):
     try:

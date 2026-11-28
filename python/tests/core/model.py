@@ -26,7 +26,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .driver import Unsupported
 from .snapshot import canonical, empty, key, num, occurrence
 
 AUTHORED = ("activity", "location", "plan", "planned_session", "session", "effort")
@@ -554,9 +553,6 @@ class Reference:
 
     def local_dates(self, replica: ModelReplica) -> dict[str, str]:
         return replica.local_dates()
-
-    def read(self, replica: ModelReplica, surface: str, command: str, args: dict) -> Any:
-        raise Unsupported("the model has no surfaces")
 
     def export_log(self, replica: ModelReplica) -> list[Write]:
         return list(replica.writes.values())

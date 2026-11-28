@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
+from .driver import stamp
 from .harness import AGENT, HUMAN, World
 from .snapshot import key
 
@@ -50,9 +51,6 @@ class Persona:
     local_dates: dict[str, str] = field(default_factory=dict)
     revised: list[str] = field(default_factory=list)
 
-    def count(self, op: str) -> int:
-        return sum(1 for s in self.steps if s.op == op)
-
 
 def dst(day: date) -> bool:
     """Daylight time in the home zone: second Sunday of March to first Sunday of November."""
@@ -60,10 +58,6 @@ def dst(day: date) -> bool:
         first = date(day.year, month, 1)
         return first + timedelta(days=(6 - first.weekday()) % 7 + 7 * (n - 1))
     return sunday(3, 2) <= day < sunday(11, 1)
-
-
-def stamp(at: datetime, offset: timedelta) -> str:
-    return at.astimezone(timezone(offset)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 class _Gen:

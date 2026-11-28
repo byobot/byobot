@@ -324,9 +324,6 @@ class V1:
                 out[key(kind, self.back(rid))] = day
         return out
 
-    def read(self, rep: Replica, surface: str, command: str, args: dict) -> Any:
-        raise Unsupported("surfaces move to schema 1 with the cutover")
-
     def export_log(self, rep: Replica) -> list[str]:
         return list(rep.store.export())
 

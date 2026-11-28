@@ -19,9 +19,8 @@ from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, pr
 from .driver import Unsupported
 from .drivers.v1 import V1
 from .harness import AGENT, HUMAN, World, day
-from .scenarios import health_workout, whoop_workout
+from .scenarios import health_workout, held_bytes, whoop_workout
 from .snapshot import diff, equal
-from .test_durability import held_bytes
 
 REPLICAS = ("laptop", "phone", "tablet")
 ACTIVITIES = ("x.row", "x.squat")
