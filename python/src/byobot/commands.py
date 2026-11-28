@@ -365,45 +365,45 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 @command(
     "correct",
     "Use your values over what a source imported, whatever the source later says.",
-    Param("record_id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
+    Param("id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
           positional=True),
     Param("fields", "json", "What to use instead: name, time, metrics, or value and unit for a single "
           "measurement. Merges into earlier corrections; null takes one back.", required=True, positional=True,
           schema={"type": "object"}),
     read_only=False,
 )
-def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
-    _source_record(ctx.store(), record_id)
-    return {"events": [core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))]}
+def _correct(ctx: Context, id: str, fields: Any) -> dict:
+    _source_record(ctx.store(), id)
+    return {"events": [core.correct(ctx.store(), ctx.actor, id, _object("fields", fields))]}
 
 
 @command(
     "exclude",
     "Leave something a source imported out of every read, such as a wrong weigh-in. `undo` brings it back.",
-    Param("record_id", "string", "The source record's id.", required=True, positional=True),
+    Param("id", "string", "The source record's id.", required=True, positional=True),
     Param("reason", "string", "Why, in a few words."),
     read_only=False,
 )
-def _exclude(ctx: Context, record_id: str, reason: str | None = None) -> dict:
-    _source_record(ctx.store(), record_id)
-    return {"events": [core.exclude(ctx.store(), ctx.actor, record_id, reason)]}
+def _exclude(ctx: Context, id: str, reason: str | None = None) -> dict:
+    _source_record(ctx.store(), id)
+    return {"events": [core.exclude(ctx.store(), ctx.actor, id, reason)]}
 
 
 @command(
     "same_as",
     "Say an imported workout is the same as another workout, so it's counted once.",
-    Param("record_id", "string", "The source record's id.", required=True, positional=True),
+    Param("id", "string", "The source record's id.", required=True, positional=True),
     Param("other_id", "string", "The session or source record it is the same as.", required=True, positional=True),
     Param("other_kind", "string", "What the other is.", choices=("session", "source_record"),
           default="session"),
     read_only=False,
 )
-def _same_as(ctx: Context, record_id: str, other_id: str, other_kind: str = "session") -> dict:
+def _same_as(ctx: Context, id: str, other_id: str, other_kind: str = "session") -> dict:
     store = ctx.store()
-    _source_record(store, record_id)
+    _source_record(store, id)
     if store.get(other_kind, other_id) is None:
         raise NotFound(f"no {other_kind} {other_id}")
-    return {"events": [core.same_as(store, ctx.actor, record_id, other_kind, other_id)]}
+    return {"events": [core.same_as(store, ctx.actor, id, other_kind, other_id)]}
 
 
 def _source_record(store: Store, rid: str) -> None:
