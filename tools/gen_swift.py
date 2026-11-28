@@ -238,8 +238,10 @@ class Generator:
         return swift
 
     def struct(self, file: str, definition: str | None, name: str, node: dict) -> list[str]:
-        fields = []
+        fields, limits = [], []
         for pname, prop, owner, required in self.properties(file, definition, node):
+            if owner[0] == "sync" and isinstance(prop, dict) and "maxItems" in prop:
+                limits.append((pname, prop["maxItems"]))
             swift, nullable = self.swift_type(prop, owner, pname)
             optional = nullable or not required
             desc = prop.get("description") if isinstance(prop, dict) else None
@@ -252,6 +254,10 @@ class Generator:
             lines += doc(desc, "    ")
             lines.append(f"    public var {sname}: {stype}")
         lines.append("")
+        for pname, limit in limits:
+            lines.append(f"    public static let max{camel(pname, upper=True)} = {limit}")
+        if limits:
+            lines.append("")
         params = ", ".join(f"{s}: {t}" + (" = nil" if opt else "") for _, s, t, opt, _ in fields)
         lines.append(f"    public init({params}) {{")
         for _, sname, _, _, _ in fields:

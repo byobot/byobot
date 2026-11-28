@@ -26,7 +26,7 @@ public struct SampleBatch: Equatable, Sendable {
 @MainActor
 public struct HubSync {
     /// The most events, or readings and deletions, the laptop takes in one request.
-    public static let maxBatch = 2000
+    public static let maxBatch = EventsRequest.maxEvents
 
     public let transport: any SyncTransport
 
@@ -43,15 +43,16 @@ public struct HubSync {
             try await push(book)
             try await pull(book)
         }
-        let limit = Self.maxBatch
-        for start in stride(from: 0, to: health.samples.count, by: limit) {
-            let part = Array(health.samples[start..<min(start + limit, health.samples.count)])
+        for part in Self.batches(health.samples) {
             _ = try await transport.push(samples: part, deleted: [])
         }
-        for start in stride(from: 0, to: health.deleted.count, by: limit) {
-            let part = Array(health.deleted[start..<min(start + limit, health.deleted.count)])
+        for part in Self.batches(health.deleted) {
             _ = try await transport.push(samples: [], deleted: part)
         }
+    }
+
+    static func batches<T>(_ items: [T]) -> [[T]] {
+        stride(from: 0, to: items.count, by: maxBatch).map { Array(items[$0..<min($0 + maxBatch, items.count)]) }
     }
 
     func pull(_ book: any SyncBook) async throws {
