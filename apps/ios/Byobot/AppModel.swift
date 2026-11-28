@@ -415,7 +415,7 @@ final class AppModel: ObservableObject, SyncBook {
         }
         guard let running = clock, let timer = intervalClock(running) else { return }
         let elapsed = now.timeIntervalSince(running.startedAt)
-        if let planned = plan?.plannedSessions.first(where: { $0.id == running.plannedSessionId }) {
+        if let planned = plan?.plannedSession(running.plannedSessionId) {
             let workout = book.workout(planned)
             for slot in timer.finishedSlots(elapsed: elapsed) where slot.logged == nil {
                 let metrics = book.asPlanned(slot, in: workout)
@@ -438,7 +438,7 @@ final class AppModel: ObservableObject, SyncBook {
 
     /// The running clock's phases, from the slots it started with as they stand now.
     func intervalClock(_ running: RunningClock) -> IntervalClock? {
-        guard let planned = plan?.plannedSessions.first(where: { $0.id == running.plannedSessionId }) else { return nil }
+        guard let planned = plan?.plannedSession(running.plannedSessionId) else { return nil }
         let byId = Dictionary(book.workout(planned).slots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return IntervalClock(slots: running.slotIds.compactMap { byId[$0] })
     }
