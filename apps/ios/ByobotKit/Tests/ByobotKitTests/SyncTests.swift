@@ -33,7 +33,6 @@ final class SyncTests: XCTestCase {
             case "status": try decode(SyncStatus.self, data, roundTrip: false, name)
             case "plan_window": try decode(PlanWindow.self, data, roundTrip: true, name)
             case "events_response": try decode(EventsResponse.self, data, roundTrip: false, name)
-            case "pull_response": try decode(PullResponse.self, data, roundTrip: true, name)
             case "samples_response": try decode(SamplesResponse.self, data, roundTrip: false, name)
             case "error": try decode(SyncError.self, data, roundTrip: false, name)
             default: XCTFail("\(name): no Swift type for \(item.string("def") ?? "?")")

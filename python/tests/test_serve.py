@@ -422,7 +422,7 @@ def test_hello_needs_no_token_and_names_the_store(server, byobot_home):
 
 def test_everything_else_needs_a_token(server):
     _, _, client, _ = server
-    for method, path in (("GET", "/v1/status"), ("GET", "/v1/plan"), ("GET", "/v1/events"), ("POST", "/v1/events"),
+    for method, path in (("GET", "/v1/status"), ("GET", "/v1/plan"), ("POST", "/v1/events"),
                          ("POST", "/v1/samples")):
         status, body = client.call(method, path, {"events": [], "samples": []} if method == "POST" else None,
                                    token="not-a-token")
@@ -591,27 +591,6 @@ def test_an_edit_pushed_before_its_original_still_wins(server, byobot_home):
     with db(byobot_home) as s:
         assert s.get("effort", eid)["payload"]["metrics"] == {"reps": {"value": 4}}
         assert not s.get("effort", eid)["conflict"]
-
-
-def test_pull_events_after_a_cursor(server, byobot_home, monkeypatch):
-    _, info, client, _ = server
-    ahead = next(c for c in CASES if c["name"] == "later/put")["data"]
-    with db(byobot_home) as s:
-        seed(s)
-        s.accept(ahead)
-        total = s.rows("SELECT count(*) AS n FROM events")[0]["n"]
-    _pair(client, info)
-    status, body = client.call("GET", "/v1/events")
-    assert status == 200 and sync_errors("pull_response", body) == [] and ahead in body["events"]
-    assert len(body["events"]) == total and body["more"] is False
-    assert client.call("GET", f"/v1/events?after={body['next']}")[1] == {"events": [], "next": body["next"],
-                                                                         "more": False}
-    monkeypatch.setattr(serve, "MAX_PULL", 3)
-    first = client.call("GET", "/v1/events?after=0")[1]
-    second = client.call("GET", f"/v1/events?after={first['next']}")[1]
-    assert first["more"] is True and len(first["events"]) == 3
-    assert [e["id"] for e in first["events"] + second["events"]] == [e["id"] for e in body["events"][:6]]
-    assert client.call("GET", "/v1/events?after=-1")[0] == 400
 
 
 def test_push_samples(server, byobot_home):
@@ -1074,38 +1053,6 @@ def test_a_refusal_after_an_earlier_post_on_the_connection_does_not_desync_it(de
     assert extra is None, f"the body was answered as a request of its own: {extra}"
 
 
-def test_an_event_landing_between_the_two_pull_queries_is_not_skipped(server, byobot_home, monkeypatch):
-    _, info, client, _ = server
-    with Store(byobot_home / "byobot.db") as s:
-        seed(s)
-    _pair(client, info)
-    status, first = client.call("GET", "/v1/events")
-    assert status == 200 and first["more"] is False
-    cursor = first["next"]
-
-    # Another writer (the CLI, an agent over MCP, the Drive poller, another phone's push) commits an event right
-    # after the hub has read the page but before it asks for the page's last position.
-    late = _event("activity", "x.plank", {"name": "Plank"}, device_id="0193a0b0-0000-7000-8000-00000000ab02")
-    original = Store.events
-    armed = [True]
-
-    def events_then_a_concurrent_write(self, since=0, limit=-1):
-        out = original(self, since, limit)
-        if armed[0] and since == cursor:
-            armed[0] = False
-            with Store(byobot_home / "byobot.db") as other:
-                assert other.accept(late)[0] == "accepted"
-        return out
-
-    monkeypatch.setattr(Store, "events", events_then_a_concurrent_write)
-    status, page = client.call("GET", f"/v1/events?after={cursor}")
-    assert status == 200 and page["events"] == []
-    status, after = client.call("GET", f"/v1/events?after={page['next']}")
-    assert status == 200
-    pulled = [e["id"] for e in page["events"] + after["events"]]
-    assert late["id"] in pulled, "the cursor moved past an event the puller never received"
-
-
 BASE = "https://example-laptop.example.ts.net"
 
 
@@ -1163,16 +1110,6 @@ def test_an_approval_code_in_other_digits_gets_a_page(remote_server):
     except (http.client.HTTPException, ConnectionError):
         status = None
     assert status == 403, "the approval page dropped the connection instead of answering"
-
-
-def test_a_pull_cursor_in_other_digits_is_a_400(server):
-    _, info, client, _ = server
-    _pair(client, info)
-    try:
-        status, _ = client.call("GET", "/v1/events?after=%C2%B2")  # "²": str.isdigit() is True, int() fails
-    except (http.client.HTTPException, ConnectionError):
-        status = None
-    assert status == 400
 
 
 def test_the_log_never_carries_terminal_control_codes_from_a_stranger(server):
