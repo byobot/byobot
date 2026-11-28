@@ -75,7 +75,8 @@ def accept_events(store: Store, device_id: str, events: list, actor: dict = PERS
 def _settle(store: Store, device_id: str, event: Any, actor: dict, kind_versions: dict) -> dict:
     result: dict[str, Any] = {"id": event.get("id") if isinstance(event, dict) else None}
     record = event.get("record") if isinstance(event, dict) else None
-    if not isinstance(event, dict) or not isinstance(record, dict):
+    if not isinstance(event, dict) or not isinstance(record, dict) or \
+            not all(isinstance(v, str) for v in (event.get("id"), record.get("kind"), record.get("id"))):
         reason = "not an event"
     elif event.get("device_id") != device_id:
         reason = "events must be authored by the paired device that pushes them"

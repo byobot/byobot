@@ -323,6 +323,20 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [onlyThere.id])
     }
 
+    func testAStorePairedAndThenRestoredSendsWhatTheBackupMissed() throws {
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        for _ in 0..<10 { book.logEffort(activityId: "run", metrics: [:]) }
+        ack(&book)
+        let events = book.state.events
+        book.paired(storeId: "store-new")
+        var window = try Fixtures.window()
+        window.storeId = "store-a"
+        window.received = [book.state.deviceId: events[5].hlc]
+        XCTAssertEqual(book.applyPlan(window), 4)
+        XCTAssertEqual(book.state.storeId, "store-a")
+    }
+
     func testAppleHealthGoesAgainToAnotherOrARestoredStore() throws {
         func sent(_ book: inout Logbook) {
             var health = HealthState()

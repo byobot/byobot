@@ -966,3 +966,17 @@ def test_a_unit_learned_on_upgrade_converts_imported_observations_too(tmp_path):
         after_rebuild = s.rows("SELECT std_value FROM observations")
     assert after_rebuild == [{"std_value": 80.0}]
     assert after_open == after_rebuild, "the upgrade left the imported weight unconverted"
+
+
+def test_a_store_from_before_drive_was_removed_drops_its_keys(tmp_path):
+    path = tmp_path / "byobot.db"
+    Store(path).close()
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE cloud_keys (epoch INTEGER PRIMARY KEY, key TEXT NOT NULL)")
+    conn.execute("INSERT INTO cloud_keys VALUES (1, 'secret')")
+    conn.commit()
+    conn.close()
+    with Store(path) as store:
+        assert not store.conn.execute("SELECT 1 FROM sqlite_schema WHERE name = 'cloud_keys'").fetchone()
+        assert not store.compact_pending()
+    assert b"secret" not in path.read_bytes()

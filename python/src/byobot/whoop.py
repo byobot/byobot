@@ -8,6 +8,7 @@ written.
 
 from __future__ import annotations
 
+import http.client
 import http.server
 import json
 import random
@@ -155,7 +156,7 @@ class Client(oauth.Session):
                 if e.code not in BUSY or last:
                     why = oauth.why(e, "WHOOP")[0]
                     raise UpstreamError(f"WHOOP answered {e.code} for {path}{': ' + why if why else ''}") from None
-            except (urllib.error.URLError, OSError) as e:
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
                 if attempt >= 1:
                     raise UpstreamError(f"can't reach WHOOP: {getattr(e, 'reason', e)}") from None
                 wait = 2.0
@@ -166,13 +167,16 @@ class Client(oauth.Session):
 
     def pages(self, path: str, name: str, start: str) -> Iterator[dict]:
         """Every record since `start`, page by page, each page checked before any record is used."""
-        params = {"limit": PAGE, "start": start}
+        params, seen = {"limit": PAGE, "start": start}, set()
         while True:
             body = self.request("GET", path, params)
             check(body, name)
             yield from body.get("records") or []
             if not body.get("next_token"):
                 return
+            if body["next_token"] in seen:
+                raise UpstreamError(f"WHOOP sent the same page twice for {path}; try again")
+            seen.add(body["next_token"])
             params["nextToken"] = body["next_token"]
 
 
