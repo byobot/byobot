@@ -12,7 +12,7 @@ from typing import Any
 from .. import library
 from ..util import ValidationFailed
 from . import sources
-from .contract import sync_errors
+from .contract import documents, sync_errors
 from .store import Store, busy
 
 MAX_BATCH = 2000
@@ -20,7 +20,7 @@ PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it
 NAMED_KINDS = ("location", "setting")  # kinds a phone writes under an id it picks, not a fresh UUID
 CONNECTOR_KINDS = ("source_record",)  # a phone writes any other kind; one this byobot doesn't know is stored for later
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
-EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+EVENT_ID = re.compile(documents()[0]["common"]["$defs"]["id"]["pattern"])
 
 
 class Cut(Exception):
@@ -88,7 +88,7 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kind_versions
     elif _too_new(store, event, kind_versions):
         reason = "a newer byobot wrote this record; update the app to change it"
     elif event.get("op") == "put" and store.event(event.get("id")) is None and \
-            store._erase_of(record.get("kind"), record.get("id")):
+            (store.record(record["kind"], record["id"]) or {}).get("erased"):
         reason = "this id was erased; choose another"
     else:
         outcome, reason = store.accept(event)
@@ -137,11 +137,11 @@ def _entry(store: Store, kind: str, rid: str) -> dict | None:
              "kind_version": found["event"]["kind_version"]}
     if found["conflict"]:
         heads = [store.event(h) for h in store.record(kind, rid)["heads"]]
-        entry |= {"conflict": True, "versions": [_version(store, h) for h in heads if h]}
+        entry |= {"conflict": True, "versions": [_version(h) for h in heads if h]}
     return entry
 
 
-def _version(store: Store, event: dict) -> dict:
+def _version(event: dict) -> dict:
     return {"event_id": event["id"], **({"payload": event["payload"]} if event["op"] == "put" else {}),
             "actor": event["actor"], "ts": event["ts"]}
 

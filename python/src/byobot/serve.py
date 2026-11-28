@@ -49,7 +49,7 @@ from urllib.parse import urlsplit
 
 from byobot import __version__, util, web
 from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
-from byobot.core.relay import Cut, accept_samples, plan_window, push_events
+from byobot.core.relay import EVENT_ID, Cut, accept_samples, plan_window, push_events
 from byobot.core.store import Store, busy, limit_time
 from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
@@ -60,7 +60,6 @@ MAX_PAIR_BODY = 4096  # pairing is unauthenticated, so its body stays small
 PROTOCOL = 1
 CAPABILITIES: tuple[str, ...] = ()  # features beyond protocol 1 this hub offers
 QUERY_TIMEOUT_S = 5
-ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 DATE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
 
 
@@ -256,7 +255,7 @@ class Handler(web.Handler):
         if not isinstance(body, dict):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send {code, device_id, name}")
         device_id, name = body.get("device_id"), body.get("name")
-        if not isinstance(device_id, str) or not ID.fullmatch(device_id):
+        if not isinstance(device_id, str) or not EVENT_ID.fullmatch(device_id):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "device_id is not a valid byobot id")
         if not isinstance(name, str) or not 0 < len(name) <= 200:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
