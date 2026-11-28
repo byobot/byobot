@@ -234,7 +234,7 @@ def _log(ctx: Context, kind: str, payload: Any, id: str | None = None) -> dict:
     record = {"kind": kind, "id": id, "payload": _object("payload", payload)}
     _check_references(ctx.store(), [record])
     [event] = core.log(ctx.store(), ctx.actor, [record])
-    return {"event": event}
+    return {"events": [event]}
 
 
 def _check_references(store: Store, records: list[dict]) -> None:
@@ -284,7 +284,7 @@ def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
     store, patch = ctx.store(), _object("patch", patch)
     if kind == "planned_session" and (found := store.get(kind, id)):
         _check_references(store, [{"kind": kind, "id": id, "payload": core.merge_patch(found["payload"], patch)}])
-    return {"event": core.edit(store, ctx.actor, kind, id, patch)}
+    return {"events": [core.edit(store, ctx.actor, kind, id, patch)]}
 
 
 @command(
@@ -296,7 +296,7 @@ def _edit(ctx: Context, kind: str, id: str, patch: Any) -> dict:
     read_only=False, destructive=True,
 )
 def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict:
-    return {"event": core.remove(ctx.store(), ctx.actor, kind, id, reason)}
+    return {"events": [core.remove(ctx.store(), ctx.actor, kind, id, reason)]}
 
 
 @command(
@@ -304,15 +304,15 @@ def _remove(ctx: Context, kind: str, id: str, reason: str | None = None) -> dict
     "Destroy a record's content in this store for good. Can't be undone.",
     Param("kind", "string", "The record's kind.", required=True, choices=core.ERASABLE, positional=True),
     Param("id", "string", "The record's id.", required=True, positional=True),
-    Param("with", "string", "Erase these with it: a session's efforts.", choices=("efforts",)),
+    Param("efforts", "boolean", "Also erase a session's efforts.", default=False),
     read_only=False, destructive=True,
     mcp=False,
     description="Overlays on the record go with it. The iPhone app keeps its own copy until the app is deleted, "
                 "and exports made before now still hold it.",
 )
-def _erase(ctx: Context, kind: str, id: str, **also: Any) -> dict:
+def _erase(ctx: Context, kind: str, id: str, efforts: bool = False) -> dict:
     store = ctx.store()
-    events = core.erase(store, ctx.actor, kind, id, with_efforts=also.get("with") == "efforts")
+    events = core.erase(store, ctx.actor, kind, id, with_efforts=efforts)
     still = [{"kind": k, "id": r} for k, r in core.linked(store, kind, id)]
     cleanup = {"cleanup": "pending: another program has the store open; it finishes on a later write"} \
         if store.compact_pending() else {}
@@ -358,7 +358,7 @@ def _conflicts(ctx: Context, kind: str | None = None, id: str | None = None) -> 
 def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) -> dict:
     if not isinstance(choice, (str, dict)):
         raise ValidationFailed("choice must be an event id, \"remove\" or a payload object")
-    return {"event": core.resolve(ctx.store(), ctx.actor, kind, id, choice, seen)}
+    return {"events": [core.resolve(ctx.store(), ctx.actor, kind, id, choice, seen)]}
 
 
 # -- what sources imported --------------------------------------------------------
@@ -375,19 +375,19 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 )
 def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
     _source_record(ctx.store(), record_id)
-    return {"event": core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))}
+    return {"events": [core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))]}
 
 
 @command(
     "exclude",
     "Leave something a source imported out of every read, such as a wrong weigh-in. `undo` brings it back.",
     Param("record_id", "string", "The source record's id.", required=True, positional=True),
-    Param("notes", "string", "Why, in a few words."),
+    Param("reason", "string", "Why, in a few words."),
     read_only=False,
 )
-def _exclude(ctx: Context, record_id: str, notes: str | None = None) -> dict:
+def _exclude(ctx: Context, record_id: str, reason: str | None = None) -> dict:
     _source_record(ctx.store(), record_id)
-    return {"event": core.exclude(ctx.store(), ctx.actor, record_id, notes)}
+    return {"events": [core.exclude(ctx.store(), ctx.actor, record_id, reason)]}
 
 
 @command(
@@ -404,7 +404,7 @@ def _same_as(ctx: Context, record_id: str, other_id: str, other_kind: str = "ses
     _source_record(store, record_id)
     if store.get(other_kind, other_id) is None:
         raise NotFound(f"no {other_kind} {other_id}")
-    return {"event": core.same_as(store, ctx.actor, record_id, other_kind, other_id)}
+    return {"events": [core.same_as(store, ctx.actor, record_id, other_kind, other_id)]}
 
 
 def _source_record(store: Store, rid: str) -> None:
@@ -413,13 +413,13 @@ def _source_record(store: Store, rid: str) -> None:
 
 
 @command(
-    "history",
+    "versions",
     "Show every version of a record, oldest first, with who wrote each and when.",
     Param("kind", "string", "The record's kind.", required=True, positional=True,
           choices=(*core.AUTHORED, "source_record", "overlay")),
     Param("id", "string", "The record's id.", required=True, positional=True),
 )
-def _history(ctx: Context, kind: str, id: str) -> dict:
+def _versions(ctx: Context, kind: str, id: str) -> dict:
     store = ctx.store()
     found = sources.history(store, id) if kind == "source_record" else store.history(kind, id)
     if not found:
