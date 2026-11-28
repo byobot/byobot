@@ -41,7 +41,6 @@ struct ConflictView: View {
     static func author(_ actor: Actor) -> String {
         switch actor.kind {
         case .human: return "You"
-        case .agent: return actor.id
         default: return actor.id
         }
     }

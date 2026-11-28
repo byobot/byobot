@@ -18,7 +18,7 @@ struct ByobotApp: App {
                 .onOpenURL { model.open($0) }
         }
         .onChange(of: phase) { _, now in
-            // Proposal: sync whenever the app comes to the front. Nothing syncs in the background.
+            // Sync whenever the app comes to the front. Nothing syncs in the background.
             if now == .active { Task { await model.sync() } }
         }
     }
