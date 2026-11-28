@@ -15,7 +15,7 @@ import pytest
 from byobot import commands, mcp, remote, web
 from byobot.core import store as store_module
 from byobot.core.store import Store
-from byobot.remote import Auth, OAuthError
+from byobot.remote import READ, Auth, OAuthError
 
 BASE = "https://example-laptop.example.ts.net"
 CALLBACK = "https://client.example/callback"
@@ -134,12 +134,29 @@ def test_resource_must_be_this_server(auth):
     assert exc.value.error == "invalid_target"
 
 
-def test_revoke_all_is_seen_by_a_running_server(auth, byobot_home):
-    _, tokens = approved(auth)
-    other = Auth(auth.path)  # as `byobot remote revoke` would, from another process
-    assert other.revoke_all() == 1
-    assert auth.client_for_token(tokens["access_token"]) is None
-    assert auth.clients() == []
+def test_remove_one_assistant_and_leave_the_others(auth):
+    client, tokens = approved(auth)
+    key = auth.create_key("example_key", READ)
+    listed = {a["route"]: a for a in auth.assistants()}
+    assert listed["sign_in"]["id"] == client["client_id"] and listed["api_key"]["read_only"]
+    other = Auth(auth.path)  # as `byobot device remove` would, from another process
+    assert other.remove(client["client_id"])["route"] == "sign_in"
+    assert auth.client_for_token(tokens["access_token"]) is None and auth.client_for_token(key)
+    assert other.remove(listed["api_key"]["id"])["name"] == "example_key"
+    assert auth.client_for_token(key) is None and auth.assistants() == []
+    with pytest.raises(remote.NotFound):
+        other.remove(client["client_id"])
+
+
+def test_removing_an_assistant_voids_a_code_already_handed_out(auth):
+    first, _ = approved(auth)
+    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
+                            "token_endpoint_auth_method": "none"})
+    verifier, challenge = pkce()
+    code = auth.grant(client["client_id"], CALLBACK, challenge)
+    Auth(auth.path).remove(first["client_id"])
+    with pytest.raises(OAuthError):
+        auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
 
 
 def test_token_file_is_private_and_holds_only_hashes(auth):
@@ -333,7 +350,7 @@ def test_refresh_over_http_and_revoke(running):
     assert resp.status == 200
     fresh = json.loads(raw)
     assert rpc(running, fresh["access_token"], "ping")[0].status == 200
-    Auth(running.auth.path).revoke_all()
+    Auth(running.auth.path).remove(client["client_id"])
     assert rpc(running, fresh["access_token"], "ping")[0].status == 401
 
 
@@ -365,12 +382,15 @@ def test_remote_needs_a_url_the_first_time(capsys):
     assert main(["remote", "serve", "--url", "http://example.test"]) == 1
 
 
-def test_remote_revoke_disconnects_everyone(capsys, auth):
+def test_device_list_and_remove_cover_assistants(capsys, auth):
     from byobot.cli import main
 
-    approved(auth)
-    assert main(["remote", "revoke"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"disconnected": 1}
+    client, _ = approved(auth)
+    assert main(["device", "list"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert [(d["id"], d["route"]) for d in listed["items"]] == [(client["client_id"], "sign_in")]
+    assert main(["device", "remove", client["client_id"]]) == 0
+    assert json.loads(capsys.readouterr().out)["removed"]["name"] == "Example Assistant"
     assert auth.clients() == []
 
 
@@ -387,7 +407,7 @@ def test_an_api_key_names_its_holder_until_revoked(auth):
     assert key.startswith("byobot_") and key not in auth.path.read_text()
     assert auth.client_for_token(key)["client_name"] == "example_assistant"
     assert auth.client_for_token(key + "x") is None
-    assert Auth(auth.path).revoke_all() == 1
+    Auth(auth.path).remove(auth.assistants()[0]["id"])
     assert auth.client_for_token(key) is None
 
 
@@ -535,41 +555,28 @@ def test_remote_api_key_fails_without_a_clipboard_unless_shown(capsys, auth, mon
     assert not auth._load()["keys"] and main(["remote", "key", "--show"]) == 1
 
 
-def test_revoke_also_voids_a_code_the_running_server_already_handed_out(auth):
-    client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
-                                   "token_endpoint_auth_method": "none"})
-    verifier, challenge = pkce()
-    code = auth.grant(client["client_id"], CALLBACK, challenge)  # approved; the code is on its way back
-
-    assert Auth(auth.path).revoke_all() == 0  # `byobot remote revoke`, from another process
-
-    with pytest.raises(OAuthError):
-        auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
-    assert auth.clients() == [], "a client approved before --revoke is connected after it"
-
-
-def test_revoke_during_a_refresh_is_not_undone(auth):
+def test_removal_during_a_refresh_is_not_undone(auth):
     client = auth.register({"client_name": "Example Assistant", "redirect_uris": [CALLBACK],
                                    "token_endpoint_auth_method": "none"})
     verifier, challenge = pkce()
     code = auth.grant(client["client_id"], CALLBACK, challenge)
     tokens = auth.exchange(auth.authenticate(client["client_id"], None), code, CALLBACK, verifier)
 
-    # The refresh request has authenticated the client and is about to rotate its tokens when --revoke runs.
+    # The refresh request has authenticated the client and is about to rotate its tokens when it is removed.
     authed = auth.authenticate(client["client_id"], None)
     original = auth._issue
 
-    def issue_after_a_revoke(c):
-        Auth(auth.path).revoke_all()
+    def issue_after_a_removal(c):
+        Auth(auth.path).remove(client["client_id"])
         return original(c)
 
-    auth._issue = issue_after_a_revoke
+    auth._issue = issue_after_a_removal
     try:
         fresh = auth.refresh(authed, tokens["refresh_token"])
     except OAuthError:
         fresh = None
     auth._issue = original
-    assert auth.clients() == [], "the revoked client is connected again"
+    assert auth.clients() == [], "the removed client is connected again"
     assert fresh is None or auth.client_for_token(fresh["access_token"]) is None
 
 

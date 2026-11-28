@@ -53,7 +53,7 @@ class Command:
 
     @property
     def tool(self) -> str:
-        """The MCP tool and API name: `devices list` becomes `devices_list`."""
+        """The MCP tool and API name: `device list` becomes `device_list`."""
         return self.name.replace(" ", "_")
 
 
@@ -365,45 +365,45 @@ def _resolve(ctx: Context, kind: str, id: str, choice: Any, seen: Any = None) ->
 @command(
     "correct",
     "Use your values over what a source imported, whatever the source later says.",
-    Param("record_id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
+    Param("id", "string", "The source record's id (see `list source_record` or `list workouts`).", required=True,
           positional=True),
     Param("fields", "json", "What to use instead: name, time, metrics, or value and unit for a single "
           "measurement. Merges into earlier corrections; null takes one back.", required=True, positional=True,
           schema={"type": "object"}),
     read_only=False,
 )
-def _correct(ctx: Context, record_id: str, fields: Any) -> dict:
-    _source_record(ctx.store(), record_id)
-    return {"events": [core.correct(ctx.store(), ctx.actor, record_id, _object("fields", fields))]}
+def _correct(ctx: Context, id: str, fields: Any) -> dict:
+    _source_record(ctx.store(), id)
+    return {"events": [core.correct(ctx.store(), ctx.actor, id, _object("fields", fields))]}
 
 
 @command(
     "exclude",
     "Leave something a source imported out of every read, such as a wrong weigh-in. `undo` brings it back.",
-    Param("record_id", "string", "The source record's id.", required=True, positional=True),
+    Param("id", "string", "The source record's id.", required=True, positional=True),
     Param("reason", "string", "Why, in a few words."),
     read_only=False,
 )
-def _exclude(ctx: Context, record_id: str, reason: str | None = None) -> dict:
-    _source_record(ctx.store(), record_id)
-    return {"events": [core.exclude(ctx.store(), ctx.actor, record_id, reason)]}
+def _exclude(ctx: Context, id: str, reason: str | None = None) -> dict:
+    _source_record(ctx.store(), id)
+    return {"events": [core.exclude(ctx.store(), ctx.actor, id, reason)]}
 
 
 @command(
     "same_as",
     "Say an imported workout is the same as another workout, so it's counted once.",
-    Param("record_id", "string", "The source record's id.", required=True, positional=True),
+    Param("id", "string", "The source record's id.", required=True, positional=True),
     Param("other_id", "string", "The session or source record it is the same as.", required=True, positional=True),
     Param("other_kind", "string", "What the other is.", choices=("session", "source_record"),
           default="session"),
     read_only=False,
 )
-def _same_as(ctx: Context, record_id: str, other_id: str, other_kind: str = "session") -> dict:
+def _same_as(ctx: Context, id: str, other_id: str, other_kind: str = "session") -> dict:
     store = ctx.store()
-    _source_record(store, record_id)
+    _source_record(store, id)
     if store.get(other_kind, other_id) is None:
         raise NotFound(f"no {other_kind} {other_id}")
-    return {"events": [core.same_as(store, ctx.actor, record_id, other_kind, other_id)]}
+    return {"events": [core.same_as(store, ctx.actor, id, other_kind, other_id)]}
 
 
 def _source_record(store: Store, rid: str) -> None:
@@ -863,21 +863,37 @@ def _validate(ctx: Context, kind: str, document: Any) -> dict:
     return {"valid": not errors, "kind": kind, "errors": errors}
 
 
-@command("devices list", "List the phones and other devices paired with `byobot serve`.")
-def _devices_list(ctx: Context) -> dict:
-    peers = ctx.store().peers()
-    return {"count": len(peers), "items": peers, **untrusted("items")}
+@command("device list", "List the phones paired with `byobot serve` and the assistants connected to `byobot "
+         "remote serve`: everything that can reach this store.")
+def _device_list(ctx: Context) -> dict:
+    from byobot import remote
+
+    phones = [{"id": p["device_id"], "name": p["name"], "route": "hub", "since": p["paired_at"],
+               "last_seen_at": p["last_seen_at"]} for p in ctx.store().peers() if p["revoked_at"] is None]
+    items = phones + remote.assistants()
+    return {"count": len(items), "items": items, **untrusted("items")}
 
 
 @command(
-    "devices remove",
-    "Stop syncing with a paired device. Its token stops working at once; pairing again starts fresh.",
-    Param("device_id", "string", "The device to remove (see `byobot devices list`).", required=True, positional=True),
+    "device remove",
+    "Cut off a phone or an assistant. Its token or key stops working at once; pairing or connecting again starts "
+    "fresh.",
+    Param("id", "string", "The phone or assistant to remove (see `byobot device list`).", required=True,
+          positional=True),
     read_only=False, destructive=True,
     mcp=False,
 )
-def _devices_remove(ctx: Context, device_id: str) -> dict:
-    return {"device": ctx.store().unpair(device_id)}
+def _device_remove(ctx: Context, id: str) -> dict:
+    from byobot import remote
+
+    store = ctx.store()
+    if (phone := store.peer(id)) and phone["revoked_at"] is None:
+        store.unpair(id)
+        return {"removed": {"id": id, "name": phone["name"], "route": "hub"}}
+    try:
+        return {"removed": remote.remove_assistant(id)}
+    except NotFound:
+        raise NotFound(f"no phone or assistant {id}; see `byobot device list`") from None
 
 
 @command(
@@ -970,11 +986,3 @@ def _remote_key(ctx: Context, name: str, show: bool = False, read_only: bool = F
     from byobot import remote
 
     return remote.make_key(name, show, read_only)
-
-
-@command("remote revoke", "Disconnect every assistant and API key from this profile.", read_only=False,
-         destructive=True, mcp=False)
-def _remote_revoke(ctx: Context) -> dict:
-    from byobot import remote
-
-    return remote.revoke()

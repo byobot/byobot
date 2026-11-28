@@ -872,7 +872,7 @@ public struct PairRequest: Codable, Equatable, Hashable, Sendable {
     public var code: String
     /// The app install's own device id, which its events carry.
     public var deviceId: String
-    /// The phone's name, for `byobot devices list`.
+    /// The phone's name, for `byobot device list`.
     public var name: String
     /// What the app supports beyond protocol 1.
     public var capabilities: [String]?
