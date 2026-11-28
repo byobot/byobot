@@ -366,7 +366,7 @@ def _undo(ctx: Context, event_id: str) -> dict:
     Param("id", "string", "Only this record."),
 )
 def _conflicts(ctx: Context, kind: str | None = None, id: str | None = None) -> dict:
-    found = core.conflicts(ctx.store(), kind, id)
+    found = ctx.store().conflicts(kind, id)
     return {"count": len(found), "items": found, **untrusted("items")}
 
 

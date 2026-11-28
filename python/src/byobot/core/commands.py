@@ -341,10 +341,6 @@ def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
     return store.write(actor, changes)
 
 
-def conflicts(store: Store, kind: str | None = None, rid: str | None = None) -> list[dict]:
-    return store.conflicts(kind, rid)
-
-
 def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict, seen: list[str] | None = None) -> dict:
     """End a conflict: keep one version (its event id), "remove" the record, or write a combined payload.
 
