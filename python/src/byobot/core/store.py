@@ -140,6 +140,8 @@ class Store:
 
     def _migrate(self, device_id: str | None, migrate: bool) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == STORE_VERSION and "header" not in {r[1] for r in self.conn.execute("PRAGMA table_info(events)")}:
+            version = STORE_VERSION - 1  # written at version 6 before events kept their header (#156)
         if version not in (0, STORE_VERSION):
             self.conn.close()
             if version < STORE_VERSION:

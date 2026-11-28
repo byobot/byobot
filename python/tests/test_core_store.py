@@ -17,8 +17,8 @@ import pytest
 
 from byobot.core import commands, reducers, relay, sources
 from byobot.core.contract import Contract
-from byobot.core.store import Store, query
-from byobot.util import Conflict, NotFound, ValidationFailed
+from byobot.core.store import STORE_VERSION, Store, query
+from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
 
 ME = {"kind": "human", "id": "me"}
 T0 = datetime(2026, 3, 2, 10, tzinfo=timezone(timedelta(hours=-5)))
@@ -980,3 +980,38 @@ def test_a_store_from_before_drive_was_removed_drops_its_keys(tmp_path):
         assert not store.conn.execute("SELECT 1 FROM sqlite_schema WHERE name = 'cloud_keys'").fetchone()
         assert not store.compact_pending()
     assert b"secret" not in path.read_bytes()
+
+
+# The events and peers tables as #135..#155 wrote them, still at STORE_VERSION 6 (from 39885df's DDL).
+PRE_156 = """
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE events (
+  seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, record_id TEXT NOT NULL,
+  op TEXT NOT NULL, kind_version INTEGER, hlc TEXT NOT NULL, ts TEXT NOT NULL, device_id TEXT NOT NULL,
+  actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, actor_model TEXT, prev TEXT NOT NULL, batch TEXT,
+  reverts TEXT, redacted_by TEXT, payload TEXT NOT NULL);
+CREATE TABLE later_events (id TEXT PRIMARY KEY, envelope TEXT NOT NULL);
+CREATE TABLE peers (
+  device_id TEXT PRIMARY KEY, name TEXT NOT NULL, token_sha256 TEXT NOT NULL UNIQUE, paired_at TEXT NOT NULL,
+  last_seen_at TEXT, revoked_at TEXT);
+CREATE TABLE locations (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO meta VALUES ('store_id', '019aa000-0000-7000-8000-000000000001'), ('store_key', '00'),
+  ('device_id', 'example-laptop'), ('hlc', '0000000000000-00000'), ('shape', 'an older shape');
+INSERT INTO events VALUES (1, '019aa000-0000-7000-8000-000000000002', 'location', 'example_gym', 'put', 1,
+  '0001764000000000-00000', '2026-11-27T00:00:00.000Z', 'example-laptop', 'human', 'me', NULL, '[]', NULL, NULL,
+  NULL, '{"name":"Example Gym"}');
+INSERT INTO locations VALUES ('example_gym', 'Example Gym');
+"""
+
+
+def test_a_version_6_store_from_before_events_kept_their_header_is_refused_untouched(tmp_path):
+    path = tmp_path / "byobot.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(PRE_156 + f"PRAGMA user_version = {STORE_VERSION};")
+    conn.close()
+    with pytest.raises(ByobotError, match="move it aside"):
+        Store(path)
+    conn = sqlite3.connect(path)
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")}
+    assert conn.execute("SELECT count(*) FROM locations").fetchone()[0] == 1
+    assert "devices" not in tables
