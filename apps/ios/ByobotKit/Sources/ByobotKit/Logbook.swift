@@ -515,8 +515,10 @@ public struct Logbook: Sendable {
         state.health = health
     }
 
-    /// Apple Health went out up to these anchors and daily totals.
-    public mutating func sentHealth(anchors: [String: Data], days: [String: Int]) {
+    /// Apple Health went out up to these anchors and daily totals, read from `before`. If it was set to go out
+    /// again since that read, as when the sync found a restored store, nothing is kept and the next read starts over.
+    public mutating func sentHealth(anchors: [String: Data], days: [String: Int], readFrom before: HealthState?) {
+        guard state.health?.anchors == before?.anchors, state.health?.days == before?.days else { return }
         var health = state.health ?? HealthState()
         health.anchors = anchors
         health.days = days
