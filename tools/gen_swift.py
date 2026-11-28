@@ -77,7 +77,6 @@ INLINE = {
     ("records", "activity", "resistance_curve"): "ResistanceCurve",
     ("records", "overlay", "effect"): "OverlayEffect",
     ("records", "overlay", "fields"): "CorrectedFields",
-    ("records", "overlay", "swaps"): "Swap",
     ("event", None, "record"): "RecordRef",
     ("event", None, "op"): "Op",
     ("event", "actor", "kind"): "ActorKind",
@@ -133,6 +132,7 @@ class Generator:
         self.schemas = schemas
         self.enums: dict[str, tuple[list[str], str | None]] = {}
         self.inline: dict[str, list[str]] = {}
+        self.named: set[tuple] = set()
 
     def resolve(self, ref: str, here: str) -> tuple[str, str | None]:
         file, _, pointer = ref.partition("#")
@@ -193,6 +193,7 @@ class Generator:
         if "enum" in prop:
             if key not in INLINE:
                 raise ValueError(f"name the inline enum {key} in INLINE")
+            self.named.add(key)
             self.enums[INLINE[key]] = (prop["enum"], prop.get("description"))
             return INLINE[key], False
         types = prop.get("type")
@@ -229,6 +230,7 @@ class Generator:
         key = (*owner, name)
         if key not in INLINE:
             raise ValueError(f"name the inline object {key} in INLINE")
+        self.named.add(key)
         swift = INLINE[key]
         if swift not in self.inline:
             self.inline[swift] = []  # reserve before recursing
@@ -325,6 +327,8 @@ class Generator:
                 self.enums[name] = (node["enum"], node.get("description"))
             else:
                 blocks.append(self.struct(file, definition, name, node))
+        if unused := sorted(set(INLINE) - self.named, key=str):
+            raise ValueError(f"INLINE names nothing in the schema: {unused}")
         blocks += [self.inline[n] for n in sorted(self.inline)]
         blocks.append(self.registry())
         enums = [self.enum(n, v, d) for n, (v, d) in sorted(self.enums.items())]
