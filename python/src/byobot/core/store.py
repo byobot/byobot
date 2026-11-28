@@ -158,6 +158,9 @@ class Store:
             self._repair_clock()
             return
         with self.transaction():
+            # Another process may have created or rebuilt the store while this one waited for the write lock.
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            reshaped = version != 0 and self._get("shape") != self._shape(self.contract)
             if reshaped:
                 reducers.drop(self.conn)
             for table in retired:
@@ -167,8 +170,8 @@ class Store:
             for ddl in (DDL, reducers.DDL):
                 for statement in _statements(ddl):
                     self.conn.execute(statement)
-            # Another process may have created the store while this one waited for the write lock.
-            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            if reshaped:
+                self.use(self.contract)  # in the same transaction, so no reader sees the tables empty
             if version == 0:
                 self._set("store_id", uuid7())
                 self._set("store_key", secrets.token_hex(32))
@@ -179,8 +182,6 @@ class Store:
                 self.conn.execute(f"PRAGMA user_version = {STORE_VERSION}")
             elif device_id is not None:
                 self._set("device_id", device_id)
-        if reshaped:
-            self.use(self.contract)
         self._repair_clock()
 
     def _repair_clock(self) -> None:

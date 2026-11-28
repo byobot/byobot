@@ -1015,3 +1015,24 @@ def test_a_version_6_store_from_before_events_kept_their_header_is_refused_untou
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")}
     assert conn.execute("SELECT count(*) FROM locations").fetchone()[0] == 1
     assert "devices" not in tables
+
+
+def test_a_reader_never_sees_derived_tables_empty_while_an_upgrade_rebuilds(tmp_path, monkeypatch):
+    path = tmp_path / "byobot.db"
+    with Store(path) as s:
+        s.write(ME, [{"kind": "location", "id": "example_gym", "op": "put", "payload": {"name": "Example Gym"},
+                      "create": True}])
+    seen = []
+    use = Store.use
+
+    def watched(self, contract):
+        reader = sqlite3.connect(path)
+        seen.append(reader.execute("SELECT count(*) FROM locations").fetchone()[0])
+        reader.close()
+        use(self, contract)
+
+    monkeypatch.setattr(Store, "use", watched)
+    monkeypatch.setattr(Store, "_shape", staticmethod(lambda contract: "the next release's shape"))
+    with Store(path) as s:
+        assert s.rows("SELECT id FROM locations") == [{"id": "example_gym"}]
+    assert seen == [1]
