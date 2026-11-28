@@ -204,11 +204,11 @@ def test_answers_mark_where_other_apps_text_can_be(store):
     assert "untrusted_text" in mcp.INSTRUCTIONS
 
 
-def test_an_agents_name_is_one_short_line():
-    server = mcp.Server()
-    server.client = {"name": STEER}
-    actor = server._context(None).actor
-    server.close()
+def test_an_agents_name_is_one_short_line(tmp_path):
+    ctx = Context(actor={}, path=tmp_path / "s.db")
+    mcp.call(ctx, mcp.tool("validate"), {"kind": "activity", "document": {"name": "Plank"}}, STEER)
+    ctx.close()
+    actor = ctx.actor
     assert "\n" not in actor["id"] and "\u200b" not in actor["id"] and len(actor["id"]) <= 200
 
 

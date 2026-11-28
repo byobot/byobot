@@ -12,7 +12,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
-from byobot import commands, mcp, remote, serve
+from byobot import commands, mcp, remote, web
+from byobot.core import store as store_module
 from byobot.core.store import Store
 from byobot.remote import Auth, OAuthError
 
@@ -298,7 +299,7 @@ def test_a_wrong_code_does_not_approve(running):
     params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
               "code_challenge": challenge, "code_challenge_method": "S256"}
     wrong = "000000" if running.pairing.code != "000000" else "111111"
-    for _ in range(serve.PAIRING_TRIES):
+    for _ in range(web.PAIRING_TRIES):
         resp, _ = request(running, "POST", "/oauth/authorize", {**params, "approval_code": wrong}, FORM)
         assert resp.status == 403 and resp.getheader("Location") is None
     resp, raw = request(running, "POST", "/oauth/authorize", {**params, "approval_code": running.pairing.code}, FORM)
@@ -441,6 +442,39 @@ def test_api_errors_carry_a_code_and_its_status(running):
         "schema"] == {"$ref": "#/components/schemas/Error"}
 
 
+@pytest.mark.parametrize("tool, args", [
+    ("validate", {"kind": "activity", "document": {"name": "Plank"}}),
+    ("validate", {"kind": "observation", "document": {}}),
+    ("versions", {"kind": "activity", "id": "missing"}),
+    ("query", {"sql": "SELECT 1 AS one"}),
+])
+def test_the_api_answers_as_mcp_does(running, tool, args):
+    key = running.auth.create_key("example_assistant")
+    _, raw = request(running, "POST", f"/api/v1/tools/{tool}", args, {"X-API-Key": key})
+    _, reply = rpc(running, key, "tools/call", {"name": tool, "arguments": args})
+    assert json.loads(raw) == json.loads(json.loads(reply)["result"]["content"][0]["text"])
+
+
+def test_an_api_read_that_runs_too_long_is_stopped(running, monkeypatch):
+    monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {},
+                        {"X-API-Key": running.auth.create_key("example_assistant")})
+    assert resp.status == 503 and json.loads(raw)["error"] == "timeout"
+
+
+def test_an_api_tool_that_breaks_keeps_its_text_to_the_log(running, monkeypatch):
+    cmd = commands.REGISTRY["status"]
+
+    def broken(ctx, **kw):
+        raise RuntimeError("example secret detail")
+
+    monkeypatch.setitem(commands.REGISTRY, "status", dataclasses.replace(cmd, handler=broken))
+    resp, raw = request(running, "POST", "/api/v1/tools/status", {},
+                        {"X-API-Key": running.auth.create_key("example_assistant")})
+    assert resp.status == 500 and json.loads(raw)["error"] == "error" and b"secret" not in raw
+
+
 def test_an_api_key_also_works_for_mcp(running):
     key = running.auth.create_key("example_assistant")
     resp, raw = rpc(running, key, "tools/list")
@@ -569,7 +603,7 @@ def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_
     # for them: it waits longer than the deadline, then writes.
     monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0.3)
     # A real import runs far more than the default 10,000 steps between checks; a one-record write here doesn't.
-    monkeypatch.setattr(serve, "QUERY_PROGRESS_INTERVAL", 100)
+    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 100)
     cmd = commands.REGISTRY["log"]
 
     def slow(ctx, **kw):
