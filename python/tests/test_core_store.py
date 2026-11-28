@@ -22,7 +22,7 @@ from byobot.core.store import STORE_VERSION, Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
 from conftest import newer_contract
 
-from helpers import AGENT, ME, T0, Wall, effort, open_store, peer, reps, sync, whoop_workout
+from helpers import ME, T0, Wall, effort, open_store, reps, sync, whoop_workout
 
 
 def observation(code, value, start, unit=None):
@@ -70,18 +70,6 @@ def test_concurrent_edits_conflict_until_resolved(pair):
 
 def reps_of(event):
     return event["payload"]["metrics"]["reps"]["value"]
-
-
-def test_identical_concurrent_edits_and_sequential_edits_do_not_conflict(pair):
-    a, b = pair
-    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
-    rid = e["record"]["id"]
-    sync(a, b)
-    commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
-    commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 8}}})
-    commands.edit(b, ME, "effort", rid, {"metrics": {"reps": {"value": 8}}})
-    sync(a, b)
-    assert a.conflicts() == [] and reps(b, rid) == 8
 
 
 def test_undo_writes_the_previous_version_back_and_undo_of_a_log_removes(pair):
@@ -639,20 +627,6 @@ def test_erasing_a_session_with_efforts_keeps_an_effort_moved_to_another_session
     commands.edit(one, ME, "effort", rid, {"links": {"part_of": {"kind": "session", "id": sb}}})
     commands.erase(one, ME, "session", sa, with_efforts=True)
     assert one.get("effort", rid) is not None, "an effort now in session b was erased with session a"
-
-
-def test_undoing_a_resolve_brings_the_conflict_back(tmp_path):
-    a = open_store(tmp_path / "a.db", "phone")
-    b = peer(a, tmp_path / "b.db")
-    [e] = commands.log(a, ME, [{"kind": "effort", "payload": effort()}])
-    rid = e["record"]["id"]
-    b.accept_many(a.events())
-    six = commands.edit(a, ME, "effort", rid, {"metrics": {"reps": {"value": 6}}})
-    commands.edit(b, AGENT, "effort", rid, {"metrics": {"reps": {"value": 7}}})
-    a.accept_many(b.events())
-    fixed = commands.resolve(a, ME, "effort", rid, six["id"])
-    commands.undo(a, ME, fixed["id"])
-    assert a.conflicts("effort", rid), "undo of a resolve kept only one side; the other version is no longer shown"
 
 
 def mode(path):

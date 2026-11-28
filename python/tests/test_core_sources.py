@@ -1,4 +1,7 @@
-"""The source lane on small hand-made histories: revisions, dependents, overlays and merged workouts."""
+"""The source lane read through the store's own tables: observation ids, dating, sample shapes, merges and refusals.
+
+Behaviour any driver can show (revisions, merges, corrections over a rescore) is in core/test_sources.py.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -126,22 +129,6 @@ def test_sources_fill_each_others_gaps_and_the_better_one_wins(store):
     assert merged(store)["distance"] == (5100, h1) and merged(store)["heart_rate"] == (140, w1)
 
 
-def test_workouts_overlapping_less_than_half_stay_apart(store):
-    sources.ingest(store, "whoop", [("workout", "w1", workout())])
-    sources.ingest(store, "apple_health", [("workout", "h1", health("2026-03-02T15:50:00Z", "2026-03-02T16:50:00Z"))])
-    assert store.conn.execute("SELECT count(*) FROM occurrences").fetchone()[0] == 2
-
-
-def test_a_correction_outlives_a_rescore_and_exclude_hides_the_record(store):
-    sources.ingest(store, "whoop", [("workout", "w1", workout())])
-    w1 = sources.record_id(store, "whoop", "workout", "w1")
-    commands.correct(store, ME, w1, {"metrics": {"heart_rate": {"value": 150, "unit": "/min"}}})
-    sources.ingest(store, "whoop", [("workout", "w1", {**workout(hr=120), "updated_at": "2026-03-03T00:00:00Z"})])
-    assert merged(store)["heart_rate"] == (150, w1)
-    commands.exclude(store, ME, w1)
-    assert store.conn.execute("SELECT count(*) FROM occurrences").fetchone()[0] == 0
-
-
 def test_a_correction_must_use_the_registry(store):
     sources.ingest(store, "whoop", [("workout", "w1", workout())])
     w1 = sources.record_id(store, "whoop", "workout", "w1")
@@ -239,6 +226,7 @@ def test_an_exclude_can_be_undone_and_a_correction_removed(store):
     sources.ingest(store, "whoop", [("workout", "w1", workout())])
     w1 = sources.record_id(store, "whoop", "workout", "w1")
     excluded = commands.exclude(store, ME, w1)
+    assert store.conn.execute("SELECT count(*) FROM occurrences").fetchone()[0] == 0
     commands.undo(store, ME, excluded["id"])
     assert store.conn.execute("SELECT count(*) FROM occurrences").fetchone()[0] == 1
     fixed = commands.correct(store, ME, w1, {"metrics": {"heart_rate": {"value": 150, "unit": "/min"}}})

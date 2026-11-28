@@ -87,6 +87,7 @@ def test_s1_concurrent_edits_are_a_visible_conflict(world, first):
 
 def test_s1_identical_concurrent_edits_do_not_conflict(world):
     apart(world, "phone", "laptop")
+    world.author("phone", edit(reps=6))
     world.author("phone", edit(reps=7))
     world.author("laptop", edit(reps=7))
     both_ways(world, "phone", "laptop")
