@@ -32,7 +32,7 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         payload = _stamped(store, rid, payload)
         event_id = store.contract.derived("source_revision", [rid, mac(key, payload)])
         if event_id in seen or store.event(event_id) is not None or _erased(store, rid) or _restamped(store, rid, raw) \
-                or (_tombstoned(store, rid) and not mappers.revised(payload)):
+                or _tombstoned(store, rid):
             continue
         seen.add(event_id)
         changes.append({"kind": "source_record", "id": rid, "op": "put", "payload": payload, "prev": [],
