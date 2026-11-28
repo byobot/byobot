@@ -310,22 +310,6 @@ public struct Logbook: Sendable {
         lastEvent(kind, id) != nil
     }
 
-    /// The latest version of each record of a kind written here, in the order first written. Retracted ones
-    /// are left out.
-    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type,
-                                                                 where keep: (JSONValue) -> Bool = { _ in true }) -> [Record<P>] {
-        var order: [String] = []
-        var latest: [String: Event] = [:]
-        for event in state.events where event.record.kind == kind {
-            if latest[event.record.id] == nil { order.append(event.record.id) }
-            latest[event.record.id] = event
-        }
-        return order.compactMap { id in
-            guard let event = latest[id], keep(event.payload) else { return nil }
-            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id], raw: event.payload) }
-        }
-    }
-
     /// The laptop hasn't shown it holds this event of this phone's: it is waiting, or the pulled plan's latest of
     /// this phone's events comes before it. Before the first plan, only waiting counts.
     func fresh(_ event: Event, pending: Set<String>) -> Bool {
@@ -406,20 +390,10 @@ public struct Logbook: Sendable {
         }
     }
 
-    /// The latest version of each set this phone logged or corrected, in the order first logged.
-    public var localEfforts: [PerformedEffort] {
-        written("effort", as: EffortPayload.self)
-    }
-
     /// This phone wrote the set's current version, so undo can take it back.
     public func canUndo(_ id: String) -> Bool {
         guard let last = lastEvent("effort", id) else { return false }
         return last.op == .put && last.reverts == nil
-    }
-
-    /// The set was first logged on another device.
-    public func loggedElsewhere(_ id: String) -> Bool {
-        state.remoteOriginals?[id] != nil
     }
 
     public func efforts(inSession id: String) -> [PerformedEffort] {

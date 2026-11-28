@@ -271,7 +271,7 @@ final class WorkoutTests: XCTestCase {
         let last = book.lastTime("barbell_back_squat", excludingSession: today, at: nil)
         XCTAssertEqual(last.efforts.map(\.id), ["eff-1"], "the laptop's set from Monday")
         XCTAssertEqual(book.lastTime("barbell_back_squat", at: nil).efforts.count, 1)
-        XCTAssertEqual(book.lastTime("plank", at: nil), .empty)
+        XCTAssertEqual(book.lastTime("plank", at: nil), LastTime(efforts: [], locationId: nil, elsewhere: false))
     }
 
     // MARK: Locations
