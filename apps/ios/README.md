@@ -2,7 +2,7 @@
 
 The SwiftUI app. It pulls the plan from `byobot serve` on your laptop, logs workouts offline, and pushes them back on the same network. It reads body measurements, heart, activity, mobility, vitals, sleep and workouts from Apple Health, but not nutrition or cycle tracking. Its data stays on the phone, excluded from backups, and the laptop is the source of truth.
 
-Logic lives in the `ByobotKit` Swift package; `Byobot/` is the UI. `ByobotKit/Sources/ByobotKit/Generated/Contract.swift` is generated from `schema/v1`, so don't edit it.
+Logic lives in the `ByobotKit` Swift package; `Byobot/` is the UI.
 
 ## Build and test
 

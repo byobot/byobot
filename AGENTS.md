@@ -6,7 +6,7 @@
 cd python && uv sync --extra test        # CI installs from uv.lock; run `uv lock` after changing dependencies
 uv run python -m pytest                  # from python/
 uv run python -m pytest tests/test_core_store.py -k NAME
-python tools/gen_swift.py                # from the repo root, after any schema change; --check verifies
+python tools/gen_swift.py                # from the repo root, after any change to schema/v1 or library/; --check verifies
 cd apps/ios/ByobotKit && swift test      # macOS only
 ```
 
@@ -15,7 +15,7 @@ CI runs all of these. A change is done when they pass.
 ## Rules
 
 - `schema/v1` is the source of truth. A schema change ships with fixtures in `schema/fixtures/v1`, regenerated Swift, and Python and Swift tests.
-- Never edit `apps/ios/ByobotKit/Sources/ByobotKit/Generated/Contract.swift` by hand.
+- Never edit `apps/ios/ByobotKit/Sources/ByobotKit/Generated/` by hand.
 - The `events` table, the byobot logbook, is append-only; erase only blanks payloads.
 - Derived tables rebuild on open when their DDL changes; raise `RULES` in `core/reducers.py` when records are derived differently. Never bump `STORE_VERSION` for this: byobot refuses every store written at an older one.
 - Library activity ids never change or go away. Names are lowercase with underscores; see `library/README.md`.
