@@ -444,7 +444,7 @@ class Store:
         if kind in ("session", "source_record", "overlay"):
             occurrences.resolve(conn, touched, spans)
         elif kind == "setting" and rid == "source_priority":
-            self._resolve_all()
+            occurrences.rebuild(self.conn)
 
     def _overlay_targets(self, kind: str, rid: str) -> set[tuple[str, str]]:
         if kind != "overlay":
@@ -459,12 +459,6 @@ class Store:
         found = self.record("source_record", rid)
         if found and found["live"]:
             self._project("source_record", rid, self.event(found["current"])["payload"])
-
-    def _resolve_all(self) -> None:
-        occurrences.clear(self.conn)
-        everything = [(k, r[0]) for k, (table, _) in occurrences.ITEMS.items()
-                      for r in self.conn.execute(f"SELECT id FROM {table}")]
-        occurrences.resolve(self.conn, everything, [])
 
     def adopt(self, store_id: str, store_key: str) -> None:
         """Become a replica of another store: take its id and key. Only an empty store can, since events made with
@@ -503,7 +497,7 @@ class Store:
             reducers.clear(self.conn)
             for kind, rid in self.conn.execute("SELECT DISTINCT kind, record_id FROM events").fetchall():
                 self._reindex(kind, rid)
-            self._resolve_all()
+            occurrences.rebuild(self.conn)
 
     # -- reads ---------------------------------------------------------------
 

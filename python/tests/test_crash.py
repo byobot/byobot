@@ -163,10 +163,9 @@ def child(op: str, root: Path, kill_at: int) -> subprocess.CompletedProcess:
 
 def derived(store) -> dict:
     """Every table a store derives from its logbook, row by row."""
-    from byobot.core import occurrences, reducers
+    from byobot.core import reducers
 
-    tables = sorted({t for ts in reducers.TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES,
-                                                                         "records", "unprojected"})
+    tables = sorted(reducers.DERIVED | {"records", "unprojected"})
     return {t: sorted(json.dumps([*row], default=str) for row in store.conn.execute(f"SELECT * FROM {t}"))
             for t in tables}
 

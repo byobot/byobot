@@ -110,6 +110,7 @@ TABLES = {
     "effort": ("efforts",), "observation": ("observations",),
     "source_record": ("source_records", "source_links", "source_sessions", "observations"), "overlay": ("overlays",),
 }
+DERIVED = frozenset({t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES})
 OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
                 ("planned_session", "planned_efforts"): "planned_session_id",
                 ("source_record", "observations"): "source_record_id"}
@@ -127,7 +128,7 @@ def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload:
 
 
 def clear(conn: sqlite3.Connection) -> None:
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
+    for table in DERIVED:
         conn.execute(f"DELETE FROM {table}")
     seed_library(conn)
 
@@ -145,7 +146,7 @@ def drop(conn: sqlite3.Connection) -> None:
     """Remove the derived tables, for a store written by a build whose tables had another shape."""
     for view in VIEWS:
         conn.execute(f"DROP VIEW IF EXISTS {view}")
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
+    for table in DERIVED:
         conn.execute(f"DROP TABLE IF EXISTS {table}")
 
 
