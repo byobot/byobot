@@ -443,9 +443,9 @@ def test_api_errors_carry_a_code_and_its_status(running):
 
 
 @pytest.mark.parametrize("tool, args", [
-    ("validate", {"document": {"name": "Plank"}, "as": "activity"}),
-    ("validate", {"document": {}, "as": "observation"}),
-    ("history", {"kind": "activity", "id": "missing"}),
+    ("validate", {"kind": "activity", "document": {"name": "Plank"}}),
+    ("validate", {"kind": "observation", "document": {}}),
+    ("versions", {"kind": "activity", "id": "missing"}),
     ("query", {"sql": "SELECT 1 AS one"}),
 ])
 def test_the_api_answers_as_mcp_does(running, tool, args):
