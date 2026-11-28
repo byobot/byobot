@@ -1,4 +1,4 @@
-"""Sign-in with your own OAuth app at a provider (WHOOP, Google): PKCE and state on a loopback redirect, the token
+"""Sign-in with your own OAuth app at a provider (WHOOP): PKCE and state on a loopback redirect, the token
 post, and a refresh that processes take turns at, so two never spend the same rotating refresh token."""
 
 from __future__ import annotations

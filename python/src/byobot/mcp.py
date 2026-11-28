@@ -16,7 +16,6 @@ from typing import IO, Any
 
 from byobot import __version__, prompts
 from byobot.commands import REGISTRY, Command, Context, run
-from byobot.cloud.sync import CloudPoller
 from byobot.util import ByobotError, Forbidden, db_path, plain_text
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
@@ -205,8 +204,6 @@ def serve(stdin: IO | None = None, stdout: IO[str] | None = None) -> int:
     stdout = stdout or sys.stdout
     server = Server()
     print(f"byobot mcp {__version__}: serving {db_path()} on stdio", file=sys.stderr)
-    poller = CloudPoller(db_path(), lambda line: print(line, file=sys.stderr))
-    poller.start()
     try:
         for line in stdin:
             if not line.strip():
@@ -223,6 +220,5 @@ def serve(stdin: IO | None = None, stdout: IO[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        poller.stopped.set()
         server.close()
     return 0

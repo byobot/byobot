@@ -54,7 +54,6 @@ from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
 from byobot.core.relay import (PERSON, Cut, _entries, accept_events, accept_samples, plan_window,  # noqa: F401
                                push_events)
 from byobot.core.store import Store, busy, limit_time
-from byobot.cloud.sync import CloudPoller
 from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
@@ -398,13 +397,10 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
         err.write("Pairing is closed (a device is already paired). Run `byobot serve --pair` to pair another.\n")
     err.write("\nServing. Press Ctrl-C to stop.\n")
     err.flush()
-    poller = CloudPoller(db_path(), log)
-    poller.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        poller.stopped.set()
         server.server_close()
     return 0

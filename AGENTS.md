@@ -7,7 +7,6 @@ cd python && uv sync --extra test        # CI installs from uv.lock; run `uv loc
 uv run python -m pytest                  # from python/
 uv run python -m pytest tests/test_core_store.py -k NAME
 python tools/gen_swift.py                # from the repo root, after any schema change; --check verifies
-python tools/gen_cloud_vectors.py        # from the repo root, after any cloud file format change; --check verifies
 cd apps/ios/ByobotKit && swift test      # macOS only
 ```
 

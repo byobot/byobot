@@ -29,7 +29,7 @@ def same(world, name: str) -> None:
 
 
 def on_disk(world) -> bool:
-    return world.driver.name in ("v1", "cloud")
+    return world.driver.name == "v1"
 
 
 def held_bytes(world, name: str) -> bytes:
