@@ -6,7 +6,7 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 
 - Your logbook lives on your own devices: a database on your computer (`~/.byobot`) and the iPhone app's own storage.
 - The phone syncs with your computer over your local network, nowhere else.
-- Profiles keep two people's logbooks apart, not private from each other: anyone, and any program, using the same macOS account can read every profile and its sign-ins. For privacy between people, give each their own macOS account.
+- Profiles keep two people's logbooks apart, not private from each other: anyone, and any program, using the same user account can read every profile and its sign-ins. For privacy between people, give each their own user account.
 
 ## Other services
 
@@ -17,4 +17,4 @@ byobot has no server. Its maintainers receive none of your data and collect no a
 ## Deleting your data
 
 - One record: `byobot erase <kind> <id>`.
-- Everything on a computer: delete the `~/.byobot` folder. On the iPhone: delete the app.
+- Everything on a computer: run `byobot disconnect whoop` (with `--profile NAME` for each profile), then delete the `~/.byobot` folder. On the iPhone: delete the app.
