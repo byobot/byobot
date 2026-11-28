@@ -27,13 +27,12 @@ SECTIONS = {
     "start": ("init", "status", "connect", "disconnect", "import", "serve", "mcp"),
     "training data": ("log", "list", "review", "query", "effort", "swap"),
     "fixing": ("edit", "remove", "undo", "conflicts", "resolve", "correct", "exclude", "same_as", "versions", "erase"),
-    "setup": ("devices", "cloud", "remote", "export", "restore", "schema", "validate"),
+    "setup": ("devices", "remote", "export", "restore", "schema", "validate"),
 }
 GROUPS = {
     "effort": "What you did of one activity",
     "swap": "Activities that can stand in for one another",
     "devices": "Phones paired with `byobot serve`",
-    "cloud": "Google Drive sync",
     "remote": "Assistants on your phone, over the internet",
 }
 
