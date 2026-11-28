@@ -256,8 +256,9 @@ def remove(store: Store, actor: dict, kind: str, rid: str, reason: str | None = 
 def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = False) -> list[dict]:
     """Destroy a record's content everywhere, with every overlay on it, and a session's efforts if asked.
     Can't be undone."""
-    if kind == "setting":
-        raise ValidationFailed("a setting can't be erased, or it could never be set again; remove it instead")
+    if kind == "setting" or (kind == "activity" and not rid.startswith("x.")):
+        raise ValidationFailed(f"a {'setting' if kind == 'setting' else 'library activity'} can't be erased, "
+                               "or it could never be set again; remove it instead")
     if kind not in ERASABLE:
         raise ValidationFailed(f"{kind} records can't be erased on their own")
     found = store.record(kind, rid)
