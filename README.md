@@ -65,24 +65,6 @@ Run `byobot serve` and scan the QR code it shows. To build the app, see [`apps/i
 
 The app and byobot work together when they share a release line (app 0.1 with byobot 0.1.x), which speaks sync protocol 1 and schema version 1; `byobot status` shows the version and schema version.
 
-## Sync through Google Drive (optional)
-
-When the phone can't reach your computer, it can sync through a hidden folder in your own Google Drive, encrypted with keys only your devices hold. Your computer stays the copy that counts.
-
-You use your own Google Cloud project, once:
-
-1. Make a project at [console.cloud.google.com](https://console.cloud.google.com) and turn on the Google Drive API.
-2. Set up the OAuth consent screen as External, with only the `drive.appdata` scope, then press Publish app so it says In production. In Testing, Google signs every device out after seven days.
-3. Make two OAuth clients: a Desktop app (download its JSON) and an iOS client for the app's bundle id.
-
-```bash
-byobot cloud setup     # asks for the Desktop client's JSON and the iOS client id, signs you in, shows a recovery code
-byobot cloud join      # shows a code; in the app, turn on Drive sync and scan it
-byobot cloud status    # devices, when each was last heard from, the folder's size, any error
-```
-
-`byobot serve`, `byobot remote serve` and `byobot mcp` sync every minute while they run; `byobot cloud sync` syncs now. `byobot cloud off` stops (`--delete` also deletes the folder's files), `byobot cloud remove` retires a device and `byobot cloud rotate` changes the keys. Erasing a record rewrites the folder under a new key, so the record is gone from Drive once every device has synced. Keep byobot's home out of any folder another app syncs, such as Google Drive for desktop, iCloud Drive or Dropbox.
-
 ## Import from WHOOP
 
 byobot talks to WHOOP's API directly, through your own app. Create one at [developer.whoop.com](https://developer.whoop.com) with the scopes `read:recovery`, `read:cycles`, `read:sleep` and `read:workout`, and the redirect URL `http://localhost:8766/whoop/callback`. Then:
