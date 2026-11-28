@@ -518,6 +518,9 @@ class Handler(web.Handler):
                        "<p>Run <code>byobot remote serve --pair</code> on the computer that holds your byobot, "
                        "then connect again.</p>")
             return
+        self._approval_page(client, uri, q, message)
+
+    def _approval_page(self, client: dict, uri: str, q: dict[str, str], message: str) -> None:
         keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
                        if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
                                 "code_challenge_method", "state", "scope", "resource"))
