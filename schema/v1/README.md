@@ -9,7 +9,6 @@ Schema 1: the byobot logbook, one append-only log of events, each writing one re
 | `common.schema.json` | Ids, times, refs, measures |
 | `registry.schema.json`, `registry.json` | Kinds, settings, derived-id namespaces and codes |
 | `sync.schema.json` | Sync protocol 1, between `byobot serve` and the app |
-| `cloud.schema.json` | Cloud protocol 1: the same messages as encrypted, signed files in the person's own cloud folder |
 | `../fixtures/v1/` | Conformance cases every implementation must pass |
 
 ## Records and ids
@@ -29,7 +28,7 @@ Derived ids are UUIDv5 over the [RFC 8785](https://www.rfc-editor.org/rfc/rfc878
 - Its `retract` event (deleted at the source): `["<record id>", "<prev[0]>"]` in `source_deletion`, or `["<record id>"]` with an empty `prev` when the deletion came before any revision. That one hides the record for good.
 - `overlay` record: `["<effect>", "<target kind>", "<target id>"]` in `overlay`, so there is one overlay per effect and target.
 
-The store key is 32 random bytes created with the store. It never enters the logbook and no phone receives it; export and restore carry it, as does the cloud recovery file, sealed to the recovery code. It keeps an erased source payload from being recovered by hashing guesses against event ids.
+The store key is 32 random bytes created with the store. It never enters the logbook and no phone receives it; export and restore carry it. It keeps an erased source payload from being recovered by hashing guesses against event ids.
 
 ## Order and time
 
