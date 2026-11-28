@@ -55,6 +55,12 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         raise ValidationFailed(f"{source}: {exc}") from None
 
 
+def last_start(store: Store, source: str) -> str | None:
+    """The latest start among a source's current revisions, where the next import picks up."""
+    return store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
+                              (source,)).fetchone()[0]
+
+
 SAMPLE_FIELDS = frozenset(documents()[0]["sync"]["$defs"]["sample"]["properties"])
 
 

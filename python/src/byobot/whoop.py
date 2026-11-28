@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
 from byobot import credentials, oauth
+from byobot.core import sources
 from byobot.core.contract import instant, stamp
 from byobot.util import PORTS, ByobotError, UpstreamError
 
@@ -196,18 +197,15 @@ def collect(client: Client, start: str) -> list[tuple[str, str, dict]]:
     return [(t, record_key(t, r), r) for t, (path, name) in ENDPOINTS.items() for r in client.pages(path, name, start)]
 
 
-def import_into(store, client: Client, days: int | None = None) -> dict:
+def import_into(store, days: int | None = None) -> dict:
     """Fetch since the last import (a week back, so rescores are picked up), or `days` back, or 90 days."""
-    from byobot.core import sources
-
-    last = store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
-                              (NAME,)).fetchone()[0]
+    last = sources.last_start(store, NAME)
     if days is None and last:
         since = instant(last) - timedelta(days=7)
     else:
         since = datetime.now(timezone.utc) - timedelta(days=days or 90)
     start = utc(since)
-    found = collect(client, start)
+    found = collect(Client(), start)
     written = sources.ingest(store, NAME, found)
     return {"since": start, "fetched": len(found), "written": len(written),
             "whoop_api": version()}

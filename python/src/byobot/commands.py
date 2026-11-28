@@ -480,7 +480,7 @@ def _import(ctx: Context, source: str, existing: str, records: Any = None, days:
     if source == "whoop":
         if records is not None:
             raise ValidationFailed("import whoop reads WHOOP itself; it takes no records")
-        return whoop.import_into(ctx.store(), whoop.Client(), days)
+        return whoop.import_into(ctx.store(), days)
     if days is not None:
         raise ValidationFailed("days goes with import whoop")
     if records is None:
