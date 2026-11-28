@@ -31,6 +31,7 @@ EXPORT_VERSION = 1
 STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 MAX_REJECTIONS = 1000  # per device, newest kept
+BUSY_MS = 5000
 TOO_BIG = "a number too large to store"
 # Drive sync's tables, which held its keys; a store that had them drops them on open.
 RETIRED = ("cloud_meta", "cloud_keys", "cloud_read", "cloud_refused")
@@ -119,7 +120,7 @@ class Store:
         self.conn.execute("PRAGMA synchronous=FULL")
         if sys.platform == "darwin":
             self.conn.execute("PRAGMA fullfsync=ON")
-        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute(f"PRAGMA busy_timeout={BUSY_MS}")
         # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
         self.conn.execute("PRAGMA secure_delete=ON")
         self._migrate(device_id, migrate)
@@ -189,25 +190,30 @@ class Store:
         with self.transaction():
             self._set("hlc", hlc.format(max((h for h in held if not hlc.out_of_range(h)), default=(0, 0))))
 
-    def transaction(self):
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
         """Writes inside commit together; nested, they roll back on their own."""
-        conn = self.conn
+        owner = not self.conn.in_transaction
+        self.conn.execute("BEGIN IMMEDIATE" if owner else "SAVEPOINT tx")
+        try:
+            yield
+        except BaseException:
+            if owner:
+                self.conn.execute("ROLLBACK")
+            else:
+                self.conn.execute("ROLLBACK TO tx")
+                self.conn.execute("RELEASE tx")
+            raise
+        self.conn.execute("COMMIT" if owner else "RELEASE tx")
 
-        class _Tx:
-            def __enter__(self_inner):
-                self_inner.owner = not conn.in_transaction
-                conn.execute("BEGIN IMMEDIATE" if self_inner.owner else "SAVEPOINT tx")
-
-            def __exit__(self_inner, exc_type, *_):
-                if self_inner.owner:
-                    conn.execute("ROLLBACK" if exc_type else "COMMIT")
-                elif exc_type:
-                    conn.execute("ROLLBACK TO tx")
-                    conn.execute("RELEASE tx")
-                else:
-                    conn.execute("RELEASE tx")
-
-        return _Tx()
+    @contextmanager
+    def _no_wait(self) -> Iterator[None]:
+        """Statements inside fail at once, rather than wait, while another connection holds the lock."""
+        self.conn.execute("PRAGMA busy_timeout=0")
+        try:
+            yield
+        finally:
+            self.conn.execute(f"PRAGMA busy_timeout={BUSY_MS}")
 
     @contextmanager
     def snapshot(self) -> Iterator[None]:
@@ -294,16 +300,14 @@ class Store:
         another connection reads that can't finish, so it's tried again after each later write and on open."""
         if self.conn.in_transaction or not self.compact_pending():
             return
-        self.conn.execute("PRAGMA busy_timeout=0")
         try:
-            if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
-                return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
-            self.conn.execute("VACUUM")
-            busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+            with self._no_wait():
+                if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
+                    return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
+                self.conn.execute("VACUUM")
+                busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
         except sqlite3.OperationalError:  # another connection is reading
             return
-        finally:
-            self.conn.execute("PRAGMA busy_timeout=5000")
         if not busy:
             self.conn.execute("DELETE FROM meta WHERE key = 'compact_pending'")
 
@@ -641,14 +645,11 @@ class Store:
                 found = device_id
         if found is None:
             return None
-        self.conn.execute("PRAGMA busy_timeout=0")
         try:
-            with self.transaction():
+            with self._no_wait(), self.transaction():
                 self.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (stamp(self.wall()), found))
         except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
             pass
-        finally:
-            self.conn.execute("PRAGMA busy_timeout=5000")
         return self.peer(found)
 
     def peers(self) -> list[dict]:
