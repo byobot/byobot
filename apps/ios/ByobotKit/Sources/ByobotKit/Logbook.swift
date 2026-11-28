@@ -497,6 +497,7 @@ public struct Logbook: Sendable {
         drop(window.erased)
         setAside(window.rejected)
         let resent = resend(after: window.received[state.deviceId])
+        if resent > 0 { resendHealth() }
         state.plan = window
         let planned = Set(window.plannedSessions.map(\.id))
         state.workouts = state.workouts?.filter { planned.contains($0.key) }
@@ -532,8 +533,17 @@ public struct Logbook: Sendable {
             var spans = state.storeSpans ?? [StoreSpan(storeId: old, after: "")]
             spans.append(StoreSpan(storeId: storeId, after: Swift.max(last, spans.last?.after ?? "")))
             state.storeSpans = spans
+            resendHealth()
         }
         state.storeId = storeId
+    }
+
+    /// Apple Health goes out again from the start, for a store that may not hold what was sent: another one, or
+    /// one restored from a backup.
+    mutating func resendHealth() {
+        state.health?.anchors = [:]
+        state.health?.days = [:]
+        state.lastHealthSyncAt = nil
     }
 
     /// Before leaving a store: what it says it refused and holds of what is waiting, for when its answer to a push

@@ -323,6 +323,34 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.map(\.record.id), [onlyThere.id])
     }
 
+    func testAppleHealthGoesAgainToAnotherOrARestoredStore() throws {
+        func sent(_ book: inout Logbook) {
+            var health = HealthState()
+            health.anchors = ["steps": Data([1])]
+            health.days = ["steps 2026-01-01": -18_000]
+            book.state.health = health
+            book.state.lastHealthSyncAt = "2026-11-23T08:00:00Z"
+        }
+        var book = makeLogbook()
+        book.paired(storeId: "store-a")
+        book.logEffort(activityId: "run", metrics: [:])
+        ack(&book)
+        sent(&book)
+        var window = try Fixtures.window()
+        window.received = [book.state.deviceId: book.state.events[0].hlc]
+        book.applyPlan(window)
+        XCTAssertEqual(book.state.health?.anchors, ["steps": Data([1])], "the same store keeps them")
+
+        window.received = [:]
+        XCTAssertEqual(book.applyPlan(window), 1)
+        XCTAssertEqual(book.state.health?.anchors, [:], "a restored store gets them again")
+        XCTAssertNil(book.state.lastHealthSyncAt)
+
+        sent(&book)
+        book.paired(storeId: "store-b")
+        XCTAssertEqual(book.state.health?.days, [:], "another store gets them again")
+    }
+
     func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]
