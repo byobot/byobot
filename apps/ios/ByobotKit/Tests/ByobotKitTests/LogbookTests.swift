@@ -823,8 +823,7 @@ final class ClockAndHealthTests: XCTestCase {
                        "daily:HKQuantityTypeIdentifierStepCount:2026-11-20")
     }
 
-    let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale",
-                              deviceManufacturer: "Example")
+    let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale")
 
     func reading(_ value: HealthValue, minutes: Double = 0) -> HealthReading {
         HealthReading(uuid: UUID(uuidString: "6F1D0C8E-3A1B-4C2D-9E8F-7A6B5C4D3E2F")!,
@@ -848,13 +847,16 @@ final class ClockAndHealthTests: XCTestCase {
     }
 
     func testEveryHealthKitTypeIsSentInItsCodesOwnUnit() throws {
-        for (type, code) in MetricRegistry.healthkit {
-            let spec = try XCTUnwrap(MetricRegistry.spec(code))
-            XCTAssertEqual(HealthMapping.unit(type), spec.units.first, type)
+        func unit(_ type: String) throws -> String? {
+            try XCTUnwrap(HealthMapping.sample(reading(.quantity(type, 1))), type).unit
         }
-        XCTAssertEqual(HealthMapping.unit("HKQuantityTypeIdentifierHeartRate"), "/min")
-        XCTAssertEqual(HealthMapping.unit("HKQuantityTypeIdentifierBodyFatPercentage"), "%")
-        XCTAssertNil(HealthMapping.unit("HKQuantityTypeIdentifierStepCount"), "a count has no unit")
+        for (type, code) in MetricRegistry.healthkit where type != HealthMapping.sleepType {
+            let spec = try XCTUnwrap(MetricRegistry.spec(code))
+            XCTAssertEqual(try unit(type), spec.units.first, type)
+        }
+        XCTAssertEqual(try unit("HKQuantityTypeIdentifierHeartRate"), "/min")
+        XCTAssertEqual(try unit("HKQuantityTypeIdentifierBodyFatPercentage"), "%")
+        XCTAssertNil(try unit("HKQuantityTypeIdentifierStepCount"), "a count has no unit")
         XCTAssertNotNil(MetricRegistry.healthkit[HealthMapping.sleepType])
     }
 

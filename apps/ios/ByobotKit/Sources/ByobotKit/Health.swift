@@ -11,19 +11,11 @@ public struct HealthOrigin: Equatable, Sendable {
     public var sourceName: String
     public var sourceBundleId: String
     public var deviceName: String?
-    public var deviceManufacturer: String?
-    public var deviceModel: String?
-    /// HealthKit's local or UDI identifier for the device, when it has one.
-    public var deviceIdentifier: String?
 
-    public init(sourceName: String, sourceBundleId: String, deviceName: String? = nil,
-                deviceManufacturer: String? = nil, deviceModel: String? = nil, deviceIdentifier: String? = nil) {
+    public init(sourceName: String, sourceBundleId: String, deviceName: String? = nil) {
         self.sourceName = sourceName
         self.sourceBundleId = sourceBundleId
         self.deviceName = deviceName
-        self.deviceManufacturer = deviceManufacturer
-        self.deviceModel = deviceModel
-        self.deviceIdentifier = deviceIdentifier
     }
 }
 
@@ -106,13 +98,8 @@ public enum HealthMapping {
                                      4: "asleep_deep", 5: "asleep_rem"]
 
     /// The registry code a HealthKit type is read as.
-    public static func spec(_ type: String) -> MetricSpec? {
+    private static func spec(_ type: String) -> MetricSpec? {
         MetricRegistry.healthkit[type].flatMap(MetricRegistry.spec)
-    }
-
-    /// The unit to send a type's values in: its code's own, or none for a count.
-    public static func unit(_ type: String) -> String? {
-        spec(type)?.units.first
     }
 
     /// A sample keyed on HealthKit's sample UUID, so sending it again changes nothing.

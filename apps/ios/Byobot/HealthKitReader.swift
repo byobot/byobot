@@ -148,11 +148,7 @@ final class HealthKitReader: @unchecked Sendable {
         HealthReading(uuid: sample.uuid, start: sample.startDate, end: sample.endDate, value: value,
                       origin: HealthOrigin(sourceName: sample.sourceRevision.source.name,
                                            sourceBundleId: sample.sourceRevision.source.bundleIdentifier,
-                                           deviceName: sample.device?.name,
-                                           deviceManufacturer: sample.device?.manufacturer,
-                                           deviceModel: sample.device?.model,
-                                           deviceIdentifier: sample.device?.localIdentifier
-                                               ?? sample.device?.udiDeviceIdentifier),
+                                           deviceName: sample.device?.name),
                       zone: (sample.metadata?[HKMetadataKeyTimeZone] as? String).flatMap(TimeZone.init(identifier:)))
     }
 
