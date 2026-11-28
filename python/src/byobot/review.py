@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 
 from byobot.core import occurrences
 from byobot.core.store import Store
+from byobot.reads import occurrence_items
 
 
 def readable_seconds(seconds: float) -> str:
@@ -171,8 +172,7 @@ def review(store: Store, weeks: int, until: str | None = None) -> dict:
     workouts = []
     for o in store.rows("SELECT * FROM occurrences WHERE local_date >= ? AND local_date <= ? ORDER BY start_ms, id",
                         [first, last]):
-        items = store.rows("SELECT i.kind, i.id, r.source FROM occurrence_items i LEFT JOIN source_records r"
-                           " ON i.kind = 'source_record' AND r.id = i.id WHERE i.occurrence_id = ?", [o["id"]])
+        items = occurrence_items(store, o["id"])
         mine = [i["id"] for i in items if i["kind"] == "session"]
         session = store.rows("SELECT location_id, planned_session_id FROM sessions WHERE id = ?", mine[:1]) if mine \
             else []

@@ -161,15 +161,20 @@ def _planned(store: Store, row: dict) -> None:
 
 def _workout(store: Store, row: dict) -> None:
     oid = row.pop("id")
-    row["items"] = store.rows("SELECT i.kind, i.id, s.source FROM occurrence_items i LEFT JOIN source_records s "
-                              "ON i.kind = 'source_record' AND s.id = i.id WHERE occurrence_id = ? "
-                              "ORDER BY i.kind, i.id", (oid,))
+    row["items"] = occurrence_items(store, oid)
     row["metrics"] = {}
     for m in store.rows("SELECT * FROM occurrence_metrics WHERE occurrence_id = ? ORDER BY code", (oid,)):
         value = {k: m[k] for k in ("value", "unit") if m[k] is not None}
         if m["text"] is not None:
             value["value"] = m["text"]
         row["metrics"][m["code"]] = {**value, "from": {"kind": m["from_kind"], "id": m["from_id"]}}
+
+
+def occurrence_items(store: Store, oid: str) -> list[dict]:
+    """The session and source records one workout is made of, each with its source."""
+    return store.rows("SELECT i.kind, i.id, s.source FROM occurrence_items i LEFT JOIN source_records s "
+                      "ON i.kind = 'source_record' AND s.id = i.id WHERE occurrence_id = ? "
+                      "ORDER BY i.kind, i.id", (oid,))
 
 
 def _activities(store: Store) -> list[dict]:
