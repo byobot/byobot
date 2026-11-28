@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 
-from byobot import mcp
+from byobot import commands, mcp
 from byobot.commands import REGISTRY, Context, run
 from byobot.core import relay
 from byobot.mcp import LATEST, Server, serve, tools
@@ -196,7 +196,7 @@ def test_answers_mark_where_other_apps_text_can_be(store):
 
 def test_an_agents_name_is_one_short_line(tmp_path):
     ctx = Context(actor={}, path=tmp_path / "s.db")
-    mcp.call(ctx, mcp.tool("validate"), {"kind": "activity", "document": {"name": "Plank"}}, STEER)
+    commands.call(ctx, commands.tool("validate"), {"kind": "activity", "document": {"name": "Plank"}}, STEER)
     ctx.close()
     actor = ctx.actor
     assert "\n" not in actor["id"] and "\u200b" not in actor["id"] and len(actor["id"]) <= 200

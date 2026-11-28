@@ -34,9 +34,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import __version__, mcp, util, web
+from byobot import __version__, commands, mcp, util, web
 from byobot.lock import held
-from byobot.commands import Context
 from byobot.core.store import interrupted, limit_time, stamp
 from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
@@ -595,7 +594,7 @@ class Handler(web.Handler):
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
         server.protocol = version or mcp.LATEST
-        server.ctx = Context(actor={}, path=self.server.db)
+        server.ctx = commands.Context(actor={}, path=self.server.db)
         try:
             if not _writes(message):
                 limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
@@ -633,14 +632,14 @@ class Handler(web.Handler):
             args = {}
         if not isinstance(args, dict):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
-        cmd = mcp.tool(name)
+        cmd = commands.tool(name)
         if cmd is None:
             raise HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"unknown tool: {name}")
-        ctx = Context(actor={}, path=self.server.db)
+        ctx = commands.Context(actor={}, path=self.server.db)
         try:
             if cmd.read_only:
                 limit_time(ctx.store().conn, QUERY_TIMEOUT_S)
-            result = mcp.call(ctx, cmd, args, actor_id(client), scope_of(client) == READ)
+            result = commands.call(ctx, cmd, args, actor_id(client), scope_of(client) == READ)
         except ByobotError as exc:
             self._send(STATUS.get(exc.code, HTTPStatus.BAD_REQUEST), exc.to_dict())
             return
@@ -661,7 +660,7 @@ def _writes(message: Any) -> bool:
         return any(_writes(m) for m in message)
     params = message.get("params") if isinstance(message, dict) and message.get("method") == "tools/call" else None
     name = params.get("name") if isinstance(params, dict) else None
-    cmd = mcp.tool(name)
+    cmd = commands.tool(name)
     return cmd is not None and not cmd.read_only
 
 

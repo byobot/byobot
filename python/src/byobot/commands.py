@@ -21,8 +21,8 @@ from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
 from byobot.core.store import Store, busy, ddl, query
-from byobot.util import (ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile,
-                         sync_folder_warning, tilde)
+from byobot.util import (ByobotError, Conflict, Forbidden, NotFound, ValidationFailed, db_path, home, plain_text,
+                         profile, sync_folder_warning, tilde)
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,27 @@ def run(name: str, ctx: Context, args: dict) -> Any:
         if not busy(exc):
             raise
         raise ByobotError("the store is busy with a long write in another process; try again in a moment") from None
+
+
+def tool(name: Any) -> Command | None:
+    """The command an assistant may call as ``name``."""
+    cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
+    return cmd if cmd is not None and cmd.mcp else None
+
+
+def call(ctx: Context, cmd: Command, args: dict, agent: str, read_only: bool = False) -> Any:
+    """Run a tool for the assistant ``agent``, which writes as itself and may name its model. MCP and the REST API
+    both call tools this way."""
+    args = dict(args)
+    model = args.pop("model", None) if not cmd.read_only else None
+    if read_only and not cmd.read_only:
+        raise Forbidden(f"this assistant may only read, so it can't use {cmd.tool}; connect it again to let it write")
+    actor = {"kind": "agent", "id": plain_text(agent, 200) or "mcp-client"}
+    model = model or os.environ.get("BYOBOT_AGENT_MODEL")
+    if model:
+        actor["model"] = str(model)[:200]
+    ctx.actor = actor
+    return run(cmd.name, ctx, args)
 
 
 UNTRUSTED_NOTE = ("can hold text that other apps, devices and agents wrote, such as source data and device and app "

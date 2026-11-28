@@ -10,13 +10,12 @@ Logs go to stderr. Writes are attributed to the connected agent: its
 from __future__ import annotations
 
 import json
-import os
 import sys
 from typing import IO, Any
 
 from byobot import __version__, prompts
-from byobot.commands import REGISTRY, Command, Context, run
-from byobot.util import ByobotError, Forbidden, db_path, plain_text
+from byobot.commands import REGISTRY, Command, Context, call, tool
+from byobot.util import ByobotError, db_path
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 LATEST = SUPPORTED_VERSIONS[0]
@@ -79,27 +78,6 @@ def tools(read_only: bool = False) -> list[dict]:
             "annotations": {"readOnlyHint": cmd.read_only, "destructiveHint": cmd.destructive, "openWorldHint": False},
         })
     return out
-
-
-def tool(name: Any) -> Command | None:
-    """The command an assistant may call as ``name``."""
-    cmd = next((c for c in REGISTRY.values() if c.tool == name), None)
-    return cmd if cmd is not None and cmd.mcp else None
-
-
-def call(ctx: Context, cmd: Command, args: dict, agent: str, read_only: bool = False) -> Any:
-    """Run a tool for the assistant ``agent``, which writes as itself and may name its model. MCP and the REST API
-    both call tools this way."""
-    args = dict(args)
-    model = args.pop("model", None) if not cmd.read_only else None
-    if read_only and not cmd.read_only:
-        raise Forbidden(f"this assistant may only read, so it can't use {cmd.tool}; connect it again to let it write")
-    actor = {"kind": "agent", "id": plain_text(agent, 200) or "mcp-client"}
-    model = model or os.environ.get("BYOBOT_AGENT_MODEL")
-    if model:
-        actor["model"] = str(model)[:200]
-    ctx.actor = actor
-    return run(cmd.name, ctx, args)
 
 
 class Server:
