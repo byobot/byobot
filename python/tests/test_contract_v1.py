@@ -6,15 +6,14 @@ import json
 import re
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "schema" / "v1").is_dir())
-V1 = ROOT / "schema" / "v1"
-FIXTURES = ROOT / "schema" / "fixtures" / "v1"
+from helpers import FIXTURES, REPO
+
+V1 = REPO / "schema" / "v1"
 SCHEMAS = {n: json.loads((V1 / f"{n}.schema.json").read_text()) for n in ("common", "records", "event", "registry")}
 REG = json.loads((V1 / "registry.json").read_text())
 CASES = json.loads((FIXTURES / "cases.json").read_text())["cases"]

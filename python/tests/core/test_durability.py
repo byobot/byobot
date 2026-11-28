@@ -1,13 +1,12 @@
 """S19 and S20: restoring from an export, and erasing."""
 
 import os
-from pathlib import Path
 
 import pytest
 
 from byobot.core.store import Store
 
-from .scenarios import both_ways, edit, effort, reps, whoop_workout
+from .scenarios import both_ways, edit, effort, held_bytes, reps, whoop_workout
 from .snapshot import diff
 from .synth import persona, play
 
@@ -30,13 +29,6 @@ def same(world, name: str) -> None:
 
 def on_disk(world) -> bool:
     return world.driver.name == "v1"
-
-
-def held_bytes(world, name: str) -> bytes:
-    """Every byte a replica's store keeps on disk, and its export."""
-    store: Store = world.state(name).store
-    files = [Path(f"{store.path}{suffix}") for suffix in ("", "-wal", "-shm")]
-    return b"".join(f.read_bytes() for f in files if f.exists()) + "".join(store.export()).encode()
 
 
 def gone(world, name: str, *marks: str) -> None:

@@ -23,7 +23,7 @@ struct WorkoutView: View {
     @State private var unplanned = false
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
-    private var planned: PlannedSession? { model.plan?.plannedSessions.first { $0.id == plannedId } }
+    private var planned: PlannedSession? { model.plan?.plannedSession(plannedId) }
     private var active: PerformedSession? { model.book.activeSession }
     private var running: Bool { active?.plannedSessionId == plannedId }
 
@@ -58,7 +58,7 @@ struct WorkoutView: View {
             }
         }
         .sheet(item: $summary, onDismiss: { dismiss() }) { summary in
-            NavigationStack { SummaryView(summary: summary, names: { model.book.activity($0)?.name ?? $0 }) }
+            NavigationStack { SummaryView(summary: summary, names: { model.book.name(of: $0) }) }
         }
         .sheet(isPresented: $unplanned) {
             NavigationStack {
@@ -122,12 +122,12 @@ struct WorkoutView: View {
                 Text("Tap an exercise to see its sets or swap it.")
             }
             if running, let active {
-                let extras = model.book.efforts(inSession: active.id).filter { $0.plannedEffortId == nil }
+                let extras = model.book.extras(inSession: active.id)
                 if !extras.isEmpty {
                     Section("Also logged") {
                         ForEach(extras) { effort in
                             VStack(alignment: .leading) {
-                                Text(model.book.activity(effort.activityId)?.name ?? effort.activityId)
+                                Text(model.book.name(of: effort.activityId))
                                 Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                             }
                             .swipeActions { Button("Undo", role: .destructive) { model.undo(effort) } }
@@ -209,7 +209,7 @@ struct WorkoutView: View {
 
     private func finish() {
         guard let planned, let active else { return }
-        let extras = model.book.efforts(inSession: active.id).filter { $0.plannedEffortId == nil }
+        let extras = model.book.extras(inSession: active.id)
         let performed = model.finish()
         summary = model.book.workout(planned).summary(extras: extras, performed: performed)
     }
@@ -220,10 +220,6 @@ struct LogForm: Identifiable {
     var values: Metrics
     var editing: PerformedEffort?
     var id: String { slot.id + (editing?.id ?? "") }
-}
-
-extension Exercise {
-    var swapped: Bool { swap != nil }
 }
 
 // MARK: Cards
@@ -252,7 +248,7 @@ private struct FocusCard: View {
                         .font(.subheadline).foregroundStyle(.indigo)
                 }
             }
-            ForEach(Format.sorted(values), id: \.self) { name in
+            ForEach(MetricRegistry.sorted(values.keys), id: \.self) { name in
                 MetricNudger(name: name, value: values[name]!, target: slot.effort.metrics?[name]) {
                     onNudge(name, $0)
                 }
@@ -422,11 +418,11 @@ private struct ExerciseRow: View {
                 .foregroundStyle(exercise.done >= exercise.total ? Color.green : Color.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(workout.name(exercise.activityId)).foregroundStyle(.primary)
-                if exercise.swapped {
+                if exercise.swap != nil {
                     Text("In place of \(workout.name(exercise.effort.activityId))")
                         .font(.caption).foregroundStyle(.indigo)
                 }
-                Text((exercise.total > 1 ? "\(exercise.total) × " : "") + Format.metrics(exercise.effort.metrics))
+                Text(Format.plan(exercise))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

@@ -34,6 +34,8 @@ final class WorkoutTests: XCTestCase {
         XCTAssertTrue(ActivityLibrary.bundled.allSatisfy { $0.library == true && $0.prev.isEmpty })
         XCTAssertEqual(book.activity("barbell_romanian_deadlift")?.name, "Barbell Romanian Deadlift")
         XCTAssertEqual(book.activity("barbell_back_squat")?.name, "Barbell back squat", "the plan's version wins")
+        XCTAssertEqual(book.name(of: "barbell_romanian_deadlift"), "Barbell Romanian Deadlift")
+        XCTAssertEqual(book.name(of: "x.unknown"), "x.unknown")
         XCTAssertEqual(book.library.filter { $0.id == "barbell_back_squat" }.count, 1)
         XCTAssertNotNil(book.alternatives(for: PlannedEffort(id: "e", activityId: "barbell_romanian_deadlift")).first)
     }
@@ -271,7 +273,7 @@ final class WorkoutTests: XCTestCase {
         let last = book.lastTime("barbell_back_squat", excludingSession: today, at: nil)
         XCTAssertEqual(last.efforts.map(\.id), ["eff-1"], "the laptop's set from Monday")
         XCTAssertEqual(book.lastTime("barbell_back_squat", at: nil).efforts.count, 1)
-        XCTAssertEqual(book.lastTime("plank", at: nil), .empty)
+        XCTAssertEqual(book.lastTime("plank", at: nil), LastTime(efforts: [], locationId: nil, elsewhere: false))
     }
 
     // MARK: Locations
@@ -411,6 +413,8 @@ final class WorkoutTests: XCTestCase {
         let clock = try XCTUnwrap(IntervalClock(slots: emom.slots))
         XCTAssertEqual(clock.phases.count, 10)
         XCTAssertEqual(clock.total, 600)
+        XCTAssertEqual(emom.clock(["gone"] + emom.slots.map(\.id)), clock, "a slot no longer there is left out")
+        XCTAssertEqual(emom.clock(emom.slots.reversed().map(\.id)), IntervalClock(slots: Array(emom.slots.reversed())))
 
         // The plan names each side of the couch stretch, so each is its own hold.
         let hips = book.workout(try session("sess-mobility"))
@@ -434,6 +438,20 @@ final class WorkoutTests: XCTestCase {
         XCTAssertNil(upper.clockSlots(from: upper.slots[0]))
     }
 
+    func testLoggingASlotAnswersItsPlannedEffort() throws {
+        var book = try makeBook()
+        let upper = try session("sess-upper")
+        book.startSession(planned: upper)
+        let workout = book.workout(upper)
+        let slot = workout.slots[0]
+        let set = book.log(slot, metrics: ["reps": .exact(8)], notes: "easy", in: workout)
+        XCTAssertEqual(set.activityId, slot.activityId)
+        XCTAssertEqual(set.plannedEffortId, slot.effort.id)
+        XCTAssertEqual(set.round, slot.round)
+        XCTAssertEqual(set.notes, "easy")
+        XCTAssertEqual(book.workout(upper).slots[0].logged?.id, set.id)
+    }
+
     // MARK: Summary
 
     func testSummaryShowsPlannedAgainstDone() throws {
@@ -453,7 +471,15 @@ final class WorkoutTests: XCTestCase {
         XCTAssertEqual(summary.done, 3)
         XCTAssertEqual(summary.total, 8)
         XCTAssertEqual(summary.extras.map(\.id), [extra.id])
+        XCTAssertEqual(book.extras(inSession: performed.id).map(\.id), [extra.id])
         XCTAssertNotNil(summary.duration)
         XCTAssertEqual(book.finishedSessions.map(\.id), [performed.id])
+    }
+
+    func testASessionLastsFromStartToEnd() {
+        var session = PerformedSession(id: "s", payload: SessionPayload(time: RecordTime(start: "2026-11-26T08:00:00-05:00")))
+        XCTAssertNil(session.duration)
+        session.payload.time.end = "2026-11-26T14:10:00Z"
+        XCTAssertEqual(session.duration, 4200)
     }
 }

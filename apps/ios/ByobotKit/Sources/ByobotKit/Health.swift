@@ -1,6 +1,4 @@
-// Apple Health readings as samples for the laptop: body measurements, heart, activity, mobility, vitals, sleep
-// and workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
-// reads them there and sends them to the laptop, which decides which source wins for each metric.
+// Apple Health readings as samples for the laptop, which decides which source wins for each metric.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -11,23 +9,15 @@ public struct HealthOrigin: Equatable, Sendable {
     public var sourceName: String
     public var sourceBundleId: String
     public var deviceName: String?
-    public var deviceManufacturer: String?
-    public var deviceModel: String?
-    /// HealthKit's local or UDI identifier for the device, when it has one.
-    public var deviceIdentifier: String?
 
-    public init(sourceName: String, sourceBundleId: String, deviceName: String? = nil,
-                deviceManufacturer: String? = nil, deviceModel: String? = nil, deviceIdentifier: String? = nil) {
+    public init(sourceName: String, sourceBundleId: String, deviceName: String? = nil) {
         self.sourceName = sourceName
         self.sourceBundleId = sourceBundleId
         self.deviceName = deviceName
-        self.deviceManufacturer = deviceManufacturer
-        self.deviceModel = deviceModel
-        self.deviceIdentifier = deviceIdentifier
     }
 }
 
-/// A workout's totals, in the units the contract's workout_totals uses.
+/// A workout's totals, in the units the laptop's `mappers.HEALTH_TOTALS` reads them in.
 public struct WorkoutTotals: Equatable, Sendable {
     public var durationS: Double
     public var energyKcal: Double?
@@ -106,13 +96,8 @@ public enum HealthMapping {
                                      4: "asleep_deep", 5: "asleep_rem"]
 
     /// The registry code a HealthKit type is read as.
-    public static func spec(_ type: String) -> MetricSpec? {
+    private static func spec(_ type: String) -> MetricSpec? {
         MetricRegistry.healthkit[type].flatMap(MetricRegistry.spec)
-    }
-
-    /// The unit to send a type's values in: its code's own, or none for a count.
-    public static func unit(_ type: String) -> String? {
-        spec(type)?.units.first
     }
 
     /// A sample keyed on HealthKit's sample UUID, so sending it again changes nothing.
@@ -128,7 +113,7 @@ public enum HealthMapping {
             guard let spec = spec(t), amount.isFinite, amount <= (spec.maximum ?? .infinity),
                   amount > 0 || (amount == 0 && spec.units.first == "%") else { return nil }
             type = t
-            value = .number((amount * 1000).rounded() / 1000)
+            value = .number(milli(amount))
             unit = spec.units.first
         case .sleep(let stage):
             guard let name = sleepStages[stage] else { return nil }
@@ -164,7 +149,7 @@ public enum HealthMapping {
         }
         return Sample(source: source, sourceId: "daily:\(d.type):\(key)", type: d.type,
                       start: Timestamp.string(d.start, zone: calendar.timeZone),
-                      end: Timestamp.string(d.end, zone: calendar.timeZone), value: .number((d.value * 1000).rounded() / 1000),
+                      end: Timestamp.string(d.end, zone: calendar.timeZone), value: .number(milli(d.value)),
                       unit: spec.units.first, raw: .object(raw))
     }
 
@@ -209,10 +194,11 @@ public enum HealthMapping {
     }
 
     static func workoutTotals(_ t: WorkoutTotals) -> [String: JSONValue] {
-        var out: [String: JSONValue] = ["duration_s": .number((t.durationS * 1000).rounded() / 1000)]
+        var out: [String: JSONValue] = ["duration_s": .number(milli(t.durationS))]
+        let heartRate = MetricRegistry.spec("heart_rate")?.maximum ?? .infinity
         let optional: [(String, Double?, Double)] = [
             ("energy_kcal", t.energyKcal, .infinity), ("distance_m", t.distanceM, .infinity),
-            ("heart_rate_avg_bpm", t.heartRateAvgBpm, 300), ("heart_rate_max_bpm", t.heartRateMaxBpm, 300),
+            ("heart_rate_avg_bpm", t.heartRateAvgBpm, heartRate), ("heart_rate_max_bpm", t.heartRateMaxBpm, heartRate),
         ]
         for (key, value, max) in optional {
             if let value, value.isFinite, value >= 0, value <= max, !(key.hasPrefix("heart") && value == 0) {
@@ -220,6 +206,11 @@ public enum HealthMapping {
             }
         }
         return out
+    }
+
+    /// Rounded to three decimals.
+    private static func milli(_ x: Double) -> Double {
+        (x * 1000).rounded() / 1000
     }
 
     /// The device that measured it, else the app that wrote it.

@@ -9,8 +9,7 @@ from byobot.core.contract import sync_errors
 from byobot.core.store import Store
 from byobot.util import ValidationFailed, uuid7
 
-PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
-ME = {"kind": "human", "id": "me"}
+from helpers import ME, PHONE
 
 
 def event(kind="effort", op="put", device_id=PHONE, actor=ME, **extra):

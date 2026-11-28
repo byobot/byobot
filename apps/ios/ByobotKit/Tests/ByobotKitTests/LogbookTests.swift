@@ -155,8 +155,9 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.pendingEvents.count, 2)
         XCTAssertEqual(book.state.rejected.map(\.eventId), [sent[3].id])
         XCTAssertEqual(book.state.rejected.map(\.reason), ["nope"])
-        XCTAssertEqual(book.localEfforts.first?.id, a.id)
-        XCTAssertNil(book.localEfforts.last?.metrics, "no metrics means none, not an empty map")
+        let efforts = book.state.events.filter { $0.record.kind == "effort" }
+        XCTAssertEqual(efforts.first?.record.id, a.id)
+        XCTAssertNil(try XCTUnwrap(efforts.last?.decoded(EffortPayload.self)).metrics, "no metrics means none, not an empty map")
     }
 
     func testWritesComeAfterTheLaptopsClock() throws {
@@ -180,7 +181,7 @@ final class LogbookTests: XCTestCase {
         var window = try Fixtures.window()
         window.erased = [ErasedRecord(kind: "effort", id: erased.id), ErasedRecord(kind: "session", id: session.id)]
         book.applyPlan(window)
-        XCTAssertEqual(book.localEfforts.map(\.id), [kept.id])
+        XCTAssertEqual(book.state.events.filter { $0.record.kind == "effort" }.map(\.record.id), [kept.id])
         XCTAssertFalse(book.pendingEvents.contains { $0.record.id == erased.id || $0.record.id == session.id })
         XCTAssertEqual(book.prev("effort", erased.id), [])
         XCTAssertNil(book.activeSession)
@@ -365,6 +366,16 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(book.state.health?.days, [:], "another store gets them again")
     }
 
+    func testSendingAppleHealthKeepsWhereItStopped() {
+        var book = makeLogbook()
+        book.enableHealth()
+        book.sentHealth(anchors: ["steps": Data([1])], days: ["daily:steps:2026-11-20": -18_000])
+        XCTAssertEqual(book.state.health?.enabled, true)
+        XCTAssertEqual(book.state.health?.anchors, ["steps": Data([1])])
+        XCTAssertEqual(book.state.health?.days, ["daily:steps:2026-11-20": -18_000])
+        XCTAssertNotNil(book.state.lastHealthSyncAt)
+    }
+
     func testASetTheLaptopTookStaysUntilAPlanShowsIt() throws {
         let planned = try plannedSession()
         let pullUp = planned.blocks[0].efforts[0]
@@ -499,13 +510,13 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(fixed.round, 2)
         XCTAssertEqual(fixed.sessionId, first.sessionId)
         XCTAssertEqual(fixed.plannedEffortId, pullUp.id)
-        XCTAssertEqual(book.localEfforts, [fixed])
+        XCTAssertEqual(book.efforts(inSession: try XCTUnwrap(first.sessionId)), [fixed])
         XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[2], fixed)
         let edits = book.pendingEvents.filter { $0.record.kind == "effort" }
         XCTAssertEqual(edits.count, 2, "the correction is a new event")
         XCTAssertEqual(edits[1].prev, first.prev, "naming the version it corrects")
         XCTAssertGreaterThan(edits[1].hlc, edits[0].hlc)
-        XCTAssertFalse(book.loggedElsewhere(first.id))
+        XCTAssertNil(book.state.remoteOriginals?[first.id])
 
         let moved = book.editEffort(fixed, metrics: ["reps": .exact(6)], side: nil, notes: nil,
                                     performedAt: "2026-11-26T07:05:00-05:00")
@@ -542,7 +553,7 @@ final class LogbookTests: XCTestCase {
         XCTAssertEqual(fixed.performedAt, remote.performedAt)
         XCTAssertEqual(book.pendingEvents.last?.prev, remote.prev, "a change made elsewhere meanwhile shows as a conflict")
         XCTAssertEqual(book.logged(for: planned)[pullUp.id]?[1], fixed)
-        XCTAssertTrue(book.loggedElsewhere(remote.id))
+        XCTAssertNotNil(book.state.remoteOriginals?[remote.id])
         XCTAssertTrue(book.canUndo(remote.id))
 
         let undo = book.undoEffort(id: remote.id)
@@ -646,7 +657,7 @@ final class LogbookTests: XCTestCase {
         book.editEffort(first, metrics: ["reps": .exact(9)], side: nil, notes: nil)
         XCTAssertEqual(book.undoEffort(id: first.id).map(\.op), [.retract])
         XCTAssertNil(book.logged(for: planned)[dip.id]?[1])
-        XCTAssertEqual(book.localEfforts, [])
+        XCTAssertEqual(book.efforts(inSession: try XCTUnwrap(first.sessionId)), [])
         XCTAssertNil(book.state.remoteOriginals)
     }
 
@@ -823,8 +834,7 @@ final class ClockAndHealthTests: XCTestCase {
                        "daily:HKQuantityTypeIdentifierStepCount:2026-11-20")
     }
 
-    let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale",
-                              deviceManufacturer: "Example")
+    let origin = HealthOrigin(sourceName: "Example Scale", sourceBundleId: "com.example.scale")
 
     func reading(_ value: HealthValue, minutes: Double = 0) -> HealthReading {
         HealthReading(uuid: UUID(uuidString: "6F1D0C8E-3A1B-4C2D-9E8F-7A6B5C4D3E2F")!,
@@ -848,13 +858,16 @@ final class ClockAndHealthTests: XCTestCase {
     }
 
     func testEveryHealthKitTypeIsSentInItsCodesOwnUnit() throws {
-        for (type, code) in MetricRegistry.healthkit {
-            let spec = try XCTUnwrap(MetricRegistry.spec(code))
-            XCTAssertEqual(HealthMapping.unit(type), spec.units.first, type)
+        func unit(_ type: String) throws -> String? {
+            try XCTUnwrap(HealthMapping.sample(reading(.quantity(type, 1))), type).unit
         }
-        XCTAssertEqual(HealthMapping.unit("HKQuantityTypeIdentifierHeartRate"), "/min")
-        XCTAssertEqual(HealthMapping.unit("HKQuantityTypeIdentifierBodyFatPercentage"), "%")
-        XCTAssertNil(HealthMapping.unit("HKQuantityTypeIdentifierStepCount"), "a count has no unit")
+        for (type, code) in MetricRegistry.healthkit where type != HealthMapping.sleepType {
+            let spec = try XCTUnwrap(MetricRegistry.spec(code))
+            XCTAssertEqual(try unit(type), spec.units.first, type)
+        }
+        XCTAssertEqual(try unit("HKQuantityTypeIdentifierHeartRate"), "/min")
+        XCTAssertEqual(try unit("HKQuantityTypeIdentifierBodyFatPercentage"), "%")
+        XCTAssertNil(try unit("HKQuantityTypeIdentifierStepCount"), "a count has no unit")
         XCTAssertNotNil(MetricRegistry.healthkit[HealthMapping.sleepType])
     }
 

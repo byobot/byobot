@@ -2,16 +2,16 @@
 
 import json
 import re
-from pathlib import Path
 
 import pytest
 
 from byobot.core.contract import Contract
 
+from helpers import REPO
+
 CONTRACT = Contract.shipped()
 
-HERE = Path(__file__).resolve()
-ROOT = next(p / "library" for p in HERE.parents if (p / "library" / "vocabulary.json").is_file())
+ROOT = REPO / "library"
 FILES = sorted((ROOT / "activities").glob("*.json")) if (ROOT / "activities").is_dir() else []
 VOCABULARY = json.loads((ROOT / "vocabulary.json").read_text(encoding="utf-8"))
 

@@ -940,6 +940,8 @@ public struct EventsRequest: Codable, Equatable, Hashable, Sendable {
     /// The app's kind versions (all 1 when absent). The server rejects a put on top of a version the app doesn't know.
     public var kindVersions: [String: Int]?
 
+    public static let maxEvents = 2000
+
     public init(events: [Event], kindVersions: [String: Int]? = nil) {
         self.events = events
         self.kindVersions = kindVersions

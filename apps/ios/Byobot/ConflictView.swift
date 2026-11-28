@@ -16,7 +16,7 @@ struct ConflictView: View {
                 Section {
                     if case .object(let fields)? = version.payload {
                         ForEach(conflict.fields, id: \.self) { name in
-                            LabeledContent(name.replacingOccurrences(of: "_", with: " ").capitalized,
+                            LabeledContent(Format.words(name),
                                            value: Self.text(fields[name]))
                         }
                     } else {
@@ -35,13 +35,12 @@ struct ConflictView: View {
     }
 
     static func title(_ conflict: Conflict) -> String {
-        conflict.name ?? conflict.kind.replacingOccurrences(of: "_", with: " ").capitalized
+        conflict.name ?? Format.words(conflict.kind)
     }
 
     static func author(_ actor: Actor) -> String {
         switch actor.kind {
         case .human: return "You"
-        case .agent: return actor.id
         default: return actor.id
         }
     }

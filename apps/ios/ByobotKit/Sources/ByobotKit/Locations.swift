@@ -11,8 +11,6 @@ public struct LastTime: Equatable, Sendable {
     public var locationId: String?
     /// Done somewhere other than where you are now (or somewhere unrecorded), so the load may not carry over.
     public var elsewhere: Bool
-
-    public static let empty = LastTime(efforts: [], locationId: nil, elsewhere: false)
 }
 
 /// An activity id from what someone typed: one they already have, else theirs as `x.` and a slug.

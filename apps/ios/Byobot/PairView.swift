@@ -1,4 +1,4 @@
-// Pairing with `byobot serve`. Proposal: scan its QR with the Camera app (it opens byobot), or type
+// Pairing with `byobot serve`: scan its QR with the Camera app (it opens byobot), or type
 // the address and code and compare the fingerprint by eye.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.

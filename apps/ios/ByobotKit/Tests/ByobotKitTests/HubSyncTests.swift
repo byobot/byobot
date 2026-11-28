@@ -35,7 +35,7 @@ actor FakeHub: SyncTransport {
         return EventsResponse(results: results, accepted: results.count, duplicate: 0, storedUnprojected: 0, rejected: 0)
     }
 
-    func plan(from: String?, to: String?) async throws -> PlanWindow {
+    func plan() async throws -> PlanWindow {
         calls.append("plan")
         return PlanWindow(from: "2026-11-01", to: "2026-12-31", received: received)
     }

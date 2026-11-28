@@ -12,14 +12,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-INTENTS = (
-    "define_activity", "define_location", "define_plan", "plan_session", "replan_session", "log_session",
-    "log_effort", "edit", "undo", "remove", "resolve", "correct_import", "same_as", "erase",
-)
-OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
-SOURCES = ("whoop", "apple_health")
-
-
 class Unsupported(Exception):
     """The driver has no way to express this operation."""
 
@@ -92,8 +84,6 @@ class Driver(Protocol):
 
     def local_dates(self, state: Any) -> dict[str, str]:
         """Each session and effort's local date, as reads bucket it."""
-
-    def read(self, state: Any, surface: str, command: str, args: dict) -> Any: ...
 
     def export_log(self, state: Any) -> Any: ...
 

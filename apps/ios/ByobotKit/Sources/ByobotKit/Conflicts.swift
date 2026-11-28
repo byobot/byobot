@@ -36,16 +36,13 @@ extension Logbook {
     public var conflicts: [Conflict] {
         guard let plan = state.plan else { return [] }
         let pending = Set(state.pending)
-        func open<P: Codable & Hashable & Sendable>(_ kind: String, _ records: [Record<P>]) -> [Conflict] {
-            records.compactMap { (record: Record<P>) -> Conflict? in
+        return PlanWindow.kinds.flatMap { kind in
+            plan.records(kind).compactMap { record -> Conflict? in
                 guard record.conflict == true, let versions = record.versions, versions.count > 1 else { return nil }
                 if let mine = lastEvent(kind, record.id), fresh(mine, pending: pending) { return nil }
-                return Conflict(kind: kind, recordId: record.id, shown: Payloads.json(record.payload), versions: versions)
+                return Conflict(kind: kind, recordId: record.id, shown: record.json, versions: versions)
             }
         }
-        return open("activity", plan.activities) + open("location", plan.locations) + open("setting", plan.settings)
-            + open("plan", plan.plans) + open("planned_session", plan.plannedSessions) + open("session", plan.sessions)
-            + open("effort", plan.efforts)
     }
 
     /// Ends a conflict with one of its versions. The write names every version as prev, which is what ends it.

@@ -104,7 +104,7 @@ private struct EquipmentSection: View {
                 Text("Your activities don't list any equipment yet.").foregroundStyle(.secondary)
             }
             ForEach(all, id: \.self) { item in
-                Toggle(item.replacingOccurrences(of: "_", with: " ").capitalized, isOn: Binding(
+                Toggle(Format.words(item), isOn: Binding(
                     get: { model.book.equipment?.contains(item) ?? true },
                     set: { on in
                         var have = model.book.equipment ?? Set(all)

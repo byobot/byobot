@@ -90,6 +90,19 @@ public struct Countdown: Codable, Equatable, Sendable {
     }
 }
 
+/// An interval block or a hold running on the clock, with the slots it started with.
+public struct RunningClock: Equatable, Sendable {
+    public var plannedSessionId: String
+    public var slotIds: [String]
+    public var startedAt: Date
+
+    public init(plannedSessionId: String, slotIds: [String], startedAt: Date) {
+        self.plannedSessionId = plannedSessionId
+        self.slotIds = slotIds
+        self.startedAt = startedAt
+    }
+}
+
 /// Work and rest phases for timed slots: a hold, each side of a hold, or a whole interval block.
 public struct IntervalClock: Equatable, Sendable {
     public struct Phase: Equatable, Sendable {
@@ -166,10 +179,7 @@ extension Workout {
         let rows = exercises.map { exercise in
             SummaryRow(exercise: exercise, sets: (logged[exercise.effort.id] ?? [:]).sorted { $0.key < $1.key }.map(\.value))
         }
-        let duration = performed.flatMap { s in
-            s.endedAt.flatMap(Timestamp.date).flatMap { end in Timestamp.date(s.startedAt).map { end.timeIntervalSince($0) } }
-        }
-        return SessionSummary(rows: rows, extras: extras, done: done, total: total, duration: duration)
+        return SessionSummary(rows: rows, extras: extras, done: done, total: total, duration: performed?.duration)
     }
 }
 
@@ -186,6 +196,11 @@ extension Logbook {
         state.plan?.activity(id) ?? shipped.first { $0.id == id }
     }
 
+    /// The activity's name, else its id.
+    public func name(of id: String) -> String {
+        activity(id)?.name ?? id
+    }
+
     /// Every set of an activity this phone knows of: pulled from the laptop, with this phone's own versions on top.
     func efforts(of activityId: String) -> [PerformedEffort] {
         currentEfforts {
@@ -199,6 +214,13 @@ extension Logbook {
         let last = lastTime(slot.activityId, excludingSession: activeSession?.id, at: currentLocationId)
         return Prefill.asPlanned(slot, previous: workout.previous(slot), lastTime: last.elsewhere ? nil : last.efforts.last,
                                  atAnotherGym: plannedElsewhere(workout.session))
+    }
+
+    /// Log a planned set, swap and all.
+    @discardableResult
+    public mutating func log(_ slot: Slot, metrics: Metrics, notes: String? = nil, in workout: Workout) -> PerformedEffort {
+        logEffort(activityId: slot.activityId, metrics: metrics, plannedEffortId: slot.effort.id, round: slot.round,
+                  side: slot.effort.side, notes: workout.notes(for: slot, notes))
     }
 
     /// Your order and swaps for a planned session, kept on this phone; what you did goes in the logged sets.

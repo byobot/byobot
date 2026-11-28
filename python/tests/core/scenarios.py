@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from byobot.core.store import Store
+
 from .harness import World
 
 
@@ -69,3 +73,10 @@ def weight(sid: str, at: str, kg: float, modified: str | None = None) -> dict:
     if modified:
         sample["raw"] = {"modified_at": modified}
     return sample
+
+
+def held_bytes(world, name: str) -> bytes:
+    """Every byte a replica's store keeps on disk, and its export."""
+    store: Store = world.state(name).store
+    files = [Path(f"{store.path}{suffix}") for suffix in ("", "-wal", "-shm")]
+    return b"".join(f.read_bytes() for f in files if f.exists()) + "".join(store.export()).encode()

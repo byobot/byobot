@@ -1,32 +1,23 @@
 from __future__ import annotations
 
-import contextlib
-import http.client
 import io
 import json
-import sqlite3
 import subprocess
 import sys
-import threading
-import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from byobot import __version__, mcp, remote, serve
 from byobot.cli import build_parser, main
-from byobot.commands import REGISTRY, Command, Context, run
+from byobot.commands import REGISTRY, Context, run
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.store import Store
 from byobot.review import review
 from byobot.util import Conflict, ValidationFailed
 
-
-def cli(capsys, *argv):
-    code = main(list(argv))
-    out, err = capsys.readouterr()
-    return code, (json.loads(out) if out.strip() else None), err
+from helpers import AGENT, ME, cli, via_cli, via_mcp, while_another_process_writes
 
 
 def test_cli_commands_come_from_the_registry():
@@ -79,9 +70,6 @@ def test_bad_profile_names_are_refused(capsys, name):
 WEIGHT = {"source": "apple_health", "source_id": "w-1", "type": "HKQuantityTypeIdentifierBodyMass",
           "start": "2026-11-20T07:00:00-05:00", "end": "2026-11-20T07:00:00-05:00", "value": 82.4, "unit": "kg",
           "device": "Example scale"}
-RESTING = {"source": "apple_health", "source_id": "r-1", "type": "HKQuantityTypeIdentifierRestingHeartRate",
-           "start": "2026-11-20T00:00:00-05:00", "end": "2026-11-21T00:00:00-05:00", "value": 52,
-           "unit": "count/min", "device": "Example Watch"}
 
 
 def test_log_list_and_query(capsys):
@@ -337,6 +325,43 @@ def test_list_activities_by_source(capsys, tmp_path, monkeypatch):
     assert [i["id"] for i in cli(capsys, "list", "activity", "--source", "library")[1]["items"]] == ["dip"]
 
 
+def define(capsys, activity):
+    rid = activity.pop("id")
+    assert cli(capsys, "log", "activity", json.dumps(activity), "--id", rid)[0] == 0
+
+
+def test_list_activities_by_muscle_and_equipment(capsys):
+    for a in ({"id": "x.cable_row", "name": "Cable Row", "load_type": "cable",
+               "targets": {"main": ["lats"], "synergists": ["biceps"]}},
+              {"id": "x.cable_curl", "name": "Cable Curl", "load_type": "cable", "targets": {"main": ["biceps"]}},
+              {"id": "x.dumbbell_row", "name": "Dumbbell Row", "load_type": "dumbbell", "equipment": ["bench"],
+               "targets": {"main": ["lats"]}},
+              {"id": "x.plank", "name": "Plank"}):
+        define(capsys, a)
+
+    def ids(*argv):
+        return [i["id"] for i in cli(capsys, "list", "activity", *argv)[1]["items"]]
+
+    assert ids("--muscle", "biceps") == ["x.cable_curl", "x.cable_row"]
+    assert ids("--muscle", "lats", "--equipment", "cable") == ["x.cable_row"]
+    assert ids("--source", "store", "--muscle", "lats", "--equipment", "dumbbell") == ["x.dumbbell_row"]
+    assert ids("--equipment", "bench") == ["x.dumbbell_row"]
+
+
+def test_list_activities_brief(capsys):
+    define(capsys, {"id": "x.cable_row", "name": "Cable Row", "load_type": "cable", "equipment": ["bench"],
+                    "targets": {"main": ["lats"]}, "notes": "Neutral grip."})
+    define(capsys, {"id": "x.plank", "name": "Plank"})
+    brief = cli(capsys, "list", "activity", "--detail", "brief")[1]["items"]
+    assert brief == [{"id": "x.cable_row", "name": "Cable Row", "targets": {"main": ["lats"]}, "load_type": "cable",
+                      "equipment": ["bench"], "source": "store"}, {"id": "x.plank", "name": "Plank", "source": "store"}]
+
+
+def test_schema_vocabulary(capsys, tmp_path, monkeypatch):
+    (tmp_path / "library" / "vocabulary.json").write_text(json.dumps({"muscles": ["lats"], "equipment": ["cable"]}))
+    assert cli(capsys, "schema", "vocabulary")[1] == {"name": "vocabulary", "muscles": ["lats"], "equipment": ["cable"]}
+
+
 def test_list_refuses_filters_that_dont_fit_and_says_when_cut_short(capsys):
     code, _, err = cli(capsys, "list", "session", "--muscle", "chest")
     assert code == 1 and json.loads(err)["message"] == "muscle doesn't apply to list session; it fits activity"
@@ -396,133 +421,6 @@ def test_switches_are_booleans():
         run("remote key", Context(actor={"kind": "human", "id": "me"}), {"name": "example", "show": "yes"})
 
 
-BASE = "https://example-laptop.example.ts.net"
-
-
-def _refuse(constant: str):
-    raise ValueError(f"not JSON: {constant}")
-
-
-def strict_loads(text: str):
-    """JSON as RFC 8259 has it: NaN and Infinity are not JSON."""
-    return json.loads(text, parse_constant=_refuse)
-
-
-def shared() -> list[Command]:
-    """Commands that the CLI, MCP and the JSON API all offer."""
-    return [c for c in REGISTRY.values() if c.mcp]
-
-
-def filler(cmd: Command) -> dict:
-    """Some value for every required argument, so a later check is the one that answers."""
-    out = {}
-    for p in cmd.params:
-        if not p.required:
-            continue
-        if p.choices:
-            out[p.name] = p.choices[0]
-        elif p.type == "integer":
-            out[p.name] = 1
-        elif p.type == "json":
-            out[p.name] = {}
-        else:
-            out[p.name] = "example-id"
-    return out
-
-
-def argv_for(cmd: Command, args: dict, extra: list[str] | None = None) -> list[str]:
-    positional, flags = [], []
-    for p in cmd.params:
-        if p.name not in args:
-            continue
-        value = args[p.name]
-        text = json.dumps(value) if p.type == "json" else str(value)
-        if p.positional:
-            positional.append(text)
-        else:
-            flags += [f"--{p.name.replace('_', '-')}", text]
-    return [*cmd.name.split(" "), *positional, *flags, *(extra or [])]
-
-
-def via_cli(argv: list[str]) -> tuple:
-    out, err = io.StringIO(), io.StringIO()
-    try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = main(argv)
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
-    except BaseException as exc:  # noqa: BLE001 - a traceback is what we are looking for
-        return ("broken", f"raised {type(exc).__name__}: {exc}")
-    if code == 0:
-        try:
-            return ("ok", strict_loads(out.getvalue()))
-        except ValueError as exc:
-            return ("broken", f"exit 0 but stdout is not JSON: {exc}")
-    try:
-        body = strict_loads(err.getvalue())
-    except ValueError:
-        return ("broken", f"exit {code}, stderr not JSON: {err.getvalue().strip()[-160:]}")
-    if code == 1 and isinstance(body, dict) and "error" in body:
-        return ("error", body["error"])
-    return ("broken", f"exit {code}: {body}")
-
-
-def via_mcp(tool: str, args: dict) -> tuple:
-    server = mcp.Server()
-    server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",
-                   "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "example-agent"}}})
-    try:
-        reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                               "params": {"name": tool, "arguments": args}})
-    finally:
-        server.close()
-    if "error" in reply:
-        return ("broken", f"JSON-RPC error {reply['error']}")
-    result = reply["result"]
-    body = json.loads(result["content"][0]["text"])
-    if result["isError"]:
-        return ("error", body.get("error") if isinstance(body, dict) else body)
-    return ("ok", body)
-
-
-class Api:
-    """`byobot remote`'s JSON API, on a free port, with an API key."""
-
-    def __init__(self, home):
-        from byobot.core.store import Store
-
-        Store(home / "byobot.db").close()
-        self.server = remote.make_server(BASE, "127.0.0.1", 0, pair=False)
-        self.key = self.server.auth.create_key("example_assistant")
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-
-    def raw(self, path: str, body: bytes) -> tuple[int, bytes]:
-        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=30)
-        conn.request("POST", path, body=body, headers={"Content-Type": "application/json",
-                                                       "Authorization": f"Bearer {self.key}"})
-        resp = conn.getresponse()
-        data = resp.read()
-        conn.close()
-        return resp.status, data
-
-    def call(self, tool: str, args: dict) -> tuple:
-        status, data = self.raw(f"/api/v1/tools/{tool}", json.dumps(args).encode())
-        try:
-            body = strict_loads(data)
-        except ValueError as exc:
-            return ("broken", f"HTTP {status}, body not JSON: {exc}")
-        if status == 200:
-            return ("ok", body)
-        if 400 <= status < 500 and isinstance(body, dict) and "error" in body:
-            return ("error", body["error"])
-        return ("broken", f"HTTP {status}: {body}")
-
-    def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-
-
 def test_cli_mcp_does_not_offer_at_path_files_it_cannot_read(tmp_path):
     """CLI-11: import activities tells agents "Use @path for a file", but only the CLI reads @path; over MCP and the
     API the string is refused as "expected a list of activities"."""
@@ -538,9 +436,6 @@ def test_cli_a_text_value_is_taken_as_the_help_says(capsys):
     `byobot resolve session ID remove` stops at "could not read JSON" unless the word is typed with JSON quotes."""
     via_cli(["resolve", "session", "example-id", "remove"])
     assert "could not read JSON" not in capsys.readouterr().err
-
-
-ME = {"kind": "human", "id": "me"}
 
 
 EST = timezone(timedelta(hours=-5))
@@ -576,9 +471,6 @@ def test_cli_events_since_a_timestamp_compares_instants_not_text(byobot_home):
     finally:
         ctx.close()
     assert (since["count"], until["count"]) == (1, 0)
-
-
-AGENT = {"kind": "agent", "id": "example-agent"}
 
 
 def test_cli_two_logs_of_the_same_new_id_never_overwrite_each_other(byobot_home):
@@ -630,31 +522,11 @@ def test_cli_a_mistyped_profile_is_refused_not_created(byobot_home):
     assert not (byobot_home / "profiles" / "alxe").exists()
 
 
-HOLD_S = 6.5  # longer than the store's 5 s busy timeout, as a big ingest, restore or rebuild is
-
-
 def test_cli_a_read_answers_while_another_process_holds_the_write_lock(byobot_home):
     """CLI-13."""
     assert via_cli(["init"])[0] == "ok"
-    ready = threading.Event()
-
-    def writer():
-        conn = sqlite3.connect(byobot_home / "byobot.db", isolation_level=None, timeout=10)
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
-        ready.set()
-        time.sleep(HOLD_S)
-        conn.execute("COMMIT")
-        conn.close()
-
-    thread = threading.Thread(target=writer)
-    thread.start()
-    ready.wait(5)
-    try:
-        cli_answer = via_cli(["list", "session"])
-        mcp_answer = via_mcp("list", {"kind": "session"})
-    finally:
-        thread.join()
+    cli_answer, mcp_answer = while_another_process_writes(
+        byobot_home / "byobot.db", lambda: (via_cli(["list", "session"]), via_mcp("list", {"kind": "session"})))
     assert (cli_answer[0], mcp_answer[0]) == ("ok", "ok"), (cli_answer, mcp_answer)
 
 

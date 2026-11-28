@@ -254,6 +254,11 @@ extension MetricRegistry {
     static func order(_ name: String) -> Int {
         all.firstIndex { $0.name == name } ?? all.count
     }
+
+    /// Metric names in the order the app lists them.
+    public static func sorted<Names: Sequence>(_ names: Names) -> [String] where Names.Element == String {
+        names.sorted { order($0) != order($1) ? order($0) < order($1) : $0 < $1 }
+    }
 }
 
 /// UCUM units as the app shows them: `[lb_av]` → `lb`, `/min` → `bpm`.

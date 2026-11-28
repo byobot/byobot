@@ -7,11 +7,9 @@ import json
 import socket
 import sqlite3
 import ssl
-import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -23,10 +21,9 @@ from byobot.core.store import Store
 from byobot.util import uuid7
 from conftest import newer_contract
 
-SYNC = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "sync.json").read_text())
-CASES = json.loads((Path(__file__).resolve().parents[2] / "schema" / "fixtures" / "v1" / "cases.json").read_text())["cases"]
-PHONE = "0193a0b0-0000-7000-8000-00000000ab01"
-ME = {"kind": "human", "id": "me"}
+from helpers import ME, PHONE, exchange, fixture, serving, while_another_process_writes
+
+SYNC = fixture("sync.json")
 AGENT = {"kind": "agent", "id": "example-coach"}
 
 
@@ -321,13 +318,8 @@ def running(**kw):
     logs = []
     kw = {"pair": True, "log": logs.append, **kw}
     srv, info = serve.make_server("127.0.0.1", 0, **kw)
-    thread = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    thread.start()
-    try:
+    with serving(srv):
         yield srv, info, Client(info["port"], info["fingerprint"]), logs
-    finally:
-        srv.shutdown()
-        srv.server_close()
 
 
 @pytest.fixture
@@ -1056,127 +1048,27 @@ def test_a_refusal_after_an_earlier_post_on_the_connection_does_not_desync_it(de
     assert extra is None, f"the body was answered as a request of its own: {extra}"
 
 
-BASE = "https://example-laptop.example.ts.net"
-
-
-@pytest.fixture
-def remote_server(byobot_home):
-    Store(byobot_home / "byobot.db").close()
-    server = remote.make_server(BASE, "127.0.0.1", 0, pair=True)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    thread.start()
-    yield server
-    server.shutdown()
-    server.server_close()
-
-
-def _exchange(sock, raw: bytes) -> bytes:
-    sock.sendall(raw)
-    out = b""
-    try:
-        while True:
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            out += chunk
-    except (TimeoutError, socket.timeout, ConnectionError, ssl.SSLError):
-        pass
-    return out
-
-
 def test_a_pairing_code_in_other_digits_gets_an_answer_and_spends_a_try(server):
     srv, info, client, _ = server
     # "١٢٣٤٥٦" is 123456 in Arabic-Indic digits: not ASCII, so secrets.compare_digest raises TypeError.
     body = json.dumps({"code": "١٢٣٤٥٦", "device_id": "example-phone",
                        "name": "Example iPhone"}).encode()
     sock = _tls_client(info["port"], info["fingerprint"])
-    reply = _exchange(sock, b"POST /v1/pair HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+    reply = exchange(sock, b"POST /v1/pair HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
                             b"Connection: close\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
     sock.close()
     assert reply.startswith(b"HTTP/1.1 403"), f"no answer at all: {reply[:80]!r}"
     assert srv.pairing.tries_left == web.PAIRING_TRIES - 1
 
 
-def test_an_approval_code_in_other_digits_gets_a_page(remote_server):
-    from test_remote import CALLBACK, FORM, pkce, request
-
-    resp, raw = request(remote_server, "POST", "/oauth/register", {"client_name": "Example Assistant",
-                                                                   "redirect_uris": [CALLBACK],
-                                                                   "token_endpoint_auth_method": "none"})
-    client = json.loads(raw)
-    _, challenge = pkce()
-    params = {"response_type": "code", "client_id": client["client_id"], "redirect_uri": CALLBACK,
-              "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz"}
-    try:
-        resp, _ = request(remote_server, "POST", "/oauth/authorize", {**params, "approval_code": "¹²"}, FORM)
-        status = resp.status
-    except (http.client.HTTPException, ConnectionError):
-        status = None
-    assert status == 403, "the approval page dropped the connection instead of answering"
-
-
 def test_the_log_never_carries_terminal_control_codes_from_a_stranger(server):
     _, info, _, logs = server
     sock = _tls_client(info["port"], info["fingerprint"])
     # ESC ] 0 ; ... BEL sets the terminal's title; other sequences can rewrite what `byobot serve` showed.
-    _exchange(sock, b"GET /v1/\x1b]0;pwned\x07\x1b[2J HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    exchange(sock, b"GET /v1/\x1b]0;pwned\x07\x1b[2J HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     sock.close()
     assert logs, "nothing was logged"
     assert not any("\x1b" in line or "\x07" in line for line in logs), logs
-
-
-def test_registration_with_a_malformed_grant_types_gets_an_oauth_error(remote_server):
-    from test_remote import CALLBACK, request
-
-    try:
-        resp, raw = request(remote_server, "POST", "/oauth/register",
-                            {"redirect_uris": [CALLBACK], "token_endpoint_auth_method": "none", "grant_types": 5})
-        status = resp.status
-    except (http.client.HTTPException, ConnectionError):
-        status = None
-    assert status == 400, "an unauthenticated registration dropped the connection instead of answering"
-
-
-def test_a_client_that_never_sends_redirect_uri_can_finish_sign_in(remote_server):
-    """RFC 6749 4.1.3 (kept by OAuth 2.1): redirect_uri is required at the token endpoint only if it was in the
-    authorization request. byobot lets a client with one registered address leave it out of the request, then
-    insists on it at the token endpoint."""
-    from urllib.parse import parse_qs, urlencode, urlsplit
-
-    from test_remote import CALLBACK, FORM, pkce, request
-
-    resp, raw = request(remote_server, "POST", "/oauth/register", {"client_name": "Example Assistant",
-                                                                   "redirect_uris": [CALLBACK],
-                                                                   "token_endpoint_auth_method": "none"})
-    client = json.loads(raw)
-    verifier, challenge = pkce()
-    params = {"response_type": "code", "client_id": client["client_id"], "code_challenge": challenge,
-              "code_challenge_method": "S256", "state": "xyz"}  # no redirect_uri
-    resp, _ = request(remote_server, "GET", "/oauth/authorize?" + urlencode(params))
-    assert resp.status == 200
-    resp, _ = request(remote_server, "POST", "/oauth/authorize",
-                      {**params, "approval_code": remote_server.pairing.code}, FORM)
-    assert resp.status == 302
-    code = parse_qs(urlsplit(resp.getheader("Location")).query)["code"][0]
-    resp, raw = request(remote_server, "POST", "/oauth/token", {"grant_type": "authorization_code", "code": code,
-                                                               "client_id": client["client_id"],
-                                                               "code_verifier": verifier}, FORM)
-    assert resp.status == 200, raw
-
-
-def test_a_get_with_a_body_does_not_desync_the_next_request_on_the_connection(remote_server):
-    # Behind a tunnel, one upstream connection carries requests from different callers, so leftover body bytes
-    # would become the start of someone else's request.
-    smuggled = b"GET /api/v1/openapi.json HTTP/1.1\r\nHost: x\r\n\r\n"
-    first = (b"GET /.well-known/oauth-authorization-server HTTP/1.1\r\nHost: x\r\nContent-Length: "
-             + str(len(smuggled)).encode() + b"\r\n\r\n" + smuggled)
-    second = b"GET /.well-known/oauth-protected-resource HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
-    sock = socket.create_connection(("127.0.0.1", remote_server.server_address[1]), timeout=5)
-    reply = _exchange(sock, first + second)
-    sock.close()
-    answers = reply.count(b"HTTP/1.1 ")
-    assert b'"openapi"' not in reply, "the body of the first request was answered as a request of its own"
-    assert answers <= 2
 
 
 def test_a_restore_while_serving_is_what_phones_are_told(server, byobot_home, tmp_path):
@@ -1266,35 +1158,11 @@ def test_a_push_that_fails_part_way_still_answers(server, monkeypatch):
     assert status in (200, 503), body
 
 
-HOLD_S = 6.5  # longer than the store's 5 s busy timeout
-
-
-def _hold_write_lock(db: Path, ready: threading.Event, seconds: float) -> None:
-    conn = sqlite3.connect(db, isolation_level=None, timeout=10)
-    conn.execute("BEGIN IMMEDIATE")
-    conn.execute("INSERT INTO meta VALUES ('example_long_write', '1') ON CONFLICT (key) DO NOTHING")
-    ready.set()
-    time.sleep(seconds)
-    conn.execute("COMMIT")
-    conn.close()
-
-
-def _while_another_process_writes(db: Path, request):
-    ready = threading.Event()
-    writer = threading.Thread(target=_hold_write_lock, args=(db, ready, HOLD_S), daemon=True)
-    writer.start()
-    ready.wait(5)
-    try:
-        return request()
-    finally:
-        writer.join(15)
-
-
 def test_a_plan_read_while_another_process_writes_is_answered(server, byobot_home):
     srv, info, client, _ = server
     _pair(client, info)
     try:
-        status, body = _while_another_process_writes(byobot_home / "byobot.db",
+        status, body = while_another_process_writes(byobot_home / "byobot.db",
                                                      lambda: client.call("GET", "/v1/plan", timeout=20))
     except ConnectionError as exc:
         pytest.fail(f"the plan read got no HTTP answer while another process wrote: {exc}")
@@ -1306,7 +1174,7 @@ def test_a_push_while_another_process_writes_gets_an_answer(server, byobot_home)
     _pair(client, info)
     events = [location("example_park", "Example park")]
     try:
-        status, body = _while_another_process_writes(
+        status, body = while_another_process_writes(
             byobot_home / "byobot.db",
             lambda: client.call("POST", "/v1/events", {"events": events, "kind_versions": {}}, timeout=20))
     except ConnectionError as exc:
@@ -1398,21 +1266,6 @@ def test_an_event_body_with_a_huge_integer_gets_an_answer(server):
     except ConnectionError as exc:
         pytest.fail(f"no HTTP answer: {exc}")
     assert status == 400, answer
-
-
-def test_an_unauthenticated_registration_with_a_huge_integer_gets_an_answer(remote_server):
-    body = (b'{"redirect_uris": ["https://client.example/cb"], "token_endpoint_auth_method": "none", "x": '
-            + b"9" * 5000 + b"}")
-    conn = http.client.HTTPConnection("127.0.0.1", remote_server.server_address[1], timeout=10)
-    try:
-        conn.request("POST", "/oauth/register", body=body, headers={"Content-Type": "application/json"})
-        try:
-            resp = conn.getresponse()
-        except (http.client.RemoteDisconnected, ConnectionResetError) as exc:
-            pytest.fail(f"a stranger's registration got no HTTP answer: {exc!r}")
-        assert resp.status == 400
-    finally:
-        conn.close()
 
 
 def test_a_pairing_whose_token_could_not_be_stored_can_be_tried_again(server, monkeypatch):

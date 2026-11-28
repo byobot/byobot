@@ -68,17 +68,6 @@ final class ContractTests: XCTestCase {
             .decoded(PlannedSessionPayload.self), "a retract has no payload to read")
     }
 
-    func testOverlayIdsMatchTheContract() throws {
-        guard case .object(let doc) = try Fixtures.json("schema/fixtures/v1/ids.json"),
-              case .array(let overlays)? = doc["overlays"] else { return XCTFail("no overlays") }
-        XCTAssertFalse(overlays.isEmpty)
-        for case .object(let o) in overlays {
-            guard case .object(let target)? = o["target"], let effect = o.string("effect").flatMap(OverlayEffect.init),
-                  let kind = target.string("kind"), let id = target.string("id") else { return XCTFail("bad fixture") }
-            XCTAssertEqual(DerivedId.overlay(effect, kind: kind, id: id), o.string("record_id"), effect.rawValue)
-        }
-    }
-
     func testClockReadingsOrderAsText() throws {
         let pattern = try Fixtures.pattern("hlc")
         let at = Date(timeIntervalSince1970: 1_795_000_000)
@@ -125,6 +114,7 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(MetricRegistry.healthkit, healthkit)
         XCTAssertEqual(MetricRegistry.spec("load")?.units, ["kg", "[lb_av]"])
         XCTAssertEqual(MetricRegistry.spec("reps")?.kind, .integer)
+        XCTAssertEqual(MetricRegistry.sorted(["x.b", "load", "x.a", "reps"]), ["reps", "load", "x.a", "x.b"])
         XCTAssertEqual(MetricRegistry.spec("sleep_stage")?.values, HealthMapping.sleepStages.sorted { $0.key < $1.key }.map(\.value))
         XCTAssertTrue(MetricRegistry.isCustom("x.grade"))
         XCTAssertFalse(MetricRegistry.isCustom("grade"))

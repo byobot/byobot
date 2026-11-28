@@ -38,14 +38,6 @@ def sync(a: ModelReplica, b: ModelReplica) -> None:
     b.deliver(list(a.writes.values()))
 
 
-def test_sequential_edits_never_conflict():
-    phone, laptop = pair()
-    phone.author(edit(6), at(1), H)
-    phone.author(edit(7), at(2), H)
-    sync(phone, laptop)
-    assert reps(laptop) == 7 and not laptop.snapshot()["conflicts"]
-
-
 def test_concurrent_edits_conflict_and_converge():
     phone, laptop = pair()
     phone.author(edit(6), at(5), H)
@@ -55,23 +47,6 @@ def test_concurrent_edits_conflict_and_converge():
     versions = laptop.snapshot()["conflicts"]["effort/e1"]
     assert sorted(v["metrics"]["reps"]["value"] for v in versions) == [6, 9]
     assert reps(laptop) == 6  # the provisional version is the head with the highest clock
-
-
-def test_identical_concurrent_edits_do_not_conflict():
-    phone, laptop = pair()
-    phone.author(edit(6), at(5), H)
-    laptop.author(edit(6), at(1), H)
-    sync(phone, laptop)
-    assert not laptop.snapshot()["conflicts"] and reps(laptop) == 6
-
-
-def test_a_write_made_after_seeing_another_wins_whatever_the_clocks():
-    phone, laptop = pair()
-    phone.author(edit(5), at(0, hours=3), H)  # phone three hours fast
-    sync(phone, laptop)
-    laptop.author(edit(9), at(30), H)
-    sync(phone, laptop)
-    assert reps(phone) == reps(laptop) == 9 and not laptop.snapshot()["conflicts"]
 
 
 def test_undo_writes_the_previous_content_back():
@@ -111,24 +86,6 @@ def test_resolving_clears_the_conflict_everywhere():
                    "performed_at": at(0), "metrics": {"reps": {"value": 7}}}}, at(6), H)
     sync(phone, laptop)
     assert not phone.snapshot()["conflicts"] and reps(phone) == 7
-
-
-def test_two_different_resolutions_conflict_again_and_converge():
-    phone, laptop = pair()
-    phone.author(edit(6), at(5), H)
-    laptop.author(edit(9), at(1), H)
-    sync(phone, laptop)
-    phone.author({"intent": "resolve", "record": ["effort", "e1"], "choice": 0}, at(7), H)
-    laptop.author({"intent": "resolve", "record": ["effort", "e1"], "choice": 1}, at(7), H)
-    sync(phone, laptop)
-    assert phone.snapshot() == laptop.snapshot() and "effort/e1" in phone.snapshot()["conflicts"]
-
-
-def test_logging_a_taken_id_is_refused():
-    phone, _ = pair()
-    with pytest.raises(Refused):
-        phone.author(effort(1), at(3), H)
-    assert reps(phone) == 5
 
 
 def test_erase_wins_and_redacts_later_writes():
@@ -173,25 +130,6 @@ def health_workout(sid: str, start: str, end: str, distance: float) -> dict:
             "end": end, "value": "running", "raw": {"distance_m": distance, "heart_rate_avg_bpm": 148}}
 
 
-def test_source_revisions_are_all_kept_and_reimport_is_a_no_op():
-    phone = ModelReplica("phone")
-    first = workout("w1", at(0), at(50), at(51))
-    assert len(phone.ingest("whoop", {"workout": [first]}, at(52))) == 1
-    assert phone.ingest("whoop", {"workout": [first]}, at(53)) == []
-    phone.ingest("whoop", {"workout": [{**first, "updated_at": at(59), "score": {**first["score"], "strain": 13.0}}]},
-                 at(59))
-    history = phone.source_history("whoop", "workout", "w1")
-    assert [h["score"]["strain"] for h in history] == [12.0, 13.0]
-
-
-def test_two_devices_importing_one_revision_write_one_event():
-    phone, laptop = ModelReplica("phone"), ModelReplica("laptop")
-    w = workout("w1", at(0), at(50), at(51))
-    sent = phone.ingest("whoop", {"workout": [w]}, at(52))
-    laptop.ingest("whoop", {"workout": [w]}, at(55))
-    assert laptop.deliver(sent) == [("duplicate", "")]
-
-
 def test_one_workout_from_three_sources_is_one_occurrence_with_gaps_filled():
     phone = ModelReplica("phone")
     phone.author({"intent": "log_session", "record": {"id": "s1", "started_at": "2026-03-02T10:00:00.000Z",
@@ -204,14 +142,6 @@ def test_one_workout_from_three_sources_is_one_occurrence_with_gaps_filled():
     assert o["start"].startswith("2026-03-02T10:00:00")
     assert o["metrics"] == {"duration_s": "3360", "distance_m": "9000", "heart_rate": "150"}
     assert o["provenance"] == {"duration_s": "whoop", "distance_m": "apple_health", "heart_rate": "whoop"}
-
-
-def test_back_to_back_workouts_overlapping_a_minute_stay_two():
-    phone = ModelReplica("phone")
-    phone.ingest("whoop", {"workout": [
-        workout("w1", "2026-03-02T10:00:00.000Z", "2026-03-02T10:31:00.000Z", at(59)),
-        workout("w2", "2026-03-02T10:30:00.000Z", "2026-03-02T11:00:00.000Z", at(59))]}, at(59))
-    assert len(phone.occurrences()) == 2
 
 
 def test_a_correction_survives_a_rescore():

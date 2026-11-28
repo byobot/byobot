@@ -22,8 +22,7 @@ struct SummaryView: View {
             }
             ForEach(summary.rows) { row in
                 Section {
-                    LabeledContent("Plan", value: (row.exercise.total > 1 ? "\(row.exercise.total) × " : "")
-                                   + Format.metrics(row.exercise.effort.metrics))
+                    LabeledContent("Plan", value: Format.plan(row.exercise))
                     if row.sets.isEmpty {
                         Text("Skipped").foregroundStyle(.secondary)
                     }

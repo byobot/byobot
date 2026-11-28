@@ -31,7 +31,7 @@ struct SessionView: View {
                             logging = LogTarget(editing: effort)
                         } label: {
                             VStack(alignment: .leading) {
-                                Text(activityName(effort.activityId)).foregroundStyle(.primary)
+                                Text(model.book.name(of: effort.activityId)).foregroundStyle(.primary)
                                 Text(Format.metrics(effort.metrics)).font(.subheadline).foregroundStyle(.secondary)
                             }
                         }
@@ -64,10 +64,6 @@ struct SessionView: View {
                 dismiss()
             }
         }
-    }
-
-    private func activityName(_ id: String) -> String {
-        model.book.activity(id)?.name ?? id
     }
 }
 

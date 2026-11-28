@@ -174,21 +174,8 @@ public struct Logbook: Sendable {
         return (entry(kind, id)?.kindVersion ?? 1) > (KindVersion.all[kind] ?? 1)
     }
 
-    private func entry(_ kind: String, _ id: String) -> (prev: [String], kindVersion: Int?)? {
-        guard let plan = state.plan else { return nil }
-        func find<P: Codable & Hashable & Sendable>(_ records: [Record<P>]) -> (prev: [String], kindVersion: Int?)? {
-            records.first { $0.id == id }.map { ($0.prev, $0.kindVersion) }
-        }
-        switch kind {
-        case "activity": return find(plan.activities)
-        case "location": return find(plan.locations)
-        case "setting": return find(plan.settings)
-        case "plan": return find(plan.plans)
-        case "planned_session": return find(plan.plannedSessions)
-        case "session": return find(plan.sessions)
-        case "effort": return find(plan.efforts)
-        default: return nil
-        }
+    private func entry(_ kind: String, _ id: String) -> (any PlanEntry)? {
+        state.plan?.records(kind).first { $0.id == id }
     }
 
     func now() -> RecordTime {
@@ -310,22 +297,6 @@ public struct Logbook: Sendable {
         lastEvent(kind, id) != nil
     }
 
-    /// The latest version of each record of a kind written here, in the order first written. Retracted ones
-    /// are left out.
-    func written<P: Decodable & Encodable & Hashable & Sendable>(_ kind: String, as type: P.Type,
-                                                                 where keep: (JSONValue) -> Bool = { _ in true }) -> [Record<P>] {
-        var order: [String] = []
-        var latest: [String: Event] = [:]
-        for event in state.events where event.record.kind == kind {
-            if latest[event.record.id] == nil { order.append(event.record.id) }
-            latest[event.record.id] = event
-        }
-        return order.compactMap { id in
-            guard let event = latest[id], keep(event.payload) else { return nil }
-            return event.decoded(P.self).map { Record(id: id, payload: $0, prev: [event.id], raw: event.payload) }
-        }
-    }
-
     /// The laptop hasn't shown it holds this event of this phone's: it is waiting, or the pulled plan's latest of
     /// this phone's events comes before it. Before the first plan, only waiting counts.
     func fresh(_ event: Event, pending: Set<String>) -> Bool {
@@ -406,24 +377,19 @@ public struct Logbook: Sendable {
         }
     }
 
-    /// The latest version of each set this phone logged or corrected, in the order first logged.
-    public var localEfforts: [PerformedEffort] {
-        written("effort", as: EffortPayload.self)
-    }
-
     /// This phone wrote the set's current version, so undo can take it back.
     public func canUndo(_ id: String) -> Bool {
         guard let last = lastEvent("effort", id) else { return false }
         return last.op == .put && last.reverts == nil
     }
 
-    /// The set was first logged on another device.
-    public func loggedElsewhere(_ id: String) -> Bool {
-        state.remoteOriginals?[id] != nil
-    }
-
     public func efforts(inSession id: String) -> [PerformedEffort] {
         currentEfforts().filter { $0.sessionId == id }
+    }
+
+    /// The session's sets outside the plan.
+    public func extras(inSession id: String) -> [PerformedEffort] {
+        efforts(inSession: id).filter { $0.plannedEffortId == nil }
     }
 
     /// What has been logged against each planned effort and round, here and (from the last pull) anywhere else.
@@ -540,6 +506,22 @@ public struct Logbook: Sendable {
             resendHealth()
         }
         state.storeId = storeId
+    }
+
+    /// Apple Health is read and sent from now on.
+    public mutating func enableHealth() {
+        var health = state.health ?? HealthState()
+        health.enabled = true
+        state.health = health
+    }
+
+    /// Apple Health went out up to these anchors and daily totals.
+    public mutating func sentHealth(anchors: [String: Data], days: [String: Int]) {
+        var health = state.health ?? HealthState()
+        health.anchors = anchors
+        health.days = days
+        state.health = health
+        state.lastHealthSyncAt = Timestamp.string(clock())
     }
 
     /// Apple Health goes out again from the start, for a store that may not hold what was sent: another one, or

@@ -1,6 +1,4 @@
-// Reading Apple Health: body measurements from your scale's app; heart, activity, mobility, sleep and workouts
-// from your phone, watch, ring or band; and vitals such as blood pressure. byobot only reads, and never writes
-// to Apple Health. Nutrition and cycle tracking are left out.
+// Reading Apple Health. byobot only reads it, and never writes to it.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -60,8 +58,7 @@ final class HealthKitReader: @unchecked Sendable {
     var available: Bool { HKHealthStore.isHealthDataAvailable() }
 
     private var readTypes: Set<HKObjectType> {
-        var types: Set<HKObjectType> = [sleep, HKObjectType.workoutType(), HKQuantityType(.heartRate),
-                                        HKQuantityType(.activeEnergyBurned)]
+        var types: Set<HKObjectType> = [sleep, HKObjectType.workoutType(), HKQuantityType(.heartRate)]
         for (id, _, _) in quantities { types.insert(HKQuantityType(id)) }
         for (id, _) in totals { types.insert(HKQuantityType(id)) }
         for id in Self.distances { types.insert(HKQuantityType(id)) }
@@ -148,11 +145,7 @@ final class HealthKitReader: @unchecked Sendable {
         HealthReading(uuid: sample.uuid, start: sample.startDate, end: sample.endDate, value: value,
                       origin: HealthOrigin(sourceName: sample.sourceRevision.source.name,
                                            sourceBundleId: sample.sourceRevision.source.bundleIdentifier,
-                                           deviceName: sample.device?.name,
-                                           deviceManufacturer: sample.device?.manufacturer,
-                                           deviceModel: sample.device?.model,
-                                           deviceIdentifier: sample.device?.localIdentifier
-                                               ?? sample.device?.udiDeviceIdentifier),
+                                           deviceName: sample.device?.name),
                       zone: (sample.metadata?[HKMetadataKeyTimeZone] as? String).flatMap(TimeZone.init(identifier:)))
     }
 

@@ -43,8 +43,7 @@ struct ExerciseSheet: View {
     @ViewBuilder
     private func about(_ exercise: Exercise, _ workout: Workout) -> some View {
         Section {
-            LabeledContent("Plan", value: (exercise.total > 1 ? "\(exercise.total) × " : "")
-                           + Format.metrics(exercise.effort.metrics))
+            LabeledContent("Plan", value: Format.plan(exercise))
             if exercise.swap != nil {
                 LabeledContent("In place of", value: workout.name(exercise.effort.activityId))
             }

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from byobot import whoop
 from byobot.core import commands, sources
 from byobot.core.contract import SLUG_KINDS, Contract
 from byobot.core.store import Store
@@ -32,12 +33,6 @@ READ_AS = {"meal": "effort"}  # a newer install's kind, written by this driver f
 SELF = "self_reported"
 SOURCE_TYPES = ("sleep", "recovery", "cycle", "workout", "quantity_sample", "category_sample")
 FIELDS = {"duration_s": ("duration", "s"), "distance_m": ("distance", "m"), "heart_rate": ("heart_rate", "/min")}
-
-
-def _sample_type(hk_type: str) -> str:
-    if hk_type == "HKWorkoutTypeIdentifier":
-        return "workout"
-    return "category_sample" if hk_type.startswith("HKCategoryType") else "quantity_sample"
 
 
 @dataclass
@@ -246,11 +241,11 @@ class V1:
         records, deleted = [], []
         if source == "whoop":
             for t in ("sleep", "recovery", "cycle", "workout"):
-                records += [(t, str(r["cycle_id"] if t == "recovery" else r["id"]), r) for r in batch.get(t, [])]
+                records += [(t, whoop.record_key(t, r), r) for r in batch.get(t, [])]
         else:
             samples = batch.get("samples", []) if isinstance(batch, dict) else batch
-            records = [(_sample_type(s["type"]), s["source_id"], s) for s in samples]
-            deleted = [(_sample_type(t), i) for t, i in (batch.get("deleted", []) if isinstance(batch, dict) else [])]
+            records = [(sources.sample_type(s["type"]), s["source_id"], s) for s in samples]
+            deleted = [(sources.sample_type(t), i) for t, i in (batch.get("deleted", []) if isinstance(batch, dict) else [])]
         return sources.ingest(rep.store, source, records, deleted)
 
     def log_events(self, rep: Replica) -> list[dict]:
@@ -323,9 +318,6 @@ class V1:
             for rid, day in rep.store.conn.execute(f"SELECT id, local_date FROM {table}"):
                 out[key(kind, self.back(rid))] = day
         return out
-
-    def read(self, rep: Replica, surface: str, command: str, args: dict) -> Any:
-        raise Unsupported("surfaces move to schema 1 with the cutover")
 
     def export_log(self, rep: Replica) -> list[str]:
         return list(rep.store.export())
