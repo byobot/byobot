@@ -160,10 +160,6 @@ def lan_hosts() -> list[str]:
     return hosts or ["127.0.0.1"]
 
 
-def token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
 # -- HTTP --------------------------------------------------------------------
 
 BUSY = HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", "the laptop's store is busy with a long write; try again")
@@ -192,7 +188,7 @@ class Handler(web.Handler):
 
     def _auth(self, store: Store) -> dict:
         token = self._bearer()
-        peer = store.peer_for_token(token_hash(token)) if token else None
+        peer = store.peer_for_token(web.token_hash(token)) if token else None
         if peer is None:
             raise HTTPError(HTTPStatus.UNAUTHORIZED, "unauthorized", "pair this device with `byobot serve` first")
         self.peer = peer
@@ -278,7 +274,7 @@ class Handler(web.Handler):
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
         with Store(self.server.db, migrate=False) as store:
-            self.peer = store.pair(device_id, name, token_hash(token))
+            self.peer = store.pair(device_id, name, web.token_hash(token))
         self.server.log(printable(f"paired {name} ({device_id})"))
         return {"token": token, "server": self._server_info(), "device": self.peer}
 

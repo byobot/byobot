@@ -6,6 +6,7 @@ the local network, an assistant anywhere on the internet behind a tunnel).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
@@ -72,6 +73,15 @@ class HTTPError(Exception):
         super().__init__(message)
         self.status, self.code, self.message, self.details = status, code, message, details
         self.headers, self.content_type = headers, content_type
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def last_values(fields: dict[str, list[str]]) -> dict[str, str]:
+    """A parsed query or form, each name with the last value given for it."""
+    return {k: v[-1] for k, v in fields.items()}
 
 
 def timed_out(exc: sqlite3.OperationalError) -> NoReturn:
@@ -310,4 +320,4 @@ class Handler(BaseHTTPRequestHandler):
         return token
 
     def _query(self) -> dict[str, str]:
-        return {k: v[-1] for k, v in parse_qs(urlsplit(self.path).query).items()}
+        return last_values(parse_qs(urlsplit(self.path).query))
