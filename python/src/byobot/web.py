@@ -12,11 +12,13 @@ import secrets
 import sqlite3
 import ssl
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlsplit
 
@@ -96,7 +98,13 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     ssl_context: ssl.SSLContext | None = None
-    log: Callable[[str], None]
+
+    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], db: Path,
+                 pairing: Pairing | None, name: str, log: Callable[[str], None] | None = None):
+        self.db, self.pairing, self.name = db, pairing, name
+        self.pairing_lock = threading.Lock()
+        self.log = log or (lambda line: None)
+        super().__init__(address, handler)
 
     def finish_request(self, request: Any, client_address: Any) -> None:
         # Handshake and headers run in this request's thread. An idle cap means a client that
@@ -114,6 +122,24 @@ class Server(ThreadingHTTPServer):
         if isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):
             return
         super().handle_error(request, client_address)
+
+
+def log_line(line: str) -> None:
+    """A server's log: the line on stderr, with the time."""
+    sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
+    sys.stderr.flush()
+
+
+def serve_until_stopped(server: Server) -> int:
+    sys.stderr.write("\nServing. Press Ctrl-C to stop.\n")
+    sys.stderr.flush()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
 
 
 class Handler(BaseHTTPRequestHandler):

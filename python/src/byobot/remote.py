@@ -379,10 +379,8 @@ QUERY_TIMEOUT_S = 20
 class RemoteServer(web.Server):
     def __init__(self, address: tuple[str, int], base: str, db: Path, auth: Auth, pairing: Pairing | None,
                  name: str, log: Callable[[str], None] | None = None):
-        self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
-        self.pairing_lock = threading.Lock()
-        self.log = log or (lambda line: None)
-        super().__init__(address, Handler)
+        self.base, self.auth = base, auth
+        super().__init__(address, Handler, db, pairing, name, log)
 
     @property
     def resource(self) -> str:
@@ -758,14 +756,9 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
     base = check_url(url if url is not None else saved.read_text())
     remote_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
     saved.write_text(base + "\n")
-
-    def log(line: str) -> None:
-        sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
-        sys.stderr.flush()
-
     port = port or choose_port()
     try:
-        server = make_server(base, host, port, pair=pair, log=log)
+        server = make_server(base, host, port, pair=pair, log=web.log_line)
     except OSError as exc:
         raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (remote_dir() / "port").write_text(f"{server.server_address[1]}\n")
@@ -779,15 +772,7 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
         names = ", ".join([c["client_name"] for c in server.auth.clients()]
                           + [f"API key {k['name']}" for k in server.auth.keys()])
         err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot device remove` to disconnect one.\n")
-    err.write("\nServing. Press Ctrl-C to stop.\n")
-    err.flush()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    return web.serve_until_stopped(server)
 
 
 class _Shown(Exception):

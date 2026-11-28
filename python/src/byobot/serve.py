@@ -40,8 +40,6 @@ import socket
 import sqlite3
 import ssl
 import sys
-import threading
-import time
 from contextlib import closing
 from datetime import date, timedelta
 from http import HTTPStatus
@@ -174,15 +172,10 @@ BUSY = HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", "the laptop's store is 
 class Server(web.Server):
     def __init__(self, address: tuple[str, int], db: Path, ssl_context: ssl.SSLContext | None,
                  pairing: Pairing | None, name: str, log: Callable[[str], None] | None = None):
-        self.db = db
         self.ssl_context = ssl_context
-        self.pairing = pairing
-        self.pairing_lock = threading.Lock()
-        self.name = name
-        self.log = log or (lambda line: None)
         with Store(db):
             pass
-        super().__init__(address, Handler)
+        super().__init__(address, Handler, db, pairing, name, log)
 
     def ids(self) -> tuple[str, str]:
         """This store's device and store ids, read now: a restore while serving takes on the backup's store id."""
@@ -369,13 +362,9 @@ def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool |
 
 def run(host: str, port: int | None, pair: bool | None) -> int:
     """The ``byobot serve`` command: print how to pair, then serve until Ctrl-C."""
-    def log(line: str) -> None:
-        sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
-        sys.stderr.flush()
-
     port = port or choose_port()
     try:
-        server, info = make_server(host, port, pair=pair, log=log)
+        server, info = make_server(host, port, pair=pair, log=web.log_line)
     except OSError as exc:
         raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (serve_dir() / "port").write_text(f"{info['port']}\n")
@@ -395,12 +384,4 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
         err.write(f"Link: {info['link']}\n")
     else:
         err.write("Pairing is closed (a device is already paired). Run `byobot serve --pair` to pair another.\n")
-    err.write("\nServing. Press Ctrl-C to stop.\n")
-    err.flush()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    return web.serve_until_stopped(server)
