@@ -32,13 +32,13 @@ def cli(capsys, *argv):
 def test_cli_commands_come_from_the_registry():
     parser = build_parser()
     sub = next(a for a in parser._actions if a.dest == "command")
-    assert set(sub.choices) == {c.name.split(" ")[0] for c in REGISTRY.values() if c.cli}
+    assert set(sub.choices) == {c.name.split(" ")[0] for c in REGISTRY.values()}
 
 
 def test_help_lists_every_command_once_by_section():
     from byobot.cli import GROUPS, SECTIONS
     listed = [n for names in SECTIONS.values() for n in names]
-    shown = {c.name.split(" ")[0] for c in REGISTRY.values() if c.cli and not c.hidden}
+    shown = {c.name.split(" ")[0] for c in REGISTRY.values() if not c.hidden}
     assert sorted(listed) == sorted(shown) and set(GROUPS) == {n for n in shown if n not in REGISTRY}
     assert all(f"\n{section}:\n" in build_parser().format_help() for section in SECTIONS)
 
@@ -410,7 +410,7 @@ def strict_loads(text: str):
 
 def shared() -> list[Command]:
     """Commands that the CLI, MCP and the JSON API all offer."""
-    return [c for c in REGISTRY.values() if c.cli and c.mcp]
+    return [c for c in REGISTRY.values() if c.mcp]
 
 
 def filler(cmd: Command) -> dict:

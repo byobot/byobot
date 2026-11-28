@@ -34,9 +34,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import __version__, mcp, util, web
+from byobot import __version__, commands, mcp, util, web
 from byobot.lock import held
-from byobot.commands import Context
 from byobot.core.store import interrupted, limit_time, stamp
 from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
@@ -195,7 +194,7 @@ class Auth:
             raise OAuthError("invalid_client_metadata", "only authorization_code and refresh_token grants are supported")
         name = meta.get("client_name")
         name = name.strip()[:100] if isinstance(name, str) and name.strip() else "MCP client"
-        client = {"client_id": secrets.token_urlsafe(16), "client_name": name, "redirect_uris": uris,
+        client = {"client_id": secrets.token_hex(16), "client_name": name, "redirect_uris": uris,
                   "token_endpoint_auth_method": method, "client_id_issued_at": int(time.time()),
                   "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "scope": FULL}
         out = dict(client)
@@ -595,7 +594,7 @@ class Handler(web.Handler):
         server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
         server.quiet_errors = True
         server.protocol = version or mcp.LATEST
-        server.ctx = Context(actor={}, path=self.server.db)
+        server.ctx = commands.Context(actor={}, path=self.server.db)
         try:
             if not _writes(message):
                 limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
@@ -633,14 +632,14 @@ class Handler(web.Handler):
             args = {}
         if not isinstance(args, dict):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send the tool's arguments as a JSON object")
-        cmd = mcp.tool(name)
+        cmd = commands.tool(name)
         if cmd is None:
             raise HTTPError(HTTPStatus.NOT_FOUND, "not_found", f"unknown tool: {name}")
-        ctx = Context(actor={}, path=self.server.db)
+        ctx = commands.Context(actor={}, path=self.server.db)
         try:
             if cmd.read_only:
                 limit_time(ctx.store().conn, QUERY_TIMEOUT_S)
-            result = mcp.call(ctx, cmd, args, actor_id(client), scope_of(client) == READ)
+            result = commands.call(ctx, cmd, args, actor_id(client), scope_of(client) == READ)
         except ByobotError as exc:
             self._send(STATUS.get(exc.code, HTTPStatus.BAD_REQUEST), exc.to_dict())
             return
@@ -661,7 +660,7 @@ def _writes(message: Any) -> bool:
         return any(_writes(m) for m in message)
     params = message.get("params") if isinstance(message, dict) and message.get("method") == "tools/call" else None
     name = params.get("name") if isinstance(params, dict) else None
-    cmd = mcp.tool(name)
+    cmd = commands.tool(name)
     return cmd is not None and not cmd.read_only
 
 
@@ -712,11 +711,11 @@ def choose_port() -> int:
 def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> RemoteServer:
     """Build a server (not yet serving). ``pair=None`` opens approval only when no client or API key is connected yet."""
-    auth = Auth(remote_dir() / "oauth.json", base + "/mcp")
+    saved = auth(base + "/mcp")
     if pair is None:
-        pair = not auth.clients() and not auth.keys()
+        pair = not saved.clients() and not saved.keys()
     name = profile() or "default profile"
-    return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
+    return RemoteServer((host, port), base, db or db_path(), saved, Pairing() if pair else None, name, log)
 
 
 CLIPBOARD = (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
@@ -733,7 +732,7 @@ def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
     """The ``byobot remote key`` command."""
     saved = remote_dir() / "url"
     cmd = None if show else clipboard()
-    key = Auth(remote_dir() / "oauth.json").create_key(name, READ if read_only else FULL)
+    key = auth().create_key(name, READ if read_only else FULL)
     base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
     out = {"name": name, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
     if cmd:
@@ -746,12 +745,9 @@ def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
     return out
 
 
-def assistants() -> list[dict]:
-    return Auth(remote_dir() / "oauth.json").assistants()
-
-
-def remove_assistant(assistant_id: str) -> dict:
-    return Auth(remote_dir() / "oauth.json").remove(assistant_id)
+def auth(resource: str | None = None) -> Auth:
+    """This profile's saved assistants and keys."""
+    return Auth(remote_dir() / "oauth.json", resource)
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:

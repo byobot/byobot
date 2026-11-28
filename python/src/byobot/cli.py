@@ -100,7 +100,7 @@ def _add_param(parser: argparse.ArgumentParser, p: Param) -> None:
 
 
 def _members(group: str) -> list[str]:
-    return [c.name.split(" ", 1)[1] for c in REGISTRY.values() if c.cli and c.name.startswith(group + " ")]
+    return [c.name.split(" ", 1)[1] for c in REGISTRY.values() if c.name.startswith(group + " ")]
 
 
 def _overview(lines: dict[str, str]) -> str:
@@ -127,8 +127,6 @@ def build_parser() -> argparse.ArgumentParser:
     groups: dict[str, Any] = {}
     lines: dict[str, str] = {}
     for cmd in REGISTRY.values():
-        if not cmd.cli:
-            continue
         where, name = sub, cmd.name
         if " " in cmd.name:
             group, name = cmd.name.split(" ", 1)

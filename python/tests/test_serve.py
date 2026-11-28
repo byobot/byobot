@@ -127,7 +127,7 @@ def seed(store):
 
 def test_plan_window_is_contract_shaped(store):
     seed(store)
-    window = serve.plan_window(store, "2026-11-22", "2026-12-05")
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05")
     assert sync_errors("plan_window", window) == []
     assert [s["id"] for s in window["planned_sessions"]] == [LOWER, UPPER]
     for entry in window["planned_sessions"]:
@@ -148,14 +148,14 @@ def test_a_phone_cant_change_a_record_newer_than_it_knows(tmp_path):
     [plain] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
     hub.use(Contract.shipped().newer(2))
     [fast] = commands.log(hub, ME, [{"kind": "effort", "payload": payload}])
-    entries = {e["id"]: e["kind_version"] for e in serve._entries(hub, "effort", [plain["record"]["id"],
+    entries = {e["id"]: e["kind_version"] for e in relay._entries(hub, "effort", [plain["record"]["id"],
                                                                                fast["record"]["id"]])}
     assert entries == {plain["record"]["id"]: 1, fast["record"]["id"]: 2}
     edits = [_event("effort", e["record"]["id"], {**payload, "notes": "felt good"}, prev=[e["id"]])
              for e in (plain, fast)]
-    results = serve.accept_events(hub, PHONE, edits, ME)
+    results = relay.accept_events(hub, PHONE, edits, ME)
     assert [r["status"] for r in results] == ["accepted", "rejected"] and "update the app" in results[1]["reason"]
-    assert serve.accept_events(hub, PHONE, edits[1:], ME, {"effort": 2})[0]["status"] == "accepted"
+    assert relay.accept_events(hub, PHONE, edits[1:], ME, {"effort": 2})[0]["status"] == "accepted"
 
 
 def test_plan_window_sends_the_library_activities_it_names(byobot_home, tmp_path, monkeypatch):
@@ -167,11 +167,11 @@ def test_plan_window_sends_the_library_activities_it_names(byobot_home, tmp_path
     (lib / "activities" / "push_up.json").write_text(json.dumps({"name": "Push-up"}))
     monkeypatch.setenv("BYOBOT_LIBRARY", str(lib))
     with Store(byobot_home / "lib.db") as s:
-        assert serve.plan_window(s, "2026-11-22", "2026-11-28")["activities"] == []  # the app ships the library
+        assert relay.plan_window(s, "2026-11-22", "2026-11-28")["activities"] == []  # the app ships the library
         write(s, ("location", "example_gym", {"name": "Example gym"}),
               ("plan", PLAN, {"name": "Block 1", "starts_on": "2026-11-23"}),
               ("planned_session", LOWER, {**lift("2026-11-23", "Lower A"), "blocks": [{"efforts": [{"activity_id": "dip"}]}]}))
-        window = serve.plan_window(s, "2026-11-22", "2026-11-28")
+        window = relay.plan_window(s, "2026-11-22", "2026-11-28")
     assert window["activities"] == [{"id": "dip", "payload": dip, "prev": [], "kind_version": 1, "library": True}]
     assert sync_errors("plan_window", window) == []
 
@@ -181,7 +181,7 @@ def test_plan_window_follows_replanning_and_undo(store):
     replanned = commands.replan(store, AGENT, LOWER, lift("2026-11-23", "Lower A (deload)"))
 
     def names():
-        window = serve.plan_window(store, "2026-11-01", "2026-12-31")
+        window = relay.plan_window(store, "2026-11-01", "2026-12-31")
         return {s["id"]: s["payload"]["name"] for s in window["planned_sessions"]}
 
     assert names()[LOWER] == "Lower A (deload)"
@@ -195,7 +195,7 @@ def test_plan_window_shows_a_conflict(store):
     for name in ("Upper A (phone)", "Upper A (coach)"):
         store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
                           "payload": {**payload, "name": name}}])
-    window = serve.plan_window(store, "2026-11-22", "2026-12-05")
+    window = relay.plan_window(store, "2026-11-22", "2026-12-05")
     assert sync_errors("plan_window", window) == []
     [entry] = [s for s in window["planned_sessions"] if s["id"] == UPPER]
     assert entry["conflict"] is True and entry["prev"] == [store.record("planned_session", UPPER)["current"]]
@@ -213,19 +213,19 @@ def test_a_phone_resolves_a_conflict_by_naming_every_version(store):
     for name in ("Upper A (phone)", "Upper A (coach)"):
         store.write(ME, [{"kind": "planned_session", "id": UPPER, "op": "put", "prev": tips,
                           "payload": {**payload, "name": name}}])
-    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    [entry] = [s for s in relay.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
     kept = next(v for v in entry["versions"] if v["payload"]["name"] == "Upper A (phone)")
     resolve = _event("planned_session", UPPER, kept["payload"], prev=[v["event_id"] for v in entry["versions"]])
-    assert serve.accept_events(store, PHONE, [resolve], ME)[0]["status"] == "accepted"
+    assert relay.accept_events(store, PHONE, [resolve], ME)[0]["status"] == "accepted"
     assert not store.record("planned_session", UPPER)["conflict"]
     assert store.get("planned_session", UPPER)["payload"]["name"] == "Upper A (phone)"
-    [entry] = [s for s in serve.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
+    [entry] = [s for s in relay.plan_window(store, "2026-11-22", "2026-12-05")["planned_sessions"] if s["id"] == UPPER]
     assert "versions" not in entry and "conflict" not in entry
 
 
 def test_plan_window_outside_the_dates_still_brings_the_last_time(store):
     seed(store)
-    window = serve.plan_window(store, "2030-01-01", "2030-01-07")
+    window = relay.plan_window(store, "2030-01-01", "2030-01-07")
     assert window["planned_sessions"] == [] and window["since"] == "2029-11-02"
     assert [s["id"] for s in window["sessions"]] == [DONE] and len(window["efforts"]) == 1
 
@@ -244,7 +244,7 @@ def squats(store, visits, activity="x.barbell_back_squat"):
 def test_plan_window_brings_the_last_two_times_at_each_location(store):
     seed(store)
     squats(store, [("2026-07-10", "home"), ("2026-07-12", "home"), ("2026-07-14", "home"), ("2026-07-15", "hotel_gym")])
-    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    window = relay.plan_window(store, "2026-11-25", "2026-11-30")
     ours = [e["id"][-2:] for e in window["efforts"] if e["id"].startswith("0193a0b0-0000-7000-8000-0000000006")]
     assert ours == ["11", "12", "21", "22", "31", "32"] and len(window["efforts"]) == 7  # and the seeded gym visit
     assert [p["id"] for p in window["planned_sessions"]] == [UPPER]
@@ -254,7 +254,7 @@ def test_plan_window_brings_the_last_time_of_an_exercise_the_plan_doesnt_have(st
     seed(store)
     write(store, ("activity", "x.cable_fly", {"name": "Cable fly"}))
     squats(store, [("2026-06-01", "home"), ("2026-06-03", "example_gym")], activity="x.cable_fly")
-    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    window = relay.plan_window(store, "2026-11-25", "2026-11-30")
     flies = [e for e in window["efforts"] if e["payload"]["activity_id"] == "x.cable_fly"]
     assert len(flies) == 4  # each gym's last time, for a swap or an exercise added on the day
     sessions = {s["id"] for s in window["sessions"]}
@@ -266,7 +266,7 @@ def test_plan_window_carries_the_history_before_it(store):
     squats(store, [("2026-09-20", "home"), ("2026-09-30", "home"), ("2026-10-10", "home")])
     write(store, ("effort", None, {"activity_id": "x.barbell_back_squat", "time": {"start": "2026-10-11T08:00:00Z"},
                                    "metrics": {"reps": {"value": 3}}}), actor=ME)
-    window = serve.plan_window(store, "2026-11-25", "2026-11-30")
+    window = relay.plan_window(store, "2026-11-25", "2026-11-30")
     assert window["since"] == "2026-09-26"
     days = sorted(s["payload"]["time"]["start"][:10] for s in window["sessions"])
     assert days == ["2026-09-30", "2026-10-10", "2026-11-23"]  # the one before since is no longer a last time

@@ -34,7 +34,6 @@ def cli_commands():
 
 def test_only_setup_commands_stay_off_mcp_and_the_api():
     assert {c.name for c in REGISTRY.values() if not c.mcp} == CLI_ONLY
-    assert all(c.cli for c in REGISTRY.values())
 
 
 def test_every_command_has_the_same_arguments_everywhere():
