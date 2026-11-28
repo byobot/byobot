@@ -40,7 +40,7 @@ def documents() -> tuple[dict[str, dict], dict]:
 
 
 class NotFinite(ValidationFailed, ValueError):
-    code = "invalid"
+    pass
 
 
 def jcs(value: Any) -> str:
@@ -77,19 +77,22 @@ class Rejected(Exception):
 
 def sync_errors(definition: str, document: Any) -> list[str]:
     """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
-    return _errors("sync", definition, document)
+    return [f"{_where(e, 'message')}: {e.message}" for e in _sync_validator(definition).iter_errors(document)]
 
 
-def _errors(schema: str, definition: str, document: Any) -> list[str]:
-    return [f"{'/'.join(str(p) for p in e.absolute_path) or 'message'}: {e.message}"
-            for e in _validator(schema, definition).iter_errors(document)]
+def _where(error, default: str) -> str:
+    return "/".join(str(p) for p in error.absolute_path) or default
+
+
+def _validator(schemas: dict[str, dict], root: dict) -> Draft202012Validator:
+    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in schemas.values())
+    return Draft202012Validator(root, registry=resources)
 
 
 @lru_cache(maxsize=None)
-def _validator(schema: str, definition: str) -> Draft202012Validator:
+def _sync_validator(definition: str) -> Draft202012Validator:
     docs = documents()[0]
-    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in docs.values())
-    return Draft202012Validator({"$ref": f"{docs[schema]['$id']}#/$defs/{definition}"}, registry=resources)
+    return _validator(docs, {"$ref": f"{docs['sync']['$id']}#/$defs/{definition}"})
 
 
 @dataclass
@@ -104,14 +107,10 @@ class Contract:
         return _shipped()
 
     @cached_property
-    def _validator(self) -> Draft202012Validator:
-        resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
-        return Draft202012Validator(self.schemas["event"], registry=resources)
-
-    @cached_property
-    def _later_validator(self) -> Draft202012Validator:
-        resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
-        return Draft202012Validator({"$ref": f"{self.schemas['event']['$id']}#/$defs/later"}, registry=resources)
+    def _validators(self) -> tuple[Draft202012Validator, Draft202012Validator]:
+        """An event's, and a later schema_version's."""
+        event = self.schemas["event"]
+        return _validator(self.schemas, event), _validator(self.schemas, {"$ref": f"{event['$id']}#/$defs/later"})
 
     def version(self, kind: str) -> int | None:
         known = self.registry["kinds"].get(kind)
@@ -131,15 +130,11 @@ class Contract:
 
     def check(self, event: dict) -> None:
         """Raise Rejected if the event breaks the schemas or a rule."""
-        if later(event):
-            error = best_match(self._later_validator.iter_errors(event))
-            if error is not None:
-                raise Rejected(f"{'/'.join(str(p) for p in error.absolute_path) or 'event'}: {error.message}")
-            return
-        error = best_match(self._validator.iter_errors(event))
+        error = best_match(self._validators[later(event)].iter_errors(event))
         if error is not None:
-            where = "/".join(str(p) for p in error.absolute_path) or "event"
-            raise Rejected(f"{where}: {error.message}")
+            raise Rejected(f"{_where(error, 'event')}: {error.message}")
+        if later(event):
+            return
         try:
             broken = self.broken_rules(event)
         except (KeyError, TypeError, ValueError, AttributeError):
