@@ -1,6 +1,4 @@
-// Apple Health readings as samples for the laptop: body measurements, heart, activity, mobility, vitals, sleep
-// and workouts. Scales, rings, watches and WHOOP write to Apple Health through their own apps; the app
-// reads them there and sends them to the laptop, which decides which source wins for each metric.
+// Apple Health readings as samples for the laptop, which decides which source wins for each metric.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
@@ -19,7 +17,7 @@ public struct HealthOrigin: Equatable, Sendable {
     }
 }
 
-/// A workout's totals, in the units the contract's workout_totals uses.
+/// A workout's totals, in the units the laptop's `mappers.HEALTH_TOTALS` reads them in.
 public struct WorkoutTotals: Equatable, Sendable {
     public var durationS: Double
     public var energyKcal: Double?

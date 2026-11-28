@@ -1,6 +1,4 @@
-// Reading Apple Health: body measurements from your scale's app; heart, activity, mobility, sleep and workouts
-// from your phone, watch, ring or band; and vitals such as blood pressure. byobot only reads, and never writes
-// to Apple Health. Nutrition and cycle tracking are left out.
+// Reading Apple Health. byobot only reads it, and never writes to it.
 //
 // Copyright The byobot Authors. Licensed under Apache-2.0.
 
