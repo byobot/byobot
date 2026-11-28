@@ -326,3 +326,15 @@ def test_a_sample_without_an_end_reads_as_a_point(tmp_path):
                   "start": "2026-03-02T07:00:00.000-05:00", "value": 80.0, "unit": "kg"}
         relay.accept_samples(store, {"samples": [sample]})
         assert store.rows("SELECT code, std_value FROM observations") == [{"code": "body_mass", "std_value": 80.0}]
+
+
+def test_a_day_total_deleted_before_it_was_held_can_still_come_back(tmp_path):
+    key = "daily:HKQuantityTypeIdentifierStepCount:2026-03-01"
+    later = {"source": "apple_health", "source_id": key, "type": "HKQuantityTypeIdentifierStepCount",
+             "start": "2026-03-01T00:00:00.000-05:00", "end": "2026-03-02T00:00:00.000-05:00", "value": 4200,
+             "raw": {"modified_at": "2026-03-02T09:00:00.000-05:00"}}
+    with Store(tmp_path / "s.db") as store:
+        relay.accept_samples(store, {"deleted": [{"source": "apple_health", "source_id": key,
+                                                  "type": "HKQuantityTypeIdentifierStepCount"}]})
+        relay.accept_samples(store, {"samples": [later]})
+        assert store.rows("SELECT std_value FROM observations WHERE code = 'step_count'") == [{"std_value": 4200}]

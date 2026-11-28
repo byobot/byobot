@@ -835,11 +835,14 @@ def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
 def _source_current(versions: dict[str, dict]) -> tuple:
     """A source record's current revision: the latest by the source's own account, else the last written. A deletion
     hides the record while the revision it names is current; one that names none, sent before the record was held,
-    hides it for good. Source records never conflict."""
+    hides it for good, unless a revision carries its own time, as a day's total reusing its id does. Source records
+    never conflict."""
     puts = [e for e in versions.values() if e["op"] == "put"]
     current = max(puts, key=mappers.revision_order) if puts else None
-    hidden = current is not None and any(e["op"] == "retract" and e["prev"] in ([], [current["id"]])
-                                         for e in versions.values())
+    named = [[current["id"]]] if current else []
+    if current and not mappers.revised(current["payload"]):
+        named.append([])
+    hidden = any(e["op"] == "retract" and e["prev"] in named for e in versions.values())
     shown = [current] if current else []
     return current, current is not None and not hidden, False, shown, shown
 
