@@ -893,7 +893,7 @@ def _device_list(ctx: Context) -> dict:
 
     phones = [{"id": p["device_id"], "name": p["name"], "route": "hub", "since": p["paired_at"],
                "last_seen_at": p["last_seen_at"]} for p in ctx.store().peers() if p["revoked_at"] is None]
-    items = phones + remote.assistants()
+    items = phones + remote.auth().assistants()
     return {"count": len(items), "items": items, **untrusted("items")}
 
 
@@ -914,7 +914,7 @@ def _device_remove(ctx: Context, id: str) -> dict:
         store.unpair(id)
         return {"removed": {"id": id, "name": phone["name"], "route": "hub"}}
     try:
-        return {"removed": remote.remove_assistant(id)}
+        return {"removed": remote.auth().remove(id)}
     except NotFound:
         raise NotFound(f"no phone or assistant {id}; see `byobot device list`") from None
 

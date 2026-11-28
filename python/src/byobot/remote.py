@@ -711,11 +711,11 @@ def choose_port() -> int:
 def make_server(base: str, host: str = "127.0.0.1", port: int = DEFAULT_PORT, *, pair: bool | None = None,
                 db: Path | None = None, log: Callable[[str], None] | None = None) -> RemoteServer:
     """Build a server (not yet serving). ``pair=None`` opens approval only when no client or API key is connected yet."""
-    auth = Auth(remote_dir() / "oauth.json", base + "/mcp")
+    saved = auth(base + "/mcp")
     if pair is None:
-        pair = not auth.clients() and not auth.keys()
+        pair = not saved.clients() and not saved.keys()
     name = profile() or "default profile"
-    return RemoteServer((host, port), base, db or db_path(), auth, Pairing() if pair else None, name, log)
+    return RemoteServer((host, port), base, db or db_path(), saved, Pairing() if pair else None, name, log)
 
 
 CLIPBOARD = (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
@@ -732,7 +732,7 @@ def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
     """The ``byobot remote key`` command."""
     saved = remote_dir() / "url"
     cmd = None if show else clipboard()
-    key = Auth(remote_dir() / "oauth.json").create_key(name, READ if read_only else FULL)
+    key = auth().create_key(name, READ if read_only else FULL)
     base = saved.read_text().strip() if saved.is_file() else "https://YOUR-TUNNEL-ADDRESS"
     out = {"name": name, "openapi": base + API + "/openapi.json", "mcp": base + "/mcp"}
     if cmd:
@@ -745,12 +745,9 @@ def make_key(name: str, show: bool = False, read_only: bool = False) -> dict:
     return out
 
 
-def assistants() -> list[dict]:
-    return Auth(remote_dir() / "oauth.json").assistants()
-
-
-def remove_assistant(assistant_id: str) -> dict:
-    return Auth(remote_dir() / "oauth.json").remove(assistant_id)
+def auth(resource: str | None = None) -> Auth:
+    """This profile's saved assistants and keys."""
+    return Auth(remote_dir() / "oauth.json", resource)
 
 
 def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
