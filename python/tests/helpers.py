@@ -1,15 +1,18 @@
 """What several test modules share."""
 
+import contextlib
+import io
 import json
 import socket
 import sqlite3
 import ssl
 import threading
 import time
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from byobot import mcp
+from byobot.cli import main
 from byobot.core.store import Store
 
 REPO = next(p for p in Path(__file__).resolve().parents if (p / "schema" / "v1").is_dir())
@@ -71,7 +74,7 @@ def whoop_workout(wid: str, start: str, end: str, updated="2026-03-02T16:00:00.0
             "score": {"strain": strain, "average_heart_rate": hr, "max_heart_rate": hr + 30}}
 
 
-@contextmanager
+@contextlib.contextmanager
 def serving(server):
     """Serve on a thread until the block ends."""
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
@@ -117,3 +120,59 @@ def exchange(sock, raw: bytes) -> bytes:
     except (TimeoutError, socket.timeout, ConnectionError, ssl.SSLError):
         pass
     return out
+
+
+def cli(capsys, *argv):
+    code = main(list(argv))
+    out, err = capsys.readouterr()
+    return code, (json.loads(out) if out.strip() else None), err
+
+
+def _refuse(constant: str):
+    raise ValueError(f"not JSON: {constant}")
+
+
+def strict_loads(text: str):
+    """JSON as RFC 8259 has it: NaN and Infinity are not JSON."""
+    return json.loads(text, parse_constant=_refuse)
+
+
+def via_cli(argv: list[str]) -> tuple:
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
+    except BaseException as exc:  # noqa: BLE001 - a traceback is what we are looking for
+        return ("broken", f"raised {type(exc).__name__}: {exc}")
+    if code == 0:
+        try:
+            return ("ok", strict_loads(out.getvalue()))
+        except ValueError as exc:
+            return ("broken", f"exit 0 but stdout is not JSON: {exc}")
+    try:
+        body = strict_loads(err.getvalue())
+    except ValueError:
+        return ("broken", f"exit {code}, stderr not JSON: {err.getvalue().strip()[-160:]}")
+    if code == 1 and isinstance(body, dict) and "error" in body:
+        return ("error", body["error"])
+    return ("broken", f"exit {code}: {body}")
+
+
+def via_mcp(tool: str, args: dict) -> tuple:
+    server = mcp.Server()
+    server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+                   "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "example-agent"}}})
+    try:
+        reply = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {"name": tool, "arguments": args}})
+    finally:
+        server.close()
+    if "error" in reply:
+        return ("broken", f"JSON-RPC error {reply['error']}")
+    result = reply["result"]
+    body = json.loads(result["content"][0]["text"])
+    if result["isError"]:
+        return ("error", body.get("error") if isinstance(body, dict) else body)
+    return ("ok", body)

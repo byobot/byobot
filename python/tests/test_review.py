@@ -4,8 +4,7 @@ from datetime import datetime
 from byobot.core import commands, sources
 from byobot.review import review
 
-from helpers import ME
-from test_cli import cli
+from helpers import ME, cli
 
 MON, WED, NEXT, S1 = (f"01a2147e-0000-7000-8000-00000000000{i}" for i in range(1, 5))
 

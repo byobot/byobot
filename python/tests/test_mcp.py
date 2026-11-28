@@ -10,7 +10,7 @@ from byobot.core import relay
 from byobot.mcp import LATEST, Server, serve, tools
 from byobot.util import plain_text
 
-from test_cli import strict_loads, via_cli
+from helpers import strict_loads, via_cli
 
 
 def call(server, mid, method, params=None):

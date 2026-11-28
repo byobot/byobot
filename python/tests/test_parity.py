@@ -1,19 +1,89 @@
 """The CLI, MCP and the JSON API come from one command registry, so agents see the same commands everywhere."""
 
 import argparse
+import http.client
+import json
 import re
 
 import pytest
 
 from byobot import mcp, remote
 from byobot.cli import build_parser
-from byobot.commands import REGISTRY
+from byobot.commands import REGISTRY, Command
+from byobot.core.store import Store
 
-from test_cli import Api, argv_for, filler, shared, via_cli, via_mcp
+from helpers import serving, strict_loads, via_cli, via_mcp
+
+BASE = "https://example-laptop.example.ts.net"
 
 # Setup and device admin, which belong to the person at the computer.
 CLI_ONLY = {"init", "connect", "disconnect", "rebuild", "device remove", "erase", "export", "restore",
             "mcp", "serve", "remote serve", "remote key"}
+
+
+def shared() -> list[Command]:
+    """Commands that the CLI, MCP and the JSON API all offer."""
+    return [c for c in REGISTRY.values() if c.mcp]
+
+
+def filler(cmd: Command) -> dict:
+    """Some value for every required argument, so a later check is the one that answers."""
+    out = {}
+    for p in cmd.params:
+        if not p.required:
+            continue
+        if p.choices:
+            out[p.name] = p.choices[0]
+        elif p.type == "integer":
+            out[p.name] = 1
+        elif p.type == "json":
+            out[p.name] = {}
+        else:
+            out[p.name] = "example-id"
+    return out
+
+
+def argv_for(cmd: Command, args: dict, extra: list[str] | None = None) -> list[str]:
+    positional, flags = [], []
+    for p in cmd.params:
+        if p.name not in args:
+            continue
+        value = args[p.name]
+        text = json.dumps(value) if p.type == "json" else str(value)
+        if p.positional:
+            positional.append(text)
+        else:
+            flags += [f"--{p.name.replace('_', '-')}", text]
+    return [*cmd.name.split(" "), *positional, *flags, *(extra or [])]
+
+
+class Api:
+    """`byobot remote`'s JSON API, on a free port, with an API key."""
+
+    def __init__(self, server):
+        self.server = server
+        self.key = server.auth.create_key("example_assistant")
+
+    def raw(self, path: str, body: bytes) -> tuple[int, bytes]:
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=30)
+        conn.request("POST", path, body=body, headers={"Content-Type": "application/json",
+                                                       "Authorization": f"Bearer {self.key}"})
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        return resp.status, data
+
+    def call(self, tool: str, args: dict) -> tuple:
+        status, data = self.raw(f"/api/v1/tools/{tool}", json.dumps(args).encode())
+        try:
+            body = strict_loads(data)
+        except ValueError as exc:
+            return ("broken", f"HTTP {status}, body not JSON: {exc}")
+        if status == 200:
+            return ("ok", body)
+        if 400 <= status < 500 and isinstance(body, dict) and "error" in body:
+            return ("error", body["error"])
+        return ("broken", f"HTTP {status}: {body}")
 
 
 def cli_commands():
@@ -62,9 +132,9 @@ def test_tool_and_api_names_are_the_command_name_with_underscores():
 
 @pytest.fixture
 def api(byobot_home):
-    server = Api(byobot_home)
-    yield server
-    server.close()
+    Store(byobot_home / "byobot.db").close()
+    with serving(remote.make_server(BASE, "127.0.0.1", 0, pair=False)) as server:
+        yield Api(server)
 
 
 CHOICE_CASES = [(c, p) for c in shared() for p in c.params if p.choices]
