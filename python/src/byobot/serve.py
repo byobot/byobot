@@ -55,7 +55,7 @@ from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 
-DEFAULT_PORT = 8765
+DEFAULT_PORT = util.PORTS["serve"]
 MAX_PAIR_BODY = 4096  # pairing is unauthenticated, so its body stays small
 PROTOCOL = 1
 CAPABILITIES: tuple[str, ...] = ()  # features beyond protocol 1 this hub offers

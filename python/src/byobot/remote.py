@@ -685,7 +685,7 @@ def openapi(base: str) -> dict:
 
 # -- running it --------------------------------------------------------------
 
-DEFAULT_PORT = 8780
+DEFAULT_PORT = util.PORTS["remote"]
 
 
 def choose_port() -> int:

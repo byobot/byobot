@@ -28,12 +28,12 @@ from jsonschema.exceptions import best_match
 
 from byobot import credentials, oauth
 from byobot.core.contract import instant, stamp
-from byobot.util import ByobotError
+from byobot.util import PORTS, ByobotError
 
 API = "https://api.prod.whoop.com/developer"
 AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
 TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
-PORT = 8766
+PORT = PORTS["whoop"]
 REDIRECT = f"http://localhost:{PORT}/whoop/callback"
 SCOPES = "offline read:recovery read:cycles read:sleep read:workout"
 NAME = "whoop"

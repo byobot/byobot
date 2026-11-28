@@ -43,7 +43,7 @@ def db_path() -> Path:
 
 
 SERVERS = ("serve", "remote")
-DEFAULT_PORTS = (8765, 8766, 8780)  # serve, WHOOP's sign-in callback, remote
+PORTS = {"serve": 8765, "whoop": 8766, "remote": 8780}  # whoop: the sign-in callback
 
 
 def choose_port(server: str, default: int, ports: Iterable[int]) -> int:
@@ -58,7 +58,7 @@ def choose_port(server: str, default: int, ports: Iterable[int]) -> int:
     homes = [base(), *(base() / "profiles").glob("*")]
     kept = {f.read_text().strip() for h in homes for s in SERVERS if (f := h / s / "port").is_file()}
     for port in ports:
-        if port in DEFAULT_PORTS or str(port) in kept:
+        if port in PORTS.values() or str(port) in kept:
             continue
         with socket.socket() as s:
             try:
