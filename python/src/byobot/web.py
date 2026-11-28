@@ -34,6 +34,7 @@ MAX_TOKEN = 200
 DISCARD_BUFFERED = 64 * 1024
 SOCKET_TIMEOUT_S = 15  # idle cap so a stalled handshake or header cannot hold a thread
 REQUEST_DEADLINE_S = 30  # whole-request cap, so a slow body cannot refresh the idle timer forever
+JSON = "application/json; charset=utf-8"
 
 
 @dataclass
@@ -66,9 +67,11 @@ class Pairing:
 
 
 class HTTPError(Exception):
-    def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None):
+    def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None,
+                 headers: dict[str, str] | None = None, content_type: str = JSON):
         super().__init__(message)
         self.status, self.code, self.message, self.details = status, code, message, details
+        self.headers, self.content_type = headers, content_type
 
 
 def timed_out(exc: sqlite3.OperationalError) -> NoReturn:
@@ -175,8 +178,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code: Any = "-", size: Any = "-") -> None:
         self.log_message("%s", code)
 
-    def _send(self, status: HTTPStatus, body: Any) -> None:
-        self._send_bytes(status, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+    def _send(self, status: HTTPStatus, body: Any, content_type: str = JSON,
+              headers: dict[str, str] | None = None) -> None:
+        self._send_bytes(status, json.dumps(body, ensure_ascii=False).encode(), content_type, headers)
 
     def _send_bytes(self, status: HTTPStatus, data: bytes, content_type: str | None,
                     headers: dict[str, str] | None = None) -> None:
@@ -228,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
         out = {"error": exc.code, "message": exc.message}
         if exc.details is not None:
             out["details"] = exc.details
-        self._send(exc.status, out)
+        self._send(exc.status, out, exc.content_type, exc.headers)
 
     def _content_length(self, limit: int) -> int:
         """The declared length, or an error. Nothing is read from the socket here."""

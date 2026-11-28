@@ -574,17 +574,13 @@ class Handler(web.Handler):
             challenge = f'Bearer resource_metadata="{self.server.base}/.well-known/oauth-protected-resource/mcp"'
             if token:
                 challenge += ', error="invalid_token"'
-            body = json.dumps({"error": "unauthorized", "message": "connect this assistant to byobot first"}).encode()
-            self._send_bytes(HTTPStatus.UNAUTHORIZED, body, "application/json", {"WWW-Authenticate": challenge})
-            raise _Sent
+            raise HTTPError(HTTPStatus.UNAUTHORIZED, "unauthorized", "connect this assistant to byobot first",
+                            headers={"WWW-Authenticate": challenge}, content_type="application/json")
         self.peer = {"name": client["client_name"]}
         return client
 
     def mcp(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         version = self.headers.get("MCP-Protocol-Version")
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
@@ -614,17 +610,11 @@ class Handler(web.Handler):
         self._send(HTTPStatus.OK, openapi(self.server.base))
 
     def api_tools(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         self._send(HTTPStatus.OK, {"tools": mcp.tools(read_only=scope_of(client) == READ)})
 
     def api_call(self, name: str) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         args = self._body()
         if args is None:
             args = {}
@@ -777,7 +767,3 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
 
 class _Shown(Exception):
     """An authorization error shown on the page, because redirecting to an unchecked address is unsafe."""
-
-
-class _Sent(Exception):
-    """The response is already sent."""
