@@ -1054,3 +1054,31 @@ def test_a_compaction_held_off_by_a_reader_does_not_rewrite_the_whole_file_on_ev
     grown = wal.stat().st_size
     reader.close()
     assert grown < 1.5 * after_erase
+
+
+WORKOUT = {"id": "3001", "start": "2026-03-02T14:00:00.000Z", "end": "2026-03-02T15:00:00.000Z",
+           "timezone_offset": "-05:00", "updated_at": "2026-03-02T16:00:00.000Z", "sport_name": "running",
+           "score_state": "SCORED", "score": {"strain": 10.0, "average_heart_rate": 140}}
+
+
+def test_an_erased_workout_takes_no_correction(tmp_path):
+    with Store(tmp_path / "s.db", wall=Wall()) as s:
+        [src] = sources.ingest(s, "whoop", [("workout", "3001", WORKOUT)])
+        commands.erase(s, ME, "source_record", src["record"]["id"])
+        with pytest.raises(Conflict, match="erased"):
+            commands.correct(s, ME, src["record"]["id"], {"name": "Example note"})
+
+
+def test_erasing_again_takes_a_correction_the_first_erase_had_not_seen(pair):
+    a, b = pair
+    b.adopt(a.store_id, a._get("store_key"))
+    [src] = sources.ingest(a, "whoop", [("workout", "3001", WORKOUT)])
+    rid = src["record"]["id"]
+    sync(a, b)
+    fix = commands.correct(b, ME, rid, {"name": "Example note"})
+    commands.erase(a, ME, "source_record", rid)
+    sync(a, b)
+    commands.erase(a, ME, "source_record", rid)
+    assert all(e["payload"] == {} for e in a.history("overlay", fix["record"]["id"]))
+    with pytest.raises(Conflict, match="already erased"):
+        commands.erase(a, ME, "source_record", rid)

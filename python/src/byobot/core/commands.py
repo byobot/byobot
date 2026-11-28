@@ -124,6 +124,9 @@ def log(store: Store, actor: dict, records: list[dict]) -> list[dict]:
 
 
 def _overlay(store: Store, actor: dict, effect: str, target: str, body: dict, read: dict | None = None) -> dict:
+    found = store.record("source_record", target)
+    if found and found["erased"]:
+        raise Conflict(f"source_record {target} was erased")
     rid = store.contract.derived("overlay", [effect, "source_record", target])
     payload = {"effect": effect, "target": {"kind": "source_record", "id": target}, **body}
     refused = store.contract.refusals("overlay", payload)
@@ -264,8 +267,6 @@ def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = F
     found = store.record(kind, rid)
     if found is None:
         raise NotFound(f"no {kind} {rid}")
-    if found["erased"]:
-        raise Conflict(f"{kind} {rid} was already erased")
     if with_efforts and kind != "session":
         raise ValidationFailed("only a session has efforts to erase with it")
     targets = [(kind, rid)]
@@ -273,12 +274,15 @@ def erase(store: Store, actor: dict, kind: str, rid: str, with_efforts: bool = F
         targets += [e for e in linked(store, kind, rid, "part_of") if e[0] == "effort" and _in(store, e, rid)]
     changes = []
     for k, r in targets:
-        changes.append({"kind": k, "id": r, "op": "erase"})
+        if not store.record(k, r)["erased"]:
+            changes.append({"kind": k, "id": r, "op": "erase"})
         overlays = [o[0] for o in store.conn.execute(
             "SELECT DISTINCT record_id FROM events WHERE kind = 'overlay' AND json_extract(payload, '$.target.kind') = ? "
             "AND json_extract(payload, '$.target.id') = ? ORDER BY record_id", (k, r))]
         changes += [{"kind": "overlay", "id": o, "op": "erase"} for o in overlays
                     if not store.record("overlay", o)["erased"]]
+    if not changes:  # erased again, it takes overlays written where the first erase wasn't seen
+        raise Conflict(f"{kind} {rid} was already erased")
     return store.write(actor, changes)
 
 
