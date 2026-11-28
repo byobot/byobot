@@ -49,8 +49,9 @@ from urllib.parse import urlsplit
 
 from byobot import __version__, util, web
 from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
+from byobot.core.query import busy, limit_time
 from byobot.core.relay import EVENT_ID, Cut, accept_samples, plan_window, push_events
-from byobot.core.store import Store, busy, limit_time
+from byobot.core.store import Store
 from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out

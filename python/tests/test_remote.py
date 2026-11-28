@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import pytest
 
 from byobot import commands, remote, web
-from byobot.core import store as store_module
+from byobot.core import query as query_module
 from byobot.core.store import Store
 from byobot.remote import READ, Auth, OAuthError
 
@@ -477,7 +477,7 @@ def test_the_api_answers_as_mcp_does(running, tool, args):
 
 def test_an_api_read_that_runs_too_long_is_stopped(running, monkeypatch):
     monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0)
-    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
+    monkeypatch.setattr(query_module, "PROGRESS_INTERVAL", 1)
     resp, raw = request(running, "POST", "/api/v1/tools/status", {},
                         {"X-API-Key": running.auth.create_key("example_assistant")})
     assert resp.status == 503 and json.loads(raw)["error"] == "timeout"
@@ -610,7 +610,7 @@ def test_a_write_that_first_waits_on_the_network_is_not_cut_off(running, byobot_
     # for them: it waits longer than the deadline, then writes.
     monkeypatch.setattr(remote, "QUERY_TIMEOUT_S", 0.3)
     # A real import runs far more than the default 10,000 steps between checks; a one-record write here doesn't.
-    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 100)
+    monkeypatch.setattr(query_module, "PROGRESS_INTERVAL", 100)
     cmd = commands.REGISTRY["log"]
 
     def slow(ctx, **kw):

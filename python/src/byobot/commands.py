@@ -18,7 +18,8 @@ from byobot import __version__, library, reads, whoop
 from byobot.core import commands as core
 from byobot.core import sources
 from byobot.core.contract import SCHEMA_NAMES, SCHEMA_VERSION, Contract, Rejected, documents
-from byobot.core.store import Store, busy, ddl, query
+from byobot.core.query import busy, ddl, query
+from byobot.core.store import Store
 from byobot.util import (ByobotError, Conflict, Forbidden, NotFound, ValidationFailed, db_path, home, plain_text,
                          profile, sync_folder_warning, tilde)
 

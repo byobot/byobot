@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from byobot import link, remote, serve, web
-from byobot.core import store as store_module
+from byobot.core import query as query_module
 from byobot.core import commands, hlc, relay
 from byobot.core.contract import Contract, sync_errors
 from byobot.core.store import Store
@@ -852,7 +852,7 @@ def test_writes_are_not_under_the_query_deadline(server, monkeypatch):
     _, info, client, _ = server
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
-    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
+    monkeypatch.setattr(query_module, "PROGRESS_INTERVAL", 1)
     event = _event("activity", "plank", {"name": "Plank"})
     status, body = client.call("POST", "/v1/events", {"events": [event]})
     assert status == 200 and body["accepted"] == 1
@@ -927,7 +927,7 @@ def test_plan_and_status_give_up_on_a_long_query(server, monkeypatch):
     _, info, client, _ = server
     _pair(client, info)
     monkeypatch.setattr(serve, "QUERY_TIMEOUT_S", 0)
-    monkeypatch.setattr(store_module, "PROGRESS_INTERVAL", 1)
+    monkeypatch.setattr(query_module, "PROGRESS_INTERVAL", 1)
     for path in ("/v1/plan", "/v1/status"):
         status, body = client.call("GET", path)
         assert status == 503 and body["error"] == "timeout", path

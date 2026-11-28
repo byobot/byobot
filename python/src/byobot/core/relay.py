@@ -13,7 +13,8 @@ from .. import library
 from ..util import ValidationFailed
 from . import sources
 from .contract import documents, sync_errors
-from .store import Store, busy
+from .query import busy
+from .store import Store
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor

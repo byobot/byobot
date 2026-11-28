@@ -17,7 +17,8 @@ import pytest
 
 from byobot.core import commands, reducers, relay, sources
 from byobot.core.contract import Contract
-from byobot.core.store import STORE_VERSION, Store, query
+from byobot.core.query import query
+from byobot.core.store import STORE_VERSION, Store
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed
 from conftest import newer_contract
 
@@ -420,7 +421,7 @@ def test_paired_devices_stay_out_of_the_log(pair):
 
 
 def test_queries_read_and_refuse_writes_the_key_and_token_hashes(tmp_path):
-    from byobot.core.store import query
+    from byobot.core.query import query
 
     with Store(tmp_path / "s.db", wall=Wall()) as s:
         commands.log(s, ME, [{"kind": "effort", "payload": effort()}])

@@ -24,7 +24,7 @@ from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlsplit
 
 from byobot import __version__
-from byobot.core.store import interrupted
+from byobot.core.query import interrupted
 
 PAIRING_TTL_S = 600
 PAIRING_TRIES = 5
