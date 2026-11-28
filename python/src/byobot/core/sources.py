@@ -14,7 +14,7 @@ ACTOR_KIND = "connector"
 
 
 def record_id(store: Store, source: str, source_type: str, source_id: str) -> str:
-    return store.contract.derived("source_record", [source, source_type, str(source_id)])
+    return store.contract.source_record_id(source, source_type, source_id)
 
 
 def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],

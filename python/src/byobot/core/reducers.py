@@ -268,7 +268,7 @@ def _source_record(conn, c, rid, p):
     read = mappers.read(p, related)
     for source_type, source_id in read["related"]:
         conn.execute("INSERT OR IGNORE INTO source_links VALUES (?, ?)",
-                     (rid, c.derived("source_record", [p["source"], source_type, source_id])))
+                     (rid, c.source_record_id(p["source"], source_type, source_id)))
     if excluded:
         return
     oid, fix = overlays.get("correct", (None, {}))

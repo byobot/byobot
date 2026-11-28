@@ -127,6 +127,9 @@ class Contract:
     def derived(self, namespace: str, parts: list) -> str:
         return str(uuid.uuid5(self.namespace(namespace), jcs(parts)))
 
+    def source_record_id(self, source: str, source_type: str, source_id: Any) -> str:
+        return self.derived("source_record", [source, source_type, str(source_id)])
+
     def check(self, event: dict) -> None:
         """Raise Rejected if the event breaks the schemas or a rule."""
         if later(event):
@@ -199,7 +202,7 @@ class Contract:
             if len(parts) != len(set(parts)):
                 broken.add("part_ids")
         if kind == "source_record" and {"source", "source_type", "source_id"} <= set(p) and \
-                rid != self.derived("source_record", [p["source"], p["source_type"], p["source_id"]]):
+                rid != self.source_record_id(p["source"], p["source_type"], p["source_id"]):
             broken.add("derived_id")
         if kind == "overlay" and "effect" in p and isinstance(p.get("target"), dict) and \
                 rid != self.derived("overlay", [p["effect"], p["target"]["kind"], p["target"]["id"]]):
