@@ -14,12 +14,6 @@ final class AppModel: ObservableObject, SyncBook {
     @Published var message: String?
     /// A pairing link the app was opened with, waiting for the person to confirm.
     @Published var pendingLink: PairingLink?
-    /// A Drive sync join code the app was opened with, waiting for the person to confirm.
-    @Published var pendingCloud: CloudJoinLink?
-    /// The logbook this phone syncs with through Google Drive, when it has joined one.
-    @Published private(set) var cloudStore: String?
-    @Published private(set) var cloudSyncedAt: String?
-    private var cloudRoute: CloudRoute?
     /// The rest between sets, counting down.
     @Published var rest: Countdown?
     /// An interval block or a hold running on the clock.
@@ -27,9 +21,7 @@ final class AppModel: ObservableObject, SyncBook {
     private var clockPhase: Int?
     /// Apple Health has types byobot reads that you haven't been asked about yet.
     @Published var healthNeedsAccess = false
-    @Published var healthEnabled: Bool {
-        didSet { UserDefaults.standard.set(healthEnabled, forKey: "healthEnabled") }
-    }
+    var healthEnabled: Bool { state.health?.enabled == true }
 
     let health = HealthKitReader()
     private let file: StateFile
@@ -40,7 +32,6 @@ final class AppModel: ObservableObject, SyncBook {
         self.file = file
         book = Logbook(state: state, origin: Origin(app: "byobot_ios", version: AppModel.version,
                                                     device: UIDevice.current.name))
-        healthEnabled = UserDefaults.standard.bool(forKey: "healthEnabled")
         switch outcome {
         case .loaded: break
         case .new: save()
@@ -50,11 +41,6 @@ final class AppModel: ObservableObject, SyncBook {
                 + "and the app started over. Pair again; a later update may read it."
         case .cantRead: message = StateFile.Locked().errorDescription
         }
-        if let relay = CloudSetup.load(), let tokens = CloudSetup.tokens(),
-           let identity = try? CloudSetup.identity(for: book.state.deviceId) {
-            cloudRoute = CloudSetup.route(relay, tokens: tokens, identity: identity)
-            cloudStore = relay.storeID
-        }
         keepAwake()
     }
 
@@ -63,8 +49,8 @@ final class AppModel: ObservableObject, SyncBook {
     var state: AppState { book.state }
     var plan: PlanWindow? { book.state.plan }
     var server: PairedServer? { book.state.server }
-    /// Paired with a laptop, joined through Drive, or both, or looking around the demo.
-    var connected: Bool { server != nil || cloudStore != nil || demo }
+    /// Paired with a laptop, or looking around the demo.
+    var connected: Bool { server != nil || demo }
     var demo: Bool { book.state.demo == true }
 
     /// Sample data to look around with, such as for App Review. Nothing syncs.
@@ -79,7 +65,11 @@ final class AppModel: ObservableObject, SyncBook {
     func leaveDemo() {
         rest = nil
         stopClock()
-        change { $0.state = AppState() }
+        let health = state.health
+        change {
+            $0.state = AppState()
+            $0.state.health = health
+        }
     }
 
     // MARK: Saving
@@ -132,15 +122,6 @@ final class AppModel: ObservableObject, SyncBook {
     // MARK: Pairing
 
     func open(_ url: URL) {
-        let names = PairingLink.names(url.absoluteString)
-        if names.drive && !names.hub {
-            do {
-                pendingCloud = CloudJoinLink(link: url.absoluteString, code: try CloudJoin(link: url.absoluteString))
-            } catch {
-                message = "That link isn't a byobot Drive sync code this version understands."
-            }
-            return
-        }
         let link: PairingLink
         do {
             link = try PairingLink(link: url.absoluteString)
@@ -205,48 +186,6 @@ final class AppModel: ObservableObject, SyncBook {
         }
     }
 
-    // MARK: Drive sync
-
-    /// Signs in to Google with the client the Mac's code names, then joins the Mac's logbook in Drive's app folder.
-    /// The Mac admits this phone the next time it syncs.
-    func joinCloud(_ pending: CloudJoinLink) async throws {
-        guard let client = pending.code.client else {
-            throw CloudError("That code has no iOS client in it. On your Mac, run `byobot cloud setup` with your iOS "
-                             + "client id, then show a new code.")
-        }
-        if let store = book.state.storeId, store != pending.code.storeID {
-            throw CloudError("That code is for another logbook than the one this phone syncs with.")
-        }
-        if demo { leaveDemo() }
-        let tokens = try await GoogleSignInSheet().signIn(clientID: client)
-        CloudSetup.keep(tokens)
-        let identity = try CloudSetup.identity(for: state.deviceId)
-        let folder = DriveFolder(storeID: pending.code.storeID, drive: Drive(tokens: tokens, saved: { CloudSetup.keep($0) }),
-                                 journal: CloudSetup.journal)
-        let relay: CloudRelay
-        do {
-            relay = try await CloudRelay.join(folder, link: pending.link, deviceID: state.deviceId, identity: identity)
-        } catch is CloudExists {
-            throw CloudError("This phone already joined that logbook. On your Mac, run `byobot cloud remove` for it, "
-                             + "then show a new code.")
-        }
-        try CloudSetup.store(relay)
-        cloudRoute = CloudSetup.route(relay, tokens: tokens, identity: identity)
-        cloudStore = relay.storeID
-        if book.state.storeId == nil { change { $0.paired(storeId: relay.storeID) } }
-        pendingCloud = nil
-        await sync()
-    }
-
-    /// Stops Drive sync on this phone. What's waiting, Apple Health readings included, goes by the laptop, or by
-    /// Drive if you join again.
-    func leaveCloud() {
-        CloudSetup.forget()
-        cloudRoute = nil
-        cloudStore = nil
-        cloudSyncedAt = nil
-    }
-
     /// Pairings and forgets under way, so no sync starts against the laptop being left.
     private var leaving = 0
 
@@ -278,7 +217,7 @@ final class AppModel: ObservableObject, SyncBook {
     private var running: Task<Void, Never>?
     private var syncAgain = false
 
-    /// Sync by every route this phone has: the paired laptop first, then Drive. Each takes what's still waiting.
+    /// Sync with the paired laptop.
     func sync() async {
         guard leaving == 0 else { return }
         if let running {
@@ -286,7 +225,7 @@ final class AppModel: ObservableObject, SyncBook {
             await running.value
             return
         }
-        guard server != nil || cloudRoute != nil else { return }
+        guard server != nil else { return }
         let task = Task { await self.syncLoop() }
         running = task
         await task.value
@@ -303,7 +242,7 @@ final class AppModel: ObservableObject, SyncBook {
     }
 
     private func syncOnce() async {
-        var healthError: String?, laptopError: String?, cloudError: String?, cloudOK = false
+        var healthError: String?, laptopError: String?
         var read: HealthRead?
         if healthEnabled {
             do {
@@ -312,56 +251,28 @@ final class AppModel: ObservableObject, SyncBook {
                 healthError = error.localizedDescription
             }
         }
-        let carried = CloudSetup.carry()  // what a Drive relay held when this phone left it
-        let carrying = !carried.samples.isEmpty || !carried.deleted.isEmpty
-        var health: SampleBatch?
-        if read != nil || carrying {
-            health = SampleBatch(samples: carried.samples + (read?.samples ?? []),
-                                 deleted: carried.deleted + (read?.deleted ?? []))
-        }
-        var routes: [any SyncRoute] = []
-        var hub: HubRoute?, drive: DriveRoute?
         if let server {
             if let token = Keychain.token(for: server.deviceId) {
-                hub = HubRoute(SyncClient(server: server, token: token))
+                do {
+                    let health = SampleBatch(samples: read?.samples ?? [], deleted: read?.deleted ?? [])
+                    try await HubSync(SyncClient(server: server, token: token)).sync(self, health: health)
+                    if let read {
+                        change {
+                            var kept = $0.state.health ?? HealthState()
+                            kept.anchors = read.anchors
+                            kept.days = read.days
+                            $0.state.health = kept
+                            $0.state.lastHealthSyncAt = Timestamp.now()
+                        }
+                    }
+                } catch {
+                    laptopError = error.localizedDescription
+                }
             } else {
                 laptopError = SyncClientError.unauthorized.localizedDescription
             }
         }
-        if let cloudRoute {
-            drive = DriveRoute(cloudRoute) { [weak self] in self?.cloudRoute === cloudRoute }
-        }
-        if let hub { routes.append(hub) }
-        if let drive { routes.append(drive) }
-        let report = await Syncer.run(routes, book: self, health: health)
-        for (route, outcome) in zip(routes, report.outcomes) {
-            if route === hub {
-                if let error = outcome.error { laptopError = error.localizedDescription }
-            } else if let drive, route === drive {
-                if let error = outcome.error {
-                    cloudError = error.localizedDescription
-                } else if outcome.removed {
-                    if cloudRoute === drive.route { leaveCloud() }
-                    cloudError = "Your Mac took this phone off Drive sync. Show its join code again to rejoin."
-                } else if outcome.waiting {
-                    cloudError = "Waiting for your Mac to let this phone in. Keep `byobot cloud join` or `byobot serve` "
-                        + "running on it."
-                } else if outcome.tookHealth {
-                    cloudSyncedAt = Timestamp.now()
-                    cloudOK = true
-                }
-            }
-        }
-        if report.healthDone {
-            if carrying { CloudSetup.keepCarry(SampleBatch()) }
-            if let read {
-                UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
-                UserDefaults.standard.set(read.days, forKey: "healthDays")
-                change { $0.state.lastHealthSyncAt = Timestamp.now() }
-            }
-        }
-        // Away from the laptop, Drive reaching the Mac is enough: no need to say the laptop is out of reach.
-        message = healthError ?? cloudError ?? (cloudOK ? nil : laptopError)
+        message = healthError ?? laptopError
     }
 
     /// What Apple Health has new since the last send, with the anchors to keep once it's sent.
@@ -381,11 +292,11 @@ final class AppModel: ObservableObject, SyncBook {
         let last = state.lastHealthSyncAt.flatMap(Timestamp.date)
         let now = Date()
         let yearAgo = now.addingTimeInterval(-365 * 86_400)
-        let anchors = UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]
+        let anchors = state.health?.anchors ?? [:]
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let sent = UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]
+        let sent = state.health?.days ?? [:]
         let totals = try await health.dailyTotals(since: from)
         let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
         return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
@@ -396,7 +307,11 @@ final class AppModel: ObservableObject, SyncBook {
     func enableHealth() async {
         do {
             try await health.requestAccess()
-            healthEnabled = true
+            change {
+                var health = $0.state.health ?? HealthState()
+                health.enabled = true
+                $0.state.health = health
+            }
             healthNeedsAccess = false
             await sync()
         } catch {
@@ -540,9 +455,3 @@ enum Haptics {
     static func phase() { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
 }
 
-/// A Drive sync join code, as the link it came in and what it says.
-struct CloudJoinLink: Identifiable {
-    var link: String
-    var code: CloudJoin
-    var id: String { link }
-}
