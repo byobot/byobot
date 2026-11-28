@@ -115,7 +115,8 @@ HEALTH_TOTALS = (("distance_m", "distance", "m"), ("heart_rate_avg_bpm", "heart_
 
 
 def health_workout(raw: dict, related: Related) -> dict:
-    start, end = raw["start"], raw["end"]
+    start = raw["start"]
+    end = raw.get("end", start)
     totals = raw.get("raw") or {}
     seconds = totals.get("duration_s")
     if not _number(seconds):

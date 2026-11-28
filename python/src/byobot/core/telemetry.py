@@ -22,5 +22,5 @@ def observation(sample: dict, contract: Contract | None = None) -> dict | None:
     value, unit = sample["value"], UNITS.get(sample.get("unit"), sample.get("unit"))
     if isinstance(value, str):
         value = re.sub(r"(?<!^)([A-Z]+)", r"_\1", value).lower()  # asleepREM -> asleep_rem
-    payload = {"code": code, "value": value, "time": {"start": sample["start"], "end": sample["end"]}}
+    payload = {"code": code, "value": value, "time": {"start": sample["start"], "end": sample.get("end", sample["start"])}}
     return {**payload, "unit": unit} if unit else payload

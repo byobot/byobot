@@ -318,3 +318,11 @@ def test_correcting_only_the_start_of_an_imported_workout_keeps_its_end(tmp_path
         [row] = s.rows("SELECT started_at, ended_at FROM source_sessions WHERE id = ?", (rid,))
     assert row["started_at"] == "2026-03-02T08:55:00-05:00"
     assert row["ended_at"] == "2026-03-02T10:00:00.000-05:00", "the source's end was dropped by a start-only fix"
+
+
+def test_a_sample_without_an_end_reads_as_a_point(tmp_path):
+    with Store(tmp_path / "s.db") as store:
+        sample = {"source": "apple_health", "source_id": "a1", "type": "HKQuantityTypeIdentifierBodyMass",
+                  "start": "2026-03-02T07:00:00.000-05:00", "value": 80.0, "unit": "kg"}
+        relay.accept_samples(store, {"samples": [sample]})
+        assert store.rows("SELECT code, std_value FROM observations") == [{"code": "body_mass", "std_value": 80.0}]
