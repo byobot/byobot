@@ -228,6 +228,13 @@ def _restore(ctx: Context, path: str) -> dict:
 # -- writing --------------------------------------------------------------------
 
 LOGGABLE = (*core.AUTHORED, "batch")
+NOT_A_BATCH = "a batch is a list of {kind, id?, payload}"
+
+
+def _is_batch(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(r, dict) and "kind" in r for r in value)
+
+
 WRITE_HELP = ("Payload shapes are in `byobot schema records`, codes and their units in `byobot schema registry`. "
               "Metrics are a map such as {\"reps\": {\"value\": 5}, \"load\": {\"value\": 100, \"unit\": \"kg\"}}; "
               "a target can be a range ({\"min\": 3, \"max\": 5}); your own codes start with x. "
@@ -249,8 +256,8 @@ WRITE_HELP = ("Payload shapes are in `byobot schema records`, codes and their un
 )
 def _log(ctx: Context, kind: str, payload: Any, id: str | None = None) -> dict:
     if kind == "batch":
-        if not isinstance(payload, list) or not all(isinstance(r, dict) and "kind" in r for r in payload):
-            raise ValidationFailed("a batch is a list of {kind, id?, payload}")
+        if not _is_batch(payload):
+            raise ValidationFailed(NOT_A_BATCH)
         _check_references(ctx.store(), payload)
         return {"events": core.log(ctx.store(), ctx.actor, payload)}
     record = {"kind": kind, "id": id, "payload": _object("payload", payload)}
@@ -868,8 +875,8 @@ VALIDATE_KINDS = ("event", "batch", *sorted(Contract.shipped().registry["kinds"]
 def _validate(ctx: Context, kind: str, document: Any) -> dict:
     contract = Contract.shipped()
     if kind == "batch":
-        if not isinstance(document, list) or not all(isinstance(r, dict) and "kind" in r for r in document):
-            errors = ["a batch is a list of {kind, id?, payload}"]
+        if not _is_batch(document):
+            errors = [NOT_A_BATCH]
         else:
             errors = [f"{i}: {e}" for i, r in enumerate(document)
                       for e in contract.payload_errors(r["kind"], r.get("payload"), r.get("id"))]
