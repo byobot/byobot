@@ -40,8 +40,6 @@ import socket
 import sqlite3
 import ssl
 import sys
-import threading
-import time
 from contextlib import closing
 from datetime import date, timedelta
 from http import HTTPStatus
@@ -51,18 +49,18 @@ from urllib.parse import urlsplit
 
 from byobot import __version__, util, web
 from byobot.core.contract import SCHEMA_VERSION, Contract, sync_errors
-from byobot.core.relay import Cut, accept_samples, plan_window, push_events
-from byobot.core.store import Store, busy, limit_time
+from byobot.core.query import busy, limit_time
+from byobot.core.relay import EVENT_ID, Cut, accept_samples, plan_window, push_events
+from byobot.core.store import Store
 from byobot.link import pairing_link
 from byobot.util import ByobotError, Conflict, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 
-DEFAULT_PORT = 8765
+DEFAULT_PORT = util.PORTS["serve"]
 MAX_PAIR_BODY = 4096  # pairing is unauthenticated, so its body stays small
 PROTOCOL = 1
 CAPABILITIES: tuple[str, ...] = ()  # features beyond protocol 1 this hub offers
 QUERY_TIMEOUT_S = 5
-ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 DATE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
 
 
@@ -162,10 +160,6 @@ def lan_hosts() -> list[str]:
     return hosts or ["127.0.0.1"]
 
 
-def token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
 # -- HTTP --------------------------------------------------------------------
 
 BUSY = HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", "the laptop's store is busy with a long write; try again")
@@ -174,15 +168,10 @@ BUSY = HTTPError(HTTPStatus.SERVICE_UNAVAILABLE, "busy", "the laptop's store is 
 class Server(web.Server):
     def __init__(self, address: tuple[str, int], db: Path, ssl_context: ssl.SSLContext | None,
                  pairing: Pairing | None, name: str, log: Callable[[str], None] | None = None):
-        self.db = db
         self.ssl_context = ssl_context
-        self.pairing = pairing
-        self.pairing_lock = threading.Lock()
-        self.name = name
-        self.log = log or (lambda line: None)
         with Store(db):
             pass
-        super().__init__(address, Handler)
+        super().__init__(address, Handler, db, pairing, name, log)
 
     def ids(self) -> tuple[str, str]:
         """This store's device and store ids, read now: a restore while serving takes on the backup's store id."""
@@ -199,7 +188,7 @@ class Handler(web.Handler):
 
     def _auth(self, store: Store) -> dict:
         token = self._bearer()
-        peer = store.peer_for_token(token_hash(token)) if token else None
+        peer = store.peer_for_token(web.token_hash(token)) if token else None
         if peer is None:
             raise HTTPError(HTTPStatus.UNAUTHORIZED, "unauthorized", "pair this device with `byobot serve` first")
         self.peer = peer
@@ -267,7 +256,7 @@ class Handler(web.Handler):
         if not isinstance(body, dict):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "send {code, device_id, name}")
         device_id, name = body.get("device_id"), body.get("name")
-        if not isinstance(device_id, str) or not ID.fullmatch(device_id):
+        if not isinstance(device_id, str) or not EVENT_ID.fullmatch(device_id):
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "device_id is not a valid byobot id")
         if not isinstance(name, str) or not 0 < len(name) <= 200:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", "name must be 1 to 200 characters")
@@ -285,7 +274,7 @@ class Handler(web.Handler):
                                 {"tries_left": pairing.tries_left})
         token = secrets.token_urlsafe(32)
         with Store(self.server.db, migrate=False) as store:
-            self.peer = store.pair(device_id, name, token_hash(token))
+            self.peer = store.pair(device_id, name, web.token_hash(token))
         self.server.log(printable(f"paired {name} ({device_id})"))
         return {"token": token, "server": self._server_info(), "device": self.peer}
 
@@ -369,13 +358,9 @@ def make_server(host: str = "0.0.0.0", port: int = DEFAULT_PORT, *, pair: bool |
 
 def run(host: str, port: int | None, pair: bool | None) -> int:
     """The ``byobot serve`` command: print how to pair, then serve until Ctrl-C."""
-    def log(line: str) -> None:
-        sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
-        sys.stderr.flush()
-
     port = port or choose_port()
     try:
-        server, info = make_server(host, port, pair=pair, log=log)
+        server, info = make_server(host, port, pair=pair, log=web.log_line)
     except OSError as exc:
         raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (serve_dir() / "port").write_text(f"{info['port']}\n")
@@ -395,12 +380,4 @@ def run(host: str, port: int | None, pair: bool | None) -> int:
         err.write(f"Link: {info['link']}\n")
     else:
         err.write("Pairing is closed (a device is already paired). Run `byobot serve --pair` to pair another.\n")
-    err.write("\nServing. Press Ctrl-C to stop.\n")
-    err.flush()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    return web.serve_until_stopped(server)

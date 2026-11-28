@@ -7,14 +7,14 @@ from typing import Iterable
 
 from ..util import ValidationFailed, plain_text
 from . import mappers
-from .contract import documents, mac
-from .store import Store, stamp
+from .contract import documents, mac, stamp
+from .store import Store
 
 ACTOR_KIND = "connector"
 
 
 def record_id(store: Store, source: str, source_type: str, source_id: str) -> str:
-    return store.contract.derived("source_record", [source, source_type, str(source_id)])
+    return store.contract.source_record_id(source, source_type, source_id)
 
 
 def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
@@ -53,6 +53,12 @@ def ingest(store: Store, source: str, records: Iterable[tuple[str, str, dict]],
         return store.write({"kind": ACTOR_KIND, "id": source}, changes)
     except ValidationFailed as exc:
         raise ValidationFailed(f"{source}: {exc}") from None
+
+
+def last_start(store: Store, source: str) -> str | None:
+    """The latest start among a source's current revisions, where the next import picks up."""
+    return store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
+                              (source,)).fetchone()[0]
 
 
 SAMPLE_FIELDS = frozenset(documents()[0]["sync"]["$defs"]["sample"]["properties"])

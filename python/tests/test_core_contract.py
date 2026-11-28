@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from byobot.core.contract import Contract, Rejected, mac
+from conftest import newer_contract
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "schema" / "v1").is_dir())
 CASES = json.loads((ROOT / "schema" / "fixtures" / "v1" / "cases.json").read_text())["cases"]
@@ -38,7 +39,7 @@ def test_derived_ids_and_macs():
 
 
 def test_a_newer_contract_understands_newer_versions_and_kinds():
-    newer = CONTRACT.newer(2, {"meal": {"version": 2, "description": "A meal."}})
+    newer = newer_contract(CONTRACT, 2, {"meal": {"version": 2, "description": "A meal."}})
     unknown = next(c["data"] for c in CASES if c["name"] == "unknown/kind-version")
     assert not CONTRACT.understands(unknown) and newer.understands(unknown)
     assert newer.understands({**unknown, "record": {"kind": "meal", "id": unknown["record"]["id"]}})

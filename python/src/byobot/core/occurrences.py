@@ -175,6 +175,9 @@ def _write(conn: sqlite3.Connection, ranked: list[dict], codes: dict[str, list[s
                      [(oid, code, *v) for code, v in taken.items()])
 
 
-def clear(conn: sqlite3.Connection) -> None:
+def rebuild(conn: sqlite3.Connection) -> None:
+    """Recompute every merged workout."""
     for table in TABLES:
         conn.execute(f"DELETE FROM {table}")
+    everything = [(k, r[0]) for k, (table, _) in ITEMS.items() for r in conn.execute(f"SELECT id FROM {table}")]
+    resolve(conn, everything, [])

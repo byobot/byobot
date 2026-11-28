@@ -17,6 +17,7 @@ from typing import Any
 from byobot.core import commands, sources
 from byobot.core.contract import SLUG_KINDS, Contract
 from byobot.core.store import Store
+from conftest import newer_contract
 
 from ..driver import Unsupported, parse
 from ..model import AUTHORED, NEW_IN, RAISED
@@ -339,9 +340,9 @@ class V1:
 
     def upgrade(self, rep: Replica, version: int) -> None:
         raised = {k: {**Contract.shipped().registry["kinds"][k], "version": version} for k in RAISED}
-        contract = Contract.shipped().newer(
-            1, {**raised, **{k: {"version": v, "description": k} for k, v in NEW_IN.items()
-                             if v <= version}})
+        contract = newer_contract(
+            Contract.shipped(), 1, {**raised, **{k: {"version": v, "description": k} for k, v in NEW_IN.items()
+                                                 if v <= version}})
         contract.schemas = copy.deepcopy(contract.schemas)  # the newer install knows the field it added
         contract.schemas["records"]["$defs"]["effort"]["properties"]["x_new_field"] = {"type": "integer"}
         rep.store.use(contract)

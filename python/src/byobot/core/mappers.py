@@ -4,10 +4,11 @@ same, so changing one and rebuilding gives history the new answer."""
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
+from functools import lru_cache
 from typing import Any, Callable
 
-from . import telemetry
+from .contract import Contract, instant, number, stamp
 
 # (source_type, source_id) of another record this one reads, and its current raw or None.
 Related = Callable[[str, str], "dict | None"]
@@ -15,11 +16,15 @@ Related = Callable[[str, str], "dict | None"]
 
 def _at(ts: str, offset: str | None = None) -> str:
     """`ts` as an instant written in `offset` (such as -05:00), so its local date is the source's."""
-    at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    at = instant(ts)
     if offset and re.fullmatch(r"[+-]\d{2}:\d{2}", offset):
         sign = -1 if offset[0] == "-" else 1
         at = at.astimezone(timezone(sign * timedelta(hours=int(offset[1:3]), minutes=int(offset[4:]))))
-    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return stamp(at)
+
+
+def _seconds(start: str, end: str) -> float:
+    return (instant(end) - instant(start)).total_seconds()
 
 
 def _quantity(code: str, value: Any, unit: str | None, start: str, end: str | None = None) -> dict:
@@ -83,9 +88,7 @@ def whoop_cycle(raw: dict, related: Related) -> dict:
 def whoop_workout(raw: dict, related: Related) -> dict:
     offset = raw.get("timezone_offset")
     start, end = _at(raw["start"], offset), _at(raw["end"], offset)
-    seconds = (datetime.fromisoformat(end.replace("Z", "+00:00")) -
-               datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
-    metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
+    metrics: dict = {"duration": {"value": _seconds(start, end), "unit": "s"}}
     score = _scored(raw)
     for key, code, unit in (("average_heart_rate", "heart_rate", "/min"), ("max_heart_rate", "heart_rate_max", "/min"),
                             ("distance_meter", "distance", "m"), ("kilojoule", "active_energy", "kJ"),
@@ -99,9 +102,31 @@ def whoop_workout(raw: dict, related: Related) -> dict:
 
 # -- samples: Apple Health -------------------------------------------------------
 
+# HealthKit units as the registry spells them.
+UNITS = {"count/min": "/min", "degC": "Cel", "ml/kg*min": "mL/(kg.min)", "mmHg": "mm[Hg]", "count": None}
+
+
+@lru_cache(maxsize=1)
+def codes() -> dict[str, str]:
+    """Each HealthKit sample type's registry code."""
+    registry = Contract.shipped().registry["codes"]
+    return {spec["healthkit"]: code for code, spec in registry.items() if "healthkit" in spec}
+
+
+def observation(sample: dict) -> dict | None:
+    """A sample's observation payload, or None for a type that isn't one."""
+    code = codes().get(sample["type"])
+    if code is None:
+        return None
+    value, unit = sample["value"], UNITS.get(sample.get("unit"), sample.get("unit"))
+    if isinstance(value, str):
+        value = re.sub(r"(?<!^)([A-Z]+)", r"_\1", value).lower()  # asleepREM -> asleep_rem
+    payload = {"code": code, "value": value, "time": {"start": sample["start"], "end": sample.get("end", sample["start"])}}
+    return {**payload, "unit": unit} if unit else payload
+
 
 def sample(raw: dict, related: Related) -> dict:
-    found = telemetry.observation(raw)
+    found = observation(raw)
     return {"observations": [found] if found else []}
 
 
@@ -119,20 +144,15 @@ def health_workout(raw: dict, related: Related) -> dict:
     end = raw.get("end", start)
     totals = raw.get("raw") or {}
     seconds = totals.get("duration_s")
-    if not _number(seconds):
-        seconds = (datetime.fromisoformat(end.replace("Z", "+00:00")) -
-                   datetime.fromisoformat(start.replace("Z", "+00:00"))).total_seconds()
+    if not number(seconds):
+        seconds = _seconds(start, end)
     metrics: dict = {"duration": {"value": seconds, "unit": "s"}}
     for key, code, unit in HEALTH_TOTALS:
-        if _number(totals.get(key)):
+        if number(totals.get(key)):
             metrics[code] = {"value": totals[key], "unit": unit}
     kind = str(raw.get("value") or "other")
     name = HEALTH_ACTIVITIES.get(kind) or re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", kind).lower()
     return {"session": {"name": name, "time": {"start": start, "end": end}, "metrics": metrics}}
-
-
-def _number(x: Any) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def _whoop_revised(raw: dict) -> str:
@@ -143,15 +163,17 @@ def _sample_revised(raw: dict) -> str:
     return str((raw.get("raw") or {}).get("modified_at") or raw.get("modified_at") or "")
 
 
+# Health samples may arrive without a revision time; a changed one is stamped on arrival.
+SAMPLES = {("apple_health", "quantity_sample"): sample, ("apple_health", "category_sample"): sample,
+           ("apple_health", "workout"): health_workout}
+
 # (source, source_type) -> (when the revision was made, as the source says; what it reads as)
 MAPPERS: dict[tuple[str, str], tuple[Callable[[dict], str], Callable[[dict, Related], dict]]] = {
     ("whoop", "sleep"): (_whoop_revised, whoop_sleep),
     ("whoop", "recovery"): (_whoop_revised, whoop_recovery),
     ("whoop", "cycle"): (_whoop_revised, whoop_cycle),
     ("whoop", "workout"): (_whoop_revised, whoop_workout),
-    ("apple_health", "quantity_sample"): (_sample_revised, sample),
-    ("apple_health", "category_sample"): (_sample_revised, sample),
-    ("apple_health", "workout"): (_sample_revised, health_workout),
+    **{key: (_sample_revised, mapper) for key, mapper in SAMPLES.items()},
 }
 
 
@@ -167,7 +189,7 @@ def unstamped(raw: Any) -> Any:
 
 def stamped(payload: dict, at: str) -> dict:
     """A health sample with `at` as its revision time, for a changed one sent again without a time of its own."""
-    if MAPPERS.get((payload.get("source"), payload.get("source_type")), (None,))[0] is not _sample_revised:
+    if (payload.get("source"), payload.get("source_type")) not in SAMPLES:
         return payload
     return {**payload, "raw": {**payload["raw"], "modified_at": at}}
 
@@ -185,11 +207,11 @@ def revision_order(event: dict) -> tuple:
     """Revisions in the order their source made them: by revision time as an instant. Ties, and revisions without
     one, go by id, which every device derives alike, so every device picks the same current revision."""
     try:
-        at = datetime.fromisoformat(revised(event["payload"]).replace("Z", "+00:00"))
-        instant = at.timestamp() if at.tzinfo else None
+        at = instant(revised(event["payload"]))
+        seconds = at.timestamp() if at.tzinfo else None
     except ValueError:
-        instant = None
-    return (instant is not None, instant or 0.0, event["id"])
+        seconds = None
+    return (seconds is not None, seconds or 0.0, event["id"])
 
 
 def read(payload: dict, related: Related) -> dict:

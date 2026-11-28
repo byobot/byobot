@@ -9,7 +9,7 @@ One file per activity in `activities/`, named `<id>.json`, holding its activity 
 ```json
 {
   "name": "Example Curl",
-  "equipment": ["dumbbell"],
+  "load_type": "dumbbell",
   "movement_type": "isolation",
   "fatigue": 1,
   "resistance_curve": { "stretch": 1, "middle": 3, "contract": 1 },
@@ -18,7 +18,7 @@ One file per activity in `activities/`, named `<id>.json`, holding its activity 
 ```
 
 - Ids are lowercase with underscores, and never change or go away: plans and logged sets point at them.
-- Muscles, equipment and `movement_type` (`compound` or `isolation`) come from `vocabulary.json`. Add a new name there in sorted order.
+- Muscles, load types, equipment and `movement_type` (`compound` or `isolation`) come from `vocabulary.json`. Add a new name there in sorted order.
 - No muscle is both main and synergist, no two exercises share a name, and empty lists are left out.
 - Only add ratings and notes that are your own work.
 

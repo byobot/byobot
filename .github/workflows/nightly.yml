@@ -1,5 +1,6 @@
-name: Core soak
+name: Nightly
 
+# The newest dependency versions, running every core driver everywhere, and the core soak.
 # GitHub runs schedules late or drops them under load, so there are two a day.
 on:
   schedule:
@@ -12,13 +13,40 @@ on:
         required: false
 
 concurrency:
-  group: core-soak
+  group: nightly
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  latest:
+    name: Newest dependencies, Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.13"
+          - os: windows-latest
+            python: "3.13"
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Test
+        run: python -m pytest -q
+
   files:
     runs-on: ubuntu-latest
     outputs:
@@ -46,15 +74,13 @@ jobs:
       SEED: ${{ inputs.seed || github.run_id }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install
-        run: python -m pip install -e ".[test]" pytest-timeout
+      - uses: astral-sh/setup-uv@v6
+      - name: Install from the lock
+        run: uv sync --locked --extra test --python 3.13
       - name: Soak
         run: |
           echo "Hypothesis seed: $SEED"
-          python -m pytest -q "${{ matrix.file }}" --hypothesis-seed="$SEED" --timeout=1800
+          uv run --locked --with pytest-timeout python -m pytest -q "${{ matrix.file }}" --hypothesis-seed="$SEED" --timeout=1800
       - name: Keep failing examples
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4

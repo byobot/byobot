@@ -8,15 +8,12 @@ Accepting an event re-derives only that record, so cost doesn't grow with histor
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
-import math
 import os
 import secrets
 import sqlite3
 import sys
-import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -25,12 +22,13 @@ from typing import Any, Callable, Iterable, Iterator
 from .. import library
 from ..util import ByobotError, Conflict, NotFound, ValidationFailed, uuid7
 from . import hlc, mappers, occurrences, reducers
-from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac
+from .contract import SLUG_KINDS, Contract, Rejected, jcs, later, mac, stamp
 
 EXPORT_VERSION = 1
 STORE_VERSION = 6  # above every v0 store, so v0 refuses to open a v1 file
 MAX_PREV = 64
 MAX_REJECTIONS = 1000  # per device, newest kept
+BUSY_MS = 5000
 TOO_BIG = "a number too large to store"
 # Drive sync's tables, which held its keys; a store that had them drops them on open.
 RETIRED = ("cloud_meta", "cloud_keys", "cloud_read", "cloud_refused")
@@ -81,10 +79,6 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def stamp(at: datetime) -> str:
-    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
 def _order(event: dict) -> tuple[str, str]:
     return event["hlc"], event["id"]
 
@@ -123,7 +117,7 @@ class Store:
         self.conn.execute("PRAGMA synchronous=FULL")
         if sys.platform == "darwin":
             self.conn.execute("PRAGMA fullfsync=ON")
-        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute(f"PRAGMA busy_timeout={BUSY_MS}")
         # Erase must leave nothing behind, so deleted and overwritten content is zeroed, not just unlinked.
         self.conn.execute("PRAGMA secure_delete=ON")
         self._migrate(device_id, migrate)
@@ -193,25 +187,30 @@ class Store:
         with self.transaction():
             self._set("hlc", hlc.format(max((h for h in held if not hlc.out_of_range(h)), default=(0, 0))))
 
-    def transaction(self):
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
         """Writes inside commit together; nested, they roll back on their own."""
-        conn = self.conn
+        owner = not self.conn.in_transaction
+        self.conn.execute("BEGIN IMMEDIATE" if owner else "SAVEPOINT tx")
+        try:
+            yield
+        except BaseException:
+            if owner:
+                self.conn.execute("ROLLBACK")
+            else:
+                self.conn.execute("ROLLBACK TO tx")
+                self.conn.execute("RELEASE tx")
+            raise
+        self.conn.execute("COMMIT" if owner else "RELEASE tx")
 
-        class _Tx:
-            def __enter__(self_inner):
-                self_inner.owner = not conn.in_transaction
-                conn.execute("BEGIN IMMEDIATE" if self_inner.owner else "SAVEPOINT tx")
-
-            def __exit__(self_inner, exc_type, *_):
-                if self_inner.owner:
-                    conn.execute("ROLLBACK" if exc_type else "COMMIT")
-                elif exc_type:
-                    conn.execute("ROLLBACK TO tx")
-                    conn.execute("RELEASE tx")
-                else:
-                    conn.execute("RELEASE tx")
-
-        return _Tx()
+    @contextmanager
+    def _no_wait(self) -> Iterator[None]:
+        """Statements inside fail at once, rather than wait, while another connection holds the lock."""
+        self.conn.execute("PRAGMA busy_timeout=0")
+        try:
+            yield
+        finally:
+            self.conn.execute(f"PRAGMA busy_timeout={BUSY_MS}")
 
     @contextmanager
     def snapshot(self) -> Iterator[None]:
@@ -242,9 +241,6 @@ class Store:
     @property
     def device_id(self) -> str:
         return self._get("device_id")
-
-    def set_device_id(self, device_id: str) -> None:
-        self._set("device_id", device_id)
 
     @property
     def store_key(self) -> bytes:
@@ -280,10 +276,6 @@ class Store:
     def is_empty(self) -> bool:
         return self.conn.execute("SELECT 1 FROM events LIMIT 1").fetchone() is None
 
-    def last_erase(self) -> int:
-        """The position of the latest erase, or 0."""
-        return self.conn.execute("SELECT coalesce(max(seq), 0) FROM events WHERE op = 'erase'").fetchone()[0]
-
     def accept(self, event: Any) -> tuple[str, str]:
         """Take in one event from anywhere. Returns (outcome, reason); never raises for bad input."""
         return self.accept_many([event])[0]
@@ -305,16 +297,14 @@ class Store:
         another connection reads that can't finish, so it's tried again after each later write and on open."""
         if self.conn.in_transaction or not self.compact_pending():
             return
-        self.conn.execute("PRAGMA busy_timeout=0")
         try:
-            if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
-                return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
-            self.conn.execute("VACUUM")
-            busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+            with self._no_wait():
+                if self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
+                    return  # a reader holds an older snapshot; a rewrite now would only grow the WAL
+                self.conn.execute("VACUUM")
+                busy = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
         except sqlite3.OperationalError:  # another connection is reading
             return
-        finally:
-            self.conn.execute("PRAGMA busy_timeout=5000")
         if not busy:
             self.conn.execute("DELETE FROM meta WHERE key = 'compact_pending'")
 
@@ -451,7 +441,7 @@ class Store:
         if kind in ("session", "source_record", "overlay"):
             occurrences.resolve(conn, touched, spans)
         elif kind == "setting" and rid == "source_priority":
-            self._resolve_all()
+            occurrences.rebuild(self.conn)
 
     def _overlay_targets(self, kind: str, rid: str) -> set[tuple[str, str]]:
         if kind != "overlay":
@@ -466,12 +456,6 @@ class Store:
         found = self.record("source_record", rid)
         if found and found["live"]:
             self._project("source_record", rid, self.event(found["current"])["payload"])
-
-    def _resolve_all(self) -> None:
-        occurrences.clear(self.conn)
-        everything = [(k, r[0]) for k, (table, _) in occurrences.ITEMS.items()
-                      for r in self.conn.execute(f"SELECT id FROM {table}")]
-        occurrences.resolve(self.conn, everything, [])
 
     def adopt(self, store_id: str, store_key: str) -> None:
         """Become a replica of another store: take its id and key. Only an empty store can, since events made with
@@ -510,7 +494,7 @@ class Store:
             reducers.clear(self.conn)
             for kind, rid in self.conn.execute("SELECT DISTINCT kind, record_id FROM events").fetchall():
                 self._reindex(kind, rid)
-            self._resolve_all()
+            occurrences.rebuild(self.conn)
 
     # -- reads ---------------------------------------------------------------
 
@@ -652,14 +636,11 @@ class Store:
                 found = device_id
         if found is None:
             return None
-        self.conn.execute("PRAGMA busy_timeout=0")
         try:
-            with self.transaction():
+            with self._no_wait(), self.transaction():
                 self.conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (stamp(self.wall()), found))
         except sqlite3.OperationalError:  # another connection is writing: last seen can wait for the next request
             pass
-        finally:
-            self.conn.execute("PRAGMA busy_timeout=5000")
         return self.peer(found)
 
     def peers(self) -> list[dict]:
@@ -755,74 +736,6 @@ class Store:
         return self.new_id()
 
 
-def ddl() -> str:
-    """The store's SQL tables, for people and agents writing queries."""
-    return "\n".join(s.strip() for s in _statements(DDL + reducers.DDL)) + "\n"
-
-
-_READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
-# The store's own key and the paired devices' token hashes stay out of queries.
-_UNREADABLE = {("meta", None), ("devices", "token_sha256")}
-
-
-@functools.cache
-def _readable() -> dict[str, frozenset[str]]:
-    """The tables, views and columns `ddl()` documents, less those kept out; anything else in the file stays out."""
-    conn = sqlite3.connect(":memory:")
-    try:
-        conn.executescript(ddl())
-        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_schema WHERE type IN ('table', 'view')")]
-        found = {t: frozenset(c[1].lower() for c in conn.execute(f"PRAGMA table_xinfo({t})")
-                              if (t, c[1]) not in _UNREADABLE) | {"rowid"}
-                 for t in tables if (t, None) not in _UNREADABLE}
-    finally:
-        conn.close()
-    schema = frozenset({"type", "name", "tbl_name", "rootpage", "sql"})
-    return {**found, "sqlite_master": schema, "sqlite_schema": schema}
-
-
-def _authorize(action: int, table: Any, column: Any, database: Any, *_: Any) -> int:
-    # A read with no database is a row count or a CTE: it carries no column of a stored table.
-    if action == sqlite3.SQLITE_READ and database is not None and column.lower() not in _readable().get(table, ()):
-        return sqlite3.SQLITE_DENY
-    return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
-
-
-PROGRESS_INTERVAL = 10_000  # SQLite steps between deadline checks
-
-
-def limit_time(conn: sqlite3.Connection, seconds: float) -> None:
-    """Stop statements on ``conn`` that run past ``seconds`` from now: SQLite raises ``OperationalError('interrupted')``."""
-    deadline = time.monotonic() + seconds
-    conn.set_progress_handler(lambda: time.monotonic() > deadline, PROGRESS_INTERVAL)
-
-
-def interrupted(exc: BaseException) -> bool:
-    return isinstance(exc, sqlite3.OperationalError) and "interrupt" in str(exc).lower()
-
-
-def query(path: Path, sql: str, params: Iterable[Any] = (), limit: int = 1000, seconds: float = 10) -> dict:
-    """Run one read-only SQL statement, stopped after `seconds`. Writes, ATTACH and PRAGMA are refused."""
-    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
-    try:
-        conn.execute("PRAGMA query_only=ON")
-        conn.set_authorizer(_authorize)
-        limit_time(conn, seconds)
-        try:
-            cur = conn.execute(sql, tuple(params))
-            columns = [d[0] for d in cur.description or []]
-            fetched = cur.fetchmany(limit + 1)
-        except (sqlite3.DatabaseError, sqlite3.Warning) as exc:
-            if interrupted(exc):
-                raise ValidationFailed(f"query stopped after {seconds:g} s; narrow it or add a LIMIT") from None
-            raise ValidationFailed(f"query refused: {exc}") from None
-        rows = [{c: None if isinstance(v, float) and not math.isfinite(v) else v for c, v in zip(columns, r)}
-                for r in fetched[:limit]]  # JSON has no Infinity or NaN
-        return {"columns": columns, "rows": rows, "truncated": len(fetched) > limit}
-    finally:
-        conn.close()
-
-
 def _ancestors(starts: Iterable[dict], events: dict[str, dict]) -> set[str]:
     """Every event id reachable through `prev` from `starts`, held or not."""
     seen: set[str] = set()
@@ -878,11 +791,6 @@ def _canonical(event: dict) -> str:
         return text
     except (TypeError, ValueError, RecursionError):
         return ""
-
-
-def busy(exc: BaseException) -> bool:
-    """Whether a store call failed only because another process held the write lock past the busy timeout."""
-    return isinstance(exc, sqlite3.OperationalError) and str(exc).startswith(("database is locked", "database is busy"))
 
 
 def _statements(ddl: str) -> list[str]:

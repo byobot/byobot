@@ -1,0 +1,3 @@
+apps/ios/ByobotKit/Sources/ByobotKit/Generated/** linguist-generated
+python/src/byobot/whoop.schema.json linguist-generated
+python/uv.lock linguist-generated

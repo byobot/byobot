@@ -1,4 +1,17 @@
+import copy
+
 import pytest
+
+from byobot.core.contract import Contract
+
+
+def newer_contract(contract: Contract, version: int, kinds: dict[str, dict] | None = None) -> Contract:
+    """A contract as an install `version` would know it: every kind at that version, plus `kinds`."""
+    registry = copy.deepcopy(contract.registry)
+    for spec in registry["kinds"].values():
+        spec["version"] = max(spec["version"], version)
+    registry["kinds"].update(kinds or {})
+    return Contract(registry, contract.schemas)
 
 
 @pytest.fixture(autouse=True)

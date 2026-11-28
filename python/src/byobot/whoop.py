@@ -27,12 +27,14 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
 from byobot import credentials, oauth
-from byobot.util import ByobotError
+from byobot.core import sources
+from byobot.core.contract import instant, stamp
+from byobot.util import PORTS, ByobotError, UpstreamError
 
 API = "https://api.prod.whoop.com/developer"
 AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
 TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
-PORT = 8766
+PORT = PORTS["whoop"]
 REDIRECT = f"http://localhost:{PORT}/whoop/callback"
 SCOPES = "offline read:recovery read:cycles read:sleep read:workout"
 NAME = "whoop"
@@ -44,9 +46,7 @@ BUSY = {429, 500, 502, 503, 504}
 LONGEST_WAIT = 120  # WHOOP's limit is per minute; a longer Retry-After means try again later
 
 
-PROVIDER = oauth.Provider(NAME, "WHOOP", TOKEN_URL, "`byobot connect whoop`", rotates=True,
-                          refresh_form={"scope": "offline"})
-UpstreamError, NotConnected = oauth.UpstreamError, oauth.NotConnected
+PROVIDER = oauth.Provider(NAME, "WHOOP", TOKEN_URL, "`byobot connect whoop`", refresh_form={"scope": "offline"})
 
 
 def authorize_url(client_id: str, state: str, challenge: str) -> str:
@@ -119,16 +119,11 @@ def _retry_after(e: urllib.error.HTTPError, attempt: int) -> float:
         return min(2.0 ** attempt, 30.0) + random.random()
 
 
-_urlopen = urllib.request.urlopen
-
-
 class Client(oauth.Session):
     provider = PROVIDER
 
     def __init__(self, opener: Callable | None = None):
-        opener = opener or urllib.request.urlopen
-        # Test fakes stand in for urlopen and take no timeout.
-        super().__init__((lambda req: opener(req, timeout=TIMEOUT)) if opener is _urlopen else opener)
+        super().__init__(lambda req: (opener or urllib.request.urlopen)(req, timeout=TIMEOUT))
 
     def request(self, method: str, path: str, params: dict | None = None) -> Any:
         """One call's JSON. Refreshes the access token once on a 401, and waits and tries again when WHOOP is busy
@@ -180,11 +175,9 @@ class Client(oauth.Session):
             params["nextToken"] = body["next_token"]
 
 
-def utc(ts: str) -> str:
-    """An instant in UTC, to the millisecond."""
-    at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
-    return at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+def utc(at: datetime) -> str:
+    """An instant in UTC, to the millisecond; a naive one reads as UTC."""
+    return stamp((at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc))
 
 
 # source_type -> (path, response schema): each record is kept as WHOOP sent it; byobot reads it on the way out.
@@ -204,17 +197,15 @@ def collect(client: Client, start: str) -> list[tuple[str, str, dict]]:
     return [(t, record_key(t, r), r) for t, (path, name) in ENDPOINTS.items() for r in client.pages(path, name, start)]
 
 
-def import_into(store, client: Client, days: int | None = None) -> dict:
+def import_into(store, days: int | None = None) -> dict:
     """Fetch since the last import (a week back, so rescores are picked up), or `days` back, or 90 days."""
-    from byobot.core import sources
-
-    last = store.conn.execute("SELECT max(json_extract(raw, '$.start')) FROM source_records WHERE source = ?",
-                              (NAME,)).fetchone()[0]
+    last = sources.last_start(store, NAME)
     if days is None and last:
-        since = datetime.fromisoformat(last.replace("Z", "+00:00")) - timedelta(days=7)
+        since = instant(last) - timedelta(days=7)
     else:
         since = datetime.now(timezone.utc) - timedelta(days=days or 90)
-    found = collect(client, utc(since.isoformat()))
+    start = utc(since)
+    found = collect(Client(), start)
     written = sources.ingest(store, NAME, found)
-    return {"since": utc(since.isoformat()), "fetched": len(found), "written": len(written),
+    return {"since": start, "fetched": len(found), "written": len(written),
             "whoop_api": version()}

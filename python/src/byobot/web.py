@@ -6,22 +6,25 @@ the local network, an assistant anywhere on the internet behind a tunnel).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
 import sqlite3
 import ssl
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlsplit
 
 from byobot import __version__
-from byobot.core.store import interrupted
+from byobot.core.query import interrupted
 
 PAIRING_TTL_S = 600
 PAIRING_TRIES = 5
@@ -32,6 +35,7 @@ MAX_TOKEN = 200
 DISCARD_BUFFERED = 64 * 1024
 SOCKET_TIMEOUT_S = 15  # idle cap so a stalled handshake or header cannot hold a thread
 REQUEST_DEADLINE_S = 30  # whole-request cap, so a slow body cannot refresh the idle timer forever
+JSON = "application/json; charset=utf-8"
 
 
 @dataclass
@@ -64,9 +68,20 @@ class Pairing:
 
 
 class HTTPError(Exception):
-    def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None):
+    def __init__(self, status: HTTPStatus, code: str, message: str, details: Any = None,
+                 headers: dict[str, str] | None = None, content_type: str = JSON):
         super().__init__(message)
         self.status, self.code, self.message, self.details = status, code, message, details
+        self.headers, self.content_type = headers, content_type
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def last_values(fields: dict[str, list[str]]) -> dict[str, str]:
+    """A parsed query or form, each name with the last value given for it."""
+    return {k: v[-1] for k, v in fields.items()}
 
 
 def timed_out(exc: sqlite3.OperationalError) -> NoReturn:
@@ -96,7 +111,13 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     ssl_context: ssl.SSLContext | None = None
-    log: Callable[[str], None]
+
+    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], db: Path,
+                 pairing: Pairing | None, name: str, log: Callable[[str], None] | None = None):
+        self.db, self.pairing, self.name = db, pairing, name
+        self.pairing_lock = threading.Lock()
+        self.log = log or (lambda line: None)
+        super().__init__(address, handler)
 
     def finish_request(self, request: Any, client_address: Any) -> None:
         # Handshake and headers run in this request's thread. An idle cap means a client that
@@ -114,6 +135,24 @@ class Server(ThreadingHTTPServer):
         if isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):
             return
         super().handle_error(request, client_address)
+
+
+def log_line(line: str) -> None:
+    """A server's log: the line on stderr, with the time."""
+    sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
+    sys.stderr.flush()
+
+
+def serve_until_stopped(server: Server) -> int:
+    sys.stderr.write("\nServing. Press Ctrl-C to stop.\n")
+    sys.stderr.flush()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -149,8 +188,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code: Any = "-", size: Any = "-") -> None:
         self.log_message("%s", code)
 
-    def _send(self, status: HTTPStatus, body: Any) -> None:
-        self._send_bytes(status, json.dumps(body, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+    def _send(self, status: HTTPStatus, body: Any, content_type: str = JSON,
+              headers: dict[str, str] | None = None) -> None:
+        self._send_bytes(status, json.dumps(body, ensure_ascii=False).encode(), content_type, headers)
 
     def _send_bytes(self, status: HTTPStatus, data: bytes, content_type: str | None,
                     headers: dict[str, str] | None = None) -> None:
@@ -202,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
         out = {"error": exc.code, "message": exc.message}
         if exc.details is not None:
             out["details"] = exc.details
-        self._send(exc.status, out)
+        self._send(exc.status, out, exc.content_type, exc.headers)
 
     def _content_length(self, limit: int) -> int:
         """The declared length, or an error. Nothing is read from the socket here."""
@@ -280,4 +320,4 @@ class Handler(BaseHTTPRequestHandler):
         return token
 
     def _query(self) -> dict[str, str]:
-        return {k: v[-1] for k, v in parse_qs(urlsplit(self.path).query).items()}
+        return last_values(parse_qs(urlsplit(self.path).query))

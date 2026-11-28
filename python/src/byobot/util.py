@@ -11,7 +11,6 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -44,7 +43,7 @@ def db_path() -> Path:
 
 
 SERVERS = ("serve", "remote")
-DEFAULT_PORTS = (8765, 8766, 8780)  # serve, WHOOP's sign-in callback, remote
+PORTS = {"serve": 8765, "whoop": 8766, "remote": 8780}  # whoop: the sign-in callback
 
 
 def choose_port(server: str, default: int, ports: Iterable[int]) -> int:
@@ -59,7 +58,7 @@ def choose_port(server: str, default: int, ports: Iterable[int]) -> int:
     homes = [base(), *(base() / "profiles").glob("*")]
     kept = {f.read_text().strip() for h in homes for s in SERVERS if (f := h / s / "port").is_file()}
     for port in ports:
-        if port in DEFAULT_PORTS or str(port) in kept:
+        if port in PORTS.values() or str(port) in kept:
             continue
         with socket.socket() as s:
             try:
@@ -121,11 +120,6 @@ def uuid7() -> str:
     return str(uuid.UUID(int=value))
 
 
-def now() -> str:
-    """The current time as RFC 3339 UTC with milliseconds, e.g. ``2026-11-20T18:00:00.000Z``."""
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
 def utf8_stdio() -> None:
     """Make stdin/stdout UTF-8 everywhere (Windows consoles default to a legacy code page)."""
     for stream in (sys.stdin, sys.stdout):
@@ -172,6 +166,14 @@ class Conflict(ByobotError):
 
 class Forbidden(ByobotError):
     code = "forbidden"
+
+
+class UpstreamError(ByobotError):
+    code = "upstream"
+
+
+class NotConnected(ByobotError):
+    code = "not_connected"
 
 
 def plain_text(text: str, limit: int = 100) -> str:

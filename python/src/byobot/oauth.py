@@ -17,18 +17,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from byobot import __version__, credentials
-from byobot.util import ByobotError
+from byobot.util import NotConnected, UpstreamError
 
 # Firewalls in front of APIs often turn away urllib's default User-Agent.
 HEADERS = {"User-Agent": f"byobot/{__version__} (+https://github.com/byobot/byobot)", "Accept": "application/json"}
-
-
-class UpstreamError(ByobotError):
-    code = "upstream"
-
-
-class NotConnected(ByobotError):
-    code = "not_connected"
 
 
 @dataclass(frozen=True)
@@ -36,8 +28,7 @@ class Provider:
     name: str  # the credentials entry
     label: str  # as the person knows it
     token_url: str
-    again: str  # the command that signs in again
-    rotates: bool  # a refresh sends a new refresh token, so another one saved means another process refreshed
+    sign_in_command: str
     refresh_form: dict = field(default_factory=dict)
 
 
@@ -51,7 +42,7 @@ def pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
 
 
-def why(e: urllib.error.HTTPError, label: str = "the provider") -> tuple[str, str]:
+def why(e: urllib.error.HTTPError, label: str) -> tuple[str, str]:
     """The provider's reason for an error, short and on one line, and its OAuth error code if it gave one."""
     try:
         text = (e.read() or b"")[:4000].decode("utf-8", "replace")
@@ -81,9 +72,9 @@ def post_token(p: Provider, form: dict, opener: Callable) -> dict:
     except urllib.error.HTTPError as e:
         text, code = why(e, p.label)
         if code == "invalid_grant":
-            raise NotConnected(f"{p.label} signed byobot out; run {p.again} to sign in again") from None
+            raise NotConnected(f"{p.label} signed byobot out; run {p.sign_in_command} to sign in again") from None
         raise UpstreamError(f"{p.label} refused the sign-in ({e.code}{': ' + text if text else ''}); "
-                            f"run {p.again} again") from None
+                            f"run {p.sign_in_command} again") from None
     except (urllib.error.URLError, OSError) as e:
         raise UpstreamError(f"can't reach {p.label}: {getattr(e, 'reason', e)}") from None
     except ValueError:
@@ -99,8 +90,7 @@ def tokens(stored: dict, answer: dict) -> dict:
             "expires_at": time.time() + answer.get("expires_in", 3600)}
 
 
-def wait_for_code(server: http.server.HTTPServer, state: str, p: Provider, path: str | None = None,
-                  timeout: float = 300) -> str:
+def wait_for_code(server: http.server.HTTPServer, state: str, p: Provider, path: str, timeout: float = 300) -> str:
     """Catch the provider's redirect to this machine and return the authorization code."""
     found: dict = {}
 
@@ -108,7 +98,7 @@ def wait_for_code(server: http.server.HTTPServer, state: str, p: Provider, path:
         def do_GET(self) -> None:
             url = urllib.parse.urlsplit(self.path)
             query = dict(urllib.parse.parse_qsl(url.query))
-            if (path and url.path != path) or not ({"state", "code", "error"} & query.keys()):
+            if url.path != path or not ({"state", "code", "error"} & query.keys()):
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -129,9 +119,9 @@ def wait_for_code(server: http.server.HTTPServer, state: str, p: Provider, path:
     while not found and time.monotonic() < deadline:
         server.handle_request()
     if not found:
-        raise UpstreamError(f"no answer from {p.label}'s sign-in; run {p.again} again")
+        raise UpstreamError(f"no answer from {p.label}'s sign-in; run {p.sign_in_command} again")
     if found.get("state") != state:
-        raise UpstreamError(f"the sign-in answer didn't match this request; run {p.again} again")
+        raise UpstreamError(f"the sign-in answer didn't match this request; run {p.sign_in_command} again")
     if "code" not in found:
         raise UpstreamError(f"{p.label} didn't sign you in: {found.get('error_description') or found.get('error')}")
     return found["code"]
@@ -142,11 +132,11 @@ class Session:
 
     provider: Provider
 
-    def __init__(self, opener: Callable, stored: dict | None = None):
+    def __init__(self, opener: Callable):
         self.opener = opener
-        self.stored = stored or credentials.load(self.provider.name)
+        self.stored = credentials.load(self.provider.name)
         if self.stored is None:
-            raise NotConnected(f"byobot isn't signed in to {self.provider.label} yet; run {self.provider.again} "
+            raise NotConnected(f"byobot isn't signed in to {self.provider.label} yet; run {self.provider.sign_in_command} "
                                "in a terminal")
 
     def _fresh(self) -> None:
@@ -160,7 +150,7 @@ class Session:
         with credentials.locked(p.name):
             latest = credentials.load(p.name) or self.stored
             same = latest.get("refresh_token") == self.stored.get("refresh_token")
-            if latest.get("client_id") != self.stored.get("client_id") or not (same or p.rotates):
+            if latest.get("client_id") != self.stored.get("client_id"):
                 self.stored = latest
                 raise UpstreamError(f"the {p.label} sign-in changed; trying again with the new one")
             if not same:

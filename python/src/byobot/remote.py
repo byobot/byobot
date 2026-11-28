@@ -16,7 +16,6 @@ data stays on this computer; the tunnel only carries requests.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import secrets
@@ -34,9 +33,10 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
-from byobot import __version__, commands, mcp, util, web
+from byobot import __version__, commands, mcp, oauth, util, web
 from byobot.lock import held
-from byobot.core.store import interrupted, limit_time, stamp
+from byobot.core.contract import stamp
+from byobot.core.query import interrupted, limit_time
 from byobot.util import PROFILE_NAME, ByobotError, NotFound, ValidationFailed, db_path, home, profile
 from byobot.web import PAIRING_TTL_S, HTTPError, Pairing, printable, timed_out
 
@@ -47,6 +47,7 @@ REFRESH_TTL_S = 90 * 86400
 CODE_TTL_S = 300
 MAX_PENDING_CLIENTS = 50
 AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
 
 
 def remote_dir() -> Path:
@@ -56,16 +57,12 @@ def remote_dir() -> Path:
 def check_url(url: str) -> str:
     """The public base URL, without a trailing slash: https, or http only for this computer."""
     parts = urlsplit(url.strip())
-    local = parts.hostname in ("localhost", "127.0.0.1", "::1")
+    local = parts.hostname in LOOPBACK
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
         raise ValidationFailed("--url must be the https address your tunnel gives this profile")
     if not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment or parts.username:
         raise ValidationFailed("--url must be just the address, such as https://example-laptop.example.ts.net")
     return f"{parts.scheme}://{parts.netloc.lower()}"
-
-
-def _hash(secret: str) -> str:
-    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def _redirect_ok(uri: Any) -> bool:
@@ -74,7 +71,7 @@ def _redirect_ok(uri: Any) -> bool:
     parts = urlsplit(uri)
     if parts.fragment or not parts.hostname:
         return False
-    return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "::1"))
+    return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in LOOPBACK)
 
 
 def requested_scope(scope: Any) -> str:
@@ -201,7 +198,7 @@ class Auth:
         if method != "none":
             out["client_secret"] = secrets.token_urlsafe(32)
             out["client_secret_expires_at"] = 0
-            client["secret_sha256"] = _hash(out["client_secret"])
+            client["secret_sha256"] = web.token_hash(out["client_secret"])
         with self.lock:
             while len(self.pending) >= MAX_PENDING_CLIENTS:
                 self.pending.pop(next(iter(self.pending)))
@@ -227,7 +224,7 @@ class Auth:
         if client is None:
             raise OAuthError("invalid_client", "unknown client", 401)
         if client["token_endpoint_auth_method"] != "none":
-            if not secret or not secrets.compare_digest(_hash(secret), client["secret_sha256"]):
+            if not secret or not secrets.compare_digest(web.token_hash(secret), client["secret_sha256"]):
                 raise OAuthError("invalid_client", "wrong client secret", 401)
         return client
 
@@ -247,25 +244,24 @@ class Auth:
             generation = self._load()["generation"]
             now = time.monotonic()
             self.grants = {k: g for k, g in self.grants.items() if g.expires_at > now}
-            self.grants[_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named, scope)
+            self.grants[web.token_hash(code)] = Grant(client_id, redirect_uri, challenge, generation, named, scope)
         return code
 
     def exchange(self, client: dict, code: Any, redirect_uri: Any, verifier: Any) -> dict:
         with self.lock:
-            grant = self.grants.pop(_hash(code), None) if isinstance(code, str) else None
+            grant = self.grants.pop(web.token_hash(code), None) if isinstance(code, str) else None
         if grant is None or grant.expires_at < time.monotonic() or grant.client_id != client["client_id"]:
             raise OAuthError("invalid_grant", "the code is unknown, used or expired")
         if redirect_uri != grant.redirect_uri and (grant.named or redirect_uri is not None):
             raise OAuthError("invalid_grant", "redirect_uri does not match the authorization request")
         if not isinstance(verifier, str) or not 43 <= len(verifier) <= 128:
             raise OAuthError("invalid_grant", "code_verifier is required")
-        expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
-        if not secrets.compare_digest(expected, grant.challenge):
+        if not secrets.compare_digest(oauth.pkce_challenge(verifier), grant.challenge):
             raise OAuthError("invalid_grant", "code_verifier does not match")
         return self._issue({**client, "scope": grant.scope}, grant.generation)
 
     def refresh(self, client: dict, token: Any) -> dict:
-        h, cid = _hash(token) if isinstance(token, str) else None, client["client_id"]
+        h, cid = web.token_hash(token) if isinstance(token, str) else None, client["client_id"]
 
         def rotate(data: dict) -> OAuthError | None:
             if h in data["used"] and data["used"][h]["client_id"] == cid:  # a replay, so the token was copied
@@ -290,8 +286,8 @@ class Auth:
             if (cid not in data["clients"]) if generation is None else (generation != data["generation"]):
                 raise OAuthError("invalid_grant", "this assistant was disconnected; connect it again")
             data["clients"][cid] = dict(client)
-            data["access"][_hash(access)] = {"client_id": cid, "expires_at": now + ACCESS_TTL_S}
-            data["refresh"][_hash(refresh)] = {"client_id": cid, "expires_at": now + REFRESH_TTL_S}
+            data["access"][web.token_hash(access)] = {"client_id": cid, "expires_at": now + ACCESS_TTL_S}
+            data["refresh"][web.token_hash(refresh)] = {"client_id": cid, "expires_at": now + REFRESH_TTL_S}
 
         self._change(add)
         with self.lock:
@@ -305,7 +301,7 @@ class Auth:
             return None
         with self.lock:
             data = self._load()
-        h = _hash(token)
+        h = web.token_hash(token)
         if h in data["keys"]:
             key = data["keys"][h]
             return {"client_id": "key:" + h[:16], "client_name": key["name"], "scope": key.get("scope", FULL)}
@@ -321,7 +317,7 @@ class Auth:
         key = "byobot_" + secrets.token_urlsafe(32)
 
         def add(data: dict) -> None:
-            data["keys"][_hash(key)] = {"name": name, "created_at": int(time.time()), "scope": scope}
+            data["keys"][web.token_hash(key)] = {"name": name, "created_at": int(time.time()), "scope": scope}
 
         self._change(add)
         return key
@@ -379,10 +375,8 @@ QUERY_TIMEOUT_S = 20
 class RemoteServer(web.Server):
     def __init__(self, address: tuple[str, int], base: str, db: Path, auth: Auth, pairing: Pairing | None,
                  name: str, log: Callable[[str], None] | None = None):
-        self.base, self.db, self.auth, self.pairing, self.name = base, db, auth, pairing, name
-        self.pairing_lock = threading.Lock()
-        self.log = log or (lambda line: None)
-        super().__init__(address, Handler)
+        self.base, self.auth = base, auth
+        super().__init__(address, Handler, db, pairing, name, log)
 
     @property
     def resource(self) -> str:
@@ -408,7 +402,7 @@ class Handler(web.Handler):
         length = self._content_length(MAX_FORM)
         self._continue_if_expected()
         raw = self._read_exact(length).decode("utf-8", "replace")
-        return {k: v[-1] for k, v in parse_qs(raw).items()}
+        return web.last_values(parse_qs(raw))
 
     def _route(self) -> str:
         return urlsplit(self.path).path.rstrip("/") or "/"
@@ -489,7 +483,7 @@ class Handler(web.Handler):
         self.server.auth.check_resource(q.get("resource"))
 
     def authorize_page(self) -> None:
-        self._authorize({k: v[-1] for k, v in parse_qs(urlsplit(self.path).query).items()})
+        self._authorize(self._query())
 
     def approve(self) -> None:
         self._authorize(self._form(), submitted=True)
@@ -525,6 +519,9 @@ class Handler(web.Handler):
                        "<p>Run <code>byobot remote serve --pair</code> on the computer that holds your byobot, "
                        "then connect again.</p>")
             return
+        self._approval_page(client, uri, q, message)
+
+    def _approval_page(self, client: dict, uri: str, q: dict[str, str], message: str) -> None:
         keep = "".join(f"<input type=hidden name='{escape(k)}' value='{escape(v)}'>" for k, v in q.items()
                        if k in ("response_type", "client_id", "redirect_uri", "code_challenge",
                                 "code_challenge_method", "state", "scope", "resource"))
@@ -576,25 +573,19 @@ class Handler(web.Handler):
             challenge = f'Bearer resource_metadata="{self.server.base}/.well-known/oauth-protected-resource/mcp"'
             if token:
                 challenge += ', error="invalid_token"'
-            body = json.dumps({"error": "unauthorized", "message": "connect this assistant to byobot first"}).encode()
-            self._send_bytes(HTTPStatus.UNAUTHORIZED, body, "application/json", {"WWW-Authenticate": challenge})
-            raise _Sent
+            raise HTTPError(HTTPStatus.UNAUTHORIZED, "unauthorized", "connect this assistant to byobot first",
+                            headers={"WWW-Authenticate": challenge}, content_type="application/json")
         self.peer = {"name": client["client_name"]}
         return client
 
     def mcp(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         version = self.headers.get("MCP-Protocol-Version")
         if version is not None and version not in mcp.SUPPORTED_VERSIONS:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid", f"unsupported MCP-Protocol-Version {version}")
         message = self._body()
-        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ)
-        server.quiet_errors = True
-        server.protocol = version or mcp.LATEST
-        server.ctx = commands.Context(actor={}, path=self.server.db)
+        server = mcp.Server(actor_id(client), read_only=scope_of(client) == READ, path=self.server.db,
+                            protocol=version or mcp.LATEST, quiet_errors=True)
         try:
             if not _writes(message):
                 limit_time(server.ctx.store().conn, QUERY_TIMEOUT_S)
@@ -616,17 +607,11 @@ class Handler(web.Handler):
         self._send(HTTPStatus.OK, openapi(self.server.base))
 
     def api_tools(self) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         self._send(HTTPStatus.OK, {"tools": mcp.tools(read_only=scope_of(client) == READ)})
 
     def api_call(self, name: str) -> None:
-        try:
-            client = self._client()
-        except _Sent:
-            return
+        client = self._client()
         args = self._body()
         if args is None:
             args = {}
@@ -700,7 +685,7 @@ def openapi(base: str) -> dict:
 
 # -- running it --------------------------------------------------------------
 
-DEFAULT_PORT = 8780
+DEFAULT_PORT = util.PORTS["remote"]
 
 
 def choose_port() -> int:
@@ -758,14 +743,9 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
     base = check_url(url if url is not None else saved.read_text())
     remote_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
     saved.write_text(base + "\n")
-
-    def log(line: str) -> None:
-        sys.stderr.write(f"{time.strftime('%H:%M:%S')} {line}\n")
-        sys.stderr.flush()
-
     port = port or choose_port()
     try:
-        server = make_server(base, host, port, pair=pair, log=log)
+        server = make_server(base, host, port, pair=pair, log=web.log_line)
     except OSError as exc:
         raise ByobotError(f"could not listen on {host}:{port}: {exc}") from None
     (remote_dir() / "port").write_text(f"{server.server_address[1]}\n")
@@ -779,20 +759,8 @@ def run(url: str | None, host: str, port: int | None, pair: bool | None) -> int:
         names = ", ".join([c["client_name"] for c in server.auth.clients()]
                           + [f"API key {k['name']}" for k in server.auth.keys()])
         err.write(f"Connected: {names}. Run with --pair to connect another, or `byobot device remove` to disconnect one.\n")
-    err.write("\nServing. Press Ctrl-C to stop.\n")
-    err.flush()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    return web.serve_until_stopped(server)
 
 
 class _Shown(Exception):
     """An authorization error shown on the page, because redirecting to an unchecked address is unsafe."""
-
-
-class _Sent(Exception):
-    """The response is already sent."""

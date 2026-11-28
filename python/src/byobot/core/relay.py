@@ -9,17 +9,19 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Any
 
+from .. import library
 from ..util import ValidationFailed
 from . import sources
-from .contract import sync_errors
-from .store import Store, busy
+from .contract import documents, sync_errors
+from .query import busy
+from .store import Store
 
 MAX_BATCH = 2000
 PERSON = {"kind": "human", "id": "me"}  # a relay logs the person's training; it doesn't get to name another actor
 NAMED_KINDS = ("location", "setting")  # kinds a phone writes under an id it picks, not a fresh UUID
 CONNECTOR_KINDS = ("source_record",)  # a phone writes any other kind; one this byobot doesn't know is stored for later
 OUTCOMES = ("accepted", "duplicate", "stored_unprojected", "rejected")
-EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+EVENT_ID = re.compile(documents()[0]["common"]["$defs"]["id"]["pattern"])
 
 
 class Cut(Exception):
@@ -87,7 +89,7 @@ def _settle(store: Store, device_id: str, event: Any, actor: dict, kind_versions
     elif _too_new(store, event, kind_versions):
         reason = "a newer byobot wrote this record; update the app to change it"
     elif event.get("op") == "put" and store.event(event.get("id")) is None and \
-            store._erase_of(record.get("kind"), record.get("id")):
+            (store.record(record["kind"], record["id"]) or {}).get("erased"):
         reason = "this id was erased; choose another"
     else:
         outcome, reason = store.accept(event)
@@ -136,11 +138,11 @@ def _entry(store: Store, kind: str, rid: str) -> dict | None:
              "kind_version": found["event"]["kind_version"]}
     if found["conflict"]:
         heads = [store.event(h) for h in store.record(kind, rid)["heads"]]
-        entry |= {"conflict": True, "versions": [_version(store, h) for h in heads if h]}
+        entry |= {"conflict": True, "versions": [_version(h) for h in heads if h]}
     return entry
 
 
-def _version(store: Store, event: dict) -> dict:
+def _version(event: dict) -> dict:
     return {"event_id": event["id"], **({"payload": event["payload"]} if event["op"] == "put" else {}),
             "actor": event["actor"], "ts": event["ts"]}
 
@@ -192,9 +194,7 @@ def _plan_window(store: Store, start: str, end: str, device_id: str | None) -> d
         if r["source"] == "store":
             activities += _entries(store, "activity", [r["id"]])
         else:
-            row = store.rows("SELECT * FROM activities WHERE id = ?", (r["id"],))[0]
-            payload = {k: json.loads(row[k]) if k in _JSON else row[k] for k in _ACTIVITY if row[k] is not None}
-            activities.append({"id": r["id"], "payload": payload, "prev": [],
+            activities.append({"id": r["id"], "payload": library.by_id()[r["id"]], "prev": [],
                                "kind_version": store.contract.version("activity"), "library": True})
     return {"from": start, "to": end, "since": since, "activities": activities,
             "locations": _entries(store, "location", ids("SELECT id FROM locations ORDER BY name, id")),
@@ -227,11 +227,6 @@ def _device_state(store: Store, device_id: str | None) -> dict:
             "kind_versions": store.contract.kind_versions(),
             "received": {device_id: received} if received else {},
             "rejected": store.rejections(device_id) if device_id else []}
-
-
-_ACTIVITY = ("name", "movement_type", "fatigue", "tags", "load_type", "equipment", "targets", "default_metrics",
-             "resistance_curve")
-_JSON = ("tags", "equipment", "targets", "default_metrics", "resistance_curve")
 
 
 def _recent_efforts(store: Store, times: int = 2) -> list[str]:

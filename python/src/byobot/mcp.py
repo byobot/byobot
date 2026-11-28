@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import IO, Any
 
 from byobot import __version__, prompts
@@ -81,13 +82,14 @@ def tools(read_only: bool = False) -> list[dict]:
 
 
 class Server:
-    def __init__(self, actor_id: str | None = None, read_only: bool = False) -> None:
-        self.protocol = LATEST
+    def __init__(self, actor_id: str | None = None, read_only: bool = False, *, path: Path | None = None,
+                 protocol: str = LATEST, quiet_errors: bool = False) -> None:
+        self.protocol = protocol
         self.client = {"name": "mcp-client"}
         self.actor_id = actor_id  # else the name the client gives itself
         self.read_only = read_only  # only read-only tools
-        self.ctx: Context | None = None
-        self.quiet_errors = False  # over the network an exception's text stays in the log
+        self.ctx: Context | None = None if path is None else Context(actor={}, path=path)  # else this profile's store
+        self.quiet_errors = quiet_errors  # over the network an exception's text stays in the log
 
     def handle(self, message: Any) -> dict | list | None:
         if isinstance(message, list):

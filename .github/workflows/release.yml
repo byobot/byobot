@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
       - name: The release number matches the package and the app
         run: |
           python - <<'EOF'
@@ -37,8 +38,8 @@ jobs:
       - name: Test
         working-directory: python
         run: |
-          python -m pip install -e ".[test]"
-          python -m pytest -q
+          uv sync --locked --extra test --python 3.13
+          uv run --locked python -m pytest -q
       - name: Build
         run: |
           python -m pip install build twine

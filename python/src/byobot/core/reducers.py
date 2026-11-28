@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any, Callable
 
 from .. import library
-from . import mappers, occurrences
+from . import hlc, mappers, occurrences
 from .contract import Contract, instant
 
 DDL = """
@@ -110,6 +110,7 @@ TABLES = {
     "effort": ("efforts",), "observation": ("observations",),
     "source_record": ("source_records", "source_links", "source_sessions", "observations"), "overlay": ("overlays",),
 }
+DERIVED = frozenset({t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES})
 OWNER_COLUMN = {("planned_session", "planned_blocks"): "planned_session_id",
                 ("planned_session", "planned_efforts"): "planned_session_id",
                 ("source_record", "observations"): "source_record_id"}
@@ -122,25 +123,21 @@ def project(conn: sqlite3.Connection, c: Contract, kind: str, rid: str, payload:
     conn.execute("DELETE FROM metrics WHERE owner_kind = ? AND owner_id = ?", (kind, rid))
     if payload is not None and kind in REDUCERS:
         REDUCERS[kind](conn, c, rid, payload)
-    elif kind == "activity" and rid in _library():
-        _activity_row(conn, rid, _library()[rid], "library")
+    elif kind == "activity" and rid in library.by_id():
+        _activity_row(conn, rid, library.by_id()[rid], "library")
 
 
 def clear(conn: sqlite3.Connection) -> None:
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
+    for table in DERIVED:
         conn.execute(f"DELETE FROM {table}")
     seed_library(conn)
-
-
-def _library() -> dict[str, dict]:
-    return {a["id"]: {k: v for k, v in a.items() if k != "id"} for a in library.activities()}
 
 
 def seed_library(conn: sqlite3.Connection) -> None:
     """Library activities ship with byobot; one you put replaces it, and retracting yours brings it back."""
     conn.execute("DELETE FROM activities WHERE source = 'library'")
     mine = {r[0] for r in conn.execute("SELECT id FROM activities")}
-    for rid, p in _library().items():
+    for rid, p in library.by_id().items():
         if rid not in mine:
             _activity_row(conn, rid, p, "library")
 
@@ -149,7 +146,7 @@ def drop(conn: sqlite3.Connection) -> None:
     """Remove the derived tables, for a store written by a build whose tables had another shape."""
     for view in VIEWS:
         conn.execute(f"DROP VIEW IF EXISTS {view}")
-    for table in {t for ts in TABLES.values() for t in ts} | {"metrics", *occurrences.TABLES}:
+    for table in DERIVED:
         conn.execute(f"DROP TABLE IF EXISTS {table}")
 
 
@@ -158,7 +155,7 @@ def _json(value: Any) -> str | None:
 
 
 def _ms(ts: str | None) -> int | None:
-    return None if ts is None else int(instant(ts).timestamp() * 1000)
+    return None if ts is None else hlc.millis(instant(ts))
 
 
 def _when(t: dict) -> tuple:
@@ -268,7 +265,7 @@ def _source_record(conn, c, rid, p):
     read = mappers.read(p, related)
     for source_type, source_id in read["related"]:
         conn.execute("INSERT OR IGNORE INTO source_links VALUES (?, ?)",
-                     (rid, c.derived("source_record", [p["source"], source_type, source_id])))
+                     (rid, c.source_record_id(p["source"], source_type, source_id)))
     if excluded:
         return
     oid, fix = overlays.get("correct", (None, {}))

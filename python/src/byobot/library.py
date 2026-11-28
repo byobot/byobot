@@ -43,6 +43,16 @@ def activities(root: Path | None = None) -> list[dict]:
     return sorted(_read(root or library_dir())[0], key=lambda a: a["id"])
 
 
+def by_id(root: Path | None = None) -> dict[str, dict]:
+    """Every library activity's payload, by id."""
+    return _by_id(root or library_dir())
+
+
+@lru_cache(maxsize=8)
+def _by_id(root: Path) -> dict[str, dict]:
+    return {a["id"]: {k: v for k, v in a.items() if k != "id"} for a in activities(root)}
+
+
 def vocabulary(root: Path | None = None) -> dict:
     """The muscle, load type, equipment and movement type names library activities use."""
     return _read(root or library_dir())[1]

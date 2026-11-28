@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import hmac
 import json
@@ -23,7 +22,6 @@ from ..util import ValidationFailed
 SCHEMA_VERSION = 1
 SCHEMA_NAMES = ("common", "records", "event", "registry", "sync")
 SLUG_KINDS = ("activity", "location", "setting")
-RULES = ("time_order", "date_order", "range_order", "code_value", "part_ids", "self_reference", "derived_id")
 
 
 def schema_dir() -> Path:
@@ -42,7 +40,7 @@ def documents() -> tuple[dict[str, dict], dict]:
 
 
 class NotFinite(ValidationFailed, ValueError):
-    code = "invalid"
+    pass
 
 
 def jcs(value: Any) -> str:
@@ -67,6 +65,10 @@ def instant(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
+def stamp(at: datetime) -> str:
+    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 class Rejected(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -75,19 +77,22 @@ class Rejected(Exception):
 
 def sync_errors(definition: str, document: Any) -> list[str]:
     """Why a sync protocol message (a `$defs` entry of sync.schema.json, such as plan_window) is malformed."""
-    return _errors("sync", definition, document)
+    return [f"{_where(e, 'message')}: {e.message}" for e in _sync_validator(definition).iter_errors(document)]
 
 
-def _errors(schema: str, definition: str, document: Any) -> list[str]:
-    return [f"{'/'.join(str(p) for p in e.absolute_path) or 'message'}: {e.message}"
-            for e in _validator(schema, definition).iter_errors(document)]
+def _where(error, default: str) -> str:
+    return "/".join(str(p) for p in error.absolute_path) or default
+
+
+def _validator(schemas: dict[str, dict], root: dict) -> Draft202012Validator:
+    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in schemas.values())
+    return Draft202012Validator(root, registry=resources)
 
 
 @lru_cache(maxsize=None)
-def _validator(schema: str, definition: str) -> Draft202012Validator:
+def _sync_validator(definition: str) -> Draft202012Validator:
     docs = documents()[0]
-    resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in docs.values())
-    return Draft202012Validator({"$ref": f"{docs[schema]['$id']}#/$defs/{definition}"}, registry=resources)
+    return _validator(docs, {"$ref": f"{docs['sync']['$id']}#/$defs/{definition}"})
 
 
 @dataclass
@@ -102,14 +107,10 @@ class Contract:
         return _shipped()
 
     @cached_property
-    def _validator(self) -> Draft202012Validator:
-        resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
-        return Draft202012Validator(self.schemas["event"], registry=resources)
-
-    @cached_property
-    def _later_validator(self) -> Draft202012Validator:
-        resources = Registry().with_resources((d["$id"], Resource.from_contents(d)) for d in self.schemas.values())
-        return Draft202012Validator({"$ref": f"{self.schemas['event']['$id']}#/$defs/later"}, registry=resources)
+    def _validators(self) -> tuple[Draft202012Validator, Draft202012Validator]:
+        """An event's, and a later schema_version's."""
+        event = self.schemas["event"]
+        return _validator(self.schemas, event), _validator(self.schemas, {"$ref": f"{event['$id']}#/$defs/later"})
 
     def version(self, kind: str) -> int | None:
         known = self.registry["kinds"].get(kind)
@@ -124,17 +125,16 @@ class Contract:
     def derived(self, namespace: str, parts: list) -> str:
         return str(uuid.uuid5(self.namespace(namespace), jcs(parts)))
 
+    def source_record_id(self, source: str, source_type: str, source_id: Any) -> str:
+        return self.derived("source_record", [source, source_type, str(source_id)])
+
     def check(self, event: dict) -> None:
         """Raise Rejected if the event breaks the schemas or a rule."""
-        if later(event):
-            error = best_match(self._later_validator.iter_errors(event))
-            if error is not None:
-                raise Rejected(f"{'/'.join(str(p) for p in error.absolute_path) or 'event'}: {error.message}")
-            return
-        error = best_match(self._validator.iter_errors(event))
+        error = best_match(self._validators[later(event)].iter_errors(event))
         if error is not None:
-            where = "/".join(str(p) for p in error.absolute_path) or "event"
-            raise Rejected(f"{where}: {error.message}")
+            raise Rejected(f"{_where(error, 'event')}: {error.message}")
+        if later(event):
+            return
         try:
             broken = self.broken_rules(event)
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -186,7 +186,7 @@ class Contract:
         for metrics in _measures(kind, p):
             for code, m in metrics.items():
                 bounds = [m.get("min"), m.get("value") if "min" in m or "max" in m else None, m.get("max")]
-                bounds = [x for x in bounds if _number(x)]
+                bounds = [x for x in bounds if number(x)]
                 if bounds != sorted(bounds):
                     broken.add("range_order")
                 if not self.code_ok(code, m):
@@ -196,7 +196,7 @@ class Contract:
             if len(parts) != len(set(parts)):
                 broken.add("part_ids")
         if kind == "source_record" and {"source", "source_type", "source_id"} <= set(p) and \
-                rid != self.derived("source_record", [p["source"], p["source_type"], p["source_id"]]):
+                rid != self.source_record_id(p["source"], p["source_type"], p["source_id"]):
             broken.add("derived_id")
         if kind == "overlay" and "effect" in p and isinstance(p.get("target"), dict) and \
                 rid != self.derived("overlay", [p["effect"], p["target"]["kind"], p["target"]["id"]]):
@@ -212,7 +212,7 @@ class Contract:
             return False
         numbers = [m[k] for k in ("value", "min", "max") if k in m]
         if kind in ("quantity", "integer", "number"):
-            if not all(_number(x) for x in numbers):
+            if not all(number(x) for x in numbers):
                 return False
             if kind == "integer" and any(x != int(x) for x in numbers):
                 return False
@@ -251,7 +251,7 @@ class Contract:
     def canonical(self, code: str, m: dict, key: str = "value") -> float | None:
         """`m[key]` in the code's own unit, or None when it can't be converted."""
         spec, x = self.registry["codes"].get(code), m.get(key)
-        if spec is None or not _number(x):
+        if spec is None or not number(x):
             return None
         if spec["value"] != "quantity":
             return x if spec["value"] in ("integer", "number") else None
@@ -261,17 +261,6 @@ class Contract:
     def fingerprint(self) -> str:
         """What decides which events this contract projects, and how: the whole registry."""
         return hashlib.sha256(jcs(self.registry).encode()).hexdigest()
-
-    def newer(self, version: int, kinds: dict[str, dict] | None = None) -> Contract:
-        """A contract as an install `version` would know it: every kind at that version, plus `kinds`.
-
-        Only for tests and tooling: a real upgrade ships its own schemas.
-        """
-        registry = copy.deepcopy(self.registry)
-        for spec in registry["kinds"].values():
-            spec["version"] = max(spec["version"], version)
-        registry["kinds"].update(kinds or {})
-        return Contract(registry, self.schemas)
 
 
 PLACEHOLDER_ID = "00000000-0000-7000-8000-000000000000"
@@ -283,7 +272,7 @@ def later(event: dict) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and v > SCHEMA_VERSION
 
 
-def _number(x: Any) -> bool:
+def number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 

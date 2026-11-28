@@ -9,7 +9,6 @@ Schema 1: the byobot logbook, one append-only log of events, each writing one re
 | `common.schema.json` | Ids, times, refs, measures |
 | `registry.schema.json`, `registry.json` | Kinds, settings, derived-id namespaces and codes |
 | `sync.schema.json` | Sync protocol 1, between `byobot serve` and the app |
-| `../fixtures/v1/` | Conformance cases every implementation must pass |
 
 ## Records and ids
 

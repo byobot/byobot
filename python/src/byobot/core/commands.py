@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .. import library
 from ..util import Conflict, NotFound, ValidationFailed
 from . import mappers
-from .contract import instant
-from .store import Store, stamp
+from .contract import instant, stamp
+from .store import Store
 
 AUTHORED = ("activity", "location", "setting", "plan", "planned_session", "session", "effort", "observation")
 TIMED = ("session", "effort", "observation")
@@ -40,7 +40,7 @@ def _authored(kind: str) -> None:
 
 def check_activity_id(rid: Any) -> None:
     """Your own activities are `x.` ids; a plain id is the library's, which yours may replace."""
-    if isinstance(rid, str) and not rid.startswith("x.") and rid not in {a["id"] for a in library.activities()}:
+    if isinstance(rid, str) and not rid.startswith("x.") and rid not in library.by_id():
         raise ValidationFailed(f"{rid} isn't a library activity; your own activities' ids start with x., as in x.{rid}")
 
 
@@ -339,10 +339,6 @@ def undo(store: Store, actor: dict, event_id: str) -> list[dict]:
                 changes.append({"kind": kind, "id": rid, "op": "put", "payload": base["payload"],
                                 "kind_version": base["kind_version"], "reverts": e["id"], "prev": [e["id"]]})
     return store.write(actor, changes)
-
-
-def conflicts(store: Store, kind: str | None = None, rid: str | None = None) -> list[dict]:
-    return store.conflicts(kind, rid)
 
 
 def resolve(store: Store, actor: dict, kind: str, rid: str, choice: str | dict, seen: list[str] | None = None) -> dict:

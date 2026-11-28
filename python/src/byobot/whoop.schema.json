@@ -1,11 +1,5 @@
 {
   "x-whoop-api-version": "2.0.0",
-  "responses": [
-    "RecoveryCollection",
-    "PaginatedSleepResponse",
-    "PaginatedCycleResponse",
-    "WorkoutCollection"
-  ],
   "components": {
     "schemas": {
       "Cycle": {
