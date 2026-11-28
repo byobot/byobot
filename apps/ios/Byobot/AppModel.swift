@@ -21,9 +21,7 @@ final class AppModel: ObservableObject, SyncBook {
     private var clockPhase: Int?
     /// Apple Health has types byobot reads that you haven't been asked about yet.
     @Published var healthNeedsAccess = false
-    @Published var healthEnabled: Bool {
-        didSet { UserDefaults.standard.set(healthEnabled, forKey: "healthEnabled") }
-    }
+    var healthEnabled: Bool { state.health?.enabled == true }
 
     let health = HealthKitReader()
     private let file: StateFile
@@ -34,7 +32,6 @@ final class AppModel: ObservableObject, SyncBook {
         self.file = file
         book = Logbook(state: state, origin: Origin(app: "byobot_ios", version: AppModel.version,
                                                     device: UIDevice.current.name))
-        healthEnabled = UserDefaults.standard.bool(forKey: "healthEnabled")
         switch outcome {
         case .loaded: break
         case .new: save()
@@ -68,7 +65,11 @@ final class AppModel: ObservableObject, SyncBook {
     func leaveDemo() {
         rest = nil
         stopClock()
-        change { $0.state = AppState() }
+        let health = state.health
+        change {
+            $0.state = AppState()
+            $0.state.health = health
+        }
     }
 
     // MARK: Saving
@@ -256,9 +257,13 @@ final class AppModel: ObservableObject, SyncBook {
                     let health = SampleBatch(samples: read?.samples ?? [], deleted: read?.deleted ?? [])
                     try await HubSync(SyncClient(server: server, token: token)).sync(self, health: health)
                     if let read {
-                        UserDefaults.standard.set(read.anchors, forKey: "healthAnchors")
-                        UserDefaults.standard.set(read.days, forKey: "healthDays")
-                        change { $0.state.lastHealthSyncAt = Timestamp.now() }
+                        change {
+                            var kept = $0.state.health ?? HealthState()
+                            kept.anchors = read.anchors
+                            kept.days = read.days
+                            $0.state.health = kept
+                            $0.state.lastHealthSyncAt = Timestamp.now()
+                        }
                     }
                 } catch {
                     laptopError = error.localizedDescription
@@ -287,11 +292,11 @@ final class AppModel: ObservableObject, SyncBook {
         let last = state.lastHealthSyncAt.flatMap(Timestamp.date)
         let now = Date()
         let yearAgo = now.addingTimeInterval(-365 * 86_400)
-        let anchors = UserDefaults.standard.dictionary(forKey: "healthAnchors") as? [String: Data] ?? [:]
+        let anchors = state.health?.anchors ?? [:]
         let changes = try await health.changes(since: yearAgo, anchors: anchors)
         // Days still being counted are read again from a month back, so totals an app wrote late still arrive.
         let from = last?.addingTimeInterval(-30 * 86_400) ?? yearAgo
-        let sent = UserDefaults.standard.dictionary(forKey: "healthDays") as? [String: Int] ?? [:]
+        let sent = state.health?.days ?? [:]
         let totals = try await health.dailyTotals(since: from)
         let days = HealthMapping.days(totals, since: from, sent: sent, readAt: now)
         return HealthRead(samples: changes.readings.compactMap { HealthMapping.sample($0) } + days.samples,
@@ -302,7 +307,11 @@ final class AppModel: ObservableObject, SyncBook {
     func enableHealth() async {
         do {
             try await health.requestAccess()
-            healthEnabled = true
+            change {
+                var health = $0.state.health ?? HealthState()
+                health.enabled = true
+                $0.state.health = health
+            }
             healthNeedsAccess = false
             await sync()
         } catch {

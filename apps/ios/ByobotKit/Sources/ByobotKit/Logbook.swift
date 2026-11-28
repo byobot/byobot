@@ -23,6 +23,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var activeSessionId: String?
     public var lastSyncAt: String?
     public var lastHealthSyncAt: String?
+    /// Where reading Apple Health stands. Kept in this file so it is saved with what was sent.
+    public var health: HealthState?
     /// The last clock reading this phone wrote.
     public var hlc: String?
     /// Sets logged elsewhere, as they stood before this phone first corrected them.
@@ -53,8 +55,18 @@ public struct AppState: Codable, Equatable, Sendable {
         case remoteOriginals = "remote_originals"
         case storeId = "store_id"
         case storeSpans = "store_spans"
-        case demo
+        case demo, health
     }
+}
+
+public struct HealthState: Codable, Equatable, Sendable {
+    public var enabled = false
+    /// Where each type's reading stopped.
+    public var anchors: [String: Data] = [:]
+    /// Each daily total sent, with the offset its day started at.
+    public var days: [String: Int] = [:]
+
+    public init() {}
 }
 
 public struct StoreSpan: Codable, Equatable, Hashable, Sendable {
