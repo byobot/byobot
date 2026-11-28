@@ -162,3 +162,13 @@ def test_a_non_finite_number_in_a_sample_is_refused(store, text):
     with pytest.raises(ValidationFailed):
         relay.accept_samples(store, body)
     assert store.position() == 0
+
+
+def test_a_newer_phones_event_of_a_later_schema_is_kept_not_refused(tmp_path):
+    with Store(tmp_path / "s.db") as s:
+        event = {"id": "01a20000-0000-7000-8000-000000000001", "schema_version": 2, "op": "move",
+                 "record": {"kind": "effort", "id": "01a20000-0000-7000-8000-0000000000e1"},
+                 "hlc": "1772463600000-000000", "ts": "2026-03-02T10:00:00-05:00", "device_id": "example-iphone",
+                 "actor": relay.PERSON, "prev": [], "payload": {}}
+        [result] = relay.push_events(s, "example-iphone", {"events": [event]})["results"]
+        assert result["status"] == "stored_unprojected", result
